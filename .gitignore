@@ -60,3 +60,5 @@ temp_*.wav
 
 # Logs
 *.log
+
+node_modules/
