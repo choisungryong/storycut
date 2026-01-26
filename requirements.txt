@@ -1,0 +1,26 @@
+# STORYCUT Requirements (MVP)
+
+# Core dependencies
+openai>=1.0.0
+anthropic>=0.8.0
+
+# Media processing
+ffmpeg-python>=0.2.0
+
+# API and web requests
+requests>=2.31.0
+
+# Data validation
+pydantic>=2.0.0
+
+# CLI
+click>=8.1.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Configuration
+pyyaml>=6.0.0
+
+# Utilities
+tqdm>=4.66.0

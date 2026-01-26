@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# STORYCUT specific
+scenes/*.json
+media/video/*.mp4
+media/audio/*.mp3
+media/audio/*.wav
+media/music/*.mp3
+output/*.mp4
+temp_*.txt
+temp_*.mp4
+temp_*.wav
+
+# Keep directory structure
+!scenes/.gitkeep
+!media/video/.gitkeep
+!media/audio/.gitkeep
+!media/music/.gitkeep
+!output/.gitkeep
+
+# Logs
+*.log

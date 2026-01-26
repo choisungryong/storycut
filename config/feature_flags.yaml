@@ -1,0 +1,96 @@
+# STORYCUT Feature Flags Configuration
+# 기본값 OFF → 안정화 후 ON 전환 가능
+
+# ============================================================
+# P0 - 필수/최우선
+# ============================================================
+
+# Scene 1 Hook 전용 고품질 비디오 생성
+# - true: Scene 1에서 Runway/고비용 API로 비디오 생성
+# - false: 모든 씬에서 이미지+Ken Burns 방식 사용
+hook_scene1_video: false
+
+# FFmpeg Ken Burns Effect
+# - 이미지 기반 씬에 줌/팬 효과 적용하여 영상처럼 보이게
+ffmpeg_kenburns: true
+
+# Audio Ducking (내레이션 시 BGM 감쇠)
+# - 내레이션이 있는 구간에서 BGM 볼륨 자동 감소
+ffmpeg_audio_ducking: false
+
+# Subtitle Burn-in
+# - 자막을 영상에 직접 렌더링 (burn-in)
+subtitle_burn_in: true
+
+# ============================================================
+# P1 - 우선순위 높음
+# ============================================================
+
+# Context Carry-over (맥락 상속)
+# - 이전 장면의 키워드를 다음 장면 프롬프트에 상속
+# - 인물/장소/감정/행동 일관성 유지
+context_carry_over: true
+
+# ============================================================
+# P2 - 추가 기능
+# ============================================================
+
+# Optimization Pack
+# - 유튜브 제목 3종, 썸네일 프롬프트 2종, 해시태그 등 생성
+optimization_pack: true
+
+# ============================================================
+# Optional - 선택적 기능
+# ============================================================
+
+# Topic Finding (주제 후보 생성)
+# - 트렌드/검색 기반 주제 추천 (외부 API 필요)
+topic_finding: false
+
+# ============================================================
+# Provider Settings
+# ============================================================
+
+# 비디오 생성 프로바이더
+video_provider:
+  primary: "runway"        # runway, stability, replicate
+  fallback: "placeholder"  # placeholder, stability
+
+# 이미지 생성 프로바이더
+image_provider:
+  primary: "dalle"         # dalle, stability, midjourney
+  fallback: "placeholder"  # placeholder
+
+# LLM 프로바이더
+llm_provider:
+  primary: "openai"        # openai, anthropic
+  model: "gpt-4"           # gpt-4, gpt-4-turbo, claude-3
+
+# ============================================================
+# Quality Settings
+# ============================================================
+
+# Ken Burns 효과 설정
+kenburns:
+  zoom_range: [1.0, 1.3]   # 줌 범위 (최소, 최대)
+  pan_speed: 0.5           # 팬 속도 (0.0-1.0)
+  direction: "random"      # random, zoom_in, zoom_out, pan_left, pan_right
+
+# Audio Ducking 설정
+ducking:
+  threshold: 0.02          # 감지 임계값
+  ratio: 10                # 압축 비율
+  attack_ms: 20            # 어택 시간 (ms)
+  release_ms: 200          # 릴리즈 시간 (ms)
+  bgm_volume_normal: 0.3   # BGM 기본 볼륨
+  bgm_volume_ducked: 0.1   # 감쇠 시 BGM 볼륨
+
+# 자막 스타일
+subtitle_style:
+  font_name: "Arial"
+  font_size: 24
+  primary_color: "&HFFFFFF"   # 흰색
+  outline_color: "&H000000"   # 검정 테두리
+  outline_width: 2
+  position: "bottom"          # bottom, top
+  margin_v: 50                # 수직 마진
