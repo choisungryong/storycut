@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,12 +14,15 @@
             border-radius: 12px;
             border: 1px solid #393e46;
         }
-        .story-preview h3, .visual-preview h3 {
+
+        .story-preview h3,
+        .visual-preview h3 {
             margin-top: 0;
             margin-bottom: 1rem;
             color: #00adb5;
             font-size: 1.2rem;
         }
+
         .script-content {
             background: #1a1a2e;
             padding: 1rem;
@@ -31,12 +35,14 @@
             color: #eeeeee;
             line-height: 1.5;
         }
+
         .scene-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
             gap: 10px;
             margin-top: 10px;
         }
+
         .scene-card {
             background: #1a1a2e;
             border-radius: 8px;
@@ -44,15 +50,18 @@
             border: 1px solid #393e46;
             transition: transform 0.2s;
         }
+
         .scene-card:hover {
             transform: scale(1.05);
         }
+
         .scene-card img {
             width: 100%;
             height: 85px;
             object-fit: cover;
             display: block;
         }
+
         .scene-card .scene-info {
             padding: 5px;
             font-size: 0.8rem;
@@ -60,7 +69,9 @@
             color: #ccc;
         }
     </style>
+    <script src="/static/auth.js"></script>
 </head>
+
 <body>
     <div class="container">
         <!-- 헤더 -->
@@ -84,13 +95,8 @@
                             <span class="label-icon">💡</span>
                             주제 / 아이디어
                         </label>
-                        <input
-                            type="text"
-                            id="topic"
-                            name="topic"
-                            placeholder="예: 오래된 폐병원에서 발견된 미스터리한 일기장"
-                            class="input"
-                        />
+                        <input type="text" id="topic" name="topic" placeholder="예: 오래된 폐병원에서 발견된 미스터리한 일기장"
+                            class="input" />
                         <small class="helper-text">주제를 비워두면 AI가 자동으로 생성합니다</small>
                     </div>
 
@@ -147,16 +153,8 @@
                             <span class="label-icon">⏱️</span>
                             영상 길이: <span id="duration-display">60</span>초
                         </label>
-                        <input
-                            type="range"
-                            id="duration"
-                            name="duration"
-                            min="30"
-                            max="150"
-                            value="60"
-                            step="10"
-                            class="slider"
-                        />
+                        <input type="range" id="duration" name="duration" min="30" max="150" value="60" step="10"
+                            class="slider" />
                         <div class="slider-labels">
                             <span>30s</span>
                             <span>60s</span>
@@ -408,4 +406,5 @@
 
     <script src="/static/app.js"></script>
 </body>
+
 </html>
