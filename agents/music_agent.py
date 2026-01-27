@@ -87,13 +87,14 @@ class MusicAgent:
         try:
             cmd = [
                 "ffmpeg",
+                "-y",
                 "-f", "lavfi",
-                "-i", f"sine=frequency=200:duration={duration_sec},sine=frequency=300:duration={duration_sec}",
+                "-i", f"sine=frequency=200:duration={duration_sec}",
+                "-i", f"sine=frequency=300:duration={duration_sec}",
                 "-filter_complex", "amix=inputs=2:duration=first:dropout_transition=2,volume=0.1",
                 "-c:a", "libmp3lame",
                 "-b:a", "128k",
-                output_path,
-                "-y"
+                output_path
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
