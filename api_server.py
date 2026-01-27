@@ -167,6 +167,8 @@ async def send_progress(project_id: str, step: str, progress: int, message: str,
         message: 상태 메시지
         data: 추가 데이터
     """
+    print(f"[DEBUG] send_progress called: {project_id} - {step} - {progress}% - {message}", flush=True)
+
     payload = {
         "type": "progress",
         "step": step,
@@ -175,17 +177,21 @@ async def send_progress(project_id: str, step: str, progress: int, message: str,
         "data": data or {},
         "timestamp": datetime.now().isoformat()
     }
-    
+
     # 히스토리 저장
     if project_id not in project_event_history:
         project_event_history[project_id] = []
     project_event_history[project_id].append(payload)
-    
+    print(f"[DEBUG] History saved for {project_id}", flush=True)
+
     if project_id in active_connections:
+        print(f"[DEBUG] Found active WS connection for {project_id}", flush=True)
         ws = active_connections[project_id]
         try:
             await ws.send_json(payload)
+            print(f"[DEBUG] WS message sent", flush=True)
         except Exception as e:
+            print(f"[DEBUG] WS send failed: {e}", flush=True)
             print(f"WebSocket send error: {e}")
             del active_connections[project_id]
 
@@ -281,8 +287,12 @@ class TrackedPipeline(StorycutPipeline):
 
         try:
             # Step 1: 스토리 생성
+            print(f"[DEBUG] Calling tracker.story_start()", flush=True)
             await self.tracker.story_start()
+            print(f"[DEBUG] tracker.story_start() completed", flush=True)
+            print(f"[DEBUG] Calling _generate_story()", flush=True)
             story_data = self._generate_story(request)
+            print(f"[DEBUG] _generate_story() completed", flush=True)
             manifest.title = story_data.get("title")
             manifest.script = json.dumps(story_data, ensure_ascii=False)
             await self.tracker.story_complete(story_data["title"], len(story_data["scenes"]), story_data)
