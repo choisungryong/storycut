@@ -306,19 +306,24 @@ class VideoAgent:
             "ffmpeg",
             "-y",
             "-loop", "1",
+            "-framerate", str(fps),
             "-i", image_path,
             "-vf", effect,
             "-c:v", "libx264",
+            "-preset", "ultrafast",
             "-t", str(duration_sec),
             "-pix_fmt", "yuv420p",
             "-r", str(fps),
+            "-movflags", "+faststart",
             output_path
         ]
 
+        print(f"     Ken Burns FFmpeg command: {' '.join(cmd[:10])}...")
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
             print(f"     Ken Burns effect failed: {result.stderr[:200]}")
+            print(f"     FFmpeg stdout: {result.stdout[:200]}")
             # Fallback to static image video
             return self._image_to_video(image_path, duration_sec, output_path)
 
@@ -341,22 +346,30 @@ class VideoAgent:
         Returns:
             Path to generated video
         """
+        # 더 안정적인 FFmpeg 명령어 (Railway 환경 호환)
         cmd = [
             "ffmpeg",
             "-y",
             "-loop", "1",
+            "-framerate", "30",
             "-i", image_path,
             "-c:v", "libx264",
+            "-preset", "ultrafast",  # 빠른 인코딩
+            "-tune", "stillimage",   # 정적 이미지 최적화
             "-t", str(duration_sec),
             "-pix_fmt", "yuv420p",
-            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black",
             "-r", "30",
+            "-movflags", "+faststart",
             output_path
         ]
 
+        print(f"     FFmpeg command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
+            print(f"     FFmpeg stderr: {result.stderr}")
+            print(f"     FFmpeg stdout: {result.stdout}")
             raise RuntimeError(f"Failed to convert image to video: {result.stderr}")
 
         return output_path
