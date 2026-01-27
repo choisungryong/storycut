@@ -123,6 +123,8 @@ class StorycutApp {
     startPolling(projectId) {
         this.addLog('INFO', '진행 상태 확인 시작 (Polling)');
 
+        let lastLogLength = 0;
+
         // 2초마다 상태 확인
         this.pollingInterval = setInterval(async () => {
             try {
@@ -135,6 +137,20 @@ class StorycutApp {
 
                 const data = await response.json();
 
+                // [NEW] 서버 로그 표시 (DB에 누적된 로그)
+                if (data.logs && data.logs.length > lastLogLength) {
+                    const newLogs = data.logs.substring(lastLogLength);
+                    const lines = newLogs.split('\n').filter(line => line.trim() !== '');
+
+                    lines.forEach(line => {
+                        // 로그 포맷이 "[Time] Msg" 형태라면 파싱, 아니면 그냥 출력
+                        const cleanLine = line.replace(/^\[.*?\] /, '');
+                        this.addLog('PROGRESS', cleanLine);
+                    });
+
+                    lastLogLength = data.logs.length;
+                }
+
                 // 상태에 따른 처리
                 if (data.status === 'completed') {
                     this.addLog('INFO', '영상 생성 완료!');
@@ -142,7 +158,8 @@ class StorycutApp {
                     this.updateStepStatus('complete', '완료');
                     this.handleComplete({
                         project_id: projectId,
-                        // 필요한 경우 추가 데이터 매핑
+                        title: data.title,
+                        video_url: data.video_url || data.output_url,
                     });
                     this.stopPolling();
                 } else if (data.status === 'failed' || data.error_message) {
@@ -152,14 +169,25 @@ class StorycutApp {
                     alert(`영상 생성 실패: ${data.error_message}`);
                 } else {
                     // 진행 중 (queued, processing)
-                    // 현재 백엔드가 상세 진행 상황을 DB에 실시간 업데이트하지 않을 수 있으므로
-                    // "처리 중..." 메시지만 표시하거나, 백엔드 로직에 따라 다름.
-                    // 일단은 가짜(Simulated) 진행률을 보여주는 게 UX상 나을 수 있음.
-                    if (data.status === 'processing') {
-                        this.updateProgress(50, '영상 생성 중...');
-                        this.updateStepStatus('compose', '진행 중');
+
+                    // [NEW] 실제 진행률 사용
+                    if (data.progress > 0) {
+                        this.updateProgress(data.progress, data.message || '영상 생성 중...');
+
+                        // 단계 추정 (진행률 기반)
+                        if (data.progress < 20) this.updateStepStatus('story', '스토리 구성 중');
+                        else if (data.progress < 60) this.updateStepStatus('scene', '장면 생성 중');
+                        else if (data.progress < 90) this.updateStepStatus('compose', '영상 합성 중');
+                        else this.updateStepStatus('optimize', '최적화 중');
+
                     } else {
-                        this.updateProgress(10, '대기 중...');
+                        // 진행률 정보가 없으면 기존(Simulated) 로직 유지
+                        if (data.status === 'processing') {
+                            this.updateProgress(50, '영상 생성 중...');
+                            this.updateStepStatus('compose', '진행 중');
+                        } else {
+                            this.updateProgress(10, '대기 중...');
+                        }
                     }
                 }
             } catch (error) {
@@ -299,13 +327,16 @@ class StorycutApp {
         document.getElementById('result-project-id').textContent = data.project_id;
         document.getElementById('result-title').textContent = data.title_candidates ? data.title_candidates[0] : '제목 없음';
 
+        // Railway Backend URL
+        const backendUrl = data.server_url || 'https://web-production-bb6bf.up.railway.app';
+
         // 비디오 플레이어
         const video = document.getElementById('result-video');
-        video.src = `/api/download/${data.project_id}`;
+        video.src = `${backendUrl}/api/download/${data.project_id}`;
 
         // 다운로드 버튼
         const downloadBtn = document.getElementById('download-btn');
-        downloadBtn.href = `/api/download/${data.project_id}`;
+        downloadBtn.href = `${backendUrl}/api/download/${data.project_id}`;
 
         // 최적화 패키지
         if (data.title_candidates && data.title_candidates.length > 0) {
