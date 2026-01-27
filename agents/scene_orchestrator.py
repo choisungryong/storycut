@@ -299,9 +299,10 @@ JSON 형식으로 출력:
         prev_scene = None
 
         for i, scene_data in enumerate(scenes, 1):
-            print(f"{'─'*60}")
+            print(f"\n{'─'*60}")
             print(f"Processing Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
             print(f"{'─'*60}")
+            print(f"  [DEBUG] Starting scene {i} processing...")
 
             # Scene 객체 생성
             scene = Scene(
@@ -364,16 +365,18 @@ JSON 형식으로 출력:
             print(f"Scene {i} complete\n")
 
             if progress_callback:
-                import asyncio
-                if asyncio.iscoroutinefunction(progress_callback):
-                    # 만약 비동기 콜백이라면 (run_in_executor 등으로 처리 필요할 수 있음)
-                    # 현재 구조는 동기 함수이므로, 비동기 호출이 어렵다면 
-                    # 호출 측에서 래핑하거나 여기서 event_loop를 써야 함.
-                    # 간단히는, 호출 측에서 동기 래퍼를 주거나 여기서 await하지 않고 fire-and-forget
-                    pass
-                else:
-                    # Sync callback
-                    progress_callback(scene, i)
+                try:
+                    import asyncio
+                    if asyncio.iscoroutinefunction(progress_callback):
+                        # Async callback - skip in sync context
+                        print(f"  [DEBUG] Skipping async progress_callback")
+                        pass
+                    else:
+                        # Sync callback
+                        print(f"  [DEBUG] Calling progress_callback for scene {i}")
+                        progress_callback(scene, i)
+                except Exception as cb_error:
+                    print(f"  [WARNING] Progress callback failed: {cb_error}")
 
         # 배경 음악 선택
         print(f"{'─'*60}")
