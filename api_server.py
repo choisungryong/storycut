@@ -62,13 +62,23 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
     """
     import threading
     import requests
+    import sys
+
+    print(f"[DEBUG] run_pipeline_wrapper called", flush=True)
+    sys.stdout.flush()
 
     def run_in_thread():
+        print(f"[DEBUG] Thread started", flush=True)
+        sys.stdout.flush()
         try:
             # 새 스레드에서는 새 이벤트 루프 생성 가능
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            print(f"[DEBUG] Event loop created", flush=True)
+            sys.stdout.flush()
             try:
+                print(f"[DEBUG] Starting pipeline.run_async()", flush=True)
+                sys.stdout.flush()
                 manifest = loop.run_until_complete(pipeline.run_async(request))
 
                 # Webhook 호출 (requests 사용 - threading 환경에서 안정적)
@@ -109,7 +119,11 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
             traceback.print_exc()
 
     thread = threading.Thread(target=run_in_thread, daemon=True)
+    print(f"[DEBUG] Starting thread", flush=True)
+    sys.stdout.flush()
     thread.start()
+    print(f"[DEBUG] Thread started: {thread.is_alive()}", flush=True)
+    sys.stdout.flush()
 
 
 # ============================================================================
