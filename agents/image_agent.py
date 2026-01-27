@@ -156,15 +156,17 @@ class ImageAgent:
         style: str,
         output_path: str
     ) -> str:
-        """Call OpenAI DALL-E API."""
+        """Call OpenAI DALL-E API with timeout."""
         try:
             from openai import OpenAI
             import requests
 
-            client = OpenAI(api_key=self.api_key)
+            # OpenAI client with 60 second timeout
+            client = OpenAI(api_key=self.api_key, timeout=60.0)
 
             enhanced_prompt = f"{style} style: {prompt}"
 
+            print(f"     Calling DALL-E API (timeout: 60s)...")
             response = client.images.generate(
                 model="dall-e-3",
                 prompt=enhanced_prompt,
@@ -174,17 +176,22 @@ class ImageAgent:
             )
 
             image_url = response.data[0].url
-            img_response = requests.get(image_url)
+            print(f"     Downloading image from URL...")
+            img_response = requests.get(image_url, timeout=30)
 
             if img_response.status_code == 200:
                 with open(output_path, "wb") as f:
                     f.write(img_response.content)
+                print(f"     Image saved: {output_path}")
                 return output_path
             else:
                 raise RuntimeError(f"Failed to download image: {img_response.status_code}")
 
         except ImportError:
             raise RuntimeError("OpenAI library not installed")
+        except Exception as e:
+            print(f"     DALL-E API error: {e}")
+            raise
 
     def _generate_placeholder_image(
         self,
