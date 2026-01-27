@@ -103,10 +103,12 @@ Do not include any markdown formatting, explanations, or extra text.
         # For MVP demonstration, we can use OpenAI's chat completion API
 
         try:
-            import openai
-            openai.api_key = self.api_key
+            from openai import OpenAI
 
-            response = openai.chat.completions.create(
+            print(f"[DEBUG] Calling OpenAI API (model: {self.model}, timeout: 60s)", flush=True)
+            client = OpenAI(api_key=self.api_key, timeout=60.0)
+
+            response = client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
@@ -116,6 +118,7 @@ Do not include any markdown formatting, explanations, or extra text.
                 max_tokens=2000
             )
 
+            print(f"[DEBUG] OpenAI API response received", flush=True)
             return response.choices[0].message.content.strip()
 
         except ImportError:
