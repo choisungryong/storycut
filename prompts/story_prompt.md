@@ -92,9 +92,9 @@ Examples:
 
 ## Constraints
 
-- Total scenes: **8-12 scenes**
+- Total scenes: **4-6 scenes** (keep it tight for cost efficiency)
 - Total duration: Sum of all scene durations MUST equal `total_duration_sec`
-- Each scene duration: 3-7 seconds (Scene 1 can be ≤5 seconds)
+- Each scene duration: 5-8 seconds (Scene 1 can be ≤5 seconds)
 
 ## Forbidden Content
 
