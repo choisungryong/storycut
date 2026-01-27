@@ -21,7 +21,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,8 +52,21 @@ app.mount("/media", StaticFiles(directory="outputs"), name="media")  # 이미지
 active_connections: Dict[str, WebSocket] = {}
 # 프로젝트별 메시지 히스토리 (재접속/새로고침 시 상태 복구용)
 project_event_history: Dict[str, List[Dict[str, Any]]] = {}
-# 백그라운드 작업 관리 (GC 방지)
-background_tasks: set = set()
+
+
+def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest'):
+    """
+    BackgroundTasks용 wrapper 함수.
+
+    FastAPI BackgroundTasks는 sync 함수만 지원하므로
+    asyncio.run()으로 async 함수를 실행합니다.
+    """
+    try:
+        asyncio.run(pipeline.run_async(request))
+    except Exception as e:
+        print(f"Pipeline execution error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # ============================================================================
@@ -380,7 +393,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
 
 
 @app.post("/api/generate")
-async def generate_video(req: GenerateRequest):
+async def generate_video(req: GenerateRequest, background_tasks: BackgroundTasks):
     """영상 생성 시작"""
     import uuid
 
@@ -416,10 +429,8 @@ async def generate_video(req: GenerateRequest):
     tracker = ProgressTracker(project_id)
     pipeline = TrackedPipeline(tracker, webhook_url=req.webhook_url)
 
-    # 백그라운드에서 실행 (task를 저장하여 GC 방지)
-    task = asyncio.create_task(pipeline.run_async(request))
-    background_tasks.add(task)
-    task.add_done_callback(background_tasks.discard)
+    # FastAPI BackgroundTasks 사용 (더 안정적)
+    background_tasks.add_task(run_pipeline_wrapper, pipeline, request)
 
     return {
         "project_id": project_id,
