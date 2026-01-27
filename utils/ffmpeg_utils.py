@@ -98,6 +98,7 @@ class FFmpegComposer:
 
         cmd = [
             "ffmpeg",
+            "-y",
             "-loop", "1",
             "-i", image_path,
             "-vf", filter_str,
@@ -105,8 +106,7 @@ class FFmpegComposer:
             "-t", str(duration_sec),
             "-pix_fmt", "yuv420p",
             "-r", str(self.fps),
-            out_path,
-            "-y"
+            out_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -162,11 +162,11 @@ class FFmpegComposer:
 
         cmd = [
             "ffmpeg",
+            "-y",
             "-i", video_in,
             "-vf", f"subtitles='{srt_path_escaped}':force_style='{force_style}'",
             "-c:a", "copy",
-            out_path,
-            "-y"
+            out_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -296,6 +296,7 @@ class FFmpegComposer:
 
         cmd = [
             "ffmpeg",
+            "-y",
             "-i", video_in,
             "-i", narration_path,
             "-i", bgm_path,
@@ -306,8 +307,7 @@ class FFmpegComposer:
             "-c:a", "aac",
             "-b:a", "192k",
             "-shortest",
-            out_path,
-            "-y"
+            out_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -335,6 +335,7 @@ class FFmpegComposer:
 
         cmd = [
             "ffmpeg",
+            "-y",
             "-i", video_in,
             "-i", narration_path,
             "-i", bgm_path,
@@ -344,8 +345,7 @@ class FFmpegComposer:
             "-c:v", "copy",
             "-c:a", "aac",
             "-shortest",
-            out_path,
-            "-y"
+            out_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -365,6 +365,7 @@ class FFmpegComposer:
         """영상에 단일 오디오 트랙 추가."""
         cmd = [
             "ffmpeg",
+            "-y",
             "-i", video_in,
             "-i", audio_path,
             "-filter_complex", f"[1:a]volume={volume}[aout]",
@@ -373,8 +374,7 @@ class FFmpegComposer:
             "-c:v", "copy",
             "-c:a", "aac",
             "-shortest",
-            out_path,
-            "-y"
+            out_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -417,12 +417,12 @@ class FFmpegComposer:
         try:
             cmd = [
                 "ffmpeg",
+                "-y",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", concat_file,
                 "-c", "copy",
-                output_path,
-                "-y"
+                output_path
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -541,6 +541,7 @@ class FFmpegComposer:
 
         cmd = [
             "ffmpeg",
+            "-y",
             "-f", "concat",
             "-safe", "0",
             "-i", concat_file,
@@ -548,8 +549,7 @@ class FFmpegComposer:
             "-ar", "44100",  # 샘플레이트 통일
             "-ac", "2",      # 스테레오
             "-c:a", "pcm_s16le",  # WAV용 코덱
-            output_path,
-            "-y"
+            output_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -733,6 +733,7 @@ class FFmpegComposer:
         """정적 이미지를 영상으로 변환 (Ken Burns 없음)."""
         cmd = [
             "ffmpeg",
+            "-y",
             "-loop", "1",
             "-i", image_path,
             "-c:v", "libx264",
@@ -741,8 +742,7 @@ class FFmpegComposer:
             "-vf", f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
                    f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2",
             "-r", str(self.fps),
-            output_path,
-            "-y"
+            output_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)

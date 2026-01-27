@@ -304,6 +304,7 @@ class VideoAgent:
 
         cmd = [
             "ffmpeg",
+            "-y",
             "-loop", "1",
             "-i", image_path,
             "-vf", effect,
@@ -311,8 +312,7 @@ class VideoAgent:
             "-t", str(duration_sec),
             "-pix_fmt", "yuv420p",
             "-r", str(fps),
-            output_path,
-            "-y"
+            output_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -343,6 +343,7 @@ class VideoAgent:
         """
         cmd = [
             "ffmpeg",
+            "-y",
             "-loop", "1",
             "-i", image_path,
             "-c:v", "libx264",
@@ -350,8 +351,7 @@ class VideoAgent:
             "-pix_fmt", "yuv420p",
             "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
             "-r", "30",
-            output_path,
-            "-y"
+            output_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -396,14 +396,14 @@ class VideoAgent:
         # Create a simple colored video with FFmpeg
         cmd = [
             "ffmpeg",
+            "-y",
             "-f", "lavfi",
             "-i", f"color=c={color}:s=1920x1080:d={duration}",
             "-vf", f"drawtext=text='Scene {scene_id}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             "-r", "30",
-            output_path,
-            "-y"
+            output_path
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
