@@ -481,11 +481,11 @@ async function handleWebhook(request, url, env, corsHeaders) {
 
     if (data.status === 'completed') {
       await env.DB.prepare(
-        `UPDATE projects 
-         SET status = ?, output_url = ?, completed_at = ? 
+        `UPDATE projects
+         SET status = ?, video_url = ?, completed_at = ?
          WHERE id = ?`
       )
-        .bind('completed', data.output_url, new Date().toISOString(), projectId)
+        .bind('completed', data.output_url || data.video_url, new Date().toISOString(), projectId)
         .run();
     } else if (data.status === 'failed') {
       await env.DB.prepare(
