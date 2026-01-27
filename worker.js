@@ -385,7 +385,7 @@ async function handleStatus(url, env, corsHeaders) {
 
   try {
     const result = await env.DB.prepare(
-      `SELECT id, status, created_at, completed_at, error_message
+      `SELECT id, status, video_url, created_at, completed_at, error_message
        FROM projects WHERE id = ?`
     )
       .bind(projectId)
