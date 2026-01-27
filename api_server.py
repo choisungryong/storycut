@@ -52,6 +52,8 @@ app.mount("/media", StaticFiles(directory="outputs"), name="media")  # 이미지
 active_connections: Dict[str, WebSocket] = {}
 # 프로젝트별 메시지 히스토리 (재접속/새로고침 시 상태 복구용)
 project_event_history: Dict[str, List[Dict[str, Any]]] = {}
+# 백그라운드 작업 관리 (GC 방지)
+background_tasks: set = set()
 
 
 # ============================================================================
@@ -414,8 +416,10 @@ async def generate_video(req: GenerateRequest):
     tracker = ProgressTracker(project_id)
     pipeline = TrackedPipeline(tracker, webhook_url=req.webhook_url)
 
-    # 백그라운드에서 실행
-    asyncio.create_task(pipeline.run_async(request))
+    # 백그라운드에서 실행 (task를 저장하여 GC 방지)
+    task = asyncio.create_task(pipeline.run_async(request))
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
 
     return {
         "project_id": project_id,
