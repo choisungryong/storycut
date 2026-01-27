@@ -221,15 +221,24 @@ class StorycutApp {
             this.websocket = new WebSocket(wsPath);
 
             this.websocket.onopen = () => {
-                this.addLog('INFO', 'WebSocket 연결 성공');
+                this.addLog('INFO', 'WebSocket 연결 성공 - Polling 중단');
+                // WebSocket 연결되면 polling 중단 (충돌 방지)
+                this.stopPolling();
             };
 
             this.websocket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
+                console.log('[WebSocket] Received:', data);
 
                 if (data.type === 'progress') {
-                    this.addLog('INFO', `${data.step}: ${data.message}`);
-                    this.updateProgress(data.progress, data.message);
+                    // 로그에 진행률 포함
+                    this.addLog('INFO', `[${data.progress}%] ${data.step}: ${data.message}`);
+
+                    // 진행률 업데이트
+                    if (data.progress !== undefined && data.progress !== null) {
+                        this.updateProgress(data.progress, data.message);
+                        console.log('[Progress] Updated to:', data.progress);
+                    }
 
                     // 단계별 상태 업데이트
                     if (data.step.startsWith('scene')) {
@@ -239,7 +248,7 @@ class StorycutApp {
                     }
 
                     // 완료 처리
-                    if (data.step === 'complete') {
+                    if (data.step === 'complete' || data.progress === 100) {
                         this.handleComplete({ project_id: projectId });
                         this.stopPolling();
                         if (this.websocket) {
@@ -250,7 +259,12 @@ class StorycutApp {
             };
 
             this.websocket.onerror = (error) => {
-                this.addLog('ERROR', `WebSocket 오류: ${error.message}`);
+                this.addLog('ERROR', 'WebSocket 오류 - Polling으로 폴백');
+                console.error('WebSocket error:', error);
+                // WebSocket 실패하면 polling 재시작
+                if (!this.pollingInterval) {
+                    this.startPolling(projectId);
+                }
             };
 
             this.websocket.onclose = () => {
