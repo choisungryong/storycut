@@ -61,6 +61,7 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
     새로운 스레드에서 새로운 이벤트 루프를 생성하여 실행합니다.
     """
     import threading
+    import requests
 
     def run_in_thread():
         try:
@@ -68,10 +69,41 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(pipeline.run_async(request))
+                manifest = loop.run_until_complete(pipeline.run_async(request))
+
+                # Webhook 호출 (requests 사용 - threading 환경에서 안정적)
+                if pipeline.webhook_url:
+                    try:
+                        print(f"Calling webhook: {pipeline.webhook_url}")
+                        response = requests.post(
+                            pipeline.webhook_url,
+                            json={
+                                "status": "completed",
+                                "output_url": manifest.outputs.final_video_path,
+                            },
+                            timeout=10
+                        )
+                        print(f"Webhook response: {response.status_code}")
+                    except Exception as webhook_err:
+                        print(f"Webhook call failed: {webhook_err}")
             finally:
                 loop.close()
         except Exception as e:
+            # 실패 시 webhook 호출
+            if pipeline.webhook_url:
+                try:
+                    print(f"Calling webhook (failure): {pipeline.webhook_url}")
+                    requests.post(
+                        pipeline.webhook_url,
+                        json={
+                            "status": "failed",
+                            "error": str(e)
+                        },
+                        timeout=10
+                    )
+                except Exception as webhook_err:
+                    print(f"Webhook call failed: {webhook_err}")
+
             print(f"Pipeline execution error: {e}")
             import traceback
             traceback.print_exc()
