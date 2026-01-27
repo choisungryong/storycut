@@ -6,6 +6,7 @@ anthropic>=0.8.0
 
 # Media processing
 ffmpeg-python>=0.2.0
+Pillow>=10.0.0
 
 # API and web requests
 requests>=2.31.0
