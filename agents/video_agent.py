@@ -318,12 +318,13 @@ class VideoAgent:
             output_path
         ]
 
-        print(f"     Ken Burns FFmpeg command: {' '.join(cmd[:10])}...")
+        print(f"     Ken Burns FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            print(f"     Ken Burns effect failed: {result.stderr[:200]}")
-            print(f"     FFmpeg stdout: {result.stdout[:200]}")
+            stderr_lines = result.stderr.split('\n')
+            error_summary = '\n'.join(stderr_lines[-5:])
+            print(f"     Ken Burns effect failed (last 5 lines):\n{error_summary}")
             # Fallback to static image video
             return self._image_to_video(image_path, duration_sec, output_path)
 
@@ -364,13 +365,17 @@ class VideoAgent:
             output_path
         ]
 
-        print(f"     FFmpeg command: {' '.join(cmd)}")
+        print(f"     FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            print(f"     FFmpeg stderr: {result.stderr}")
-            print(f"     FFmpeg stdout: {result.stdout}")
-            raise RuntimeError(f"Failed to convert image to video: {result.stderr}")
+            # FFmpeg 에러의 마지막 10줄만 출력 (핵심 에러 메시지)
+            stderr_lines = result.stderr.split('\n')
+            error_summary = '\n'.join(stderr_lines[-10:])
+            print(f"     FFmpeg error (last 10 lines):\n{error_summary}")
+
+            # 짧은 에러 메시지만 exception으로
+            raise RuntimeError(f"Failed to convert image to video. Last error: {stderr_lines[-1]}")
 
         return output_path
 
