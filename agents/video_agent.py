@@ -319,7 +319,13 @@ class VideoAgent:
         ]
 
         print(f"     Ken Burns FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        # Run with 90 second timeout (Ken Burns takes longer)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        except subprocess.TimeoutExpired:
+            print(f"     Ken Burns timed out, falling back to static image")
+            return self._image_to_video(image_path, duration_sec, output_path)
 
         if result.returncode != 0:
             stderr_lines = result.stderr.split('\n')
@@ -366,7 +372,12 @@ class VideoAgent:
         ]
 
         print(f"     FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        # Run with 60 second timeout
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("FFmpeg timed out after 60 seconds")
 
         if result.returncode != 0:
             # FFmpeg 에러의 마지막 10줄만 출력 (핵심 에러 메시지)
