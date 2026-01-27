@@ -44,9 +44,22 @@ class StorycutApp {
         document.getElementById('duration-display').textContent = duration;
     }
 
+    // [Config] Cloudflare Worker URL (Middleware)
+    // 이 주소가 '카운터' 역할을 하는 곳입니다.
+    getApiBaseUrl() {
+        // 로컬 개발 환경용 (localhost)
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            return ''; // 상대 경로 사용
+        }
+        // 배포 환경용 (Cloudflare Worker 주소)
+        return 'https://storycut-worker.twinspa0713.workers.dev';
+    }
+
     async startGeneration() {
         // 폼 데이터 수집
         const formData = new FormData(document.getElementById('generate-form'));
+
+        // ... (중략) ... 
 
         const requestData = {
             topic: formData.get('topic') || null,
@@ -70,11 +83,20 @@ class StorycutApp {
             this.showSection('progress');
 
             // API 호출
-            const response = await fetch('/api/generate', {
+            const baseUrl = this.getApiBaseUrl();
+            const token = localStorage.getItem('token');
+
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            const response = await fetch(`${baseUrl}/api/generate`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: headers,
                 body: JSON.stringify(requestData)
             });
 
@@ -98,8 +120,17 @@ class StorycutApp {
     }
 
     connectWebSocket(projectId) {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/${projectId}`;
+        const baseUrl = this.getApiBaseUrl();
+        let wsUrl;
+
+        if (baseUrl === '') {
+            // 로컬 환경
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            wsUrl = `${protocol}//${window.location.host}/ws/${projectId}`;
+        } else {
+            // 배포 환경 (https -> wss 로 변경)
+            wsUrl = baseUrl.replace('https://', 'wss://').replace('http://', 'ws://') + `/ws/${projectId}`;
+        }
 
         this.websocket = new WebSocket(wsUrl);
 

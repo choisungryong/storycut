@@ -1,154 +1,101 @@
-// STORYCUT 인증 모듈
+// Auth Logic
+const API_BASE_URL = window.location.hostname === 'localhost' ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
 
-class AuthManager {
-    constructor() {
-        this.apiUrl = window.location.hostname === 'localhost'
-            ? 'http://localhost:8000'
-            : 'https://api.storycut.com';
+document.addEventListener('DOMContentLoaded', () => {
+    // 로그인 폼
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = loginForm.email.value;
+            const password = loginForm.password.value;
 
-        this.token = localStorage.getItem('storycut_token');
-        this.user = null;
-    }
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
 
-    /**
-     * 사용자 로그인
-     */
-    async login(email, password) {
-        try {
-            const response = await fetch(`${this.apiUrl}/api/auth/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ email, password })
-            });
+                if (!res.ok) throw new Error(data.error || '로그인 실패');
 
-            if (!response.ok) {
-                throw new Error('로그인 실패');
+                // 토큰/정보 저장
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+
+                alert(`환영합니다, ${data.user.username}님!`);
+                window.location.href = '/index.html';
+
+            } catch (err) {
+                alert(err.message);
             }
-
-            const data = await response.json();
-            this.token = data.token;
-            this.user = data.user;
-
-            localStorage.setItem('storycut_token', this.token);
-            localStorage.setItem('storycut_user', JSON.stringify(this.user));
-
-            return this.user;
-        } catch (error) {
-            console.error('Login error:', error);
-            throw error;
-        }
+        });
     }
 
-    /**
-     * 사용자 회원가입
-     */
-    async register(email, password) {
-        try {
-            const response = await fetch(`${this.apiUrl}/api/auth/register`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ email, password })
-            });
+    // 회원가입 폼
+    const signupForm = document.getElementById('signup-form');
+    if (signupForm) {
+        signupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = signupForm.username.value;
+            const email = signupForm.email.value;
+            const password = signupForm.password.value;
 
-            if (!response.ok) {
-                throw new Error('회원가입 실패');
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+                const data = await res.json();
+
+                if (!res.ok) throw new Error(data.error || '회원가입 실패');
+
+                alert('가입이 완료되었습니다! 로그인해주세요.');
+                window.location.href = '/login.html';
+
+            } catch (err) {
+                alert(err.message);
             }
-
-            const data = await response.json();
-            return data;
-        } catch (error) {
-            console.error('Register error:', error);
-            throw error;
-        }
+        });
     }
 
-    /**
-     * 로그아웃
-     */
-    logout() {
-        this.token = null;
-        this.user = null;
-        localStorage.removeItem('storycut_token');
-        localStorage.removeItem('storycut_user');
-        window.location.reload();
+    // 인증 체크 (index.html 용)
+    if (!loginForm && !signupForm) {
+        checkAuth();
+    }
+});
+
+function checkAuth() {
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user'));
+
+    // 비로그인 상태면 로그인 페이지로
+    // (선택 사항: 둘러보기 허용하려면 막지 않아도 됨. 일단 막음)
+    // 비로그인 상태면 로그인 페이지로 강제 이동
+    const path = window.location.pathname;
+    if (!token && (path === '/' || path === '/index.html')) {
+        window.location.href = '/login.html';
     }
 
-    /**
-     * 현재 사용자 정보 가져오기
-     */
-    async getCurrentUser() {
-        if (!this.token) {
-            return null;
-        }
-
-        // 캐시된 사용자 정보
-        const cachedUser = localStorage.getItem('storycut_user');
-        if (cachedUser) {
-            this.user = JSON.parse(cachedUser);
-            return this.user;
-        }
-
-        // API에서 최신 정보 가져오기
-        try {
-            const response = await fetch(`${this.apiUrl}/api/auth/me`, {
-                headers: {
-                    'Authorization': `Bearer ${this.token}`,
-                }
-            });
-
-            if (!response.ok) {
-                this.logout();
-                return null;
-            }
-
-            this.user = await response.json();
-            localStorage.setItem('storycut_user', JSON.stringify(this.user));
-            return this.user;
-        } catch (error) {
-            console.error('Get user error:', error);
-            return null;
-        }
-    }
-
-    /**
-     * 인증 헤더 반환
-     */
-    getAuthHeaders() {
-        if (!this.token) {
-            return {};
-        }
-
-        return {
-            'Authorization': `Bearer ${this.token}`,
-        };
-    }
-
-    /**
-     * 로그인 여부 확인
-     */
-    isAuthenticated() {
-        return !!this.token;
-    }
-
-    /**
-     * 크레딧 충전 페이지로 이동
-     */
-    goToCreditsPage() {
-        window.location.href = '/credits.html';
-    }
-
-    /**
-     * 크레딧 잔액 확인
-     */
-    async getCredits() {
-        const user = await this.getCurrentUser();
-        return user ? user.credits : 0;
+    // 로그인 상태면 상단에 정보 표시 (간단히)
+    if (user && document.querySelector('.header')) {
+        const userInfo = document.createElement('div');
+        userInfo.style.position = 'absolute';
+        userInfo.style.top = '1rem';
+        userInfo.style.right = '1rem';
+        userInfo.style.color = '#fff';
+        userInfo.innerHTML = `
+            <span>👤 ${user.username} | 💰 ${user.credits} Credits</span>
+            <button onclick="logout()" style="margin-left:10px; padding: 5px 10px; background:#ff4b4b; border:none; border-radius:4px; color:white; cursor:pointer;">로그아웃</button>
+        `;
+        document.querySelector('.header').appendChild(userInfo);
     }
 }
 
-// 전역 AuthManager 인스턴스
-window.authManager = new AuthManager();
+function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/login.html';
+}
