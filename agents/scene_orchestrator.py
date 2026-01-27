@@ -259,7 +259,8 @@ JSON 형식으로 출력:
         self,
         story_data: Dict[str, Any],
         output_path: str = "output/youtube_ready.mp4",
-        request: ProjectRequest = None
+        request: ProjectRequest = None,
+        progress_callback: Any = None
     ) -> str:
         """
         Scene JSON에서 최종 영상까지 전체 처리.
@@ -361,6 +362,18 @@ JSON 형식으로 출력:
             prev_scene = scene
 
             print(f"Scene {i} complete\n")
+
+            if progress_callback:
+                import asyncio
+                if asyncio.iscoroutinefunction(progress_callback):
+                    # 만약 비동기 콜백이라면 (run_in_executor 등으로 처리 필요할 수 있음)
+                    # 현재 구조는 동기 함수이므로, 비동기 호출이 어렵다면 
+                    # 호출 측에서 래핑하거나 여기서 event_loop를 써야 함.
+                    # 간단히는, 호출 측에서 동기 래퍼를 주거나 여기서 await하지 않고 fire-and-forget
+                    pass
+                else:
+                    # Sync callback
+                    progress_callback(scene, i)
 
         # 배경 음악 선택
         print(f"{'─'*60}")

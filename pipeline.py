@@ -16,6 +16,11 @@ import os
 import json
 import time
 import uuid
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
+
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pathlib import Path

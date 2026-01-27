@@ -1,0 +1,68 @@
+# Cloudflare Workers + D1 + R2 + Queue 설정
+
+name = "storycut-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Workers 라우팅
+routes = [
+  { pattern = "api.storycut.com/*", zone_name = "storycut.com" }
+]
+
+# D1 Database 바인딩
+[[d1_databases]]
+binding = "DB"
+database_name = "storycut-db"
+database_id = "32eba5ea-69eb-4ec8-a5be-f8b5a807b981"
+
+# R2 Storage 바인딩
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "storycut-videos"
+
+# Queue 바인딩
+[[queues.producers]]
+binding = "VIDEO_QUEUE"
+queue = "storycut-video-queue"
+
+[[queues.consumers]]
+queue = "storycut-video-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# 환경 변수
+[vars]
+ENVIRONMENT = "production"
+BACKEND_URL = "https://your-backend-server.com"
+
+# Secret 환경 변수 (wrangler secret put 명령으로 설정)
+# - BACKEND_API_SECRET
+# - OPENAI_API_KEY
+# - STRIPE_SECRET_KEY
+
+# Queue Consumer 설정
+[queues]
+[[queues.consumers]]
+queue = "storycut-video-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+dead_letter_queue = "storycut-dlq"
+
+# ================================
+# Development 환경
+# ================================
+[env.dev]
+name = "storycut-api-dev"
+
+[env.dev.vars]
+ENVIRONMENT = "development"
+BACKEND_URL = "http://localhost:8000"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "storycut-db-dev"
+database_id = "your-d1-dev-database-id"
+
+[[env.dev.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "storycut-videos-dev"

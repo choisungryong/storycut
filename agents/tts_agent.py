@@ -26,7 +26,7 @@ class TTSAgent:
         self.voice = voice
 
         if not self.api_key:
-            print("⚠️  No TTS API key provided. Will use placeholder audio.")
+            print("[Warning] No TTS API key provided. Will use placeholder audio.")
 
     def generate_speech(
         self,
@@ -45,7 +45,7 @@ class TTSAgent:
         Returns:
             Path to generated audio file
         """
-        print(f"  🎙️  Generating narration for scene {scene_id}...")
+        print(f"  [TTS Agent] Generating narration for scene {scene_id}...")
         print(f"     Text: {narration[:60]}...")
 
         # Build output path
@@ -60,7 +60,7 @@ class TTSAgent:
             # Generate placeholder audio for testing
             audio_path = self._generate_placeholder_audio(scene_id, narration, output_path)
 
-        print(f"     ✅ Audio saved: {audio_path}")
+        print(f"     [TTS Agent] Audio saved: {audio_path}")
         return audio_path
 
     def _call_tts_api(self, text: str, output_path: str) -> str:
@@ -94,10 +94,10 @@ class TTSAgent:
             return output_path
 
         except ImportError:
-            print("     ⚠️  OpenAI library not available. Using placeholder audio.")
+            print("     [Warning] OpenAI library not available. Using placeholder audio.")
             return self._generate_placeholder_audio(1, text, output_path)
         except Exception as e:
-            print(f"     ⚠️  TTS API call failed: {e}. Using placeholder audio.")
+            print(f"     [Warning] TTS API call failed: {e}. Using placeholder audio.")
             return self._generate_placeholder_audio(1, text, output_path)
 
     def _generate_placeholder_audio(

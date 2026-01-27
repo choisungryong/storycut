@@ -5,10 +5,11 @@ Scene 2~N에서 사용되며, Ken Burns 효과와 함께 영상처럼 변환됨.
 """
 
 import os
-import subprocess
 from typing import Optional
 from pathlib import Path
 import sys
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -33,9 +34,21 @@ class ImageAgent:
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.service = service
+        self._llm_client = None
 
         if not self.api_key:
-            print("  No image API key provided. Will use placeholder images.")
+            print("[ImageAgent] No image API key provided. Will use placeholder images.")
+
+    @property
+    def llm_client(self):
+        """Lazy initialization of LLM client for sanitization."""
+        if self._llm_client is None and self.api_key:
+            try:
+                from openai import OpenAI
+                self._llm_client = OpenAI(api_key=self.api_key)
+            except Exception:
+                self._llm_client = None
+        return self._llm_client
 
     def generate_image(
         self,
@@ -47,7 +60,7 @@ class ImageAgent:
         output_dir: str = "media/images"
     ) -> str:
         """
-        Generate an image for a scene.
+        Generate an image for a scene with Safety Retry.
 
         Args:
             scene_id: Scene identifier
@@ -66,27 +79,76 @@ class ImageAgent:
         os.makedirs(output_dir, exist_ok=True)
         output_path = f"{output_dir}/scene_{scene_id:02d}.png"
 
+        # 1. Try Generation
         if self.api_key and self.service == "dalle":
             try:
-                image_path = self._call_dalle_api(
+                return self._call_dalle_api(
                     prompt=prompt,
                     style=style,
                     output_path=output_path
                 )
-                print(f"     Image saved: {image_path}")
-                return image_path
             except Exception as e:
-                print(f"     DALL-E API failed: {e}")
+                # 2. Safety Retry: If content policy violation, sanitize prompt
+                if "content_policy_violation" in str(e) or "content filters" in str(e):
+                    print(f"     [Warning] Content Filter triggered. Sanitizing prompt...")
+                    try:
+                        sanitized_prompt = self._sanitize_prompt(prompt, str(e))
+                        print(f"     Sanitized Prompt: {sanitized_prompt[:60]}...")
+                        
+                        return self._call_dalle_api(
+                            prompt=sanitized_prompt,
+                            style=style,
+                            output_path=output_path
+                        )
+                    except Exception as retry_e:
+                         print(f"     [Error] Retry failed: {retry_e}")
+
+                print(f"     [Error] DALL-E API failed: {e}")
                 print("     Falling back to placeholder image...")
 
-        # Generate placeholder image
+        # 3. Fallback: Generate placeholder image (using Pillow)
         image_path = self._generate_placeholder_image(
             scene_id=scene_id,
             prompt=prompt,
             output_path=output_path
         )
-        print(f"     Image saved: {image_path}")
+        print(f"     Placeholder saved: {image_path}")
         return image_path
+
+    def _sanitize_prompt(self, original_prompt: str, error_msg: str) -> str:
+        """
+        Sanitize prompt using LLM to bypass content filters safely.
+        """
+        if not self.llm_client:
+            return "A peaceful abstract representation of the concept"
+
+        system_msg = """
+        You are a Prompt Engineer. The user's image prompt triggered a safety content filter.
+        Rewrite the prompt to completely remove any violent, sexual, or sensitive words while keeping the core artistic meaning.
+        Make it abstract and safe.
+        Output ONLY the sanitized prompt.
+        """
+        
+        user_msg = f"""
+        Original Prompt: {original_prompt}
+        Error: {error_msg}
+        
+        Sanitized Prompt:
+        """
+
+        try:
+            response = self.llm_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg}
+                ],
+                temperature=0.7,
+                max_tokens=200
+            )
+            return response.choices[0].message.content.strip()
+        except Exception:
+            return "A mysterious and dramatic atmosphere, cinematic lighting"
 
     def _call_dalle_api(
         self,
@@ -94,35 +156,23 @@ class ImageAgent:
         style: str,
         output_path: str
     ) -> str:
-        """
-        Call OpenAI DALL-E API for image generation.
-
-        Args:
-            prompt: Image generation prompt
-            style: Visual style
-            output_path: Where to save the image
-
-        Returns:
-            Path to generated image
-        """
+        """Call OpenAI DALL-E API."""
         try:
             from openai import OpenAI
             import requests
 
             client = OpenAI(api_key=self.api_key)
 
-            # Enhance prompt with style
             enhanced_prompt = f"{style} style: {prompt}"
 
             response = client.images.generate(
                 model="dall-e-3",
                 prompt=enhanced_prompt,
-                size="1792x1024",  # 16:9 ratio
+                size="1792x1024",  # 16:9 ratio in DALL-E 3
                 quality="standard",
                 n=1,
             )
 
-            # Download the image
             image_url = response.data[0].url
             img_response = requests.get(image_url)
 
@@ -143,65 +193,50 @@ class ImageAgent:
         output_path: str
     ) -> str:
         """
-        Generate a placeholder image using FFmpeg.
-
-        Creates a gradient background with scene info text.
-
-        Args:
-            scene_id: Scene number
-            prompt: Original prompt (for display)
-            output_path: Output file path
-
-        Returns:
-            Path to generated placeholder image
+        Generate a placeholder image using Pillow (No external dependency).
         """
-        # Color gradients for different scenes
-        gradients = [
-            ("0x1a1a2e", "0x16213e"),  # Dark blue gradient
-            ("0x2d132c", "0x801336"),  # Purple gradient
-            ("0x0f3460", "0x16213e"),  # Blue gradient
-            ("0x1e5128", "0x191a19"),  # Green gradient
-            ("0x4a3728", "0x2c2c2c"),  # Brown gradient
-            ("0x3d0000", "0x1a1a2e"),  # Red gradient
+        width, height = 1920, 1080
+        
+        # Determine background color based on scene_id
+        colors = [
+            (26, 26, 46),   # Dark blue
+            (45, 19, 44),   # Purple
+            (15, 52, 96),   # Blue
+            (30, 81, 40),   # Green
+            (74, 55, 40),   # Brown
+            (61, 0, 0),     # Red
         ]
+        bg_color = colors[scene_id % len(colors)]
+        
+        img = Image.new('RGB', (width, height), color=bg_color)
+        draw = ImageDraw.Draw(img)
+        
+        # Try to load a font, fallback to default
+        try:
+            # Windows font path usually
+            font_title = ImageFont.truetype("arial.ttf", 80)
+            font_text = ImageFont.truetype("arial.ttf", 36)
+        except IOError:
+            font_title = ImageFont.load_default()
+            font_text = ImageFont.load_default()
 
-        color1, color2 = gradients[scene_id % len(gradients)]
+        # Draw Scene ID
+        title_text = f"Scene {scene_id}"
+        # For default font, getsize might be needed in older Pillow results, but textbbox is newer.
+        # Simplification for robustness: approximate centering or just top-left if needed.
+        # But let's try standard anchor positioning if available or calculate.
+        
+        draw.text((width/2, height/2 - 100), title_text, font=font_title, fill="white", anchor="mm")
 
-        # Truncate prompt for display
-        display_text = prompt[:50].replace("'", "\\'").replace('"', '\\"')
-        if len(prompt) > 50:
-            display_text += "..."
-
-        # Create gradient image with FFmpeg
-        cmd = [
-            "ffmpeg",
-            "-f", "lavfi",
-            "-i", f"gradients=s=1920x1080:c0={color1}:c1={color2}:duration=1:speed=0.5",
-            "-vf", (
-                f"drawtext=text='Scene {scene_id}':fontsize=72:fontcolor=white:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2-50,"
-                f"drawtext=text='{display_text}':fontsize=28:fontcolor=gray:"
-                f"x=(w-text_w)/2:y=(h-text_h)/2+50"
-            ),
-            "-frames:v", "1",
-            output_path,
-            "-y"
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            # Fallback to solid color if gradient fails
-            fallback_cmd = [
-                "ffmpeg",
-                "-f", "lavfi",
-                "-i", f"color=c={color1}:s=1920x1080",
-                "-frames:v", "1",
-                output_path,
-                "-y"
-            ]
-            subprocess.run(fallback_cmd, capture_output=True)
-
+        # Draw Wrapped Prompt
+        wrapper = textwrap.TextWrapper(width=60)
+        word_list = wrapper.wrap(text=prompt)
+        prompt_text = "\n".join(word_list[:5])  # Limit lines
+        
+        draw.text((width/2, height/2 + 50), prompt_text, font=font_text, fill="lightgray", anchor="mm", align="center")
+        
+        # Save
+        img.save(output_path)
         return output_path
 
     def generate_thumbnail(
@@ -210,29 +245,19 @@ class ImageAgent:
         text_overlay: str = None,
         output_path: str = "output/thumbnail.png"
     ) -> str:
-        """
-        Generate a thumbnail image for YouTube.
-
-        Args:
-            prompt: Thumbnail image prompt
-            text_overlay: Text to overlay on thumbnail
-            output_path: Output file path
-
-        Returns:
-            Path to generated thumbnail
-        """
+        """Generate a thumbnail image."""
         print(f"  Generating thumbnail...")
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        if self.api_key and self.service == "dalle":
-            try:
+        try:
+            if self.api_key and self.service == "dalle":
                 return self._call_dalle_api(
                     prompt=f"YouTube thumbnail, eye-catching, bold: {prompt}",
                     style="vibrant, high contrast",
                     output_path=output_path
                 )
-            except Exception as e:
+        except Exception as e:
                 print(f"     Thumbnail generation failed: {e}")
 
         # Placeholder thumbnail

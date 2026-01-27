@@ -56,6 +56,26 @@ outputs/<project_id>/
 
 ---
 
+## 배포 아키텍처
+
+STORYCUT은 두 가지 배포 방식을 지원합니다:
+
+### 🏠 로컬 배포 (개발/테스트)
+- FastAPI + WebSocket
+- 로컬 파일 시스템
+
+### ☁️ 클라우드 배포 (프로덕션)
+- Cloudflare Workers (API)
+- Cloudflare Pages (웹 UI)
+- D1 Database (메타데이터)
+- R2 Storage (영상 파일)
+- Queue (비동기 작업)
+- 외부 서버 (Python 백엔드 - Railway/Render)
+
+자세한 배포 가이드: [cloudflare/DEPLOYMENT_GUIDE.md](cloudflare/DEPLOYMENT_GUIDE.md)
+
+---
+
 ## 설치 및 실행
 
 ### 1. 필수 요구사항
@@ -106,12 +126,36 @@ RUNWAY_API_KEY=your_runway_api_key_here  # 선택사항 (Hook 비디오용)
 
 ### 4. 실행
 
-**CLI 모드:**
+#### 🌐 웹 UI (권장)
+```bash
+# Windows
+start_server.bat
+
+# Mac/Linux
+python api_server.py
+```
+
+브라우저에서 접속:
+```
+http://localhost:8000
+```
+
+**주요 기능:**
+- ✨ 직관적인 UI로 장르/분위기 선택
+- 📊 실시간 진행상황 확인 (WebSocket)
+- 🎬 영상 미리보기 및 다운로드
+- 🚀 최적화 패키지 (제목/썸네일/해시태그) 즉시 복사
+
+자세한 내용: [WEBUI_GUIDE.md](WEBUI_GUIDE.md)
+
+---
+
+#### 💻 CLI 모드
 ```bash
 python cli/storycut_cli.py
 ```
 
-**프로그래매틱 모드:**
+#### 📦 프로그래매틱 모드
 ```python
 from pipeline import run_pipeline
 

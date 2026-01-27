@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STORYCUT v2.0 - AI 스토리 영상 생성기</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .preview-container {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: #252a34;
+            border-radius: 12px;
+            border: 1px solid #393e46;
+        }
+        .story-preview h3, .visual-preview h3 {
+            margin-top: 0;
+            margin-bottom: 1rem;
+            color: #00adb5;
+            font-size: 1.2rem;
+        }
+        .script-content {
+            background: #1a1a2e;
+            padding: 1rem;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #eeeeee;
+            line-height: 1.5;
+        }
+        .scene-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .scene-card {
+            background: #1a1a2e;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #393e46;
+            transition: transform 0.2s;
+        }
+        .scene-card:hover {
+            transform: scale(1.05);
+        }
+        .scene-card img {
+            width: 100%;
+            height: 85px;
+            object-fit: cover;
+            display: block;
+        }
+        .scene-card .scene-info {
+            padding: 5px;
+            font-size: 0.8rem;
+            text-align: center;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 헤더 -->
+        <header class="header">
+            <div class="logo">
+                <h1>📽️ STORYCUT <span class="version">v2.0</span></h1>
+                <p class="tagline">이야기를 입력하면, 조회수 터지는 유튜브 영상이 완성됩니다</p>
+            </div>
+        </header>
+
+        <!-- 메인 컨텐츠 -->
+        <main class="main-content">
+            <!-- 입력 폼 -->
+            <div id="input-section" class="section">
+                <h2>🎬 새 영상 만들기</h2>
+
+                <form id="generate-form" class="form">
+                    <!-- 주제 -->
+                    <div class="form-group">
+                        <label for="topic">
+                            <span class="label-icon">💡</span>
+                            주제 / 아이디어
+                        </label>
+                        <input
+                            type="text"
+                            id="topic"
+                            name="topic"
+                            placeholder="예: 오래된 폐병원에서 발견된 미스터리한 일기장"
+                            class="input"
+                        />
+                        <small class="helper-text">주제를 비워두면 AI가 자동으로 생성합니다</small>
+                    </div>
+
+                    <!-- 장르 -->
+                    <div class="form-group">
+                        <label for="genre">
+                            <span class="label-icon">🎭</span>
+                            장르
+                        </label>
+                        <select id="genre" name="genre" class="select">
+                            <option value="emotional">Emotional (감성적)</option>
+                            <option value="mystery" selected>Mystery (미스터리)</option>
+                            <option value="thriller">Thriller (스릴러)</option>
+                            <option value="fantasy">Fantasy (판타지)</option>
+                            <option value="horror">Horror (공포)</option>
+                            <option value="comedy">Comedy (코미디)</option>
+                        </select>
+                    </div>
+
+                    <!-- 분위기 -->
+                    <div class="form-group">
+                        <label for="mood">
+                            <span class="label-icon">🎨</span>
+                            분위기
+                        </label>
+                        <select id="mood" name="mood" class="select">
+                            <option value="dramatic" selected>Dramatic (극적)</option>
+                            <option value="melancholic">Melancholic (우울)</option>
+                            <option value="suspenseful">Suspenseful (긴장감)</option>
+                            <option value="heartwarming">Heartwarming (따뜻함)</option>
+                            <option value="dark">Dark (어두움)</option>
+                            <option value="cheerful">Cheerful (명랑)</option>
+                        </select>
+                    </div>
+
+                    <!-- 스타일 -->
+                    <div class="form-group">
+                        <label for="style">
+                            <span class="label-icon">🖼️</span>
+                            영상 스타일
+                        </label>
+                        <select id="style" name="style" class="select">
+                            <option value="cinematic, high contrast" selected>Cinematic (영화적)</option>
+                            <option value="realistic">Realistic (사실적)</option>
+                            <option value="illustration">Illustration (일러스트)</option>
+                            <option value="anime">Anime (애니메이션)</option>
+                            <option value="webtoon">Webtoon (웹툰)</option>
+                        </select>
+                    </div>
+
+                    <!-- 길이 -->
+                    <div class="form-group">
+                        <label for="duration">
+                            <span class="label-icon">⏱️</span>
+                            영상 길이: <span id="duration-display">60</span>초
+                        </label>
+                        <input
+                            type="range"
+                            id="duration"
+                            name="duration"
+                            min="30"
+                            max="150"
+                            value="60"
+                            step="10"
+                            class="slider"
+                        />
+                        <div class="slider-labels">
+                            <span>30s</span>
+                            <span>60s</span>
+                            <span>90s</span>
+                            <span>120s</span>
+                            <span>150s</span>
+                        </div>
+                    </div>
+
+                    <!-- 플랫폼 -->
+                    <div class="form-group">
+                        <label>
+                            <span class="label-icon">📱</span>
+                            대상 플랫폼
+                        </label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="platform" value="youtube_long" checked>
+                                <span class="radio-custom"></span>
+                                YouTube 롱폼 (16:9)
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="platform" value="youtube_shorts">
+                                <span class="radio-custom"></span>
+                                YouTube Shorts (9:16)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Feature Flags -->
+                    <div class="form-group">
+                        <label class="section-label">
+                            <span class="label-icon">⚙️</span>
+                            고급 설정
+                        </label>
+
+                        <div class="checkbox-group">
+                            <label class="checkbox-label" title="비용 주의: Scene 1에서 고품질 비디오 생성 (Runway API)">
+                                <input type="checkbox" name="hook_scene1_video" id="hook_scene1_video">
+                                <span class="checkbox-custom"></span>
+                                <span class="checkbox-text">
+                                    🎥 Hook Scene 비디오 (비용 추가)
+                                    <small>Scene 1에서 고품질 비디오 생성</small>
+                                </span>
+                            </label>
+
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="ffmpeg_kenburns" id="ffmpeg_kenburns" checked>
+                                <span class="checkbox-custom"></span>
+                                <span class="checkbox-text">
+                                    🎞️ Ken Burns Effect
+                                    <small>이미지에 줌/팬 효과 적용</small>
+                                </span>
+                            </label>
+
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="ffmpeg_audio_ducking" id="ffmpeg_audio_ducking">
+                                <span class="checkbox-custom"></span>
+                                <span class="checkbox-text">
+                                    🔊 Audio Ducking
+                                    <small>내레이션 시 BGM 자동 감쇠</small>
+                                </span>
+                            </label>
+
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="subtitle_burn_in" id="subtitle_burn_in" checked>
+                                <span class="checkbox-custom"></span>
+                                <span class="checkbox-text">
+                                    📝 자막 Burn-in
+                                    <small>자막을 영상에 직접 렌더링</small>
+                                </span>
+                            </label>
+
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="context_carry_over" id="context_carry_over" checked>
+                                <span class="checkbox-custom"></span>
+                                <span class="checkbox-text">
+                                    🔗 Context Carry-over
+                                    <small>장면 간 맥락 상속 (일관성 향상)</small>
+                                </span>
+                            </label>
+
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="optimization_pack" id="optimization_pack" checked>
+                                <span class="checkbox-custom"></span>
+                                <span class="checkbox-text">
+                                    🚀 Optimization Pack
+                                    <small>제목/썸네일/해시태그 자동 생성</small>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 제출 버튼 -->
+                    <button type="submit" class="btn btn-primary">
+                        <span class="btn-icon">🎬</span>
+                        영상 생성 시작
+                    </button>
+                </form>
+            </div>
+
+            <!-- 진행상황 섹션 -->
+            <div id="progress-section" class="section hidden">
+                <h2>⏳ 영상 생성 중...</h2>
+
+                <div class="progress-container">
+                    <!-- 전체 진행률 -->
+                    <div class="progress-header">
+                        <span class="progress-label">전체 진행률</span>
+                        <span class="progress-percentage" id="progress-percentage">0%</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar" id="progress-bar"></div>
+                    </div>
+
+                    <!-- 현재 상태 -->
+                    <div class="status-message" id="status-message">
+                        초기화 중...
+                    </div>
+
+                    <!-- 단계별 진행상황 -->
+                    <div class="steps-container" id="steps-container">
+                        <div class="step" data-step="story">
+                            <div class="step-icon">📝</div>
+                            <div class="step-content">
+                                <div class="step-title">스토리 생성</div>
+                                <div class="step-status">대기 중</div>
+                            </div>
+                        </div>
+
+                        <div class="step" data-step="scenes">
+                            <div class="step-icon">🎬</div>
+                            <div class="step-content">
+                                <div class="step-title">장면 처리</div>
+                                <div class="step-status">대기 중</div>
+                            </div>
+                        </div>
+
+                        <div class="step" data-step="compose">
+                            <div class="step-icon">🎞️</div>
+                            <div class="step-content">
+                                <div class="step-title">영상 합성</div>
+                                <div class="step-status">대기 중</div>
+                            </div>
+                        </div>
+
+                        <div class="step" data-step="optimize">
+                            <div class="step-icon">🚀</div>
+                            <div class="step-content">
+                                <div class="step-title">최적화</div>
+                                <div class="step-status">대기 중</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 실시간 미리보기 -->
+                    <div class="preview-container hidden" id="preview-container">
+                        <!-- 스토리 미리보기 -->
+                        <div class="story-preview hidden" id="story-preview">
+                            <h3>📜 생성된 스토리</h3>
+                            <div class="script-content" id="script-content">
+                                <!-- 스크립트 내용이 여기 들어갑니다 -->
+                            </div>
+                        </div>
+
+                        <!-- 비주얼 미리보기 -->
+                        <div class="visual-preview hidden" id="visual-preview">
+                            <h3>🎬 실시간 비주얼</h3>
+                            <div class="scene-grid" id="scene-grid">
+                                <!-- 생성된 씬 이미지가 여기 추가됩니다 -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 로그 -->
+                    <div class="log-container">
+                        <div class="log-header">
+                            <span>📋 실시간 로그</span>
+                            <button id="clear-log-btn" class="btn-small">지우기</button>
+                        </div>
+                        <div class="log-content" id="log-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 결과 섹션 -->
+            <div id="result-section" class="section hidden">
+                <h2>🎉 영상 생성 완료!</h2>
+
+                <div class="result-container">
+                    <!-- 프로젝트 정보 -->
+                    <div class="result-info">
+                        <p><strong>프로젝트 ID:</strong> <code id="result-project-id"></code></p>
+                        <p><strong>영상 제목:</strong> <span id="result-title"></span></p>
+                    </div>
+
+                    <!-- 비디오 플레이어 -->
+                    <div class="video-player">
+                        <video id="result-video" controls></video>
+                    </div>
+
+                    <!-- 다운로드 버튼 -->
+                    <div class="result-actions">
+                        <a id="download-btn" class="btn btn-primary" download>
+                            <span class="btn-icon">📥</span>
+                            영상 다운로드
+                        </a>
+                        <button id="new-video-btn" class="btn btn-secondary">
+                            <span class="btn-icon">➕</span>
+                            새 영상 만들기
+                        </button>
+                    </div>
+
+                    <!-- 최적화 패키지 -->
+                    <div id="optimization-pack" class="optimization-pack">
+                        <h3>🚀 YouTube 최적화 패키지</h3>
+
+                        <!-- 제목 후보 -->
+                        <div class="opt-section">
+                            <h4>📌 제목 후보</h4>
+                            <div id="title-candidates" class="candidate-list"></div>
+                        </div>
+
+                        <!-- 썸네일 문구 -->
+                        <div class="opt-section">
+                            <h4>🖼️ 썸네일 문구</h4>
+                            <div id="thumbnail-texts" class="candidate-list"></div>
+                        </div>
+
+                        <!-- 해시태그 -->
+                        <div class="opt-section">
+                            <h4>#️⃣ 해시태그</h4>
+                            <div id="hashtags" class="hashtag-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 푸터 -->
+        <footer class="footer">
+            <p>&copy; 2024 STORYCUT v2.0 | AI-Powered Story Video Generator</p>
+            <p>
+                <a href="https://github.com/yourusername/storycut" target="_blank">GitHub</a> |
+                <a href="/docs" target="_blank">API 문서</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -56,7 +56,7 @@ class StoryAgent:
         Returns:
             Story JSON with scenes
         """
-        print(f"📝 Generating story: {genre} / {mood} / {style} / {total_duration_sec}s")
+        print(f"[Story Agent] Generating story: {genre} / {mood} / {style} / {total_duration_sec}s")
 
         # Build user prompt
         user_prompt = f"""Generate a story with the following parameters:
@@ -81,7 +81,7 @@ Do not include any markdown formatting, explanations, or extra text.
         # Validate and parse JSON
         story_data = self._validate_story_json(story_json)
 
-        print(f"✅ Story generated: {story_data['title']}")
+        print(f"[Story Agent] Story generated: {story_data['title']}")
         print(f"   Scenes: {len(story_data['scenes'])}")
 
         return story_data
@@ -120,10 +120,10 @@ Do not include any markdown formatting, explanations, or extra text.
 
         except ImportError:
             # Fallback: Return example story for testing
-            print("⚠️  OpenAI library not available. Using example story.")
+            print("[Warning] OpenAI library not available. Using example story.")
             return self._get_example_story()
         except Exception as e:
-            print(f"⚠️  LLM API call failed: {e}. Using example story.")
+            print(f"[Warning] LLM API call failed: {e}. Using example story.")
             return self._get_example_story()
 
     def _validate_story_json(self, json_string: str) -> Dict[str, Any]:
@@ -177,69 +177,69 @@ Do not include any markdown formatting, explanations, or extra text.
         Return an example story JSON for testing purposes.
         """
         example = {
-            "title": "The Last Letter",
+            "title": "마지막 편지",
             "genre": "emotional",
             "total_duration_sec": 90,
             "scenes": [
                 {
                     "scene_id": 1,
-                    "narration": "She found the letter 20 years too late.",
+                    "narration": "그녀는 20년이나 늦게 그 편지를 발견했습니다.",
                     "visual_description": "A woman's hand holding an old, yellowed envelope in dim light",
                     "mood": "melancholic and regretful",
                     "duration_sec": 5
                 },
                 {
                     "scene_id": 2,
-                    "narration": "It was hidden beneath the floorboards of her childhood home.",
+                    "narration": "어릴 적 살던 집 마루 밑에 숨겨져 있었죠.",
                     "visual_description": "Old wooden floorboards being lifted, dust particles in sunlight",
                     "mood": "mysterious and nostalgic",
                     "duration_sec": 6
                 },
                 {
                     "scene_id": 3,
-                    "narration": "Her father had written it the day before he disappeared.",
+                    "narration": "아버지가 실종되기 전날 쓴 것이었습니다.",
                     "visual_description": "A faded photograph of a man, silhouette against window",
                     "mood": "somber and reflective",
                     "duration_sec": 7
                 },
                 {
                     "scene_id": 4,
-                    "narration": "She opened it with trembling hands.",
+                    "narration": "그녀는 떨리는 손으로 봉투를 열었습니다.",
                     "visual_description": "Hands carefully opening an old envelope, close-up",
                     "mood": "tense and emotional",
                     "duration_sec": 5
                 },
                 {
                     "scene_id": 5,
-                    "narration": "Inside was a single sentence.",
+                    "narration": "그 안에는 딱 한 문장이 적혀 있었습니다.",
                     "visual_description": "A handwritten note with one line of text, slightly blurred",
                     "mood": "suspenseful",
                     "duration_sec": 5
                 },
                 {
                     "scene_id": 6,
-                    "narration": "I'm sorry I couldn't stay. But you were never alone.",
+                    "narration": "함께해주지 못해 미안하다. 하지만 넌 혼자가 아니었단다.",
                     "visual_description": "The handwritten words coming into focus",
                     "mood": "heartbreaking and warm",
                     "duration_sec": 7
                 },
                 {
                     "scene_id": 7,
-                    "narration": "She looked up at the old photograph on the wall.",
+                    "narration": "그녀는 벽에 걸린 낡은 사진을 올려다보았습니다.",
                     "visual_description": "Woman looking at a family photo on the wall, back view",
                     "mood": "bittersweet",
                     "duration_sec": 6
                 },
                 {
                     "scene_id": 8,
-                    "narration": "And for the first time in twenty years...",
+                    "narration": "그리고 20년 만에 처음으로...",
                     "visual_description": "Soft light filtering through a window, peaceful atmosphere",
                     "mood": "hopeful and healing",
                     "duration_sec": 6
                 },
                 {
                     "scene_id": 9,
-                    "narration": "She smiled.",
+                    "narration": "그녀는 미소 지었습니다.",
                     "visual_description": "A gentle smile, face partially visible in soft lighting",
                     "mood": "peaceful and resolved",
                     "duration_sec": 5
@@ -262,4 +262,4 @@ Do not include any markdown formatting, explanations, or extra text.
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(story_data, f, indent=2, ensure_ascii=False)
 
-        print(f"💾 Story saved to: {output_path}")
+        print(f"[Story Agent] Story saved to: {output_path}")

@@ -42,7 +42,7 @@ class MusicAgent:
         Returns:
             Path to selected music file, or None if no music
         """
-        print(f"🎵 Selecting background music...")
+        print(f"[Music Agent] Selecting background music...")
         print(f"   Genre: {genre}, Mood: {mood}, Duration: {duration_sec}s")
 
         # For MVP, return None or a placeholder
@@ -54,9 +54,9 @@ class MusicAgent:
         music_path = self._get_placeholder_music(duration_sec)
 
         if music_path:
-            print(f"   ✅ Music selected: {music_path}")
+            print(f"   [Music Agent] Music selected: {music_path}")
         else:
-            print(f"   ℹ️  No background music (silent mode)")
+            print(f"   [Info] No background music (silent mode)")
 
         return music_path
 
@@ -101,9 +101,9 @@ class MusicAgent:
             if result.returncode == 0:
                 return output_path
             else:
-                print(f"   ⚠️  Could not generate music: {result.stderr}")
+                print(f"   [Warning] Could not generate music: {result.stderr}")
                 return None
 
         except Exception as e:
-            print(f"   ⚠️  Music generation failed: {e}")
+            print(f"   [Warning] Music generation failed: {e}")
             return None

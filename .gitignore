@@ -62,3 +62,7 @@ temp_*.wav
 *.log
 
 node_modules/
+.wrangler/
+outputs/
+debug_env.py
+test_*.py

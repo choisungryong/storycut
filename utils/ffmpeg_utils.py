@@ -469,32 +469,45 @@ class FFmpegComposer:
 
         # FFmpeg 명령 구성
         inputs = ["-i", video_path, "-i", narration_concat]
-        filter_complex = "[1:a]"
 
         if music_path and os.path.exists(music_path):
+            # 음악이 있을 때: 내레이션과 음악 믹스
             inputs.extend(["-i", music_path])
             filter_complex = (
                 f"[1:a]volume=1.0[narr];"
                 f"[2:a]volume={music_volume}[mus];"
                 f"[narr][mus]amix=inputs=2:duration=first[aout]"
             )
-            map_audio = ["-map", "[aout]"]
+            cmd = [
+                "ffmpeg",
+                *inputs,
+                "-filter_complex", filter_complex,
+                "-map", "0:v",
+                "-map", "[aout]",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-shortest",
+                output_path,
+                "-y"
+            ]
         else:
-            filter_complex += "[aout]"
-            map_audio = ["-map", "[aout]"]
+            # 음악이 없을 때: 내레이션만 사용 (filter_complex 불필요)
+            cmd = [
+                "ffmpeg",
+                *inputs,
+                "-map", "0:v",
+                "-map", "1:a",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-shortest",
+                output_path,
+                "-y"
+            ]
 
-        cmd = [
-            "ffmpeg",
-            *inputs,
-            "-filter_complex", filter_complex,
-            "-map", "0:v",
-            *map_audio,
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-shortest",
-            output_path,
-            "-y"
-        ]
+        print(f"[FFmpeg] Mixing audio...")
+        print(f"  Video: {video_path}")
+        print(f"  Narration files: {len(narration_paths)}")
+        print(f"  Music: {music_path if music_path else 'None'}")
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -503,24 +516,38 @@ class FFmpegComposer:
             os.remove(narration_concat)
 
         if result.returncode != 0:
-            print(f"FFmpeg audio mix error: {result.stderr}")
-            raise RuntimeError("Failed to mix audio")
+            print(f"\n[ERROR] FFmpeg audio mix failed!")
+            print(f"Command: {' '.join(cmd)}")
+            print(f"Stderr: {result.stderr}")
+            print(f"Stdout: {result.stdout}")
+            raise RuntimeError(f"Failed to mix audio: {result.stderr}")
 
+        print(f"[FFmpeg] Audio mixed successfully: {output_path}")
         return output_path
 
     def _concatenate_audio(self, audio_paths: List[str], output_path: str):
         """여러 오디오 파일을 하나로 연결."""
+        # 파일 존재 확인
+        for audio_path in audio_paths:
+            if not os.path.exists(audio_path):
+                raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
         concat_file = "temp_audio_concat.txt"
         with open(concat_file, "w", encoding="utf-8") as f:
             for audio_path in audio_paths:
-                f.write(f"file '{os.path.abspath(audio_path)}'\n")
+                # Windows 경로를 Unix 스타일로 변환 (ffmpeg concat에서 더 안정적)
+                abs_path = os.path.abspath(audio_path).replace("\\", "/")
+                f.write(f"file '{abs_path}'\n")
 
         cmd = [
             "ffmpeg",
             "-f", "concat",
             "-safe", "0",
             "-i", concat_file,
-            "-c", "copy",
+            # codec copy 대신 재인코딩 (호환성 향상)
+            "-ar", "44100",  # 샘플레이트 통일
+            "-ac", "2",      # 스테레오
+            "-c:a", "pcm_s16le",  # WAV용 코덱
             output_path,
             "-y"
         ]
@@ -531,6 +558,8 @@ class FFmpegComposer:
             os.remove(concat_file)
 
         if result.returncode != 0:
+            print(f"FFmpeg concat command: {' '.join(cmd)}")
+            print(f"FFmpeg concat error: {result.stderr}")
             raise RuntimeError(f"Failed to concatenate audio: {result.stderr}")
 
     def get_video_duration(self, video_path: str) -> float:

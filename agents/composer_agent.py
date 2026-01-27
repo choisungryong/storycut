@@ -49,7 +49,7 @@ class ComposerAgent:
         Returns:
             Path to final composed video
         """
-        print("\n🎬 Starting final video composition...")
+        print("\n[Composer] Starting final video composition...")
 
         # Validate inputs
         if len(video_clips) != len(narration_clips):
@@ -71,7 +71,7 @@ class ComposerAgent:
         # Get final video info
         duration = self.composer.get_video_duration(final_video)
 
-        print(f"\n✅ Video composition complete!")
+        print(f"\n[Composer] Video composition complete!")
         print(f"   Output: {final_video}")
         print(f"   Duration: {duration:.2f} seconds")
 

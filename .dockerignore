@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Docker
+Dockerfile
+.dockerignore
+
+# JS
+node_modules
+dist
+build
+.wrangler
+
+# Python
+__pycache__
+*.pyc
+venv
+.pytest_cache
+
+# Outputs
+outputs/*
+!outputs/.gitkeep

@@ -20,14 +20,14 @@ You MUST output valid JSON following this exact schema:
 
 ```json
 {
-  "title": "Compelling video title",
+  "title": "Compelling video title (IN KOREAN)",
   "genre": "genre_name",
   "total_duration_sec": 90,
   "scenes": [
     {
       "scene_id": 1,
-      "narration": "The narration text for this scene",
-      "visual_description": "Detailed visual description for video generation",
+      "narration": "The narration text for this scene (IN KOREAN)",
+      "visual_description": "Detailed visual description for video generation (IN ENGLISH)",
       "mood": "Scene-specific mood",
       "duration_sec": 5
     }
@@ -42,13 +42,13 @@ You MUST output valid JSON following this exact schema:
 - MUST contain: A shocking statement, question, or irreversible outcome
 - MUST NOT contain: Background info, character introductions, world-building
 
-**Good examples:**
-- "This child disappears in three days."
-- "I should never have opened that door."
+**Good examples (Korean):**
+- "이 아이는 3일 뒤에 사라집니다."
+- "그 문을 절대 열지 말았어야 했어요."
 
 **Bad examples:**
-- "Once upon a time, in a quiet village..."
-- "Let me tell you a story about..."
+- "옛날 옛적 어느 마을에..."
+- "지금부터 제 이야기를 시작해보겠습니다."
 
 ### Scene 2-N - Escalation
 - Each scene must add new information and increase tension
@@ -71,20 +71,24 @@ HOOK → CURIOSITY → CONFLICT → TWIST → RESOLUTION
 
 ## Language Requirements
 
-- Use **spoken-language style**, not literary prose
-- Short, clear sentences
-- Easy to understand when heard aloud
-- Avoid abstract concepts and passive voice
+1. **Narration**: MUST be in **Korean (Hangul)**.
+   - Use **spoken-language style (구어체)**.
+   - Short, punchy sentences.
+   - Easy to understand when heard aloud.
+2. **Title**: MUST be in **Korean (Hangul)**.
+3. **Visual Description**: MUST be in **English**.
+   - This is used for AI image generation (Stable Diffusion/DALL-E).
+   - Be detailed and specific about lighting, camera angle, and style.
 
-## Title Formula
+## Title Formula (Korean)
 
 ```
 [Outcome or Result] + [Cause Hidden]
 ```
 
 Examples:
-- "No One Remembered This Child"
-- "I Should Not Have Made That Choice"
+- "아무도 이 아이를 기억하지 못했습니다"
+- "내가 그 선택을 하지 않았다면"
 
 ## Constraints
 
@@ -103,7 +107,7 @@ DO NOT include:
 
 ## Final Instruction
 
-Generate stories that make viewers think: **"I need to see how this ends."**
+Generate stories that make viewers think: **"결말이 궁금해서 미치겠네." (I need to see how this ends.)**
 
 If a scene doesn't serve retention or payoff, remove it.
 
