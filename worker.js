@@ -1,3 +1,4 @@
+
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 
@@ -172,6 +173,10 @@ export default {
       return handleVideoDownload(url, env, corsHeaders);
     }
 
+    if (url.pathname.startsWith('/api/webhook/')) {
+      return handleWebhook(request, url, env, corsHeaders);
+    }
+
     if (url.pathname.startsWith('/api/status/')) {
       return handleStatus(url, env, corsHeaders);
     }
@@ -232,30 +237,28 @@ async function handleHealth(env, corsHeaders) {
  * 3. Queue에 작업 추가
  * 4. 프로젝트 ID 반환
  */
-async function handleGenerate(request, env, ctx, corsHeaders) {
+async function handleGenerate(request, env, ctx, corsHeaders, userId, userCredits) {
   try {
     // 요청 데이터 파싱
     const body = await request.json();
+    const url = new URL(request.url);
 
-    // 인증 토큰 확인
-    const authHeader = request.headers.get('Authorization');
-    const user = await authenticateUser(authHeader, env);
-
-    if (!user) {
+    // 인증 확인 (이미 fetch에서 검증됨)
+    if (!userId) {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
+        JSON.stringify({ error: 'Unauthorized (재로그인 필요)' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // 크레딧 확인
     const creditRequired = calculateCredit(body);
-    if (user.credits < creditRequired) {
+    if (userCredits < creditRequired) {
       return new Response(
         JSON.stringify({
           error: 'Insufficient credits',
           required: creditRequired,
-          available: user.credits,
+          available: userCredits,
         }),
         { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -269,7 +272,7 @@ async function handleGenerate(request, env, ctx, corsHeaders) {
       `INSERT INTO projects (id, user_id, status, input_data, created_at)
        VALUES (?, ?, ?, ?, ?)`
     )
-      .bind(projectId, user.id, 'queued', JSON.stringify(body), new Date().toISOString())
+      .bind(projectId, userId, 'queued', JSON.stringify(body), new Date().toISOString())
       .run();
 
     // Queue에 작업 추가 (Queue가 있을 때만)
@@ -277,7 +280,7 @@ async function handleGenerate(request, env, ctx, corsHeaders) {
       /*
       await env.VIDEO_QUEUE.send({
         projectId,
-        userId: user.id,
+        userId: userId,
         input: body,
         timestamp: Date.now(),
       });
@@ -314,7 +317,7 @@ async function handleGenerate(request, env, ctx, corsHeaders) {
     await env.DB.prepare(
       `UPDATE users SET credits = credits - ? WHERE id = ?`
     )
-      .bind(creditRequired, user.id)
+      .bind(creditRequired, userId)
       .run();
 
     return new Response(
@@ -324,7 +327,7 @@ async function handleGenerate(request, env, ctx, corsHeaders) {
         message: '영상 생성이 시작되었습니다.',
         server_url: BACKEND_URL, // 디버깅용
         credits_used: creditRequired,
-        credits_remaining: user.credits - creditRequired,
+        credits_remaining: userCredits - creditRequired,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -459,3 +462,55 @@ function generateProjectId() {
   return Math.random().toString(36).substring(2, 10);
 }
 
+/**
+ * Webhook Handler
+ * Python 백엔드로부터 상태 업데이트 수신
+ */
+async function handleWebhook(request, url, env, corsHeaders) {
+  const projectId = url.pathname.split('/').pop();
+
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders });
+  }
+
+  try {
+    const data = await request.json();
+    // data: { status: 'completed'|'failed'|'processing', output_url: '...', error: '...' }
+
+    console.log(`[Webhook] Update for project ${projectId}:`, data);
+
+    if (data.status === 'completed') {
+      await env.DB.prepare(
+        `UPDATE projects 
+         SET status = ?, output_url = ?, completed_at = ? 
+         WHERE id = ?`
+      )
+        .bind('completed', data.output_url, new Date().toISOString(), projectId)
+        .run();
+    } else if (data.status === 'failed') {
+      await env.DB.prepare(
+        `UPDATE projects 
+         SET status = ?, error_message = ? 
+         WHERE id = ?`
+      )
+        .bind('failed', data.error || 'Unknown error', projectId)
+        .run();
+    } else {
+      // processing 등 기타 상태
+      await env.DB.prepare(
+        `UPDATE projects SET status = ? WHERE id = ?`
+      )
+        .bind(data.status, projectId)
+        .run();
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}

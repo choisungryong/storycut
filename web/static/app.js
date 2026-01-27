@@ -101,7 +101,8 @@ class StorycutApp {
             });
 
             if (!response.ok) {
-                throw new Error(`API 오류: ${response.status}`);
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `API 오류: ${response.status}`);
             }
 
             const result = await response.json();
@@ -109,8 +110,8 @@ class StorycutApp {
 
             this.addLog('INFO', `프로젝트 시작: ${this.projectId}`);
 
-            // WebSocket 연결
-            this.connectWebSocket(this.projectId);
+            // Polling 시작
+            this.startPolling(this.projectId);
 
         } catch (error) {
             console.error('생성 시작 실패:', error);
@@ -119,47 +120,60 @@ class StorycutApp {
         }
     }
 
-    connectWebSocket(projectId) {
-        const baseUrl = this.getApiBaseUrl();
-        let wsUrl;
+    startPolling(projectId) {
+        this.addLog('INFO', '진행 상태 확인 시작 (Polling)');
 
-        if (baseUrl === '') {
-            // 로컬 환경
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            wsUrl = `${protocol}//${window.location.host}/ws/${projectId}`;
-        } else {
-            // 배포 환경 (https -> wss 로 변경)
-            wsUrl = baseUrl.replace('https://', 'wss://').replace('http://', 'ws://') + `/ws/${projectId}`;
-        }
+        // 2초마다 상태 확인
+        this.pollingInterval = setInterval(async () => {
+            try {
+                const baseUrl = this.getApiBaseUrl();
+                const response = await fetch(`${baseUrl}/api/status/${projectId}`);
 
-        this.websocket = new WebSocket(wsUrl);
-
-        this.websocket.onopen = () => {
-            console.log('WebSocket 연결됨');
-            this.addLog('INFO', 'WebSocket 연결 성공');
-
-            // 핑 전송 (연결 유지)
-            setInterval(() => {
-                if (this.websocket.readyState === WebSocket.OPEN) {
-                    this.websocket.send('ping');
+                if (!response.ok) {
+                    throw new Error(`Status check failed: ${response.status}`);
                 }
-            }, 30000);
-        };
 
-        this.websocket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            this.handleProgress(data);
-        };
+                const data = await response.json();
 
-        this.websocket.onerror = (error) => {
-            console.error('WebSocket 오류:', error);
-            this.addLog('ERROR', 'WebSocket 연결 오류');
-        };
+                // 상태에 따른 처리
+                if (data.status === 'completed') {
+                    this.addLog('INFO', '영상 생성 완료!');
+                    this.updateProgress(100, '완료');
+                    this.updateStepStatus('complete', '완료');
+                    this.handleComplete({
+                        project_id: projectId,
+                        // 필요한 경우 추가 데이터 매핑
+                    });
+                    this.stopPolling();
+                } else if (data.status === 'failed' || data.error_message) {
+                    this.addLog('ERROR', `오류 발생: ${data.error_message}`);
+                    this.updateProgress(0, '실패');
+                    this.stopPolling();
+                    alert(`영상 생성 실패: ${data.error_message}`);
+                } else {
+                    // 진행 중 (queued, processing)
+                    // 현재 백엔드가 상세 진행 상황을 DB에 실시간 업데이트하지 않을 수 있으므로
+                    // "처리 중..." 메시지만 표시하거나, 백엔드 로직에 따라 다름.
+                    // 일단은 가짜(Simulated) 진행률을 보여주는 게 UX상 나을 수 있음.
+                    if (data.status === 'processing') {
+                        this.updateProgress(50, '영상 생성 중...');
+                        this.updateStepStatus('compose', '진행 중');
+                    } else {
+                        this.updateProgress(10, '대기 중...');
+                    }
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+                // 일시적 오류는 무시하고 계속 재시도
+            }
+        }, 2000);
+    }
 
-        this.websocket.onclose = () => {
-            console.log('WebSocket 연결 종료');
-            this.addLog('INFO', 'WebSocket 연결 종료');
-        };
+    stopPolling() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
+        }
     }
 
     handleProgress(data) {
@@ -271,9 +285,8 @@ class StorycutApp {
         console.log('생성 완료:', data);
 
         // WebSocket 종료
-        if (this.websocket) {
-            this.websocket.close();
-        }
+        // Polling 종료
+        this.stopPolling();
 
         // 결과 섹션으로 전환
         setTimeout(() => {
@@ -450,11 +463,8 @@ class StorycutApp {
         // 입력 섹션으로 돌아가기
         this.showSection('input');
 
-        // WebSocket 종료
-        if (this.websocket) {
-            this.websocket.close();
-            this.websocket = null;
-        }
+        // Polling 종료
+        this.stopPolling();
 
         this.projectId = null;
     }

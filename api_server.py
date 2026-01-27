@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import asyncio
+import aiohttp
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -73,6 +74,10 @@ class GenerateRequest(BaseModel):
     subtitle_burn_in: bool = True
     context_carry_over: bool = True
     optimization_pack: bool = True
+
+    # Worker에서 전달받는 필드
+    project_id: Optional[str] = None
+    webhook_url: Optional[str] = None
 
 
 # ============================================================================
@@ -180,9 +185,10 @@ class ProgressTracker:
 class TrackedPipeline(StorycutPipeline):
     """진행상황 추적이 가능한 Pipeline"""
 
-    def __init__(self, tracker: ProgressTracker):
+    def __init__(self, tracker: ProgressTracker, webhook_url: Optional[str] = None):
         super().__init__()
         self.tracker = tracker
+        self.webhook_url = webhook_url
 
     async def run_async(self, request: ProjectRequest):
         """비동기 실행 (진행상황 전송)"""
@@ -288,12 +294,35 @@ class TrackedPipeline(StorycutPipeline):
 
             await self.tracker.complete(manifest)
 
+            # Webhook 호출 (Worker에 완료 알림)
+            if self.webhook_url:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        await session.post(self.webhook_url, json={
+                            "status": "completed",
+                            "output_url": manifest.outputs.final_video_path,
+                        })
+                except Exception as webhook_err:
+                    print(f"Webhook call failed: {webhook_err}")
+
             return manifest
 
         except Exception as e:
             manifest.status = "failed"
             manifest.error_message = str(e)
             await self.tracker.update("error", 0, f"오류 발생: {str(e)}")
+
+            # Webhook 호출 (실패 알림)
+            if self.webhook_url:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        await session.post(self.webhook_url, json={
+                            "status": "failed",
+                            "error": str(e)
+                        })
+                except Exception as webhook_err:
+                    print(f"Webhook call failed: {webhook_err}")
+
             raise
 
 
@@ -353,7 +382,8 @@ async def generate_video(req: GenerateRequest):
     """영상 생성 시작"""
     import uuid
 
-    project_id = str(uuid.uuid4())[:8]
+    # Worker에서 project_id를 보냈으면 사용, 없으면 생성 (로컬 테스트용)
+    project_id = req.project_id or str(uuid.uuid4())[:8]
 
     # ProjectRequest 생성
     feature_flags = FeatureFlags(
@@ -382,7 +412,7 @@ async def generate_video(req: GenerateRequest):
 
     # 비동기 작업 시작
     tracker = ProgressTracker(project_id)
-    pipeline = TrackedPipeline(tracker)
+    pipeline = TrackedPipeline(tracker, webhook_url=req.webhook_url)
 
     # 백그라운드에서 실행
     asyncio.create_task(pipeline.run_async(request))
