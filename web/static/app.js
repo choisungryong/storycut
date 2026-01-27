@@ -107,10 +107,14 @@ class StorycutApp {
 
             const result = await response.json();
             this.projectId = result.project_id;
+            this.serverUrl = result.server_url;
 
             this.addLog('INFO', `프로젝트 시작: ${this.projectId}`);
 
-            // Polling 시작
+            // WebSocket 연결 (실시간 진행 상황)
+            this.connectWebSocket(this.projectId);
+
+            // Polling 시작 (백업용)
             this.startPolling(this.projectId);
 
         } catch (error) {
@@ -201,6 +205,96 @@ class StorycutApp {
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
+        }
+    }
+
+    connectWebSocket(projectId) {
+        // Railway Backend WebSocket 연결
+        const wsUrl = this.serverUrl || 'https://web-production-bb6bf.up.railway.app';
+        const wsProtocol = wsUrl.startsWith('https') ? 'wss' : 'ws';
+        const wsHost = wsUrl.replace('https://', '').replace('http://', '');
+        const wsPath = `${wsProtocol}://${wsHost}/ws/${projectId}`;
+
+        this.addLog('INFO', `WebSocket 연결 중: ${wsPath}`);
+
+        try {
+            this.websocket = new WebSocket(wsPath);
+
+            this.websocket.onopen = () => {
+                this.addLog('INFO', 'WebSocket 연결 성공');
+            };
+
+            this.websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'progress') {
+                    this.addLog('INFO', `${data.step}: ${data.message}`);
+                    this.updateProgress(data.progress, data.message);
+
+                    // 단계별 상태 업데이트
+                    if (data.step.startsWith('scene')) {
+                        this.updateStepStatus('scenes', data.message);
+                    } else {
+                        this.updateStepStatus(data.step, data.message);
+                    }
+
+                    // 완료 처리
+                    if (data.step === 'complete') {
+                        this.handleComplete({ project_id: projectId });
+                        this.stopPolling();
+                        if (this.websocket) {
+                            this.websocket.close();
+                        }
+                    }
+                }
+            };
+
+            this.websocket.onerror = (error) => {
+                this.addLog('ERROR', `WebSocket 오류: ${error.message}`);
+            };
+
+            this.websocket.onclose = () => {
+                this.addLog('INFO', 'WebSocket 연결 종료');
+            };
+
+        } catch (error) {
+            this.addLog('ERROR', `WebSocket 연결 실패: ${error.message}`);
+        }
+    }
+
+    handleComplete(data) {
+        this.addLog('INFO', '🎉 영상 생성 완료!');
+        this.updateProgress(100, '완료');
+
+        // 완료 섹션으로 전환
+        this.showSection('result');
+
+        // Manifest 가져와서 결과 표시
+        this.fetchAndShowResults(data.project_id);
+    }
+
+    async fetchAndShowResults(projectId) {
+        try {
+            const backendUrl = this.serverUrl || 'https://web-production-bb6bf.up.railway.app';
+            const response = await fetch(`${backendUrl}/api/manifest/${projectId}`);
+
+            if (!response.ok) {
+                throw new Error('Manifest를 가져올 수 없습니다');
+            }
+
+            const manifest = await response.json();
+
+            // 결과 표시
+            this.showResults({
+                project_id: projectId,
+                title_candidates: manifest.outputs?.title_candidates,
+                thumbnail_texts: manifest.outputs?.thumbnail_texts,
+                hashtags: manifest.outputs?.hashtags,
+                server_url: backendUrl
+            });
+
+        } catch (error) {
+            this.addLog('ERROR', `결과 가져오기 실패: ${error.message}`);
         }
     }
 
