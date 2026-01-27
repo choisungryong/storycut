@@ -376,17 +376,8 @@ class TrackedPipeline(StorycutPipeline):
 
             await self.tracker.complete(manifest)
 
-            # Webhook 호출 (Worker에 완료 알림)
-            if self.webhook_url:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        await session.post(self.webhook_url, json={
-                            "status": "completed",
-                            "output_url": manifest.outputs.final_video_path,
-                        })
-                except Exception as webhook_err:
-                    print(f"Webhook call failed: {webhook_err}")
-
+            # Webhook은 run_pipeline_wrapper에서 requests로 호출 (threading 안전)
+            print(f"[DEBUG] Pipeline completed, returning manifest", flush=True)
             return manifest
 
         except Exception as e:
@@ -394,17 +385,8 @@ class TrackedPipeline(StorycutPipeline):
             manifest.error_message = str(e)
             await self.tracker.update("error", 0, f"오류 발생: {str(e)}")
 
-            # Webhook 호출 (실패 알림)
-            if self.webhook_url:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        await session.post(self.webhook_url, json={
-                            "status": "failed",
-                            "error": str(e)
-                        })
-                except Exception as webhook_err:
-                    print(f"Webhook call failed: {webhook_err}")
-
+            # Webhook은 run_pipeline_wrapper에서 처리
+            print(f"[DEBUG] Pipeline failed: {e}", flush=True)
             raise
 
 
