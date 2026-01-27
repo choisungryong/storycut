@@ -353,6 +353,15 @@ class VideoAgent:
         Returns:
             Path to generated video
         """
+        import os
+
+        # 이미지 파일 존재 확인
+        if not os.path.exists(image_path):
+            print(f"     ERROR: Image file not found: {image_path}")
+            raise RuntimeError(f"Image file not found: {image_path}")
+
+        print(f"     Image file size: {os.path.getsize(image_path)} bytes")
+
         # 더 안정적인 FFmpeg 명령어 (Railway 환경 호환)
         cmd = [
             "ffmpeg",
@@ -371,13 +380,15 @@ class VideoAgent:
             output_path
         ]
 
-        print(f"     FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
+        print(f"     FFmpeg command: {' '.join(cmd)}")
 
         # Run with 60 second timeout
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         except subprocess.TimeoutExpired:
-            raise RuntimeError("FFmpeg timed out after 60 seconds")
+            print(f"     FFmpeg timed out, trying placeholder video")
+            # Fallback to placeholder
+            return self._generate_placeholder_video(1, duration_sec, output_path)
 
         if result.returncode != 0:
             # FFmpeg 에러의 마지막 10줄만 출력 (핵심 에러 메시지)
@@ -385,8 +396,9 @@ class VideoAgent:
             error_summary = '\n'.join(stderr_lines[-10:])
             print(f"     FFmpeg error (last 10 lines):\n{error_summary}")
 
-            # 짧은 에러 메시지만 exception으로
-            raise RuntimeError(f"Failed to convert image to video. Last error: {stderr_lines[-1]}")
+            # 최종 fallback: placeholder video
+            print(f"     Falling back to placeholder video")
+            return self._generate_placeholder_video(1, duration_sec, output_path)
 
         return output_path
 
