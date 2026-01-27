@@ -58,15 +58,26 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
     """
     BackgroundTasks용 wrapper 함수.
 
-    FastAPI BackgroundTasks는 sync 함수만 지원하므로
-    asyncio.run()으로 async 함수를 실행합니다.
+    새로운 스레드에서 새로운 이벤트 루프를 생성하여 실행합니다.
     """
-    try:
-        asyncio.run(pipeline.run_async(request))
-    except Exception as e:
-        print(f"Pipeline execution error: {e}")
-        import traceback
-        traceback.print_exc()
+    import threading
+
+    def run_in_thread():
+        try:
+            # 새 스레드에서는 새 이벤트 루프 생성 가능
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(pipeline.run_async(request))
+            finally:
+                loop.close()
+        except Exception as e:
+            print(f"Pipeline execution error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    thread = threading.Thread(target=run_in_thread, daemon=True)
+    thread.start()
 
 
 # ============================================================================
