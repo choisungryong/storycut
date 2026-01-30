@@ -535,18 +535,30 @@
                             btn.disabled = true;
 
                             try {
-                                // [Fix] Worker 배포 지연 및 캐시 문제를 피하기 위해 백엔드 직접 호출
-                                // 로컬(localhost)인 경우 상대 경로 사용, 그 외(배포 환경)는 Railway 백엔드 직접 호출
+                                // [Debug Fix] fetch로 요청하여 구체적인 에러 확인
                                 const isLocal = window.location.hostname === 'localhost';
                                 const baseUrl = isLocal ? '' : 'https://web-production-bb6bf.up.railway.app';
+                                const targetUrl = `${baseUrl}/api/sample-voice/${voice}`;
 
-                                const audio = new Audio(`${baseUrl}/api/sample-voice/${voice}`);
+                                btn.textContent = '⏳ 로딩 중...';
+
+                                const response = await fetch(targetUrl);
+                                if (!response.ok) {
+                                    const errText = await response.text();
+                                    throw new Error(`서버 에러 (${response.status}): ${errText}`);
+                                }
+
+                                const blob = await response.blob();
+                                const audioUrl = URL.createObjectURL(blob);
+                                const audio = new Audio(audioUrl);
+
                                 await audio.play();
                                 btn.textContent = '🔊 재생 중...';
 
                                 audio.onended = () => {
                                     btn.textContent = originalText;
                                     btn.disabled = false;
+                                    URL.revokeObjectURL(audioUrl); // 메모리 해제
                                 };
                             } catch (e) {
                                 console.error(e);
