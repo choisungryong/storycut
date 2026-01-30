@@ -45,14 +45,16 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:8000",
         "http://127.0.0.1:8000",
-        "http://localhost:54557", # Cloudflare Wrangler local
-        "https://storycut-web.pages.dev", # Production Frontend
-        "*" # Fallback for other previews (might need removal if credentials issue persists)
+        "http://localhost:3000",
+        "https://storycut-web.pages.dev",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Optional: Add a broad CORS handler for non-credentialed requests if needed
+# But for now, let's stick to the specific list which is safer with allow_credentials=True
 
 # Global Exception Handler to ensure CORS headers on 500 errors
 from fastapi import Request
@@ -1467,10 +1469,28 @@ async def recompose_video(project_id: str):
 
 @app.get("/health")
 async def health_check():
-    """헬스 체크"""
+    """헬스 체크 및 진단"""
+    import os
+    from pathlib import Path
+    
+    # 필수 파일 체크
+    prompt_path = Path("prompts/story_prompt.md")
+    prompt_exists = prompt_path.exists()
+    
+    # API 키 체크 (값 노출 안함)
+    google_key = os.getenv("GOOGLE_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    
     return {
         "status": "ok",
-        "version": "2.0",
+        "version": "2.5",
+        "diagnostics": {
+            "google_api_key_set": google_key is not None and len(google_key) > 0,
+            "openai_api_key_set": openai_key is not None and len(openai_key) > 0,
+            "prompt_file_exists": prompt_exists,
+            "cwd": os.getcwd(),
+            "port": os.getenv("PORT", "8000")
+        },
         "active_connections": len(active_connections)
     }
 
