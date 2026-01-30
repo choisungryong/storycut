@@ -17,6 +17,9 @@ load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 print(f"DEBUG: Loaded OPENAI_API_KEY: {api_key[:10]}..." if api_key else "DEBUG: OPENAI_API_KEY is None")
 
+google_api_key = os.getenv("GOOGLE_API_KEY")
+print(f"DEBUG: Loaded GOOGLE_API_KEY: {google_api_key[:10]}..." if google_api_key else "DEBUG: GOOGLE_API_KEY is None")
+
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +53,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global Exception Handler to ensure CORS headers on 500 errors
+from fastapi import Request
+from fastapi.responses import JSONResponse
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"[CRITICAL ERROR] Global exception caught: {exc}")
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": traceback.format_exc()},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 # 정적 파일 서빙
 app.mount("/static", StaticFiles(directory="web/static"), name="static")

@@ -58,7 +58,8 @@ class StoryAgent:
         # =================================================================================
         # STEP 1: Story Architecture
         # =================================================================================
-        print(f"  [Step 1] Planning Story Architecture...")
+        import sys
+        print(f"  [Step 1] Planning Story Architecture...", file=sys.stderr, flush=True)
         
         step1_prompt = f"""
 ROLE: Professional Storyboard Artist & Director.
@@ -94,15 +95,15 @@ OUTPUT FORMAT (JSON):
         step1_response = self._call_llm_api(step1_prompt)
         try:
             structure_data = json.loads(step1_response)
-            print(f"  [Step 1] Structure locked: {structure_data.get('project_title')}")
+            print(f"  [Step 1] Structure locked: {structure_data.get('project_title')}", file=sys.stderr, flush=True)
         except Exception as e:
-            print(f"  [Step 1] Failed to parse JSON: {e}. Falling back to single-step.")
+            print(f"  [Step 1] Failed to parse JSON: {e}. Falling back to single-step.", file=sys.stderr, flush=True)
             structure_data = {} 
 
         # =================================================================================
         # STEP 2: Scene-level Details
         # =================================================================================
-        print(f"  [Step 2] Generating Scene Details...")
+        print(f"  [Step 2] Generating Scene Details...", file=sys.stderr, flush=True)
         
         # Context from Step 1
         structure_context = json.dumps(structure_data, ensure_ascii=False, indent=2) if structure_data else "No structure generated."
@@ -148,9 +149,10 @@ OUTPUT FORMAT (JSON):
 }}
 """
         step2_response = self._call_llm_api(step2_prompt)
+        print(f"  [Step 2] Response received, starting validation...", file=sys.stderr, flush=True)
         story_data = self._validate_story_json(step2_response)
 
-        print(f"[Story Agent] Story generated successfully.")
+        print(f"[Story Agent] Story generated successfully.", file=sys.stderr, flush=True)
         return story_data
 
     def _call_llm_api(self, user_prompt: str) -> str:
