@@ -154,7 +154,8 @@ class ImageAgent:
                     aspect_ratio=aspect_ratio,
                     output_path=output_path,
                     seed=seed,
-                    character_reference_path=character_reference_path
+                    character_reference_path=character_reference_path,
+                    negative_prompt=negative_prompt
                 )
             except Exception as e:
                 from utils.error_manager import ErrorManager
@@ -402,7 +403,8 @@ class ImageAgent:
         aspect_ratio: str,
         output_path: str,
         seed: Optional[int] = None,
-        character_reference_path: Optional[str] = None
+        character_reference_path: Optional[str] = None,
+        negative_prompt: Optional[str] = None
     ) -> tuple:
         """
         Call Replicate API (Gemini 2.5 Flash Image).

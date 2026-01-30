@@ -518,13 +518,14 @@ async function handleGenerate(request, env, ctx, corsHeaders, userId, userCredit
 
     // [Direct Call] Python 백엔드 호출 (Railway)
     const BACKEND_URL = env.BACKEND_URL || "https://web-production-bb6bf.up.railway.app";
+    const targetUrl = `${BACKEND_URL}${url.pathname}`;
 
-    console.log(`Forwarding request to backend: ${BACKEND_URL}/api/generate`);
+    console.log(`Forwarding request to backend: ${targetUrl}`);
 
     // 백엔드에 요청 전달 (Fire-and-forget 방식)
     // 사용자는 기다리지 않고 바로 응답을 받지만, 백엔드는 작업을 수행함
     ctx.waitUntil(
-      fetch(`${BACKEND_URL}/api/generate`, {
+      fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
