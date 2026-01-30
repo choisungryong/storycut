@@ -144,28 +144,41 @@ class FFmpegComposer:
         from config import get_subtitle_style
 
         # 기본 스타일 또는 설정에서 로드
-        if style is None:
-            style = get_subtitle_style()
-
+        # 폰트 설정 (Railway Nixpacks 환경 호환)
+        # Noto Sans CJK KR은 'noto-fonts-cjk' 패키지 설치 시 사용 가능
+        # Linux(Railway)와 Windows(Local) 호환성 고려
+        
+        import platform
+        system = platform.system()
+        
+        default_font = "Malgun Gothic" # Windows Default
+        if system == "Linux":
+            default_font = "Noto Sans CJK KR" # standard name after installing noto-fonts-cjk
+        
         # ASS 스타일 문자열 생성
         force_style = (
-            f"FontName={style.get('font_name', 'Malgun Gothic')},"  # Default to Malgun Gothic (Safe Korean Font)
-            f"FontSize={style.get('font_size', 50)},  # Increased for readability"
+            f"FontName={style.get('font_name', default_font)},"
+            f"FontSize={style.get('font_size', 24)}," # Adjusted size
             f"PrimaryColour={style.get('primary_color', '&HFFFFFF')},"
             f"OutlineColour={style.get('outline_color', '&H000000')},"
             f"Outline={style.get('outline_width', 2)},"
-            f"MarginV={style.get('margin_v', 50)},"
-            f"Bold=1"  # Force Bold for visibility
+            f"MarginV={style.get('margin_v', 20)},"
+            f"Bold=1" 
         )
 
         # Windows 경로 처리 (백슬래시 이스케이프)
         srt_path_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
+        
+        # fontsdir 옵션은 로컬 파일 사용시에만 필요하므로 제거 (Nixpacks로 시스템 설치됨)
+        # vf_filter = f"subtitles='{srt_path_escaped}':fontsdir='{fonts_dir}':force_style='{force_style}'"
+        vf_filter = f"subtitles='{srt_path_escaped}':force_style='{force_style}'"
 
         cmd = [
             "ffmpeg",
             "-y",
             "-i", video_in,
-            "-vf", f"subtitles='{srt_path_escaped}':force_style='{force_style}'",
+            "-vf", vf_filter,
+            # Audio copy explicitly
             "-c:a", "copy",
             out_path
         ]

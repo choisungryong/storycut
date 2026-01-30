@@ -386,14 +386,36 @@ class VideoAgent:
             character_tokens = scene.characters_in_scene if scene.characters_in_scene else None
 
             # v2.0: Extract master_image_path for character reference
-            if character_tokens and hasattr(scene, '_character_sheet'):
+            if character_tokens and hasattr(scene, '_character_sheet') and scene._character_sheet:
+                # 1. 시드와 레퍼런스 이미지 추출 (기존 로직)
                 first_char_token = character_tokens[0]
                 char_data = scene._character_sheet.get(first_char_token, {})
                 character_reference_id = char_data.get('master_image_id')  # deprecated
                 character_reference_path = char_data.get('master_image_path')
+                
+                # 2. [CRITICAL] 캐릭터 상세 묘사를 프롬프트에 주입
+                # 단순히 이름("지수")만 넘기는 게 아니라, "긴 생머리의 20대 여성..." 설명을 넘김
+                detailed_descriptions = []
+                for token in character_tokens:
+                    c_data = scene._character_sheet.get(token)
+                    if c_data and isinstance(c_data, dict):
+                         # If it's a dict verify validation, else if it's a string use it
+                         # Schema uses 'appearance'
+                         desc = c_data.get('appearance') or c_data.get('visual_description') or c_data.get('description')
+                         if desc:
+                             detailed_descriptions.append(f"{token} ({desc})")
+                    elif c_data and isinstance(c_data, str):
+                         # If character_sheet is just name -> description mapping
+                         detailed_descriptions.append(f"{token} ({c_data})")
+                
+                # 상세 묘사가 있다면 이것을 character_tokens 대신 사용 (ImageAgent가 이를 프롬프트 앞에 붙임)
+                if detailed_descriptions:
+                    character_tokens = detailed_descriptions
+                    print(f"     [Consistency] Injected detailed character descriptions: {detailed_descriptions}")
+
                 if character_reference_path:
                     print(f"     [v2.0] Using character reference: {character_reference_path}")
-
+            
             if seed:
                 print(f"     [v2.0] Applying visual seed: {seed}")
             if character_tokens:

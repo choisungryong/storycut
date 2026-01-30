@@ -80,6 +80,13 @@ OUTPUT FORMAT - ONLY VALID JSON, NO MARKDOWN:
   "genre": "{genre}",
   "mood": "{mood}",
   "total_duration_sec": {total_duration_sec},
+  "character_sheet": {{
+    "Main Character": {{
+      "name": "Name of protagonist",
+      "appearance": "Detailed physical description (e.g., 'A middle-aged man with messy gray hair, wearing a worn-out brown coat, sharp eyes'). Consistency is key.",
+      "visual_seed": 42
+    }}
+  }},
   "youtube_opt": {{
     "title_candidates": ["Clickbait Title 1", "Searchable Title 2", "Emotional Title 3"],
     "thumbnail_text": "Short Hook Text (Max 10 chars)",
@@ -90,8 +97,9 @@ OUTPUT FORMAT - ONLY VALID JSON, NO MARKDOWN:
       "scene_id": 1,
       "duration_sec": 5,
       "narration": "natural korean spoken language",
-      "visual_description": "detailed english description in {style} style, focusing on lighting and atmosphere",
-      "mood": "scene mood"
+      "visual_description": "detailed english description in {style} style, focusing on lighting and atmosphere. Mention 'Main Character' clearly.",
+      "mood": "scene mood",
+      "characters_in_scene": ["Main Character"]
     }},
     ... (continue until total duration uses approx {total_duration_sec}s) ...
   ]
