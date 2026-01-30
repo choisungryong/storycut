@@ -433,7 +433,7 @@
         <!-- 헤더 -->
         <header class="header">
             <h1>Storycut <span
-                    style="font-size: 0.5em; background: #ff4b4b; padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v2.6.1</span>
+                    style="font-size: 0.5em; background: #8b5cf6; padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v2.7.0</span>
             </h1>
             <p class="tagline">이야기를 입력하면, 조회수 터지는 유튜브 영상이 완성됩니다</p>
             <nav class="nav-links">
@@ -537,9 +537,10 @@
                             btn.disabled = true;
 
                             try {
-                                // [Debug Fix] fetch로 요청하여 구체적인 에러 확인
+                                // [Optimization] Railway 직접 호출 제거 -> Cloudflare Worker 경유
+                                // Worker가 API 요청을 받아 백엔드로 프록시(전달)하거나 캐싱 처리함
                                 const isLocal = window.location.hostname === 'localhost';
-                                const baseUrl = isLocal ? '' : 'https://web-production-bb6bf.up.railway.app';
+                                const baseUrl = isLocal ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
                                 const targetUrl = `${baseUrl}/api/sample-voice/${voice}?t=${Date.now()}`;
 
                                 btn.textContent = '⏳ 연결 중...';
@@ -547,7 +548,7 @@
                                 const response = await fetch(targetUrl);
                                 if (!response.ok) {
                                     const errText = await response.text();
-                                    throw new Error(`Cloudflare/Server Error (${response.status}): ${errText}`);
+                                    throw new Error(`Worker Error (${response.status}): ${errText}`);
                                 }
 
                                 const blob = await response.blob();

@@ -105,7 +105,8 @@ class StorycutApp {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return '';
         }
-        return 'https://web-production-bb6bf.up.railway.app';
+        // [Optimized] Use Cloudflare Worker as API Gateway
+        return 'https://storycut-worker.twinspa0713.workers.dev';
     }
 
     // ==================== Step 1: 스토리 생성 ====================

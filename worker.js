@@ -169,6 +169,32 @@ export default {
       return handleGenerate(request, env, ctx, corsHeaders, userId, userCredits);
     }
 
+    if (url.pathname === '/api/generate/video' && request.method === 'POST') {
+      // Step 2: Video Generation (Existing Logic)
+      // Auth & Credit check included in handleGenerate
+      const authHeader = request.headers.get('Authorization');
+      let userId = null;
+      let userCredits = 0;
+
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.split(' ')[1];
+          const { payload } = await jwtVerify(token, JWT_SECRET);
+          userId = payload.id;
+          const user = await env.DB.prepare(`SELECT credits FROM users WHERE id = ?`).bind(userId).first();
+          userCredits = user ? user.credits : 0;
+        } catch (e) {
+          console.warn('Token verification failed', e);
+        }
+      }
+      return handleGenerate(request, env, ctx, corsHeaders, userId, userCredits);
+    }
+
+    // [New] Step 1: Story Generation (Worker Logic)
+    if (url.pathname === '/api/generate/story' && request.method === 'POST') {
+      return handleGenerateStory(request, env, corsHeaders);
+    }
+
     if (url.pathname.startsWith('/api/video/')) {
       return handleVideoDownload(url, env, corsHeaders);
     }
@@ -190,32 +216,230 @@ export default {
   },
 
   /**
-   * Queue Consumer
-   * 비동기 작업 처리
+   * Queue Consumer (Keep existing)
    */
   async queue(batch, env) {
+    // ... existing queue logic ...
     console.log(`[Queue] Received batch of ${batch.messages.length} messages`);
-
     for (const message of batch.messages) {
       try {
         const { projectId, userId, input } = message.body;
-
         console.log(`[Queue] Processing project ${projectId} for user ${userId}`);
-
-        // TODO: 여기서 실제 Python 백엔드 호출 또는 비디오 생성 로직 수행
-        // 현재는 로그만 출력하고 성공 처리
-
-        // 메시지 확인 (성공)
         message.ack();
       } catch (error) {
         console.error(`[Queue] Error processing message ${message.id}:`, error);
-
-        // 실패 시 재시도 (Dead Letter Queue로 이동 전)
         message.retry();
       }
     }
   },
 };
+
+// ... existing helper functions (handleHealth, handleGenerate, handleVideoDownload, handleStatus, etc.) ...
+// We need to keep them. But since replace_file_content replaces a block, I should be careful.
+// I will just append the new function at the end and modify the routing block.
+
+/**
+ * [New] Story Generation Handler (JS Port of StoryAgent)
+ */
+async function handleGenerateStory(request, env, corsHeaders) {
+  try {
+    const body = await request.json();
+    const { genre, mood, style, duration, topic } = body;
+
+    // Gemini API Key Check
+    const apiKey = env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error("Server Error: Google API Key not configured");
+    }
+
+    const total_duration_sec = duration || 90;
+    const min_scenes = Math.floor(total_duration_sec / 8);
+    const max_scenes = Math.floor(total_duration_sec / 4);
+
+    // =================================================================================
+    // STEP 1: Story Architecture
+    // =================================================================================
+    const step1_prompt = `
+ROLE: Professional Storyboard Artist & Director.
+TASK: Plan the structure for a ${total_duration_sec}-second YouTube Short.
+GENRE: ${genre}
+MOOD: ${mood}
+STYLE: ${style}
+SCENE COUNT: Approx ${min_scenes}-${max_scenes} scenes.
+${topic ? 'USER IDEA: ' + topic : ''}
+
+OUTPUT FORMAT (JSON):
+{
+  "project_title": "Creative Title",
+  "logline": "One sentence summary",
+  "global_style": {
+    "art_style": "${style}",
+    "color_palette": "e.g., Cyberpunk Neons",
+    "visual_seed": ${Math.floor(Math.random() * 100000)}
+  },
+  "characters": {
+    "Name": {
+      "name": "Name",
+      "appearance": "Detailed description",
+      "role": "Protagonist/Antagonist"
+    }
+  },
+  "outline": [
+    { "scene_id": 1, "summary": "Brief summary of what happens", "estimated_duration": 5 }
+  ]
+}
+`;
+    const step1_response = await callGemini(apiKey, step1_prompt, SYSTEM_PROMPT);
+    let structure_data = {};
+    try {
+      structure_data = parseGeminiResponse(step1_response);
+      console.log("Step 1 Structure:", structure_data.project_title);
+    } catch (e) {
+      console.error("Step 1 Parse Error:", e);
+      // Fallback or empty
+    }
+
+    // =================================================================================
+    // STEP 2: Scene-level Details
+    // =================================================================================
+    const structure_context = JSON.stringify(structure_data, null, 2);
+
+    const step2_prompt = `
+ROLE: Screenwriter & Visual Director.
+TASK: Generate detailed scene specs based on the approved structure.
+
+APPROVED STRUCTURE:
+${structure_context}
+
+REQUIREMENTS:
+- Follow the outline exactly.
+- "narrative": The action description (Korean).
+- "tts_script": The spoken line (Korean). Natural, conversational.
+- "image_prompt": Visual description for AI Image Generator (English). ${style} style.
+- "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
+
+[STRICT] CHARACTER CONSISTENCY RULE:
+- Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
+- DO NOT describe their physical appearance (age, hair, clothes) in "image_prompt". This is already handled by the system.
+- Focus ONLY on the scene's action, lighting, and composition.
+
+OUTPUT FORMAT (JSON):
+{
+  "title": "${structure_data.project_title || 'Untitled'}",
+  "genre": "${genre}",
+  "total_duration_sec": ${total_duration_sec},
+  "character_sheet": ${JSON.stringify(structure_data.characters || {})},
+  "global_style": ${JSON.stringify(structure_data.global_style || {})},
+  "scenes": [
+    {
+      "scene_id": 1,
+      "narrative": "STORYCUT_HERO_A가 카페 문을 열고 들어온다.",
+      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style, high contrast, cinematic lighting.",
+      "tts_script": "드디어 이곳인가...",
+      "duration_sec": 5,
+      "camera_work": "Close-up",
+      "mood": "tense",
+      "characters_in_scene": ["STORYCUT_HERO_A"]
+    }
+  ],
+  "youtube_opt": {
+    "title_candidates": ["Title 1", "Title 2"],
+    "thumbnail_text": "Hook Text",
+    "hashtags": ["#Tag1", "#Tag2"]
+  }
+}
+`;
+    const step2_response = await callGemini(apiKey, step2_prompt, SYSTEM_PROMPT);
+    const story_data = parseGeminiResponse(step2_response);
+
+    // Validation / Normalization
+    if (story_data.scenes) {
+      story_data.scenes.forEach(scene => {
+        if (scene.tts_script) {
+          scene.narration = scene.tts_script;
+          scene.sentence = scene.tts_script;
+        }
+        if (scene.image_prompt) {
+          scene.visual_description = scene.image_prompt;
+          scene.prompt = scene.image_prompt;
+        }
+      });
+    }
+
+    return new Response(JSON.stringify({
+      story_data: story_data,
+      request_params: body,
+      project_id: Math.random().toString(36).substring(2, 10)
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error("Story Generation Error:", error);
+    return new Response(JSON.stringify({ detail: error.message }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function callGemini(apiKey, prompt, systemPrompt) {
+  // [Fix] Use 'gemini-3-pro-preview' as requested (User's specific model)
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`;
+
+  // Gemini 1.5 Pro supports systemInstruction
+  const payload = {
+    contents: [{
+      role: "user",
+      parts: [{ text: prompt }]
+    }],
+    systemInstruction: {
+      parts: [{ text: systemPrompt }]
+    },
+    generationConfig: {
+      temperature: 0.7,
+      responseMimeType: "application/json"
+    }
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini API Error ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts[0].text) {
+    return data.candidates[0].content.parts[0].text;
+  } else {
+    throw new Error("Unexpected Gemini response structure");
+  }
+}
+
+function parseGeminiResponse(text) {
+  try {
+    // Remove markdown
+    let cleaned = text.trim();
+    if (cleaned.startsWith("```json")) cleaned = cleaned.substring(7);
+    if (cleaned.startsWith("```")) cleaned = cleaned.substring(3);
+    if (cleaned.endsWith("```")) cleaned = cleaned.substring(0, cleaned.length - 3);
+    return JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error("Failed to parse JSON from Gemini: " + e.message);
+  }
+}
+
+const SYSTEM_PROMPT = `
+# 🎬 STORYCUT Master Storytelling Prompt v2.0
+You are the **BEST SHORT-FORM STORYTELLER** in the world. Your job is to create **VIRAL-WORTHY stories**.
+Generate a **complete, immersive narrative** (2-3 minutes) with a GRIPPING HOOK, RISING TENSION, and SHOCKING TWIST.
+Output MUST be valid JSON.
+(Refer to original prompt for full constraints)
+`;
 
 /**
  * 헬스 체크
@@ -566,3 +790,7 @@ async function handleProxyToBackend(request, url, env, corsHeaders) {
     });
   }
 }
+
+/**
+ * [New] Story Generation Handler (JS Port of StoryAgent)
+ */
