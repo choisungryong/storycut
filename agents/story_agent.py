@@ -16,13 +16,13 @@ class StoryAgent:
     to generate structured story content.
     """
 
-    def __init__(self, api_key: str = None, model: str = "gemini-3-pro-preview"):
+    def __init__(self, api_key: str = None, model: str = "gemini-1.5-pro"):
         """
         Initialize Story Agent.
 
         Args:
             api_key: Google Gemini API key
-            model: LLM model to use (default: gemini-3-pro-preview)
+            model: LLM model to use (default: gemini-1.5-pro)
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model = model
@@ -95,9 +95,9 @@ OUTPUT FORMAT (JSON):
         try:
             structure_data = json.loads(step1_response)
             print(f"  [Step 1] Structure locked: {structure_data.get('project_title')}")
-        except json.JSONDecodeError:
-            print(f"  [Step 1] Failed to parse JSON. Falling back to single-step.")
-            structure_data = {} # Handle gracefully or retry
+        except Exception as e:
+            print(f"  [Step 1] Failed to parse JSON: {e}. Falling back to single-step.")
+            structure_data = {} 
 
         # =================================================================================
         # STEP 2: Scene-level Details
@@ -155,68 +155,40 @@ OUTPUT FORMAT (JSON):
 
     def _call_llm_api(self, user_prompt: str) -> str:
         """
-        Call Gemini 3 Pro API to generate story.
-
-        Args:
-            user_prompt: User's story generation request
-
-        Returns:
-            LLM response (should be JSON string)
+        Call Gemini API (v1.0 SDK) to generate content.
         """
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types
 
-            print(f"[DEBUG] Calling Gemini 3 Pro API (model: {self.model})", flush=True)
-            genai.configure(api_key=self.api_key)
+            client = genai.Client(api_key=self.api_key)
+            
+            print(f"[DEBUG] Calling Gemini API (model: {self.model})", flush=True)
 
-            model = genai.GenerativeModel(
-                model_name=self.model,
-                system_instruction=self.system_prompt
-            )
-
-            # Configure safety settings to allow story generation
-            safety_settings = {
-                'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
-                'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
-                'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
-                'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
-            }
-
-            response = model.generate_content(
-                user_prompt,
-                generation_config=genai.types.GenerationConfig(
+            response = client.models.generate_content(
+                model=self.model,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=self.system_prompt,
                     temperature=0.7,
-                    max_output_tokens=60000,  # Massively increased for 5min+ scripts
-                    response_mime_type="application/json"  # Enforce strict JSON output
-                ),
-                safety_settings=safety_settings
+                    response_mime_type="application/json"
+                )
             )
 
-            print(f"[DEBUG] Gemini API response received", flush=True)
             response_text = response.text.strip()
-
-            # Log the response for debugging
-            print(f"[DEBUG] Response length: {len(response_text)} chars", flush=True)
-            print(f"[DEBUG] Response preview: {response_text[:200]}...", flush=True)
+            print(f"[DEBUG] Gemini API response received ({len(response_text)} chars)", flush=True)
 
             return response_text
 
-        except ImportError:
-            # Fallback: Return example story for testing
-            print("[Warning] google-generativeai library not available. Using example story.")
-            return self._get_example_story()
         except Exception as e:
             from utils.error_manager import ErrorManager
             ErrorManager.log_error(
                 "StoryAgent", 
-                "LLM API Call Failed", 
+                "Gemini API Call Failed", 
                 f"{type(e).__name__}: {str(e)}", 
                 severity="critical"
             )
-            print(f"[ERROR] Gemini API call failed: {type(e).__name__}: {str(e)}", flush=True)
-            import traceback
-            print(f"[ERROR] Traceback: {traceback.format_exc()}", flush=True)
-            print(f"[ERROR] Falling back to example story (TEMPORARY)", flush=True)
+            print(f"[ERROR] Gemini API call failed: {e}", flush=True)
             return self._get_example_story()
 
     def _validate_story_json(self, json_string: str) -> Dict[str, Any]:

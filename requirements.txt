@@ -5,7 +5,8 @@ replicate>=0.23.0
 openai>=1.0.0
 anthropic>=0.8.0
 elevenlabs>=0.2.26  # Primary TTS (high quality)
-google-generativeai>=0.3.0
+google-generativeai>=0.8.0
+google-genai>=0.3.0
 requests>=2.31.0
 
 # TTS (Text-to-Speech)
