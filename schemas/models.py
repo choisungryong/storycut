@@ -21,6 +21,28 @@ class TargetPlatform(str, Enum):
     YOUTUBE_SHORTS = "youtube_shorts"
 
 
+class SceneStatus(str, Enum):
+    """씬 처리 상태"""
+    PENDING = "pending"
+    GENERATING_IMAGE = "generating_image"
+    GENERATING_TTS = "generating_tts"
+    GENERATING_VIDEO = "generating_video"
+    COMPOSING = "composing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class CameraWork(str, Enum):
+    """카메라 워크 (Ken Burns 효과 다양화)"""
+    ZOOM_IN = "zoom_in"
+    ZOOM_OUT = "zoom_out"
+    PAN_LEFT = "pan_left"
+    PAN_RIGHT = "pan_right"
+    PAN_UP = "pan_up"
+    PAN_DOWN = "pan_down"
+    STATIC = "static"
+
+
 class FeatureFlags(BaseModel):
     """
     기능 플래그 설정
@@ -82,6 +104,10 @@ class ProjectRequest(BaseModel):
         description="대상 플랫폼"
     )
     language: str = Field(default="ko", description="언어 코드")
+    voice_id: str = Field(
+        default="onyx",
+        description="TTS 목소리 (alloy, echo, fable, onyx, nova, shimmer)"
+    )
     duration_target_sec: Optional[int] = Field(
         default=60,
         description="목표 영상 길이 (초)"
@@ -129,6 +155,45 @@ class SceneEntities(BaseModel):
     action: Optional[str] = Field(default=None, description="행동/동작")
 
 
+class CharacterSheet(BaseModel):
+    """캐릭터 시트 (시각적 일관성 유지용)"""
+    name: str = Field(..., description="캐릭터 이름")
+    gender: str = Field(default="unknown", description="성별")
+    age: str = Field(default="unknown", description="나이대")
+    appearance: str = Field(..., description="외형 상세 (머리, 눈, 피부, 특징)")
+    clothing_default: str = Field(default="", description="기본 의상")
+    emotion_range: List[str] = Field(default_factory=list, description="감정 범위")
+    visual_seed: int = Field(default=42, description="이미지 생성 시드 (일관성용)")
+
+    # 마스터 캐릭터 이미지 (참조용)
+    master_image_path: Optional[str] = Field(
+        default=None,
+        description="마스터 캐릭터 이미지 경로 (로컬)"
+    )
+    master_image_id: Optional[str] = Field(
+        default=None,
+        description="마스터 캐릭터 이미지 ID (NanoBanana 등 API 참조용)"
+    )
+    master_image_url: Optional[str] = Field(
+        default=None,
+        description="마스터 캐릭터 이미지 URL (외부 접근용)"
+    )
+
+
+class GlobalStyle(BaseModel):
+    """글로벌 스타일 설정"""
+    art_style: str = Field(
+        default="cinematic animation, high contrast, dramatic lighting",
+        description="아트 스타일"
+    )
+    color_palette: str = Field(
+        default="desaturated blues and warm amber highlights",
+        description="색상 팔레트"
+    )
+    aspect_ratio: str = Field(default="16:9", description="화면 비율")
+    visual_seed: int = Field(default=12345, description="전체 프로젝트 시드")
+
+
 class Scene(BaseModel):
     """
     장면 데이터
@@ -166,6 +231,14 @@ class Scene(BaseModel):
     mood: Optional[str] = Field(default=None, description="분위기")
     duration_sec: int = Field(default=5, description="지속 시간 (초)")
 
+    # v2.0 새 필드 (캐릭터 참조 시스템)
+    narrative: Optional[str] = Field(default=None, description="내부 참조용 장면 설명")
+    image_prompt: Optional[str] = Field(default=None, description="이미지 생성 전용 프롬프트")
+    characters_in_scene: List[str] = Field(
+        default_factory=list,
+        description="이 장면에 등장하는 캐릭터 토큰 목록"
+    )
+
     # 에셋 및 타이밍
     assets: SceneAssets = Field(
         default_factory=SceneAssets,
@@ -184,6 +257,32 @@ class Scene(BaseModel):
     generation_method: Optional[str] = Field(
         default=None,
         description="생성 방식 (video/image+kenburns)"
+    )
+
+    # 씬 상태 관리 (Phase 1)
+    status: SceneStatus = Field(
+        default=SceneStatus.PENDING,
+        description="씬 처리 상태"
+    )
+    error_message: Optional[str] = Field(
+        default=None,
+        description="에러 메시지 (실패 시)"
+    )
+    retry_count: int = Field(
+        default=0,
+        description="재시도 횟수"
+    )
+
+    # TTS 기반 duration (Phase 1)
+    tts_duration_sec: Optional[float] = Field(
+        default=None,
+        description="TTS 실제 오디오 길이 (초)"
+    )
+
+    # 카메라 워크 (Phase 1)
+    camera_work: CameraWork = Field(
+        default=CameraWork.ZOOM_IN,
+        description="Ken Burns 효과 방향"
     )
 
     def model_post_init(self, __context):
@@ -274,6 +373,16 @@ class Manifest(BaseModel):
     title: Optional[str] = Field(default=None, description="영상 제목")
     script: Optional[str] = Field(default=None, description="전체 스크립트")
 
+    # v2.0 캐릭터 참조 시스템
+    global_style: Optional[GlobalStyle] = Field(
+        default=None,
+        description="글로벌 스타일 설정"
+    )
+    character_sheet: Dict[str, CharacterSheet] = Field(
+        default_factory=dict,
+        description="캐릭터 시트 (토큰별)"
+    )
+
     # 장면 목록
     scenes: List[Scene] = Field(
         default_factory=list,
@@ -362,8 +471,11 @@ class Manifest(BaseModel):
             )
             scenes.append(scene)
 
-        return cls(
-            title=story_data.get("title"),
-            input=request,
-            scenes=scenes,
-        )
+
+
+
+class GenerateVideoRequest(BaseModel):
+    """영상 생성 요청 (확정된 스토리 포함)"""
+    project_id: Optional[str] = Field(default=None, description="프로젝트 ID (옵션)")
+    request_params: ProjectRequest = Field(..., description="초기 요청 파라미터")
+    story_data: Dict[str, Any] = Field(..., description="확정된 스토리 데이터")

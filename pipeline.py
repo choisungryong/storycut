@@ -61,47 +61,55 @@ class StorycutPipeline:
 
     def run(self, request: ProjectRequest) -> Manifest:
         """
-        전체 파이프라인 실행.
-
-        Args:
-            request: ProjectRequest
-
-        Returns:
-            Manifest 객체
+        [Legacy] 전체 파이프라인 한 번에 실행.
         """
-        start_time = time.time()
+        # 1. 스토리 생성
+        story_data = self.generate_story_only(request)
+        
+        # 2. 영상 생성 (스토리 기반)
+        return self.generate_video_from_story(story_data, request)
 
-        # 프로젝트 ID 및 디렉토리 생성
-        project_id = str(uuid.uuid4())[:8]
+    def generate_story_only(self, request: ProjectRequest) -> Dict[str, Any]:
+        """Step 1: 스토리만 생성"""
+        print(f"\n[STEP 1] Generating story for topic: {request.topic}")
+        return self._generate_story(request)
+
+    def generate_video_from_story(self, story_data: Dict[str, Any], request: ProjectRequest, project_id: str = None) -> Manifest:
+        """Step 2~5: 확정된 스토리로 영상 생성"""
+        start_time = time.time()
+        
+        if not project_id:
+            project_id = str(uuid.uuid4())[:8]
+            
         project_dir = self._create_project_structure(project_id)
 
         # Manifest 초기화
+        from schemas import GlobalStyle, CharacterSheet
+
         manifest = Manifest(
             project_id=project_id,
             input=request,
             status="processing",
+            title=story_data.get("title"),
+            script=json.dumps(story_data, ensure_ascii=False)
         )
 
-        print(f"\n{'='*60}")
-        print(f"STORYCUT Pipeline - Project: {project_id}")
-        print(f"{'='*60}")
-        print(f"Topic: {request.topic or 'Auto-generated'}")
-        print(f"Platform: {request.target_platform.value}")
-        print(f"Feature Flags:")
-        print(f"  - Hook Scene1 Video: {request.feature_flags.hook_scene1_video}")
-        print(f"  - Ken Burns: {request.feature_flags.ffmpeg_kenburns}")
-        print(f"  - Audio Ducking: {request.feature_flags.ffmpeg_audio_ducking}")
-        print(f"  - Subtitle Burn-in: {request.feature_flags.subtitle_burn_in}")
-        print(f"  - Context Carry-over: {request.feature_flags.context_carry_over}")
-        print(f"  - Optimization Pack: {request.feature_flags.optimization_pack}")
-        print(f"{'='*60}\n")
+        # v2.0: character_sheet와 global_style 저장
+        if "character_sheet" in story_data:
+            manifest.character_sheet = {
+                token: CharacterSheet(**data)
+                for token, data in story_data["character_sheet"].items()
+            }
+            print(f"[v2.0] Loaded {len(manifest.character_sheet)} characters from story")
+
+        if "global_style" in story_data:
+            manifest.global_style = GlobalStyle(**story_data["global_style"])
+            print(f"[v2.0] Global style: {manifest.global_style.art_style}")
 
         try:
-            # Step 1: 스토리 생성
-            print("[STEP 1/5] Generating story...")
-            story_data = self._generate_story(request)
-            manifest.title = story_data.get("title")
-            manifest.script = json.dumps(story_data, ensure_ascii=False)
+            print(f"\n{'='*60}")
+            print(f"STORYCUT Pipeline - Video Generation - Project: {project_id}")
+            print(f"{'='*60}")
 
             # Step 2: Scene 처리 (맥락 상속 포함)
             print("\n[STEP 2/5] Processing scenes with context carry-over...")
@@ -116,67 +124,64 @@ class StorycutPipeline:
             manifest.scenes = self._convert_scenes_to_schema(story_data["scenes"])
             manifest.outputs.final_video_path = final_video
 
-            # Step 3: 자막 생성 (옵션)
+            # Step 3: 자막 생성 및 영상에 적용 (옵션)
             if request.subtitles:
-                print("\n[STEP 3/5] Generating subtitles...")
-                srt_path = self._generate_subtitles(
+                print("\n[STEP 3/5] Generating subtitles and applying to video...")
+                final_video = self._generate_and_apply_subtitles(
                     manifest.scenes,
-                    project_dir
+                    project_dir,
+                    final_video
                 )
-                # 자막 burn-in은 FFmpegComposer에서 처리됨
+                manifest.outputs.final_video_path = final_video
 
             # Step 4: Optimization 패키지 생성
             if request.feature_flags.optimization_pack:
-                print("\n[STEP 4/5] Generating optimization package...")
-                opt_package = self.optimization_agent.run(
-                    topic=request.topic or manifest.title,
-                    script=manifest.script,
-                    scenes=manifest.scenes,
-                    request=request
-                )
-
-                # Manifest 업데이트
+                # v2.1: Check if StoryAgent already generated optimization data
+                if "youtube_opt" in story_data:
+                    print("\n[STEP 4/5] Using pre-generated optimization package from StoryAgent...")
+                    opt = story_data["youtube_opt"]
+                    manifest.outputs.title_candidates = opt.get("title_candidates", [])
+                    manifest.outputs.thumbnail_texts = [opt.get("thumbnail_text")] if opt.get("thumbnail_text") else []
+                    manifest.outputs.hashtags = opt.get("hashtags", [])
+                    
+                    # Save as separate JSON for frontend compatibility
+                    opt_package = {
+                        "title_candidates": manifest.outputs.title_candidates,
+                        "thumbnail_texts": manifest.outputs.thumbnail_texts,
+                        "hashtags": manifest.outputs.hashtags
+                    }
+                    opt_path = self.optimization_agent.save_optimization_package(opt_package, project_dir, project_id)
+                    manifest.outputs.metadata_json_path = opt_path
+                    
+                else:
+                    print("\n[STEP 4/5] Generating optimization package (Legacy)...")
+                    opt_package = self.optimization_agent.run(
+                        topic=request.topic or manifest.title,
+                        script=manifest.script,
+                        scenes=manifest.scenes,
+                        request=request
+                    )
+                
                 manifest.outputs.title_candidates = opt_package.get("title_candidates", [])
-                manifest.outputs.thumbnail_prompts = opt_package.get("thumbnail_prompts", [])
                 manifest.outputs.thumbnail_texts = opt_package.get("thumbnail_texts", [])
                 manifest.outputs.hashtags = opt_package.get("hashtags", [])
-                manifest.outputs.description = opt_package.get("description")
-                manifest.outputs.ab_test_meta = opt_package.get("ab_test_meta")
-
-                # Optimization JSON 저장
-                opt_path = self.optimization_agent.save_optimization_package(
-                    opt_package,
-                    project_dir,
-                    project_id
-                )
+                
+                opt_path = self.optimization_agent.save_optimization_package(opt_package, project_dir, project_id)
                 manifest.outputs.metadata_json_path = opt_path
 
             # Step 5: Manifest 저장
             print("\n[STEP 5/5] Saving manifest...")
             manifest.status = "completed"
             manifest.execution_time_sec = time.time() - start_time
-
-            # 비용 추정
             manifest.cost_estimate = self._estimate_costs(manifest)
 
-            # Manifest JSON 저장
             manifest_path = self._save_manifest(manifest, project_dir)
-
-            print(f"\n{'='*60}")
-            print(f"SUCCESS! Pipeline completed")
-            print(f"{'='*60}")
-            print(f"Project ID: {project_id}")
-            print(f"Final Video: {manifest.outputs.final_video_path}")
-            print(f"Manifest: {manifest_path}")
-            print(f"Execution Time: {manifest.execution_time_sec:.2f}s")
-            print(f"{'='*60}\n")
-
+            
             return manifest
 
         except Exception as e:
             manifest.status = "failed"
             manifest.error_message = str(e)
-            manifest.execution_time_sec = time.time() - start_time
             self._save_manifest(manifest, project_dir)
             raise
 
@@ -239,7 +244,7 @@ class StorycutPipeline:
         scene_dicts: List[Dict[str, Any]]
     ) -> List[Scene]:
         """
-        Scene 딕셔너리를 Schema 객체로 변환.
+        Scene 딕셔너리를 Schema 객체로 변환 (v2.0 호환).
 
         Args:
             scene_dicts: Scene 딕셔너리 목록
@@ -257,6 +262,10 @@ class StorycutPipeline:
                 visual_description=sd.get("visual_description"),
                 mood=sd.get("mood"),
                 duration_sec=sd.get("duration_sec", 5),
+                # v2.0 필드
+                narrative=sd.get("narrative"),
+                image_prompt=sd.get("image_prompt"),
+                characters_in_scene=sd.get("characters_in_scene", []),
             )
             scenes.append(scene)
         return scenes
@@ -288,6 +297,52 @@ class StorycutPipeline:
 
         srt_path = f"{project_dir}/media/subtitles/full.srt"
         return composer.generate_srt_from_scenes(scene_dicts, srt_path)
+
+    def _generate_and_apply_subtitles(
+        self,
+        scenes: List[Scene],
+        project_dir: str,
+        input_video: str
+    ) -> str:
+        """
+        자막 파일 생성 및 영상에 적용 (Burn-in).
+
+        Args:
+            scenes: Scene 목록
+            project_dir: 프로젝트 디렉토리
+            input_video: 입력 영상 경로
+
+        Returns:
+            자막이 적용된 최종 영상 경로
+        """
+        composer = FFmpegComposer()
+
+        # 1. 자막 파일 생성
+        scene_dicts = [
+            {
+                "narration": s.narration or s.sentence,
+                "duration_sec": s.duration_sec
+            }
+            for s in scenes
+        ]
+
+        srt_path = f"{project_dir}/media/subtitles/full.srt"
+        composer.generate_srt_from_scenes(scene_dicts, srt_path)
+        print(f"  Generated subtitle file: {srt_path}")
+
+        # 2. 자막을 영상에 burn-in
+        output_with_subtitles = f"{project_dir}/final_video_with_subtitles.mp4"
+        try:
+            subtitled_video = composer.overlay_subtitles(
+                input_video,
+                srt_path,
+                output_with_subtitles
+            )
+            print(f"  Applied subtitles to video: {subtitled_video}")
+            return subtitled_video
+        except Exception as e:
+            print(f"  [Warning] Subtitle burn-in failed: {e}. Using original video.")
+            return input_video
 
     def _estimate_costs(self, manifest: Manifest) -> CostEstimate:
         """

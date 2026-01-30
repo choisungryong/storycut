@@ -13,6 +13,11 @@ from .models import (
     CostEstimate,
     Manifest,
     TargetPlatform,
+    GenerateVideoRequest,
+    SceneStatus,
+    CameraWork,
+    CharacterSheet,
+    GlobalStyle,
 )
 
 __all__ = [
@@ -26,4 +31,9 @@ __all__ = [
     "CostEstimate",
     "Manifest",
     "TargetPlatform",
+    "GenerateVideoRequest",
+    "SceneStatus",
+    "CameraWork",
+    "CharacterSheet",
+    "GlobalStyle",
 ]

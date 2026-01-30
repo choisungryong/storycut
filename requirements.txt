@@ -1,8 +1,15 @@
 # STORYCUT Requirements (MVP)
 
 # Core dependencies
+replicate>=0.23.0
 openai>=1.0.0
 anthropic>=0.8.0
+elevenlabs>=0.2.26  # Primary TTS (high quality)
+google-generativeai>=0.3.0
+requests>=2.31.0
+
+# TTS (Text-to-Speech)
+pyttsx3>=2.90  # Fallback TTS (offline, free)
 
 # Media processing
 ffmpeg-python>=0.2.0
@@ -20,6 +27,7 @@ click>=8.1.0
 
 # Environment variables
 python-dotenv>=1.0.0
+python-decouple>=3.8
 
 # Configuration
 pyyaml>=6.0.0

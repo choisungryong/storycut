@@ -385,7 +385,7 @@ async function handleStatus(url, env, corsHeaders) {
 
   try {
     const result = await env.DB.prepare(
-      `SELECT id, status, video_url, created_at, completed_at, error_message
+      `SELECT id, status, video_url, created_at, completed_at, error_message, logs, progress
        FROM projects WHERE id = ?`
     )
       .bind(projectId)
@@ -481,27 +481,39 @@ async function handleWebhook(request, url, env, corsHeaders) {
 
     if (data.status === 'completed') {
       await env.DB.prepare(
-        `UPDATE projects
-         SET status = ?, video_url = ?, completed_at = ?
+        `UPDATE projects 
+         SET status = ?, video_url = ?, completed_at = ?, progress = 100, logs = logs || ? 
          WHERE id = ?`
       )
-        .bind('completed', data.output_url || data.video_url, new Date().toISOString(), projectId)
+        .bind('completed', data.output_url || data.video_url, new Date().toISOString(), '\n[완료] 영상 생성이 완료되었습니다.', projectId)
         .run();
     } else if (data.status === 'failed') {
       await env.DB.prepare(
         `UPDATE projects 
-         SET status = ?, error_message = ? 
+         SET status = ?, error_message = ?, logs = logs || ? 
          WHERE id = ?`
       )
-        .bind('failed', data.error || 'Unknown error', projectId)
+        .bind('failed', data.error || 'Unknown error', `\n[오류] ${data.error || '알 수 없는 오류 발생'}`, projectId)
         .run();
     } else {
-      // processing 등 기타 상태
-      await env.DB.prepare(
-        `UPDATE projects SET status = ? WHERE id = ?`
-      )
-        .bind(data.status, projectId)
-        .run();
+      // processing, etc.
+      // 로그 및 진행률 업데이트
+      const logUpdate = data.message ? `\n[${new Date().toLocaleTimeString()}] ${data.message}` : '';
+      const progressUpdate = data.progress || null;
+
+      if (progressUpdate !== null) {
+        await env.DB.prepare(
+          `UPDATE projects SET status = ?, progress = ?, logs = logs || ? WHERE id = ?`
+        )
+          .bind(data.status, progressUpdate, logUpdate, projectId)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE projects SET status = ?, logs = logs || ? WHERE id = ?`
+        )
+          .bind(data.status, logUpdate, projectId)
+          .run();
+      }
     }
 
     return new Response(JSON.stringify({ success: true }), {

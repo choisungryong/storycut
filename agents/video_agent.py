@@ -2,9 +2,11 @@
 Video Agent: Generates video clips for each scene.
 
 P0 핵심 로직:
-- Scene 1 (Hook): 고품질 비디오 생성 강제 (feature flag 활성화 시)
+- Scene 1 (Hook): Veo 3.1로 고품질 비디오 생성 (Google API 활용)
 - Scene 2~N: 이미지 + Ken Burns 효과로 비용 절감
 - 실패 시: 이미지 기반으로 자동 폴백
+
+API 우선순위: Veo 3.1 > Runway > Stability > Ken Burns
 """
 
 import os
@@ -29,7 +31,7 @@ class VideoAgent:
     def __init__(
         self,
         api_key: str = None,
-        service: str = "runway",
+        service: str = "veo",
         feature_flags: FeatureFlags = None
     ):
         """
@@ -37,14 +39,19 @@ class VideoAgent:
 
         Args:
             api_key: API key for video generation service
-            service: Service to use ("runway", "stability", "replicate")
+            service: Service to use ("veo", "runway", "stability")
             feature_flags: Feature flags configuration
         """
+        self.google_api_key = os.getenv("GOOGLE_API_KEY")
         self.api_key = api_key or os.getenv("RUNWAY_API_KEY")
         self.service = service
         self.feature_flags = feature_flags or FeatureFlags()
 
-        if not self.api_key:
+        # Prioritize Veo 3.1 if Google API key available
+        if self.google_api_key:
+            self.service = "veo"
+            print("  Video Agent: Using Veo 3.1 (Google) for high-quality video generation.")
+        elif not self.api_key:
             print("  No video API key provided. Will use image + Ken Burns method.")
 
     def generate_video(
@@ -54,7 +61,8 @@ class VideoAgent:
         style: str,
         mood: str,
         duration_sec: int,
-        scene: Optional[Scene] = None
+        scene: Optional[Scene] = None,
+        output_dir: str = "media/video"
     ) -> str:
         """
         Generate a video clip for a scene.
@@ -71,6 +79,7 @@ class VideoAgent:
             mood: Emotional mood
             duration_sec: Video length in seconds
             scene: Scene object (optional, for enhanced context)
+            output_dir: Output directory path
 
         Returns:
             Path to generated video file
@@ -78,8 +87,13 @@ class VideoAgent:
         print(f"  Generating video for scene {scene_id}...")
         print(f"     Description: {visual_description[:60]}...")
 
+        # v2.0: Use image_prompt if available (character reference)
+        actual_prompt = visual_description
+        if scene and scene.image_prompt:
+            actual_prompt = scene.image_prompt
+            print(f"     [v2.0] Using image_prompt for character consistency")
+
         # Output paths
-        output_dir = "media/video"
         os.makedirs(output_dir, exist_ok=True)
         video_output_path = f"{output_dir}/scene_{scene_id:02d}.mp4"
 
@@ -97,7 +111,7 @@ class VideoAgent:
             print(f"     [HOOK] Scene 1: Attempting high-quality video generation...")
             try:
                 video_path = self._generate_high_quality_video(
-                    prompt=visual_description,
+                    prompt=actual_prompt,
                     style=style,
                     mood=mood,
                     duration_sec=min(duration_sec, 10),  # Max 10 seconds for cost control
@@ -121,10 +135,11 @@ class VideoAgent:
         # Default/Fallback: Image + Ken Burns
         video_path, generation_method = self._generate_with_kenburns(
             scene_id=scene_id,
-            prompt=visual_description,
+            prompt=actual_prompt,
             style=style,
             duration_sec=duration_sec,
-            output_path=video_output_path
+            output_path=video_output_path,
+            scene=scene
         )
 
         # Update scene metadata if provided
@@ -144,7 +159,7 @@ class VideoAgent:
         output_path: str
     ) -> str:
         """
-        Generate high-quality video using external API (Runway, etc.)
+        Generate high-quality video using external API (Veo 3.1, Runway, etc.)
 
         Args:
             prompt: Video generation prompt
@@ -156,7 +171,9 @@ class VideoAgent:
         Returns:
             Path to generated video
         """
-        if self.service == "runway":
+        if self.service == "veo":
+            return self._call_veo_api(prompt, style, mood, duration_sec, output_path)
+        elif self.service == "runway":
             return self._call_runway_api(prompt, style, duration_sec, output_path)
         elif self.service == "stability":
             return self._call_stability_api(prompt, style, duration_sec, output_path)
@@ -164,6 +181,127 @@ class VideoAgent:
             # Default to placeholder if service not implemented
             print(f"     Service '{self.service}' not implemented yet.")
             raise NotImplementedError(f"Video service '{self.service}' not implemented")
+
+    def _call_veo_api(
+        self,
+        prompt: str,
+        style: str,
+        mood: str,
+        duration_sec: int,
+        output_path: str
+    ) -> str:
+        """
+        Call Google Veo 3.1 API via official google-genai SDK.
+
+        Args:
+            prompt: Video generation prompt
+            style: Visual style
+            mood: Emotional mood
+            duration_sec: Duration in seconds
+            output_path: Output file path
+
+        Returns:
+            Path to generated video
+        """
+        try:
+            from google import genai
+            import time
+            import requests
+
+            print(f"     Calling Veo 3.1 API (veo-3.1-generate-preview)...")
+            
+            # Using the official SDK
+            client = genai.Client(api_key=self.google_api_key)
+            
+            # Enhanced prompt
+            full_prompt = f"Generate a video of: {style} style, {mood} mood: {prompt}. Cinematic, professional."
+
+            print(f"     Sending request to Veo 3.1...")
+            
+            # Call generate_videos - Returns an Operation (LRO)
+            operation = client.models.generate_videos(
+                model="veo-3.1-generate-preview",
+                prompt=full_prompt,
+                config={
+                    'aspect_ratio': '16:9',
+                }
+            )
+            
+            print(f"     Operation started: {operation.name}")
+            print(f"     Waiting for video generation to complete (this may take a minute)...")
+            
+            # Poll for completion
+            while True:
+                # Refresh operation status
+                # The name format might need handling if SDK expects short name, but typically full name works
+                operation = client.operations.get(operation)
+                
+                if operation.done:
+                    break
+                    
+                print(f"     ...still generating...")
+                time.sleep(5)
+
+            print(f"     Generation confirmed complete.")
+            
+            # Get result from completed operation
+            response = operation.result
+            
+            # Check for generated_videos attribute (Veo specific)
+            if hasattr(response, 'generated_videos') and response.generated_videos:
+                video = response.generated_videos[0]
+                if hasattr(video, 'video') and hasattr(video.video, 'uri'):
+                     video_uri = video.video.uri
+                elif hasattr(video, 'uri'):
+                     video_uri = video.uri
+            
+            # Check for candidates architecture (Generic)
+            if not video_uri and hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content:
+                   for part in candidate.content.parts:
+                       if hasattr(part, 'video_metadata') and hasattr(part.video_metadata, 'video_uri'):
+                           video_uri = part.video_metadata.video_uri
+                       elif hasattr(part, 'uri'):
+                           video_uri = part.uri
+            
+            if not video_uri:
+                 print(f"     [DEBUG] Response dir: {dir(response)}") 
+                 print(f"     [DEBUG] Response str: {str(response)[:500]}")
+                 raise NotImplementedError("Could not extract video URI from Veo response")
+                 
+            print(f"     Downloading video from: {video_uri[:50]}...")
+            
+            # Append API key if using Google API URL
+            download_url = video_uri
+            if "generativelanguage.googleapis.com" in video_uri and "key=" not in video_uri:
+                separator = "&" if "?" in video_uri else "?"
+                download_url = f"{video_uri}{separator}key={self.google_api_key}"
+            
+            # Download the video
+            video_resp = requests.get(download_url, timeout=300)
+            if video_resp.status_code == 200:
+                with open(output_path, "wb") as f:
+                    f.write(video_resp.content)
+                print(f"     Video saved: {output_path}")
+            else:
+                raise RuntimeError(f"Failed to download video from {video_uri}")
+
+            return output_path
+
+        except Exception as e:
+            from utils.error_manager import ErrorManager
+            ErrorManager.log_error(
+                "VideoAgent", 
+                "Veo 3.1 API Failed", 
+                f"{type(e).__name__}: {str(e)}", 
+                severity="error"
+            )
+            print(f"     Veo 3.1 API integration failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # Raise exception to trigger fallback in generate_video
+            raise
 
     def _call_runway_api(
         self,
@@ -213,7 +351,8 @@ class VideoAgent:
         prompt: str,
         style: str,
         duration_sec: int,
-        output_path: str
+        output_path: str,
+        scene: Optional[Scene] = None
     ) -> Tuple[str, str]:
         """
         Generate video using image + Ken Burns effect.
@@ -226,6 +365,7 @@ class VideoAgent:
             style: Visual style
             duration_sec: Duration in seconds
             output_path: Output file path
+            scene: Scene object (optional, for v2.0 character reference)
 
         Returns:
             Tuple of (video_path, generation_method)
@@ -234,11 +374,49 @@ class VideoAgent:
 
         # Step 1: Generate image
         image_agent = ImageAgent()
-        image_path = image_agent.generate_image(
+
+        # v2.0: Extract character reference info from scene
+        seed = None
+        character_tokens = None
+        character_reference_id = None
+        character_reference_path = None
+        if scene:
+            # character_sheet에서 visual_seed 추출
+            seed = getattr(scene, '_seed', None)
+            character_tokens = scene.characters_in_scene if scene.characters_in_scene else None
+
+            # v2.0: Extract master_image_path for character reference
+            if character_tokens and hasattr(scene, '_character_sheet'):
+                first_char_token = character_tokens[0]
+                char_data = scene._character_sheet.get(first_char_token, {})
+                character_reference_id = char_data.get('master_image_id')  # deprecated
+                character_reference_path = char_data.get('master_image_path')
+                if character_reference_path:
+                    print(f"     [v2.0] Using character reference: {character_reference_path}")
+
+            if seed:
+                print(f"     [v2.0] Applying visual seed: {seed}")
+            if character_tokens:
+                print(f"     [v2.0] Characters: {', '.join(character_tokens)}")
+
+        # Determine image output directory based on video output path
+        # If output_path is 'outputs/xyz/media/video/scene.mp4', we want 'outputs/xyz/media/images'
+        video_dir = os.path.dirname(output_path)
+        # Attempt to keep directory structure clean
+        if video_dir.endswith("video"):
+             image_dir = video_dir.replace("video", "images") 
+        else:
+             image_dir = "media/images"
+
+        image_path, image_id = image_agent.generate_image(
             scene_id=scene_id,
             prompt=prompt,
             style=style,
-            output_dir="media/images"
+            output_dir=image_dir,
+            seed=seed,
+            character_tokens=character_tokens,
+            character_reference_id=character_reference_id,
+            character_reference_path=character_reference_path
         )
 
         # Step 2: Apply Ken Burns effect if enabled
@@ -466,10 +644,11 @@ class VideoAgent:
             Cost estimate dictionary
         """
         if self.feature_flags.hook_scene1_video and scene_id == 1:
-            # High-quality video generation (expensive)
+            # High-quality video generation with Veo 3.1 (uses Google API - integrated with Gemini)
+            service_name = "Veo 3.1" if self.service == "veo" else self.service
             return {
-                "method": "high_quality_video",
-                "estimated_usd": duration_sec * 0.05,  # ~$0.05/sec for Runway
+                "method": f"high_quality_video ({service_name})",
+                "estimated_usd": duration_sec * 0.03,  # ~$0.03/sec for Veo 3.1
                 "api_calls": 1,
             }
         else:

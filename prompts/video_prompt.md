@@ -28,9 +28,22 @@ For each scene, you receive:
 - No text overlays or subtitles
 - Smooth, cinematic camera movement if any
 
-### Style Consistency
-- Maintain consistent visual style throughout the video
-- Each scene should feel cohesive with others in the same story
+### Style Consistency (The "Look")
+- **Webtoon Style**: If the genre is NOT realistic, default to "Premium Webtoon/Manhwa Style".
+  - key visuals: "2D cel shaded", "vibrant colors", "clean lines".
+  - **Negative**: "photorealistic", "3d render", "unncanny valley", "blurry".
+- **Realism**: If style is realistic, ensure "Cinematic Lighting", "4k", "detailed texture".
+
+### Anatomy & Composition Rules (Quality Control)
+- **Anatomy**: NO extra fingers, NO mutant limbs.
+- **Composition**:
+  - Prefer **Medium Shot** or **Wide Shot** to keep the character fully in frame.
+  - Avoid "Close up" unless necessary for emotion, as it often crops heads.
+  - **Headroom**: Ensure the character's head is not cut off.
+
+### Character Consistency (The "Actor")
+- You MUST use the **exact same visual features** for the main character in every scene.
+- If Scene 1 says "Man with scar", Scene 5 MUST say "Man with scar".
 
 ## Output
 

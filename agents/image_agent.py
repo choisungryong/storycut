@@ -24,20 +24,31 @@ class ImageAgent:
     이미지를 생성하고 Ken Burns 효과로 영상화합니다.
     """
 
-    def __init__(self, api_key: str = None, service: str = "dalle"):
+    def __init__(self, api_key: str = None, service: str = "nanobana"):
         """
         Initialize Image Agent.
 
         Args:
             api_key: API key for image generation service
-            service: Service to use ("dalle", "stability", "midjourney")
+            service: Service to use ("nanobana", "dalle", "replicate")
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.nanobanana_token = os.getenv("GOOGLE_API_KEY")  # NanoBanana uses Google API key
+        self.replicate_token = os.getenv("REPLICATE_API_TOKEN")
         self.service = service
         self._llm_client = None
 
-        if not self.api_key:
-            print("[ImageAgent] No image API key provided. Will use placeholder images.")
+        if not self.api_key and not self.replicate_token and not self.nanobanana_token:
+            print("[ImageAgent] No image generation API keys provided. Will use placeholder images.")
+
+        # Prioritize Replicate if available
+        if self.replicate_token:
+            self.service = "replicate"
+            print("[ImageAgent] Using Replicate for image generation.")
+        # Fallback to NanoBanana if available
+        elif self.nanobanana_token:
+            self.service = "nanobana"
+            print("[ImageAgent] Using NanoBanana (Google API Key) for image generation.")
 
     @property
     def llm_client(self):
@@ -57,10 +68,14 @@ class ImageAgent:
         negative_prompt: Optional[str] = None,
         style: str = "cinematic",
         aspect_ratio: str = "16:9",
-        output_dir: str = "media/images"
-    ) -> str:
+        output_dir: str = "media/images",
+        seed: Optional[int] = None,
+        character_tokens: Optional[list] = None,
+        character_reference_id: Optional[str] = None,
+        character_reference_path: Optional[str] = None
+    ) -> tuple:
         """
-        Generate an image for a scene with Safety Retry.
+        Generate an image for a scene with Safety Retry and Character Reference support.
 
         Args:
             scene_id: Scene identifier
@@ -69,17 +84,95 @@ class ImageAgent:
             style: Visual style
             aspect_ratio: Image aspect ratio
             output_dir: Output directory
+            seed: Visual seed for consistency (v2.0)
+            character_tokens: Character tokens in scene (v2.0)
+            character_reference_id: Master character image ID for reference (v2.0, deprecated)
+            character_reference_path: Master character image path for reference (v2.0)
 
         Returns:
-            Path to generated image file
+            Tuple of (image_path, image_id)
+            - image_path: Path to generated image file
+            - image_id: API-returned image ID (for character reference)
         """
-        print(f"  Generating image for scene {scene_id}...")
-        print(f"     Prompt: {prompt[:60]}...")
+        # v2.0: 마스터 캐릭터 이미지 생성 (scene_id=0)
+        if scene_id == 0:
+            print(f"  [MASTER] Generating MASTER CHARACTER IMAGE...")
+            print(f"     Prompt: {prompt[:60]}...")
+            if seed:
+                print(f"     Seed: {seed} (fixed for consistency)")
+        else:
+            print(f"  Generating image for scene {scene_id}...")
+            print(f"     Prompt: {prompt[:60]}...")
 
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = f"{output_dir}/scene_{scene_id:02d}.png"
+            # v2.0: Log character reference info
+            if seed:
+                print(f"     Seed: {seed} (character consistency)")
+            if character_tokens:
+                print(f"     Characters: {', '.join(character_tokens)}")
+            if character_reference_path:
+                print(f"     Character Reference: {character_reference_path}")
+
+        # v2.0: 마스터 캐릭터는 output_dir 직접 사용 (API에서 이미 전체 경로 제공)
+        if scene_id == 0:
+            # output_dir이 이미 전체 경로를 포함하므로 그대로 사용
+            output_path = output_dir if output_dir.endswith('.png') else f"{output_dir}/master_character.png"
+            # 디렉토리 부분만 추출해서 생성
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        else:
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = f"{output_dir}/scene_{scene_id:02d}.png"
 
         # 1. Try Generation
+        if self.service == "nanobana" and self.nanobanana_token:
+            try:
+                print(f"     Using NanoBanana API (Token: {'***' + self.nanobanana_token[-8:] if self.nanobanana_token else 'None'})")
+                return self._call_nanobana_api(
+                    prompt=prompt,
+                    style=style,
+                    output_path=output_path,
+                    seed=seed,
+                    character_reference_path=character_reference_path
+                )
+            except Exception as e:
+                print(f"     [ERROR] NanoBanana API failed!")
+                print(f"     Error details: {type(e).__name__}: {str(e)}")
+                import traceback
+                print(f"     Traceback: {traceback.format_exc()}")
+                print("     Falling back to Replicate or DALL-E or Placeholders...")
+                # Fallback to Replicate if available
+                if self.replicate_token:
+                    self.service = "replicate"
+                elif self.api_key:
+                    self.service = "dalle"
+
+        if self.service == "replicate" and self.replicate_token:
+            try:
+                print(f"     Using Replicate API (Token: {'***' + self.replicate_token[-8:] if self.replicate_token else 'None'})")
+                return self._call_replicate_api(
+                    prompt=prompt,
+                    style=style,
+                    aspect_ratio=aspect_ratio,
+                    output_path=output_path,
+                    seed=seed,
+                    character_reference_path=character_reference_path
+                )
+            except Exception as e:
+                from utils.error_manager import ErrorManager
+                ErrorManager.log_error(
+                    "ImageAgent", 
+                    "Replicate API Failed", 
+                    f"{type(e).__name__}: {str(e)}", 
+                    severity="error"
+                )
+                print(f"     [ERROR] Replicate API failed!")
+                print(f"     Error details: {type(e).__name__}: {str(e)}")
+                import traceback
+                print(f"     Traceback: {traceback.format_exc()}")
+                print("     Falling back to DALL-E or Placeholders...")
+                # Fallback to DALL-E if key exists
+                if self.api_key:
+                    self.service = "dalle"
+
         if self.api_key and self.service == "dalle":
             try:
                 return self._call_dalle_api(
@@ -107,13 +200,13 @@ class ImageAgent:
                 print("     Falling back to placeholder image...")
 
         # 3. Fallback: Generate placeholder image (using Pillow)
-        image_path = self._generate_placeholder_image(
+        image_path, image_id = self._generate_placeholder_image(
             scene_id=scene_id,
             prompt=prompt,
             output_path=output_path
         )
         print(f"     Placeholder saved: {image_path}")
-        return image_path
+        return (image_path, image_id)
 
     def _sanitize_prompt(self, original_prompt: str, error_msg: str) -> str:
         """
@@ -150,13 +243,122 @@ class ImageAgent:
         except Exception:
             return "A mysterious and dramatic atmosphere, cinematic lighting"
 
+    def _call_nanobana_api(
+        self,
+        prompt: str,
+        style: str,
+        output_path: str,
+        seed: Optional[int] = None,
+        character_reference_path: Optional[str] = None
+    ) -> tuple:
+        """
+        Call Google Gemini 2.5 Flash Image API for image generation.
+
+        Args:
+            prompt: Image generation prompt
+            style: Visual style
+            output_path: Path to save the generated image
+            seed: Visual seed for consistency
+            character_reference_path: Master character image path for reference
+
+        Returns:
+            Tuple of (image_path, image_id)
+        """
+        try:
+            import requests
+            import json
+            import base64
+
+            # Enhance prompt for better quality
+            full_prompt = f"{style} style: {prompt}"
+
+            print(f"     Calling Gemini 2.5 Flash Image API...")
+
+            # Google Gemini API endpoint
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={self.nanobanana_token}"
+
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            # Build contents array with text prompt
+            parts = [{
+                "text": f"Generate a high-quality image: {full_prompt}. Aspect ratio 16:9, cinematic, professional photography."
+            }]
+
+            # v2.0: Add character reference image if provided
+            if character_reference_path and os.path.exists(character_reference_path):
+                print(f"     Adding character reference: {character_reference_path}")
+                with open(character_reference_path, "rb") as ref_file:
+                    ref_image_data = base64.b64encode(ref_file.read()).decode('utf-8')
+                    parts.insert(0, {
+                        "inline_data": {
+                            "mime_type": "image/png",
+                            "data": ref_image_data
+                        }
+                    })
+                parts[1]["text"] = f"Using this character as reference, generate: {full_prompt}. Maintain character consistency, aspect ratio 16:9, cinematic, professional photography."
+
+            payload = {
+                "contents": [{
+                    "parts": parts
+                }],
+                "generationConfig": {
+                    "response_modalities": ["image"]
+                }
+            }
+
+            # Note: Gemini Flash Image doesn't support seed parameter
+            if seed is not None:
+                print(f"     [Warning] Seed parameter not supported in Gemini Flash Image")
+
+            response = requests.post(
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=120
+            )
+
+            if response.status_code != 200:
+                raise RuntimeError(f"Gemini API error: {response.status_code} - {response.text}")
+
+            result = response.json()
+
+            # Extract image from response
+            if "candidates" in result and len(result["candidates"]) > 0:
+                candidate = result["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    for part in candidate["content"]["parts"]:
+                        if "inline_data" in part:
+                            # Image is base64 encoded in inline_data
+                            image_data = base64.b64decode(part["inline_data"]["data"])
+
+                            with open(output_path, "wb") as f:
+                                f.write(image_data)
+
+                            print(f"     Image saved: {output_path}")
+                            return (output_path, None)  # Gemini doesn't return image ID
+
+            raise RuntimeError("No image data found in Gemini API response")
+
+        except ImportError:
+            raise RuntimeError("requests library not installed")
+        except Exception as e:
+            print(f"     Gemini API error: {e}")
+            raise
+
     def _call_dalle_api(
         self,
         prompt: str,
         style: str,
         output_path: str
-    ) -> str:
-        """Call OpenAI DALL-E API with timeout."""
+    ) -> tuple:
+        """
+        Call OpenAI DALL-E API with timeout.
+
+        Returns:
+            Tuple of (image_path, image_id)
+        """
         try:
             from openai import OpenAI
             import requests
@@ -183,7 +385,7 @@ class ImageAgent:
                 with open(output_path, "wb") as f:
                     f.write(img_response.content)
                 print(f"     Image saved: {output_path}")
-                return output_path
+                return (output_path, None)  # DALL-E doesn't provide stable image IDs
             else:
                 raise RuntimeError(f"Failed to download image: {img_response.status_code}")
 
@@ -193,17 +395,158 @@ class ImageAgent:
             print(f"     DALL-E API error: {e}")
             raise
 
+    def _call_replicate_api(
+        self,
+        prompt: str,
+        style: str,
+        aspect_ratio: str,
+        output_path: str,
+        seed: Optional[int] = None,
+        character_reference_path: Optional[str] = None
+    ) -> tuple:
+        """
+        Call Replicate API (Flux Schnell - Fast & High Quality).
+        Using Flux Schnell for optimal quality and speed balance.
+
+        Args:
+            character_reference_path: Path to master character image for consistency
+
+        Returns:
+            Tuple of (image_path, image_id)
+        """
+        try:
+            import replicate
+            import requests
+
+            # Enhanced prompt for better quality
+            # Remove generic qualifiers and focus on visual details
+            full_prompt = self._enhance_flux_prompt(f"{style} style: {prompt}")
+
+            print(f"     Calling Replicate (Gemini 2.5 Flash Image) API...")
+
+            # Use Gemini 2.5 Flash Image (nano banana)
+            model = "google/gemini-2.5-flash-image"
+
+            # v2.1: Advanced Style & Negative Prompt Logic
+            # "Realistic" specifically requested to BAN anime/cartoon
+            strong_negative_prompt = ""
+            if "real" in style.lower() or "cinematic" in style.lower() or "photo" in style.lower():
+                strong_negative_prompt = "anime, cartoon, illustration, drawing, painting, sketch, 3d render, plastic, fake, deformed, disfigured"
+                print(f"     [Style Enforcement] Enforcing REALISTIC style. Negative: {strong_negative_prompt}")
+
+            # Combine user negative prompt with system negative prompt
+            final_negative_prompt = negative_prompt or ""
+            if strong_negative_prompt:
+                final_negative_prompt = f"{final_negative_prompt}, {strong_negative_prompt}".strip(", ")
+
+            # v2.1: Force character description to be part of the prompt if tokens exist
+            # This ensures character consistency better than just 'character_tokens' list
+            if character_tokens:
+                # Assuming character_tokens is a list of descriptions like ["A young man with glasses", "A woman in a red coat"]
+                # We prepend them to make them the MAIN SUBJECT
+                char_desc = " ".join(character_tokens)
+                full_prompt = f"{char_desc}. {full_prompt}"
+                print(f"     [Character Injection] Prepending character info: {char_desc}")
+
+            input_params = {
+                "prompt": full_prompt,
+                "aspect_ratio": "16:9",
+                "output_format": "png",
+                # Flux/Replicate doesn't always support 'negative_prompt' directly in all models, 
+                # but 'google/gemini-2.5-flash-image' uses prompt-based negation or specific fields.
+                # Only Flux-dev/pro supports 'negative_prompt' officially.
+                # For safety, we Append "NO [term]" to prompt if model doesn't support negative_prompt arg,
+                # BUT this specific model (Flux-Schnell) might not.
+                # Let's try passing it if the schema allows, otherwise append to prompt.
+            }
+
+            # NOTE: Flux on Replicate usually takes 'prompt' only. 'negative_prompt' is for some implementations.
+            # We will append exclusionary terms to prompt for maximum compatibility: "..., avoid anime, avoid cartoon"
+            if strong_negative_prompt:
+                 input_params["prompt"] += f" --no {strong_negative_prompt}" # Common syntax
+            
+            # v2.0: Add seed for character consistency
+            if seed is not None:
+                input_params["seed"] = seed
+                print(f"     Using seed: {seed} for consistency")
+
+            # v2.0: Add character reference image for consistency
+            if character_reference_path and os.path.exists(character_reference_path):
+                print(f"     Adding character reference: {character_reference_path}")
+                with open(character_reference_path, "rb") as ref_image:
+                    input_params["image_input"] = [ref_image]
+                    output = replicate.run(model, input=input_params)
+            else:
+                output = replicate.run(model, input=input_params)
+
+            # Handle different output formats
+            if isinstance(output, str):
+                image_url = output
+            elif isinstance(output, list) and len(output) > 0:
+                image_url = output[0]
+            elif hasattr(output, 'url'):
+                # FileOutput object from Replicate
+                image_url = output.url
+            else:
+                # Try to convert to string
+                image_url = str(output)
+
+            print(f"     Downloading image from Replicate...")
+            print(f"     Image URL: {image_url[:60]}...")
+            img_response = requests.get(image_url, timeout=30)
+
+            if img_response.status_code == 200:
+                with open(output_path, "wb") as f:
+                    f.write(img_response.content)
+                print(f"     Image saved: {output_path}")
+                return (output_path, None)  # Replicate doesn't provide stable image IDs
+            else:
+                raise RuntimeError(f"Failed to download image: {img_response.status_code}")
+
+        except ImportError:
+            raise RuntimeError("replicate library not installed")
+        except Exception as e:
+            print(f"     Replicate API error: {e}")
+            raise
+
+    def _enhance_flux_prompt(self, prompt: str) -> str:
+        """
+        Enhance prompt for Flux model quality.
+
+        Args:
+            prompt: Original prompt
+
+        Returns:
+            Enhanced prompt with quality keywords
+        """
+        # Add quality enhancers for Flux
+        quality_keywords = (
+            "masterpiece, professional artwork, high detail, sharp focus, "
+            "cinematic lighting, vibrant colors, intricate details"
+        )
+
+        # Avoid redundancy - check if quality keywords already present
+        if "masterpiece" not in prompt.lower():
+            return f"{prompt}, {quality_keywords}"
+        return prompt
+
     def _generate_placeholder_image(
         self,
         scene_id: int,
         prompt: str,
         output_path: str
-    ) -> str:
+    ) -> tuple:
         """
         Generate a placeholder image using Pillow (No external dependency).
+
+        Returns:
+            Tuple of (image_path, image_id)
         """
+        # CRITICAL: Create directories first!
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
         width, height = 1920, 1080
-        
+
         # Determine background color based on scene_id
         colors = [
             (26, 26, 46),   # Dark blue
@@ -214,10 +557,10 @@ class ImageAgent:
             (61, 0, 0),     # Red
         ]
         bg_color = colors[scene_id % len(colors)]
-        
+
         img = Image.new('RGB', (width, height), color=bg_color)
         draw = ImageDraw.Draw(img)
-        
+
         # Try to load a font, fallback to default
         try:
             # Windows font path usually
@@ -229,22 +572,18 @@ class ImageAgent:
 
         # Draw Scene ID
         title_text = f"Scene {scene_id}"
-        # For default font, getsize might be needed in older Pillow results, but textbbox is newer.
-        # Simplification for robustness: approximate centering or just top-left if needed.
-        # But let's try standard anchor positioning if available or calculate.
-        
         draw.text((width/2, height/2 - 100), title_text, font=font_title, fill="white", anchor="mm")
 
         # Draw Wrapped Prompt
         wrapper = textwrap.TextWrapper(width=60)
         word_list = wrapper.wrap(text=prompt)
         prompt_text = "\n".join(word_list[:5])  # Limit lines
-        
+
         draw.text((width/2, height/2 + 50), prompt_text, font=font_text, fill="lightgray", anchor="mm", align="center")
-        
+
         # Save
         img.save(output_path)
-        return output_path
+        return (output_path, None)  # Placeholder images don't have IDs
 
     def generate_thumbnail(
         self,

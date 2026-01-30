@@ -18,7 +18,7 @@ from agents.video_agent import VideoAgent
 from agents.tts_agent import TTSAgent
 from agents.music_agent import MusicAgent
 from agents.composer_agent import ComposerAgent
-from schemas import FeatureFlags, Scene, SceneEntities, ProjectRequest
+from schemas import FeatureFlags, Scene, SceneEntities, ProjectRequest, SceneStatus, CameraWork
 
 
 class SceneOrchestrator:
@@ -45,15 +45,22 @@ class SceneOrchestrator:
 
         # LLM 클라이언트 (맥락 추출용)
         self._llm_client = None
+        self.google_api_key = os.getenv("GOOGLE_API_KEY")
 
     @property
     def llm_client(self):
-        """Lazy initialization of LLM client."""
+        """Lazy initialization of LLM client (Gemini 3 Pro)."""
         if self._llm_client is None:
             try:
-                from openai import OpenAI
-                self._llm_client = OpenAI()
-            except Exception:
+                import google.generativeai as genai
+                if self.google_api_key:
+                    genai.configure(api_key=self.google_api_key)
+                    self._llm_client = genai.GenerativeModel(model_name="gemini-3.0-pro")
+                else:
+                    print("[WARNING] GOOGLE_API_KEY not set. LLM features disabled.")
+                    self._llm_client = None
+            except Exception as e:
+                print(f"[WARNING] Failed to initialize Gemini client: {e}")
                 self._llm_client = None
         return self._llm_client
 
@@ -112,17 +119,18 @@ JSON 형식으로 출력:
 """
 
         try:
-            response = self.llm_client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "JSON만 출력하세요. 다른 설명 없이."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=300
+            system_prompt = "JSON만 출력하세요. 다른 설명 없이."
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+
+            response = self.llm_client.generate_content(
+                full_prompt,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": 300
+                }
             )
 
-            content = response.choices[0].message.content.strip()
+            content = response.text.strip()
             # JSON 파싱
             if content.startswith("```"):
                 content = content.split("```")[1]
@@ -206,7 +214,15 @@ JSON 형식으로 출력:
         Returns:
             영상 생성 프롬프트
         """
-        style = style or "cinematic, high contrast, webtoon-like"
+        if style == "webtoon":
+            # Webtoon Style (Primary target)
+            style_prompt = "Premium Webtoon Style, manhwa aesthetics, 2D cel shaded, vibrant colors, clean lines, high quality anime art"
+        elif style == "realistic":
+            style_prompt = "Cinematic Lighting, 4k, detailed texture, photorealistic, photography"
+        else:
+            # Fallback but biased towards illustration for safety
+            style_prompt = f"{style}, cinematic animation, high contrast"
+
         inherited_str = ", ".join(inherited) if inherited else "none"
 
         # 엔티티를 문자열로 변환
@@ -245,11 +261,18 @@ JSON 형식으로 출력:
         Returns:
             네거티브 프롬프트
         """
-        return (
+        base_negative = (
             "blurry, low quality, distorted, disfigured, "
             "watermark, text, logo, bad anatomy, extra limbs, "
-            "inconsistent characters, different faces"
+            "mutant, deformed, ugly, missing fingers, extra fingers, "
+            "inconsistent characters, changing clothes, different face, morphing features, cropped head"
         )
+        
+        if style == "webtoon":
+            # Webtoon specific negatives
+            return f"{base_negative}, photorealistic, 3d render, uncanny valley, realistic texture"
+        else:
+            return base_negative
 
     # =========================================================================
     # 메인 처리 로직
@@ -287,10 +310,40 @@ JSON 형식으로 출력:
         scenes = story_data["scenes"]
         total_scenes = len(scenes)
         style = story_data.get("style", request.style_preset if request else "cinematic")
+        
+        # TTS Voice 설정
+        if request and hasattr(request, 'voice_id'):
+            self.tts_agent.voice = request.voice_id
+            print(f"TTS Voice set to: {self.tts_agent.voice}")
+
+        # v2.0: 글로벌 스타일 가이드 추출
+        global_style = story_data.get("global_style")
+        character_sheet = story_data.get("character_sheet", {})
 
         print(f"Total scenes: {total_scenes}")
         print(f"Target duration: {story_data['total_duration_sec']} seconds")
-        print(f"Context carry-over: {'ON' if self.feature_flags.context_carry_over else 'OFF'}\n")
+        print(f"Target duration: {story_data['total_duration_sec']} seconds")
+        print(f"Context carry-over: {'ON' if self.feature_flags.context_carry_over else 'OFF'}")
+        
+        # 프로젝트 베이스 디렉토리 설정 (final_video.mp4 경로 기반)
+        # output_path: outputs/<project_id>/final_video.mp4
+        project_dir = os.path.dirname(output_path)
+        print(f"Project Directory: {project_dir}")
+
+        # v2.0: 글로벌 스타일 정보 출력
+        if global_style:
+            print(f"\n[Global Style Guide]")
+            print(f"  Art Style: {global_style.get('art_style', 'N/A')}")
+            print(f"  Color Palette: {global_style.get('color_palette', 'N/A')}")
+            print(f"  Visual Seed: {global_style.get('visual_seed', 'N/A')}")
+            print(f"  Aspect Ratio: {global_style.get('aspect_ratio', '16:9')}")
+
+        if character_sheet:
+            print(f"\n[Character Sheet]")
+            for token, char_data in character_sheet.items():
+                print(f"  {token}: {char_data.get('name')} (seed: {char_data.get('visual_seed')})")
+
+        print()
 
         # Scene 처리
         video_clips = []
@@ -313,7 +366,33 @@ JSON 형식으로 출력:
                 visual_description=scene_data.get("visual_description"),
                 mood=scene_data.get("mood"),
                 duration_sec=scene_data.get("duration_sec", 5),
+                # v2.0 필드
+                narrative=scene_data.get("narrative"),
+                image_prompt=scene_data.get("image_prompt"),
+                characters_in_scene=scene_data.get("characters_in_scene", []),
             )
+
+            # v2.0: Character reference 로그 및 시드 추출
+            scene_seed = None
+            if scene.image_prompt:
+                print(f"  [v2.0] Using image_prompt (character reference enabled)")
+            if scene.characters_in_scene:
+                print(f"  [v2.0] Characters: {', '.join(scene.characters_in_scene)}")
+
+                # 첫 번째 캐릭터의 visual_seed 사용
+                if character_sheet and scene.characters_in_scene:
+                    first_char_token = scene.characters_in_scene[0]
+                    if first_char_token in character_sheet:
+                        scene_seed = character_sheet[first_char_token].get("visual_seed")
+                        print(f"  [v2.0] Using visual_seed: {scene_seed}")
+
+            # v2.0: Scene에 메타데이터 저장 (video_agent가 활용)
+            if not hasattr(scene, '_seed'):
+                scene._seed = scene_seed
+            if not hasattr(scene, '_global_style'):
+                scene._global_style = global_style
+            if not hasattr(scene, '_character_sheet'):
+                scene._character_sheet = character_sheet
 
             # P1: Context Carry-over
             if self.feature_flags.context_carry_over and prev_scene:
@@ -330,39 +409,79 @@ JSON 형식으로 출력:
             )
 
             # 프롬프트 생성
-            scene.prompt = self.build_prompt(
-                sentence=scene.sentence,
-                inherited=scene.inherited_keywords,
-                entities=scene.entities,
-                style=style
-            )
+            # v2.0: image_prompt가 있으면 우선 사용, 없으면 기존 방식
+            if scene.image_prompt:
+                # image_prompt에 global_style 정보 추가
+                if global_style:
+                    style_suffix = f", {global_style.get('art_style', '')}, {global_style.get('color_palette', '')}"
+                    scene.prompt = scene.image_prompt + style_suffix
+                else:
+                    scene.prompt = scene.image_prompt
+                print(f"  [v2.0] Using pre-defined image_prompt")
+            else:
+                # v1.0 방식: build_prompt로 생성
+                scene.prompt = self.build_prompt(
+                    sentence=scene.sentence,
+                    inherited=scene.inherited_keywords,
+                    entities=scene.entities,
+                    style=style
+                )
+
             scene.negative_prompt = self.build_negative_prompt(style)
 
-            # 영상 생성
-            video_path = self.video_agent.generate_video(
-                scene_id=scene.scene_id,
-                visual_description=scene.visual_description or scene.prompt,
-                style=style,
-                mood=scene.mood,
-                duration_sec=scene.duration_sec,
-                scene=scene
-            )
-            video_clips.append(video_path)
-            scene.assets.video_path = video_path
+            # 카메라 워크 할당 (다양화)
+            camera_works = list(CameraWork)
+            scene.camera_work = camera_works[i % len(camera_works)]
 
-            # 내레이션 생성
-            audio_path = self.tts_agent.generate_speech(
-                scene_id=scene.scene_id,
-                narration=scene.narration,
-                emotion=scene.mood
-            )
-            narration_clips.append(audio_path)
-            scene.assets.narration_path = audio_path
+            try:
+                # Phase 1: TTS 먼저 생성하여 실제 duration 확보
+                scene.status = SceneStatus.GENERATING_TTS
+                tts_result = self.tts_agent.generate_speech(
+                    scene_id=scene.scene_id,
+                    narration=scene.narration,
+                    emotion=scene.mood
+                )
+                scene.assets.narration_path = tts_result.audio_path
+                scene.tts_duration_sec = tts_result.duration_sec
+                # narration_clips.append(tts_result.audio_path) -> REMOVED: 나중에 한꺼번에 수집
+
+                # TTS 기반으로 duration 업데이트 (최소 3초, 최대 15초)
+                if tts_result.duration_sec > 0:
+                    scene.duration_sec = max(3, min(15, int(tts_result.duration_sec) + 1))
+                    print(f"     [Duration] Updated to {scene.duration_sec}s (TTS: {tts_result.duration_sec:.2f}s)")
+
+                # 영상 생성 (업데이트된 duration 사용)
+                scene.status = SceneStatus.GENERATING_VIDEO
+                
+                # 프로젝트 구조에 맞는 비디오/이미지 출력 경로 설정
+                video_output_dir = f"{os.path.dirname(output_path)}/media/video"
+                
+                video_path = self.video_agent.generate_video(
+                    scene_id=scene.scene_id,
+                    visual_description=scene.visual_description or scene.prompt,
+                    style=style,
+                    mood=scene.mood,
+                    duration_sec=scene.duration_sec,
+                    scene=scene,
+                    output_dir=video_output_dir
+                )
+                # video_clips.append(video_path) -> REMOVED: 나중에 한꺼번에 수집
+                scene.assets.video_path = video_path
+
+                # 완료
+                scene.status = SceneStatus.COMPLETED
+
+            except Exception as e:
+                scene.status = SceneStatus.FAILED
+                scene.error_message = str(e)
+                scene.retry_count += 1
+                print(f"     [ERROR] Scene {i} failed: {e}")
+                # 계속 진행 (실패한 씬은 나중에 재생성 가능)
 
             processed_scenes.append(scene)
             prev_scene = scene
 
-            print(f"Scene {i} complete\n")
+            print(f"Scene {i} complete (status: {scene.status})\n")
 
             if progress_callback:
                 try:
@@ -377,6 +496,24 @@ JSON 형식으로 출력:
                         progress_callback(scene, i)
                 except Exception as cb_error:
                     print(f"  [WARNING] Progress callback failed: {cb_error}")
+
+        # =================================================================
+        # ROBUSTNESS FIX: Collect clips only from successfully completed scenes
+        # =================================================================
+        print(f"\n[Composer] Collecting clips from completed scenes...")
+        video_clips = []
+        narration_clips = []
+        
+        for s in processed_scenes:
+            if s.status == SceneStatus.COMPLETED and s.assets.video_path and s.assets.narration_path:
+                video_clips.append(s.assets.video_path)
+                narration_clips.append(s.assets.narration_path)
+                print(f"  + Added Scene {s.scene_id}")
+            else:
+                print(f"  - Skipped Scene {s.scene_id} (Status: {s.status})")
+                
+        if not video_clips:
+            raise RuntimeError("No scenes were successfully generated. Cannot compose video.")
 
         # 배경 음악 선택
         print(f"{'─'*60}")

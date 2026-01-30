@@ -42,7 +42,7 @@ class FFmpegComposer:
         duration_sec: float,
         out_path: str,
         effect_type: str = "zoom_in",
-        zoom_range: Tuple[float, float] = (1.0, 1.3)
+        zoom_range: Tuple[float, float] = (1.0, 1.1)  # Minimal zoom for calm vibe
     ) -> str:
         """
         이미지에 Ken Burns (줌/팬) 효과를 적용하여 영상 클립 생성.
@@ -149,12 +149,13 @@ class FFmpegComposer:
 
         # ASS 스타일 문자열 생성
         force_style = (
-            f"FontName={style.get('font_name', 'Arial')},"
-            f"FontSize={style.get('font_size', 24)},"
+            f"FontName={style.get('font_name', 'Malgun Gothic')},"  # Default to Malgun Gothic (Safe Korean Font)
+            f"FontSize={style.get('font_size', 50)},  # Increased for readability"
             f"PrimaryColour={style.get('primary_color', '&HFFFFFF')},"
             f"OutlineColour={style.get('outline_color', '&H000000')},"
             f"Outline={style.get('outline_width', 2)},"
-            f"MarginV={style.get('margin_v', 50)}"
+            f"MarginV={style.get('margin_v', 50)},"
+            f"Bold=1"  # Force Bold for visibility
         )
 
         # Windows 경로 처리 (백슬래시 이스케이프)

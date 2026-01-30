@@ -8,7 +8,11 @@
       "Bash(python:*)",
       "Bash(where:*)",
       "Bash(winget:*)",
-      "Bash(wrangler r2 bucket:*)"
+      "Bash(wrangler r2 bucket:*)",
+      "Bash(dir)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }
