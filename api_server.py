@@ -871,42 +871,28 @@ async def get_voice_sample(voice_id: str):
                 try:
                     print(f"[DEBUG] Processing sample for voice_id: '{voice_id}'")
                     
-                    # 1. Try ElevenLabs (Priority)
-                    if hasattr(agent, '_call_elevenlabs_api') and agent.elevenlabs_key:
+                    # 0. Try VOLI (New Primary)
+                    if hasattr(agent, '_call_voli_api') and agent.voli_key:
+                        target_voice = agent.voli_voice_map.get(voice_id, agent.voli_voice_map["neutral"])
+                        print(f"[API] Generating VOLI sample with voice: {target_voice} (mapped from {voice_id})")
+                        agent._call_voli_api(text, target_voice, 0, file_path)
+                        return
+
+                    # 1. Try ElevenLabs
+                    elif hasattr(agent, '_call_elevenlabs_api') and agent.elevenlabs_key:
                         # OpenAI voices -> ElevenLabs IDs mapping
                         voice_map = {
-                            # --- TOP 3 SELECTED VOICES (User Requested) ---
-                            # 1. Brian: Deep, Resonant, Professional Male (Good for narration)
+                            # --- TOP 3 SELECTED VOICES ---
                             "voice_brian": "nPczCjzI2devNBz1zQrb",
-                            
-                            # 2. Sarah: Soft, Mature, Reassuring Female (Good for emotional/story)
                             "voice_sarah": "EXAVITQu4vr4xnSDxMaL",
-                            
-                            # 3. Laura: Bright, Energetic, Young Female (Good for lively content)
                             "voice_laura": "FGY2WhTYpPnrIDTdsKH5",
-
-                            # --- Legacy Fallbacks (Hidden from UI but kept for compatibility) ---
-                            "hyuk": "IKne3meq5aSn9XLyUdCD",       # Charlie
-                            "anna_kim": "EXAVITQu4vr4xnSDxMaL",   # Sarah
-                            "hyunbin": "nPczCjzI2devNBz1zQrb",    # Brian
-                            "selly_han": "Xb7hH8MSUJpSbSDYk0k2",  # Alice
-                            "jjeong": "cgSgspJ2msm6clMCkdW9",     # Jessica
-                            "yuna": "FGY2WhTYpPnrIDTdsKH5",       # Laura
-                            "min_joon": "onwK4e9ZLuTAKqWW03F9",   # Daniel
-                            "jiyoung": "hpp4J3VqNfWAUOO0d1Us",    # Bella
-                            "male_antoni": "ErXwobaYiN019PkySvjV",
-                            "male_adam": "pNInz6obpgDQGcFmaJgB",
-                            "male_sam": "yoZ06aMxZJJ28mfd3POQ",
-                            "male_clyde": "2EiwWnXFnvU5JabPnv8n",
-                            "onyx": "IKne3meq5aSn9XLyUdCD",
-                            "alloy": "Xb7hH8MSUJpSbSDYk0k2",
-                            "echo": "onwK4e9ZLuTAKqWW03F9",
-                            "fable": "pNInz6obpgDQGcFmaJgB",
-                            "nova": "FGY2WhTYpPnrIDTdsKH5",
-                            "shimmer": "EXAVITQu4vr4xnSDxMaL"
+                            
+                            # Fallbacks
+                            "onyx": "nPczCjzI2devNBz1zQrb",
+                            "alloy": "EXAVITQu4vr4xnSDxMaL",
                         }
                         
-                        # Use mapped ID or fallback to Adam
+                        # Use mapped ID or fallback
                         target_voice = voice_map.get(voice_id, "pNInz6obpgDQGcFmaJgB")
                         print(f"[API] Generating ElevenLabs sample with voice: {target_voice} (mapped from {voice_id})")
                         agent._call_elevenlabs_api(text, target_voice, file_path)

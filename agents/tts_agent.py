@@ -37,13 +37,14 @@ class TTSAgent:
         self.voice = voice
         
         # VOLI Voice ID Mapping (Verified IDs from User)
+        # 0_M-ya_3_high는 존재하지 않아 우선 0_F-ya_3_high로 통일하여 에러 방지
         self.voli_voice_map = {
-            "neutral": "0_F-ya_3_high", # 기본 (여성)
+            "neutral": "0_F-ya_3_high", 
             "female": "0_F-ya_3_high",
-            "male": "0_M-ya_3_high",
-            "voice_brian": "0_M-ya_3_high", # Brian (남성)
-            "voice_sarah": "0_F-ya_3_high", # Sarah (여성)
-            "voice_laura": "0_F-ya_3_high", # Laura (여성)
+            "male": "0_F-ya_3_high",
+            "voice_brian": "0_F-ya_3_high", 
+            "voice_sarah": "0_F-ya_3_high", 
+            "voice_laura": "0_F-ya_3_high", 
         }
 
         # TTS Priority 로그
