@@ -122,6 +122,13 @@ REQUIREMENTS:
 - "image_prompt": Visual description for AI Image Generator (English). {style} style.
 - "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
 
+[STRICT] CHARACTER CONSISTENCY RULE:
+- Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
+- DO NOT describe their physical appearance (age, hair, clothes) in "image_prompt". This is already handled by the system.
+- Focus ONLY on the scene's action, lighting, and composition.
+- Correct example: "STORYCUT_HERO_A is running through the rain, city lights background, cinematic lighting."
+- Wrong example: "A young woman with red hair is running..." (DO NOT DO THIS)
+
 OUTPUT FORMAT (JSON):
 {{
   "title": "{structure_data.get('project_title', 'Untitled')}",
@@ -132,13 +139,13 @@ OUTPUT FORMAT (JSON):
   "scenes": [
     {{
       "scene_id": 1,
-      "narrative": "주인공이 카페 문을 열고 들어온다.",
-      "image_prompt": "A man opening a cafe door, webtoon style, high contrast, cinematic lighting. (Include character appearance)",
+      "narrative": "STORYCUT_HERO_A가 카페 문을 열고 들어온다.",
+      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style, high contrast, cinematic lighting.",
       "tts_script": "드디어 이곳인가...",
       "duration_sec": 5,
       "camera_work": "Close-up",
       "mood": "tense",
-      "characters_in_scene": ["Name"]
+      "characters_in_scene": ["STORYCUT_HERO_A"]
     }}
   ],
   "youtube_opt": {{
