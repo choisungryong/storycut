@@ -405,8 +405,8 @@ class ImageAgent:
         character_reference_path: Optional[str] = None
     ) -> tuple:
         """
-        Call Replicate API (Flux Schnell - Fast & High Quality).
-        Using Flux Schnell for optimal quality and speed balance.
+        Call Replicate API (Gemini 2.5 Flash Image).
+        Using Gemini for high speed and good quality in various styles.
 
         Args:
             character_reference_path: Path to master character image for consistency

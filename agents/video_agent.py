@@ -443,11 +443,17 @@ class VideoAgent:
 
         # Step 2: Apply Ken Burns effect if enabled
         if self.feature_flags.ffmpeg_kenburns:
+            # v2.0: Extract camera_work
+            camera_work = None
+            if scene and hasattr(scene, 'camera_work') and scene.camera_work:
+                camera_work = str(scene.camera_work.value) if hasattr(scene.camera_work, 'value') else str(scene.camera_work)
+
             video_path = self._apply_kenburns_effect(
                 image_path=image_path,
                 duration_sec=duration_sec,
                 output_path=output_path,
-                scene_id=scene_id
+                scene_id=scene_id,
+                camera_work=camera_work
             )
             return video_path, "image+kenburns"
         else:
@@ -464,7 +470,8 @@ class VideoAgent:
         image_path: str,
         duration_sec: int,
         output_path: str,
-        scene_id: int = 1
+        scene_id: int = 1,
+        camera_work: str = None
     ) -> str:
         """
         Apply Ken Burns (zoom/pan) effect to an image.
@@ -475,7 +482,8 @@ class VideoAgent:
             image_path: Input image path
             duration_sec: Duration in seconds
             output_path: Output video path
-            scene_id: Scene ID for effect variation
+            scene_id: Scene ID for effect variation (fallback)
+            camera_work: Specific camera movement (e.g., "Zoom In", "Pan Right")
 
         Returns:
             Path to generated video
@@ -486,21 +494,42 @@ class VideoAgent:
         fps = 30
         total_frames = duration_sec * fps
 
-        # Vary effect based on scene_id for visual diversity
-        effects = [
-            # Zoom in
-            f"zoompan=z='min(zoom+0.001,1.3)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
-            # Zoom out
-            f"zoompan=z='if(lte(zoom,1.0),1.3,max(1.001,zoom-0.001))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
-            # Pan left to right
-            f"zoompan=z='1.1':x='if(lte(on,1),0,min(iw/zoom-iw,x+1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
-            # Pan right to left
-            f"zoompan=z='1.1':x='if(lte(on,1),iw/zoom-iw,max(0,x-1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
-            # Diagonal zoom
-            f"zoompan=z='min(zoom+0.001,1.25)':x='if(lte(on,1),0,min(iw/zoom-iw,x+0.5))':y='if(lte(on,1),0,min(ih/zoom-ih,y+0.3))':d={total_frames}:s=1920x1080:fps={fps}",
-        ]
-
-        effect = effects[scene_id % len(effects)]
+        # Effect definitions
+        # Format: (zoom_expr, x_expr, y_expr)
+        effect_map = {
+            "zoom_in": f"zoompan=z='min(zoom+0.001,1.3)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
+            "zoom_out": f"zoompan=z='if(lte(zoom,1.0),1.3,max(1.001,zoom-0.001))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
+            "pan_left": f"zoompan=z='1.1':x='if(lte(on,1),0,min(iw/zoom-iw,x+1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}", # Pan Right (move view left?) -> view moves right means image moves left. Usually 'pan_left' means camera moves left (image moves right).
+            "pan_right": f"zoompan=z='1.1':x='if(lte(on,1),iw/zoom-iw,max(0,x-1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
+            "pan_up": f"zoompan=z='1.1':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),0,min(ih/zoom-ih,y+0.6))':d={total_frames}:s=1920x1080:fps={fps}",
+            "pan_down": f"zoompan=z='1.1':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),ih/zoom-ih,max(0,y-0.6))':d={total_frames}:s=1920x1080:fps={fps}",
+            "static": f"zoompan=z='1.0':d={total_frames}:s=1920x1080:fps={fps}" # Minimal storage, acts as static
+        }
+        
+        selected_effect = None
+        
+        # 1. Use explicit camera_work if valid
+        if camera_work:
+            # Normalize string (e.g., "Zoom In" -> "zoom_in")
+            key = camera_work.lower().replace(" ", "_").replace("-", "_")
+            
+            # Map common variations
+            if "close_up" in key or "zoom_in" in key: key = "zoom_in"
+            elif "full_shot" in key or "static" in key: key = "static"
+            elif "drone" in key or "pull_back" in key: key = "zoom_out"
+            
+            if key in effect_map:
+                selected_effect = effect_map[key]
+                print(f"     [Camera] Applying explicit effect: {camera_work} -> {key}")
+        
+        # 2. Fallback to Round Robin if no effect selected
+        if not selected_effect:
+            # Vary effect based on scene_id for visual diversity
+            # Order: Zoom In, Zoom Out, Pan Left, Pan Right, Zoom In (Diagonal-ish substitute)
+            fallback_keys = ["zoom_in", "zoom_out", "pan_left", "pan_right", "zoom_in"] 
+            key = fallback_keys[scene_id % len(fallback_keys)]
+            selected_effect = effect_map[key]
+            # print(f"     [Camera] Applying default effect: {key}")
 
         cmd = [
             "ffmpeg",
@@ -508,7 +537,7 @@ class VideoAgent:
             "-loop", "1",
             "-framerate", str(fps),
             "-i", image_path,
-            "-vf", effect,
+            "-vf", selected_effect,
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-t", str(duration_sec),

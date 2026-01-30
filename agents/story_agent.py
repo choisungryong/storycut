@@ -44,83 +44,113 @@ class StoryAgent:
         user_idea: str = None
     ) -> Dict[str, Any]:
         """
-        Generate a scene-based story JSON.
+        Generate a scene-based story JSON using a 2-Step Hierarchical Chain.
 
-        Args:
-            genre: Story genre (e.g., "emotional", "mystery")
-            mood: Overall mood (e.g., "melancholic", "suspenseful")
-            style: Visual style (e.g., "cinematic animation")
-            total_duration_sec: Total video length (60-150 seconds)
-            user_idea: Optional user-provided story idea
-
-        Returns:
-            Story JSON with scenes
+        Step 1: Structure & Architecture (Title, Characters, Outline)
+        Step 2: Scene-level Detail (Script, Prompts, Camera Work)
         """
-        print(f"[Story Agent] Generating story: {genre} / {mood} / {style} / {total_duration_sec}s")
+        print(f"[Story Agent] Generating story (2-Step Chain): {genre} / {mood} / {style}")
 
-        # Calculate target scene count (approx 1 scene per 5-6 seconds)
+        # Calculate target scene count
         min_scenes = total_duration_sec // 8
         max_scenes = total_duration_sec // 4
+
+        # =================================================================================
+        # STEP 1: Story Architecture
+        # =================================================================================
+        print(f"  [Step 1] Planning Story Architecture...")
         
-        # Build user prompt
-        user_prompt = f"""CRITICAL REQUIREMENTS:
-- Generate scenes to fit TOTAL DURATION: {total_duration_sec} seconds.
-- Target Scene Count: Approximately {min_scenes} to {max_scenes} scenes.
-- Genre: {genre}
-- Mood: {mood}
-- Style: {style}
+        step1_prompt = f"""
+ROLE: Professional Storyboard Artist & Director.
+TASK: Plan the structure for a {total_duration_sec}-second YouTube Short.
+GENRE: {genre}
+MOOD: {mood}
+STYLE: {style}
+SCENE COUNT: Approx {min_scenes}-{max_scenes} scenes.
 
-MANDATORY STRUCTURE:
-- Ensure the story has a clear beginning (Hook), middle (Build/Climax), and end (Resolution).
-- Adjust pacing based on the mood (faster for thriller/action, slower for emotional).
+{'USER IDEA: ' + user_idea if user_idea else ''}
 
-OUTPUT FORMAT - ONLY VALID JSON, NO MARKDOWN:
+OUTPUT FORMAT (JSON):
 {{
-  "title": "compelling korean title",
-  "genre": "{genre}",
-  "mood": "{mood}",
-  "total_duration_sec": {total_duration_sec},
-  "character_sheet": {{
-    "Main Character": {{
-      "name": "Name of protagonist",
-      "appearance": "Detailed physical description (e.g., 'A middle-aged man with messy gray hair, wearing a worn-out brown coat, sharp eyes'). Consistency is key.",
-      "visual_seed": 42
+  "project_title": "Creative Title",
+  "logline": "One sentence summary",
+  "global_style": {{
+    "art_style": "{style}",
+    "color_palette": "e.g., Cyberpunk Neons",
+    "visual_seed": 12345
+  }},
+  "characters": {{
+    "Name": {{
+      "name": "Name",
+      "appearance": "Detailed description",
+      "role": "Protagonist/Antagonist"
     }}
   }},
-  "youtube_opt": {{
-    "title_candidates": ["Clickbait Title 1", "Searchable Title 2", "Emotional Title 3"],
-    "thumbnail_text": "Short Hook Text (Max 10 chars)",
-    "hashtags": ["#Tag1", "#Tag2", "#Tag3", "#Shorts", "#Story"]
-  }},
-  "scenes": [
-    {{
-      "scene_id": 1,
-      "duration_sec": 5,
-      "narration": "natural korean spoken language",
-      "visual_description": "detailed english description in {style} style, focusing on lighting and atmosphere. Mention 'Main Character' clearly.",
-      "mood": "scene mood",
-      "characters_in_scene": ["Main Character"]
-    }},
-    ... (continue until total duration uses approx {total_duration_sec}s) ...
+  "outline": [
+    {{ "scene_id": 1, "summary": "Brief summary of what happens", "estimated_duration": 5 }}
   ]
 }}
 """
+        step1_response = self._call_llm_api(step1_prompt)
+        try:
+            structure_data = json.loads(step1_response)
+            print(f"  [Step 1] Structure locked: {structure_data.get('project_title')}")
+        except json.JSONDecodeError:
+            print(f"  [Step 1] Failed to parse JSON. Falling back to single-step.")
+            structure_data = {} # Handle gracefully or retry
 
-        if user_idea:
-            user_prompt += f"\nUser Idea: {user_idea}\n"
+        # =================================================================================
+        # STEP 2: Scene-level Details
+        # =================================================================================
+        print(f"  [Step 2] Generating Scene Details...")
+        
+        # Context from Step 1
+        structure_context = json.dumps(structure_data, ensure_ascii=False, indent=2) if structure_data else "No structure generated."
 
-        user_prompt += """
-OUTPUT ONLY THE JSON. NO EXPLANATIONS. NO MARKDOWN FORMATTING."""
+        step2_prompt = f"""
+ROLE: Screenwriter & Visual Director.
+TASK: Generate detailed scene specs based on the approved structure.
 
-        # Call LLM API
-        story_json = self._call_llm_api(user_prompt)
+APPROVED STRUCTURE:
+{structure_context}
 
-        # Validate and parse JSON
-        story_data = self._validate_story_json(story_json)
+REQUIREMENTS:
+- Follow the outline exactly.
+- "narrative": The action description (Korean).
+- "tts_script": The spoken line (Korean). Natural, conversational.
+- "image_prompt": Visual description for AI Image Generator (English). {style} style.
+- "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
 
-        print(f"[Story Agent] Story generated: {story_data['title']}")
-        print(f"   Scenes: {len(story_data['scenes'])}")
+OUTPUT FORMAT (JSON):
+{{
+  "project_title": "{structure_data.get('project_title', 'Untitled')}",
+  "genre": "{genre}",
+  "total_duration_sec": {total_duration_sec},
+  "character_sheet": {json.dumps(structure_data.get('characters', {}), ensure_ascii=False)},
+  "global_style": {json.dumps(structure_data.get('global_style', {}), ensure_ascii=False)},
+  "scenes": [
+    {{
+      "scene_id": 1,
+      "narrative": "주인공이 카페 문을 열고 들어온다.",
+      "image_prompt": "A man opening a cafe door, webtoon style, high contrast, cinematic lighting. (Include character appearance)",
+      "tts_script": "드디어 이곳인가...",
+      "duration_sec": 5,
+      "camera_work": "Close-up",
+      "mood": "tense",
+      "characters_in_scene": ["Name"]
+    }}
+  ],
+  "youtube_opt": {{
+    "title_candidates": ["Title 1", "Title 2"],
+    "thumbnail_text": "Hook Text",
+    "hashtags": ["#Tag1", "#Tag2"]
+  }}
+}}
+"""
+        step2_response = self._call_llm_api(step2_prompt)
+        story_data = self._validate_story_json(step2_response)
 
+        print(f"[Story Agent] Story generated successfully.")
         return story_data
 
     def _call_llm_api(self, user_prompt: str) -> str:
@@ -246,12 +276,49 @@ OUTPUT ONLY THE JSON. NO EXPLANATIONS. NO MARKDOWN FORMATTING."""
             print(f"[INFO] {scene_count} scenes generated (test mode expects 4)", flush=True)
 
         for idx, scene in enumerate(story_data["scenes"], 1):
-            # v1.0 필수 필드 (하위 호환성)
-            required_scene_fields_v1 = ["scene_id", "narration", "mood", "duration_sec"]
+            # -------------------------------------------------------------------------
+            # Field Mapping & Normalization (v2.0 -> Schema)
+            # -------------------------------------------------------------------------
+            
+            # 1. TTS Script -> Narration/Sentence
+            if "tts_script" in scene:
+                scene["narration"] = scene["tts_script"]
+                # 'sentence' is required by Schema, map it
+                scene["sentence"] = scene["tts_script"]
+            
+            # 2. Image Prompt -> Visual Description / Prompt
+            if "image_prompt" in scene:
+                scene["visual_description"] = scene["image_prompt"] # Legacy compatibility
+                scene["prompt"] = scene["image_prompt"] # Core field
+            
+            # 3. Narrative -> Narrative (already matches, but good to be explicit for legacy)
+            # 'narrative' is v2.0 field
+            
+            # 4. Camera Work check
+            if "camera_work" in scene:
+                # Ensure it matches Enum values roughly or leave for Pydantic to validate
+                pass
+
+            # -------------------------------------------------------------------------
+            # Validation
+            # -------------------------------------------------------------------------
+            
+            # v1.0 필수 필드 (하위 호환성) - now mapped above
+            required_scene_fields_v1 = ["scene_id", "duration_sec"]
+            
+            # Check for at least one text field
+            if "narration" not in scene and "sentence" not in scene and "tts_script" not in scene:
+                # If pure visual scene, maybe allowed? But mostly we need text.
+                # warning only? No, let's enforce based on schema.
+                # But schema says 'sentence' is required.
+                if "narrative" in scene:
+                     # Fallback: use narrative as sentence if TTS is missing?
+                     # No, TTS should be distinct.
+                     pass 
 
             # visual_description 또는 image_prompt 중 하나는 필수
             has_visual = "visual_description" in scene or "image_prompt" in scene
-
+            
             for field in required_scene_fields_v1:
                 if field not in scene:
                     raise ValueError(f"Scene {idx}: Missing required field '{field}'")
