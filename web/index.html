@@ -432,7 +432,9 @@
     <div class="container">
         <!-- 헤더 -->
         <header class="header">
-            <h1>📽️ STORYCUT <span class="version">v2.0</span></h1>
+            <h1>Storycut <span
+                    style="font-size: 0.5em; background: #ff4b4b; padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v2.6.1</span>
+            </h1>
             <p class="tagline">이야기를 입력하면, 조회수 터지는 유튜브 영상이 완성됩니다</p>
             <nav class="nav-links">
                 <a href="#" id="nav-create" class="nav-link active">새 영상 만들기</a>
@@ -535,13 +537,30 @@
                             btn.disabled = true;
 
                             try {
-                                const audio = new Audio(`/api/sample-voice/${voice}`);
+                                // [Debug Fix] fetch로 요청하여 구체적인 에러 확인
+                                const isLocal = window.location.hostname === 'localhost';
+                                const baseUrl = isLocal ? '' : 'https://web-production-bb6bf.up.railway.app';
+                                const targetUrl = `${baseUrl}/api/sample-voice/${voice}?t=${Date.now()}`;
+
+                                btn.textContent = '⏳ 연결 중...';
+
+                                const response = await fetch(targetUrl);
+                                if (!response.ok) {
+                                    const errText = await response.text();
+                                    throw new Error(`Cloudflare/Server Error (${response.status}): ${errText}`);
+                                }
+
+                                const blob = await response.blob();
+                                const audioUrl = URL.createObjectURL(blob);
+                                const audio = new Audio(audioUrl);
+
                                 await audio.play();
                                 btn.textContent = '🔊 재생 중...';
 
                                 audio.onended = () => {
                                     btn.textContent = originalText;
                                     btn.disabled = false;
+                                    URL.revokeObjectURL(audioUrl); // 메모리 해제
                                 };
                             } catch (e) {
                                 console.error(e);
