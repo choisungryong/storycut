@@ -36,9 +36,16 @@ from pipeline import StorycutPipeline
 app = FastAPI(title="STORYCUT API", version="2.0")
 
 # CORS 설정
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:54557", # Cloudflare Wrangler local
+        "https://storycut-web.pages.dev", # Production Frontend
+        "*" # Fallback for other previews (might need removal if credentials issue persists)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
