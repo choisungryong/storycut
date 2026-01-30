@@ -652,11 +652,12 @@ JSON 형식으로 출력:
             duration_sec=scene["duration_sec"]
         )
 
-        audio_path = self.tts_agent.generate_speech(
+        tts_result = self.tts_agent.generate_speech(
             scene_id=scene["scene_id"],
             narration=scene["narration"],
             emotion=scene["mood"]
         )
+        audio_path = tts_result.audio_path
 
         return video_path, audio_path
 
