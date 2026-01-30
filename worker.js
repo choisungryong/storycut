@@ -181,6 +181,10 @@ export default {
       return handleStatus(url, env, corsHeaders);
     }
 
+    if (url.pathname.startsWith('/api/sample-voice/')) {
+      return handleProxyToBackend(request, url, env, corsHeaders);
+    }
+
     // 정적 파일 (Pages에서 서빙)
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
@@ -523,6 +527,42 @@ async function handleWebhook(request, url, env, corsHeaders) {
     console.error('Webhook error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * Generic Backend Proxy
+ * 단순히 요청을 Python 백엔드로 전달하고 결과를 반환
+ */
+async function handleProxyToBackend(request, url, env, corsHeaders) {
+  const BACKEND_URL = env.BACKEND_URL || "https://web-production-bb6bf.up.railway.app";
+  const targetUrl = `${BACKEND_URL}${url.pathname}${url.search}`;
+
+  console.log(`Proxying request to: ${targetUrl}`);
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: request.method,
+      headers: request.headers,
+      body: request.method !== 'GET' ? await request.arrayBuffer() : undefined
+    });
+
+    // 응답 헤더 복사 (CORS 포함)
+    const newHeaders = new Headers(response.headers);
+    Object.keys(corsHeaders).forEach(key => {
+      newHeaders.set(key, corsHeaders[key]);
+    });
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: newHeaders
+    });
+  } catch (error) {
+    console.error('Proxy error:', error);
+    return new Response(JSON.stringify({ error: 'Backend proxy failed' }), {
+      status: 502,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 }
