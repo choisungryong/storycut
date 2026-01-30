@@ -123,7 +123,7 @@ REQUIREMENTS:
 
 OUTPUT FORMAT (JSON):
 {{
-  "project_title": "{structure_data.get('project_title', 'Untitled')}",
+  "title": "{structure_data.get('project_title', 'Untitled')}",
   "genre": "{genre}",
   "total_duration_sec": {total_duration_sec},
   "character_sheet": {json.dumps(structure_data.get('characters', {}), ensure_ascii=False)},
@@ -246,6 +246,10 @@ OUTPUT FORMAT (JSON):
             story_data = json.loads(json_string)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON from LLM: {e}")
+
+        # Field Mapping (v2.0 -> Schema)
+        if "project_title" in story_data and "title" not in story_data:
+            story_data["title"] = story_data["project_title"]
 
         # Validate required fields
         required_fields = ["title", "genre", "total_duration_sec", "scenes"]
