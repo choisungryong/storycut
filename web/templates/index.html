@@ -535,7 +535,12 @@
                             btn.disabled = true;
 
                             try {
-                                const audio = new Audio(`/api/sample-voice/${voice}`);
+                                // [Fix] Worker 배포 지연 및 캐시 문제를 피하기 위해 백엔드 직접 호출
+                                // 로컬(localhost)인 경우 상대 경로 사용, 그 외(배포 환경)는 Railway 백엔드 직접 호출
+                                const isLocal = window.location.hostname === 'localhost';
+                                const baseUrl = isLocal ? '' : 'https://web-production-bb6bf.up.railway.app';
+
+                                const audio = new Audio(`${baseUrl}/api/sample-voice/${voice}`);
                                 await audio.play();
                                 btn.textContent = '🔊 재생 중...';
 
