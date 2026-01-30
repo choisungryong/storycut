@@ -33,7 +33,7 @@ class TTSAgent:
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.elevenlabs_key = os.getenv("ELEVENLABS_API_KEY")
-        self.voli_key = os.getenv("VOLI_API_KEY") or "309b47447d132576598d40214bcdd95a"
+        self.voli_key = os.getenv("VOLI_API_KEY")
         self.voice = voice
         
         # VOLI Voice ID Mapping (Verified IDs from User)
