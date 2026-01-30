@@ -47,6 +47,7 @@ app.add_middleware(
         "http://127.0.0.1:8000",
         "http://localhost:3000",
         "https://storycut-web.pages.dev",
+        "https://storycut-worker.twinspa0713.workers.dev",
     ],
     allow_credentials=True,
     allow_methods=["*"],

@@ -228,6 +228,15 @@ class StorycutApp {
 
             let urlToUse = this.getApiBaseUrl();
 
+            // 인증 토큰 가져오기
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('로그인이 필요합니다.');
+                this.showSection('input'); // 로그인 화면이 없으므로 일단 입력 화면으로
+                // 실제로는 로그인 모달을 띄우거나 로그인 페이지로 이동해야 함
+                return;
+            }
+
             const payload = {
                 request_params: this.currentRequestParams,
                 story_data: this.currentStoryData
@@ -237,13 +246,16 @@ class StorycutApp {
 
             const response = await fetch(`${urlToUse}/api/generate/video`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.detail || '영상 생성 시작 실패');
+                throw new Error(error.detail || error.error || '영상 생성 시작 실패');
             }
 
             const result = await response.json();

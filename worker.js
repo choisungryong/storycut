@@ -46,9 +46,9 @@ export default {
         // 비밀번호 해싱
         const passwordHash = await bcrypt.hash(password, 10);
 
-        // DB 저장
+        // DB 저장 (기본 크레딧 100 제공)
         const result = await env.DB.prepare(
-          `INSERT INTO users (email, password_hash, username) VALUES (?, ?, ?)`
+          `INSERT INTO users (email, password_hash, username, credits) VALUES (?, ?, ?, 100)`
         )
           .bind(email, passwordHash, username || email.split('@')[0])
           .run();
