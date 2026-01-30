@@ -155,7 +155,8 @@ class ImageAgent:
                     output_path=output_path,
                     seed=seed,
                     character_reference_path=character_reference_path,
-                    negative_prompt=negative_prompt
+                    negative_prompt=negative_prompt,
+                    character_tokens=character_tokens
                 )
             except Exception as e:
                 from utils.error_manager import ErrorManager
@@ -404,7 +405,8 @@ class ImageAgent:
         output_path: str,
         seed: Optional[int] = None,
         character_reference_path: Optional[str] = None,
-        negative_prompt: Optional[str] = None
+        negative_prompt: Optional[str] = None,
+        character_tokens: Optional[list] = None
     ) -> tuple:
         """
         Call Replicate API (Gemini 2.5 Flash Image).
