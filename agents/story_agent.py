@@ -16,13 +16,13 @@ class StoryAgent:
     to generate structured story content.
     """
 
-    def __init__(self, api_key: str = None, model: str = "gemini-1.5-pro"):
+    def __init__(self, api_key: str = None, model: str = "gemini-3-pro-preview"):
         """
         Initialize Story Agent.
 
         Args:
             api_key: Google Gemini API key
-            model: LLM model to use (default: gemini-1.5-pro)
+            model: LLM model to use (default: gemini-3-pro-preview)
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model = model
