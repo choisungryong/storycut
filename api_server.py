@@ -200,7 +200,7 @@ class GenerateRequest(BaseModel):
     genre: str = "emotional"
     mood: str = "dramatic"
     style: str = "cinematic, high contrast"
-    voice: str = "onyx"  # Default voice
+    voice: str = "voice_brian"  # Default voice
     duration: int = 60
     platform: str = "youtube_long"
 

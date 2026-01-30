@@ -33,20 +33,23 @@ class TTSAgent:
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.elevenlabs_key = os.getenv("ELEVENLABS_API_KEY")
+        self.voli_key = os.getenv("VOLI_API_KEY") or "309b47447d132576598d40214bcdd95a"
         self.voice = voice
         
-        # Voice ID Mapping (ElevenLabs)
-        # 기본: Adam (pre-made), 분위기별 매핑 가능
-        self.voice_map = {
-            "neutral": "pNInz6obpgDQGcFmaJgB",  # Adam
-            "dramatic": "pNInz6obpgDQGcFmaJgB", # Adam (Bold)
-            "cheerful": "FGY2WhTYq4u0I1O31p32", # Jess (Energetic)
-            "horror": "ErXwobaYiN019PkySvjV",   # Antoni (Deep)
-            "mystery": "ErXwobaYiN019PkySvjV",  # Antoni
+        # VOLI Voice ID Mapping (Verified IDs from User)
+        self.voli_voice_map = {
+            "neutral": "0_F-ya_3_high", # 기본 (여성)
+            "female": "0_F-ya_3_high",
+            "male": "0_M-ya_3_high",
+            "voice_brian": "0_M-ya_3_high", # Brian (남성)
+            "voice_sarah": "0_F-ya_3_high", # Sarah (여성)
+            "voice_laura": "0_F-ya_3_high", # Laura (여성)
         }
 
         # TTS Priority 로그
-        if self.elevenlabs_key:
+        if self.voli_key:
+            print("[TTS Agent] Primary: VOLI TTS (Wavedeck)")
+        elif self.elevenlabs_key:
             print("[TTS Agent] Primary: ElevenLabs (High Quality)")
         elif self.api_key:
             print("[TTS Agent] Primary: OpenAI TTS (Good Quality)")
@@ -81,18 +84,35 @@ class TTSAgent:
 
         audio_path = None
 
-        # 1. Try ElevenLabs (PRIMARY - High Quality)
-        if self.elevenlabs_key:
+        # 1. Try VOLI TTS (PRIMARY)
+        if self.voli_key:
+            try:
+                # voice_id mapping
+                voice_id = self.voice
+                # 기본값이거나 일레븐랩스용 ID인 경우 VOLI용으로 전환
+                if not voice_id or voice_id in ["alloy", "onyx", "neutral"] or len(voice_id) > 20: 
+                    voice_id = self.voli_voice_map["neutral"]
+                
+                # emotion mapping
+                emotion_id_map = {
+                    "neutral": 0, "dramatic": 5, "cheerful": 2, 
+                    "horror": 4, "mystery": 4, "sad": 3, "angry": 1
+                }
+                emotion_id = emotion_id_map.get(emotion, 0)
+                
+                audio_path = self._call_voli_api(narration, voice_id, emotion_id, output_path)
+            except Exception as e:
+                print(f"     [Warning] VOLI TTS failed: {e}")
+                audio_path = None
+
+        # 2. Try ElevenLabs (SECONDARY - High Quality)
+        if audio_path is None and self.elevenlabs_key:
             try:
                 # v2.1 FIX: Use the user-selected voice (self.voice) if available.
-                # Only fallback to voice_map (emotion-based) if self.voice is not set or default.
-                if self.voice and self.voice != "alloy" and self.voice != "onyx":
+                if self.voice and self.voice not in ["alloy", "onyx", "neutral"] and "_" not in self.voice:
                      voice_id = self.voice
-                     print(f"     [TTS] Using specific voice ID: {voice_id}")
                 else:
-                     # Legacy fallback
-                     voice_id = self.voice_map.get(emotion, self.voice_map["neutral"])
-                     print(f"     [TTS] Using emotion-based fallback voice: {voice_id} ({emotion})")
+                     voice_id = "pNInz6obpgDQGcFmaJgB" # Adam
                 
                 audio_path = self._call_elevenlabs_api(narration, voice_id, output_path)
             except Exception as e:
@@ -259,6 +279,70 @@ class TTSAgent:
             raise RuntimeError("pyttsx3 library not installed")
         except Exception as e:
             print(f"     pyttsx3 error: {e}")
+            raise
+
+    def _call_voli_api(self, text: str, voice_id: str, emotion_id: int, output_path: str) -> str:
+        """
+        Call VOLI (Wavedeck) TTS API.
+        """
+        try:
+            import requests
+            import json
+
+            url = "https://biz-api.voli.ai/v1/conversions/tts"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.voli_key}"
+            }
+            
+            # script 내 줄바꿈 개수에 맞춰 intonation 배열 생성
+            lines = text.split('\n')
+            intonation = [1.0] * len(lines)
+
+            payload = {
+                "voiceType": "default",
+                "voiceId": voice_id,
+                "emotionId": emotion_id,
+                "script": text,
+                "pauseDuration": 0.625,
+                "pitch": 0.0,
+                "speed": 1.0,
+                "needTrim": False,
+                "intonation": intonation,
+                "language": "kr"
+            }
+
+            print(f"     Calling VOLI TTS API (Voice: {voice_id}, Emotion: {emotion_id})...")
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+
+            if response.status_code == 200:
+                content_type = response.headers.get("Content-Type", "").lower()
+                if "audio" in content_type or "octet-stream" in content_type:
+                    with open(output_path, "wb") as f:
+                        f.write(response.content)
+                    return output_path
+                else:
+                    # JSON 응답일 경우 (다운로드 URL 포함)
+                    res_json = response.json()
+                    # 사용자 제공 실제 구조: {"success": true, "data": {"generated_voice": "https://..."}}
+                    audio_url = res_json.get("data", {}).get("generated_voice") or res_json.get("data", {}).get("audioUrl") or res_json.get("audioUrl")
+                    
+                    if audio_url:
+                        print(f"     Downloading audio from: {audio_url[:60]}...")
+                        audio_resp = requests.get(audio_url, timeout=30)
+                        if audio_resp.status_code == 200:
+                            with open(output_path, "wb") as f:
+                                f.write(audio_resp.content)
+                            return output_path
+                        else:
+                            raise RuntimeError(f"Failed to download audio from VOLI URL: {audio_resp.status_code}")
+                    else:
+                        raise RuntimeError(f"Unexpected JSON response from VOLI (missing generated_voice/audioUrl): {res_json}")
+            else:
+                raise RuntimeError(f"VOLI API error: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            print(f"     [Error] VOLI TTS call failed: {e}")
             raise
 
     def _call_elevenlabs_api(self, text: str, voice_id: str, output_path: str) -> str:
