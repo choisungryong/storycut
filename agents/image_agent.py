@@ -427,7 +427,7 @@ class ImageAgent:
 
             # Enhanced prompt for better quality
             # Remove generic qualifiers and focus on visual details
-            full_prompt = self._enhance_flux_prompt(f"{style} style: {prompt}")
+            full_prompt = self._enhance_generic_prompt(f"{style} style: {prompt}")
 
             print(f"     Calling Replicate (Gemini 2.5 Flash Image) API...")
 
@@ -463,11 +463,11 @@ class ImageAgent:
                 # but 'google/gemini-2.5-flash-image' uses prompt-based negation or specific fields.
                 # Only Flux-dev/pro supports 'negative_prompt' officially.
                 # For safety, we Append "NO [term]" to prompt if model doesn't support negative_prompt arg,
-                # BUT this specific model (Flux-Schnell) might not.
+                # BUT this specific model might not.
                 # Let's try passing it if the schema allows, otherwise append to prompt.
             }
 
-            # NOTE: Flux on Replicate usually takes 'prompt' only. 'negative_prompt' is for some implementations.
+            # NOTE: Replicate usually takes 'prompt' only. 'negative_prompt' is for some implementations.
             # We will append exclusionary terms to prompt for maximum compatibility: "..., avoid anime, avoid cartoon"
             if strong_negative_prompt:
                  input_params["prompt"] += f" --no {strong_negative_prompt}" # Common syntax
@@ -516,9 +516,9 @@ class ImageAgent:
             print(f"     Replicate API error: {e}")
             raise
 
-    def _enhance_flux_prompt(self, prompt: str) -> str:
+    def _enhance_generic_prompt(self, prompt: str) -> str:
         """
-        Enhance prompt for Flux model quality.
+        Enhance prompt for better image quality.
 
         Args:
             prompt: Original prompt
@@ -526,7 +526,7 @@ class ImageAgent:
         Returns:
             Enhanced prompt with quality keywords
         """
-        # Add quality enhancers for Flux
+        # Add quality enhancers
         quality_keywords = (
             "masterpiece, professional artwork, high detail, sharp focus, "
             "cinematic lighting, vibrant colors, intricate details"
