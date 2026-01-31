@@ -482,33 +482,54 @@ class StorycutApp {
     }
 
     async fetchAndShowResults(projectId) {
-        try {
-            let urlToUse = this.getApiBaseUrl();
-            const response = await fetch(`${urlToUse}/api/manifest/${projectId}`);
+        const maxRetries = 3;
+        let lastError = null;
 
-            if (!response.ok) {
-                throw new Error('Manifest를 가져올 수 없습니다');
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                let urlToUse = this.getApiBaseUrl();
+                const targetUrl = `${urlToUse}/api/manifest/${projectId}`;
+
+                this.addLog('INFO', `📥 결과 데이터 요청 중... (시도 ${i + 1}/${maxRetries})`);
+                console.log(`[Fetch] Requesting manifest from: ${targetUrl}`);
+
+                const response = await fetch(targetUrl);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[Fetch Error] Status: ${response.status} ${response.statusText}, Body: ${errorText}`);
+                    throw new Error(`Manifest 로드 실패 (${response.status}): ${errorText || response.statusText}`);
+                }
+
+                const manifest = await response.json();
+
+                this.showResults({
+                    project_id: projectId,
+                    title: manifest.title,
+                    status: manifest.status,
+                    error_message: manifest.error_message,
+                    title_candidates: manifest.outputs?.title_candidates,
+                    thumbnail_texts: manifest.outputs?.thumbnail_texts,
+                    hashtags: manifest.outputs?.hashtags,
+                    video_path: manifest.outputs?.final_video_path,
+                    server_url: urlToUse
+                });
+
+                return; // 성공 시 종료
+
+            } catch (error) {
+                console.error(`Attempt ${i + 1} failed:`, error);
+                lastError = error;
+                // 마지막 시도가 아니면 1초 대기
+                if (i < maxRetries - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
             }
-
-            const manifest = await response.json();
-
-            this.showResults({
-                project_id: projectId,
-                title: manifest.title,
-                status: manifest.status, // Status 전달
-                error_message: manifest.error_message,
-                title_candidates: manifest.outputs?.title_candidates,
-                thumbnail_texts: manifest.outputs?.thumbnail_texts,
-                hashtags: manifest.outputs?.hashtags,
-                video_path: manifest.outputs?.final_video_path,
-                server_url: urlToUse
-            });
-
-        } catch (error) {
-            this.addLog('ERROR', `❌ 결과 가져오기 실패: ${error.message}`);
-            // 오류가 나도 결과 페이지는 표시
-            this.showResultError(projectId, error.message);
         }
+
+        // 모든 시도 실패 시
+        this.addLog('ERROR', `❌ 결과 가져오기 최종 실패: ${lastError.message}`);
+        this.showResultError(projectId, `결과를 불러오지 못했습니다. (서버 응답 없음 또는 파일 누락)\n내용: ${lastError.message}`);
     }
 
     showResultError(projectId, message) {

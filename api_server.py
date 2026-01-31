@@ -943,7 +943,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                     manifest.outputs.final_video_path = public_url # Main video
                     
                     with open(manifest_path, "w", encoding="utf-8") as f:
-                        f.write(manifest.json(ensure_ascii=False))
+                        f.write(json.dumps(manifest.model_dump(mode='json'), ensure_ascii=False, indent=2))
                     
                     print(f"[WRAPPER] Manifest updated with video_url and asset URLs", flush=True)
                 else:
