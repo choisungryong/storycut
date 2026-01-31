@@ -80,7 +80,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # 정적 파일 서빙
-app.mount("/static", StaticFiles(directory="web/static"), name="static")
+app.mount("/static", StaticFiles(directory="web/templates/static"), name="static")
 
 # outputs 디렉토리 없으면 생성 (서버 시작 시 에러 방지)
 os.makedirs("outputs", exist_ok=True)
