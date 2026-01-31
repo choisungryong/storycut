@@ -438,7 +438,8 @@ class VideoAgent:
             seed=seed,
             character_tokens=character_tokens,
             character_reference_id=character_reference_id,
-            character_reference_path=character_reference_path
+            character_reference_path=character_reference_path,
+            image_model=self.feature_flags.image_model if hasattr(self.feature_flags, 'image_model') else "standard"
         )
 
         # Step 2: Apply Ken Burns effect if enabled

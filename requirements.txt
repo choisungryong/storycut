@@ -7,7 +7,9 @@ anthropic>=0.8.0
 elevenlabs>=0.2.26  # Primary TTS (high quality)
 google-generativeai>=0.8.0
 google-genai>=0.3.0
+google-genai>=0.3.0
 requests>=2.31.0
+boto3>=1.34.0  # R2/S3 Storage
 
 # TTS (Text-to-Speech)
 pyttsx3>=2.90  # Fallback TTS (offline, free)

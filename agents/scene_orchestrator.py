@@ -55,7 +55,7 @@ class SceneOrchestrator:
                 import google.generativeai as genai
                 if self.google_api_key:
                     genai.configure(api_key=self.google_api_key)
-                    self._llm_client = genai.GenerativeModel(model_name="gemini-3.0-pro")
+                    self._llm_client = genai.GenerativeModel(model_name="gemini-3-pro-preview")
                 else:
                     print("[WARNING] GOOGLE_API_KEY not set. LLM features disabled.")
                     self._llm_client = None
@@ -467,6 +467,38 @@ JSON 형식으로 출력:
                 )
                 # video_clips.append(video_path) -> REMOVED: 나중에 한꺼번에 수집
                 scene.assets.video_path = video_path
+
+                # [Fix] Generate & Burn-in Subtitles
+                try:
+                    # 1. Generate SRT
+                    subtitle_dir = f"{os.path.dirname(output_path)}/media/subtitles"
+                    self.generate_subtitle_files([scene], subtitle_dir)
+                    
+                    # 2. Burn-in if enabled
+                    if getattr(self.feature_flags, 'subtitle_burn_in', True):
+                        print(f"     [Subtitle] Burning in subtitles for scene {i}...")
+                        subtitled_video_path = video_path.replace(".mp4", "_sub.mp4")
+                        
+                        self.composer_agent.composer.overlay_subtitles(
+                            video_in=video_path,
+                            srt_path=scene.assets.subtitle_srt_path,
+                            out_path=subtitled_video_path,
+                             style={
+                                "font_size": 16,
+                                "margin_v": 30
+                            }
+                        )
+                        
+                        # Verify output exists
+                        if os.path.exists(subtitled_video_path):
+                            scene.assets.video_path = subtitled_video_path
+                            print(f"     [Subtitle] Subtitles burned successfully: {subtitled_video_path}")
+                        else:
+                            print(f"     [Warning] Subtitle burn-in failed, using original video.")
+                            
+                except Exception as sub_e:
+                     print(f"     [Warning] Subtitle processing failed: {sub_e}")
+                     # Do not fail the scene, just proceed without subtitles
 
                 # 완료
                 scene.status = SceneStatus.COMPLETED

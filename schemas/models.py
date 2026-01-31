@@ -112,6 +112,10 @@ class ProjectRequest(BaseModel):
         default=60,
         description="목표 영상 길이 (초)"
     )
+    image_model: str = Field(
+        default="standard",
+        description="이미지 생성 모델 (standard/premium)"
+    )
 
     # 콘텐츠 옵션
     voice_over: bool = Field(default=True, description="내레이션 포함 여부")

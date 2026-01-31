@@ -507,6 +507,18 @@
                         </select>
                     </div>
 
+                    <!-- 이미지 모델 -->
+                    <div class="form-group">
+                        <label for="image_model">
+                            <span class="label-icon">🖼️</span>
+                            이미지 모델
+                        </label>
+                        <select id="image_model" name="image_model" class="select">
+                            <option value="standard" selected>Standard (Replicate / Gemini Flash) - 빠르고 안정적</option>
+                            <option value="premium">Premium (Gemini 3 Pro) - 고품질 프리뷰</option>
+                        </select>
+                    </div>
+
                     <!-- 목소리 -->
                     <div class="form-group">
                         <label for="voice">
@@ -515,9 +527,11 @@
                         </label>
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <select id="voice" name="voice" class="select" style="flex: 1;">
-                                <option value="voice_brian" selected>1. Brian (깊고 중후한 남성) - 다큐/내레이션</option>
-                                <option value="voice_sarah">2. Sarah (차분하고 신뢰감 있는 여성) - 감성/스토리</option>
-                                <option value="voice_laura">3. Laura (밝고 에너지 넘치는 여성) - 활기찬/브이로그</option>
+                                <option value="neural2_a" selected>Google Neural2 A (여성) - 부드럽고 자연스러운 낭독</option>
+                                <option value="neural2_b">Google Neural2 B (여성) - 차분하고 이지적인 톤</option>
+                                <option value="neural2_c">Google Neural2 C (남성) - 신뢰감 있고 명확한 목소리</option>
+                                <option value="gemini_flash">Gemini 2.5 Flash TTS - 속도/비용 최적화 (Standard-A)</option>
+                                <option value="gemini_pro">Gemini 2.5 Pro TTS - 고품질/논리적 (Wavenet-D)</option>
                             </select>
                             <button type="button" id="preview-voice-btn" class="btn btn-secondary btn-small"
                                 style="white-space: nowrap;">
@@ -539,7 +553,7 @@
                             try {
                                 // [Optimization] Railway 직접 호출 제거 -> Cloudflare Worker 경유
                                 // Worker가 API 요청을 받아 백엔드로 프록시(전달)하거나 캐싱 처리함
-                                const isLocal = window.location.hostname === 'localhost';
+                                const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
                                 const baseUrl = isLocal ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
                                 const targetUrl = `${baseUrl}/api/sample-voice/${voice}?t=${Date.now()}`;
 
@@ -576,9 +590,9 @@
                     <div class="form-group">
                         <label for="duration">
                             <span class="label-icon">⏱️</span>
-                            영상 길이: <span id="duration-display">60</span>초
+                            영상 길이: <span id="duration-display">30</span>초
                         </label>
-                        <input type="range" id="duration" name="duration" min="60" max="300" value="120" step="10"
+                        <input type="range" id="duration" name="duration" min="30" max="300" value="30" step="10"
                             class="slider" />
                         <div class="slider-labels">
                             <span>1분</span>

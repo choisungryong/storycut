@@ -211,6 +211,11 @@ export default {
       return handleProxyToBackend(request, url, env, corsHeaders);
     }
 
+    // [New] Manifest Proxy
+    if (url.pathname.startsWith('/api/manifest/')) {
+      return handleProxyToBackend(request, url, env, corsHeaders);
+    }
+
     // 정적 파일 (Pages에서 서빙)
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
@@ -268,10 +273,17 @@ STYLE: ${style}
 SCENE COUNT: Approx ${min_scenes}-${max_scenes} scenes.
 ${topic ? 'USER IDEA: ' + topic : ''}
 
+[STRUCTURE REQUIREMENT: KI-SEUNG-JEON-GYEOL]
+1. **Introduction (Ki)**: Hook the audience, introduce characters/setting.
+2. **Development (Seung)**: Escalate tension, build the conflict.
+3. **Twist (Jeon)**: The climax, a shocking revelation or turning point.
+4. **Resolution (Gyeol)**: **MANDATORY**. The aftermath. How did it end? What is the final state? 
+   - DO NOT just stop at the twist. Show the consequence.
+
 OUTPUT FORMAT (JSON):
 {
   "project_title": "Creative Title",
-  "logline": "One sentence summary",
+  "logline": "One sentence summary including the ending",
   "global_style": {
     "art_style": "${style}",
     "color_palette": "e.g., Cyberpunk Neons",
@@ -314,7 +326,9 @@ ${structure_context}
 REQUIREMENTS:
 - Follow the outline exactly.
 - "narrative": The action description (Korean).
-- "tts_script": The spoken line (Korean). Natural, conversational.
+- "tts_script": The spoken line (Korean). **MUST BE NATURAL SPOKEN KOREAN (구어체).** Avoid "written style" (문어체).
+    - BAD: "그는 문을 열고 들어왔다." (Narration style)
+    - GOOD: "결국... 돌아왔군." (Character dialogue or Monologue)
 - "image_prompt": Visual description for AI Image Generator (English). ${style} style.
 - "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
 
@@ -322,6 +336,10 @@ REQUIREMENTS:
 - Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
 - DO NOT describe their physical appearance (age, hair, clothes) in "image_prompt". This is already handled by the system.
 - Focus ONLY on the scene's action, lighting, and composition.
+
+[STRICT] ENDING RULE:
+- The final scenes MUST clearly show the conclusion.
+- The last line of "tts_script" should leave a lingering impression but NOT be open-ended.
 
 OUTPUT FORMAT (JSON):
 {
@@ -434,11 +452,17 @@ function parseGeminiResponse(text) {
 }
 
 const SYSTEM_PROMPT = `
-# 🎬 STORYCUT Master Storytelling Prompt v2.0
+# 🎬 STORYCUT Master Storytelling Prompt v2.1
 You are the **BEST SHORT-FORM STORYTELLER** in the world. Your job is to create **VIRAL-WORTHY stories**.
-Generate a **complete, immersive narrative** (2-3 minutes) with a GRIPPING HOOK, RISING TENSION, and SHOCKING TWIST.
+
+[CRITICAL RULE: COMPLETE NARRATIVE ARC]
+Your story MUST have a clear **Introduction, Development, Twist, and RESOLUTION**.
+- **NO CLIFFHANGERS.** The story must end definitively.
+- **NO VAGUE ENDINGS.** The audience must know exactly what happened to the characters.
+- **SATISFYING CONCLUSION.** Even if it's a sad ending, it must feel complete.
+
+Generate a **complete, immersive narrative** (2-3 minutes) with a GRIPPING HOOK, RISING TENSION, SHOCKING TWIST, and a DEFINITIVE ENDING.
 Output MUST be valid JSON.
-(Refer to original prompt for full constraints)
 `;
 
 /**

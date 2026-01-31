@@ -34,6 +34,10 @@ from pydantic import BaseModel
 sys.path.append(str(Path(__file__).parent))
 from schemas import FeatureFlags, ProjectRequest, TargetPlatform, GenerateVideoRequest
 from pipeline import StorycutPipeline
+from utils.storage import StorageManager
+
+# R2 Storage Manager
+storage_manager = StorageManager()
 
 # FastAPI 앱 생성
 app = FastAPI(title="STORYCUT API", version="2.0")
@@ -77,6 +81,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # 정적 파일 서빙
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
+
+# outputs 디렉토리 없으면 생성 (서버 시작 시 에러 방지)
+os.makedirs("outputs", exist_ok=True)
 app.mount("/media", StaticFiles(directory="outputs"), name="media")  # 이미지/영상 서빙용
 
 # 활성 WebSocket 연결 관리
@@ -376,6 +383,11 @@ class TrackedPipeline(StorycutPipeline):
 
             # Step 2: Scene 처리
             from agents import SceneOrchestrator
+            
+            # Inject image_model into feature_flags for VideoAgent/ImageAgent
+            if hasattr(request, 'image_model') and request.image_model:
+                setattr(request.feature_flags, 'image_model', request.image_model)
+                
             orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
 
             # Scene별 처리 (진행상황 전송) - Orchestrator 내부에서 콜백으로 처리되므로 제거
@@ -414,6 +426,19 @@ class TrackedPipeline(StorycutPipeline):
                     progress_callback=on_scene_progress
                 )
             )
+
+            # [R2 Upload]
+            if final_video and os.path.exists(final_video) and storage_manager.s3_client:
+                r2_path = f"videos/{project_id}/final_video.mp4"
+                print(f"[R2] Uploading final video to {r2_path}...", flush=True)
+                success = await loop.run_in_executor(
+                    None, 
+                    lambda: storage_manager.upload_file(final_video, r2_path)
+                )
+                if success:
+                    print(f"[R2] Upload complete.", flush=True)
+                else:
+                    print(f"[R2] Upload failed.", flush=True)
 
             manifest.scenes = self._convert_scenes_to_schema(story_data["scenes"])
             manifest.outputs.final_video_path = final_video
@@ -622,6 +647,20 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
         # 연결이 끊겨도 히스토리는 유지 (재접속 가능성)
         if project_id in active_connections:
             del active_connections[project_id]
+
+
+@app.get("/api/manifest/{project_id}")
+async def get_manifest(project_id: str):
+    """프로젝트 Manifest 조회"""
+    manifest_path = Path(f"outputs/{project_id}/manifest.json")
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Manifest not found")
+    
+    try:
+        content = manifest_path.read_text(encoding="utf-8")
+        return json.loads(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read manifest: {str(e)}")
 
 
 @app.post("/api/generate/story")
@@ -872,14 +911,30 @@ async def get_voice_sample(voice_id: str):
                 try:
                     print(f"[DEBUG] Processing sample for voice_id: '{voice_id}'")
                     
-                    # 0. Try VOLI (New Primary)
-                    if hasattr(agent, '_call_voli_api') and agent.voli_key:
-                        target_voice = agent.voli_voice_map.get(voice_id, agent.voli_voice_map["neutral"])
-                        print(f"[API] Generating VOLI sample with voice: {target_voice} (mapped from {voice_id})")
-                        agent._call_voli_api(text, target_voice, 0, file_path)
+                    # 1. Try Google Neural2 / Gemini (PRIMARY)
+                    if voice_id.startswith("neural2") or voice_id.startswith("gemini"):
+                        print(f"[API] Generating Google/Gemini sample with voice: {voice_id}")
+                        if "gemini" in voice_id:
+                             # Gemini Options
+                             if "flash" in voice_id:
+                                 # Flash -> Standard A (Fast/Efficient)
+                                 voice_name = "ko-KR-Standard-A"
+                             else:
+                                 # Pro -> Wavenet D (High Quality Male)
+                                 voice_name = "ko-KR-Wavenet-D"
+                             agent._call_google_neural2(text, voice_name, file_path) # Uses generic Cloud TTS call
+                        else:
+                             # Neural2 Options A, B, C
+                             voice_name = "ko-KR-Neural2-A" # Default
+                             if "_b" in voice_id:
+                                 voice_name = "ko-KR-Neural2-B"
+                             elif "_c" in voice_id or "male" in voice_id:
+                                 voice_name = "ko-KR-Neural2-C"
+                             
+                             agent._call_google_neural2(text, voice_name, file_path)
                         return
 
-                    # 1. Try ElevenLabs
+                    # 2. Try ElevenLabs
                     elif hasattr(agent, '_call_elevenlabs_api') and agent.elevenlabs_key:
                         # OpenAI voices -> ElevenLabs IDs mapping
                         voice_map = {
@@ -898,11 +953,11 @@ async def get_voice_sample(voice_id: str):
                         print(f"[API] Generating ElevenLabs sample with voice: {target_voice} (mapped from {voice_id})")
                         agent._call_elevenlabs_api(text, target_voice, file_path)
                         
-                    # 2. Try OpenAI
+                    # 3. Try OpenAI
                     elif hasattr(agent, '_call_tts_api') and agent.api_key:
                         agent._call_tts_api(text, file_path)
                         
-                    # 3. Fallback: pyttsx3 (Local)
+                    # 4. Fallback: pyttsx3 (Local)
                     elif hasattr(agent, '_call_pyttsx3_local'):
                         print("[API] No Cloud API keys found. Using Local TTS.")
                         agent._call_pyttsx3_local(0, text, file_path)
