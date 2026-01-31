@@ -11,9 +11,39 @@ import json
 import asyncio
 
 from dotenv import load_dotenv
+from pathlib import Path
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (절대 경로 강제)
+env_path = Path(__file__).parent / ".env"
+print(f"DEBUG: Loading .env from {env_path}")
+load_dotenv(dotenv_path=env_path)
+
+# [Fallback] R2 키가 로드되지 않았으면 수동 파싱 시도 (Encoding/Format 문제 대응)
+if not os.getenv("R2_ACCOUNT_ID") and env_path.exists():
+    print("DEBUG: load_dotenv failed for R2 keys. Attempting manual parsing...")
+    try:
+        # utf-8-sig로 BOM 처리
+        content = env_path.read_text(encoding="utf-8-sig")
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"): continue
+            if "=" in line:
+                key, val = line.split("=", 1)
+                key = key.strip()
+                val = val.strip()
+                # 따옴표 제거
+                if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                    val = val[1:-1]
+                
+                if key.startswith("R2_"):
+                    os.environ[key] = val
+                    print(f"DEBUG: Manually loaded {key}")
+    except Exception as e:
+        print(f"DEBUG: Manual parsing failed: {e}")
+
+# 최종 확인
+print(f"DEBUG: R2_ACCOUNT_ID Check: {'Set' if os.getenv('R2_ACCOUNT_ID') else 'Unset'}")
+
 api_key = os.getenv("OPENAI_API_KEY")
 print(f"DEBUG: Loaded OPENAI_API_KEY: {api_key[:10]}..." if api_key else "DEBUG: OPENAI_API_KEY is None")
 
