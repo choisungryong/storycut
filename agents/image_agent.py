@@ -77,10 +77,22 @@ class ImageAgent:
     ) -> tuple:
         """
         Generate an image with specific model strategies.
-
+        
         Standard: Replicate -> Gemini 2.5 Flash Image -> Placeholder
         Premium: Gemini 3 Pro Image -> Replicate -> Placeholder
         """
+        print(f"[ImageAgent v2.2] Generating Image for Scene {scene_id} | Model: {image_model}")
+        
+        # Verify arguments to prevent NameError
+        try:
+            _ = negative_prompt
+            _ = character_tokens
+        except NameError as ne:
+            print(f"[CRITICAL] Arg missing in scope: {ne}")
+            # This shouldn't happen if signature is correct, but safe fallback
+            negative_prompt = negative_prompt if 'negative_prompt' in locals() else None
+            character_tokens = character_tokens if 'character_tokens' in locals() else None
+
         # Output Path Setup
         if scene_id == 0:
             output_path = output_dir if output_dir.endswith('.png') else f"{output_dir}/master_character.png"
