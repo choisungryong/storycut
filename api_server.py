@@ -856,6 +856,49 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
         print(f"[WRAPPER] Final video path: {manifest.outputs.final_video_path}", flush=True)
         print(f"[WRAPPER] =========================================\n", flush=True)
 
+        # [Production] R2 업로드 (배포 환경 지원)
+        try:
+            print(f"[WRAPPER] Starting R2 Upload...", flush=True)
+            from utils.storage import StorageManager
+            import os
+            import json
+            
+            storage = StorageManager()
+            local_video_path = manifest.outputs.final_video_path
+            
+            if local_video_path and os.path.exists(local_video_path):
+                r2_key = f"videos/{project_id}/final_video.mp4"
+                
+                if storage.upload_file(local_video_path, r2_key):
+                    # Worker URL (배포된 프론트엔드가 접근할 수 있는 경로)
+                    worker_url = "https://storycut-worker.twinspa0713.workers.dev"
+                    public_url = f"{worker_url}/api/video/{project_id}"
+                    
+                    print(f"[WRAPPER] R2 Upload Success! Public URL: {public_url}", flush=True)
+                    
+                    # Manifest 업데이트 (frontend가 이 URL을 보게 됨)
+                    manifest_path = f"outputs/{project_id}/manifest.json"
+                    if os.path.exists(manifest_path):
+                        with open(manifest_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        if 'outputs' not in data: data['outputs'] = {}
+                        data['outputs']['video_url'] = public_url
+                        data['status'] = 'completed' # Ensure status is completed
+                        
+                        with open(manifest_path, 'w', encoding='utf-8') as f:
+                            json.dump(data, f, ensure_ascii=False, indent=2)
+                        print(f"[WRAPPER] Manifest updated with video_url", flush=True)
+                else:
+                    print(f"[WRAPPER] R2 Upload Failed (Check credentials)", flush=True)
+            else:
+                print(f"[WRAPPER] Local video file not found, skipping upload", flush=True)
+                
+        except Exception as upload_err:
+            print(f"[WRAPPER] R2 Upload Error: {upload_err}", flush=True)
+            import traceback
+            traceback.print_exc()
+
     except Exception as e:
         print(f"\n[WRAPPER] =========================================", flush=True)
         print(f"[WRAPPER] ❌ ERROR IN VIDEO GENERATION", flush=True)
@@ -1494,6 +1537,23 @@ async def recompose_video(project_id: str):
             manifest_data["outputs"] = {}
         manifest_data["outputs"]["final_video_path"] = final_video
         manifest_data["status"] = "completed"
+
+        # [Production] R2 업로드 (배포 환경 지원)
+        try:
+            from utils.storage import StorageManager
+            storage = StorageManager()
+            r2_key = f"videos/{project_id}/final_video.mp4"
+            
+            if storage.upload_file(final_video, r2_key):
+                worker_url = "https://storycut-worker.twinspa0713.workers.dev"
+                public_url = f"{worker_url}/api/video/{project_id}"
+                
+                manifest_data["outputs"]["video_url"] = public_url
+                print(f"[RECOMPOSE] R2 Upload Success: {public_url}")
+            else:
+                print(f"[RECOMPOSE] R2 Upload Failed")
+        except Exception as upload_err:
+             print(f"[RECOMPOSE] Upload Error: {upload_err}")
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_data, f, ensure_ascii=False, indent=2)
