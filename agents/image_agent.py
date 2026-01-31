@@ -41,6 +41,8 @@ class ImageAgent:
         if not self.api_key and not self.replicate_token and not self.nanobanana_token:
             print("[ImageAgent] No image generation API keys provided. Will use placeholder images.")
 
+        print(f"[ImageAgent] Init - ReplicateToken: {'YES' if self.replicate_token else 'NO'}, NanoToken: {'YES' if self.nanobanana_token else 'NO'}")
+
         # Prioritize Replicate if available
         if self.replicate_token:
             self.service = "replicate"
@@ -344,6 +346,7 @@ class ImageAgent:
                             print(f"     Image saved: {output_path}")
                             return (output_path, None)  # Gemini doesn't return image ID
 
+            print(f"     [Gemini DEBUG] Raw Result: {json.dumps(result)}")
             raise RuntimeError("No image data found in Gemini API response")
 
         except ImportError:
