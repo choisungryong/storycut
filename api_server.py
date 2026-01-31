@@ -908,17 +908,44 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                     
                     # Manifest 업데이트 (frontend가 이 URL을 보게 됨)
                     manifest_path = f"outputs/{project_id}/manifest.json"
-                    if os.path.exists(manifest_path):
-                        with open(manifest_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
+                    
+                    # [비동기] 씬(Scene)별 에셋 업로드 (이미지, 오디오, 조각 영상)
+                    try:
+                        print(f"[WRAPPER] Uploading scene assets...", flush=True)
+                        if manifest.scenes:
+                            for idx, scene in enumerate(manifest.scenes):
+                                # 1. Image Upload
+                                if hasattr(scene, "image_path") and scene.image_path and os.path.exists(scene.image_path):
+                                    img_filename = os.path.basename(scene.image_path)
+                                    r2_key = f"images/{project_id}/{img_filename}"
+                                    if storage.upload_file(scene.image_path, r2_key):
+                                        scene.image_path = f"{worker_url}/api/asset/{project_id}/image/{img_filename}"
+                                
+                                # 2. Audio Upload
+                                if hasattr(scene, "audio_path") and scene.audio_path and os.path.exists(scene.audio_path):
+                                    audio_filename = os.path.basename(scene.audio_path)
+                                    r2_key = f"audio/{project_id}/{audio_filename}"
+                                    if storage.upload_file(scene.audio_path, r2_key):
+                                        scene.audio_path = f"{worker_url}/api/asset/{project_id}/audio/{audio_filename}"
+
+                                # 3. Scene Video Upload
+                                if hasattr(scene, "video_path") and scene.video_path and os.path.exists(scene.video_path):
+                                    vid_filename = os.path.basename(scene.video_path)
+                                    r2_key = f"videos/{project_id}/{vid_filename}"
+                                    if storage.upload_file(scene.video_path, r2_key):
+                                        scene.video_path = f"{worker_url}/api/asset/{project_id}/video/{vid_filename}"
                         
-                        if 'outputs' not in data: data['outputs'] = {}
-                        data['outputs']['video_url'] = public_url
-                        data['status'] = 'completed' # Ensure status is completed
-                        
-                        with open(manifest_path, 'w', encoding='utf-8') as f:
-                            json.dump(data, f, ensure_ascii=False, indent=2)
-                        print(f"[WRAPPER] Manifest updated with video_url", flush=True)
+                        print(f"[WRAPPER] Scene assets uploaded.", flush=True)
+                    except Exception as e:
+                        print(f"[WRAPPER] Asset upload error: {e}")
+
+                    # Manifest 저장
+                    manifest.outputs.final_video_path = public_url # Main video
+                    
+                    with open(manifest_path, "w", encoding="utf-8") as f:
+                        f.write(manifest.json(ensure_ascii=False))
+                    
+                    print(f"[WRAPPER] Manifest updated with video_url and asset URLs", flush=True)
                 else:
                     print(f"[WRAPPER] R2 Upload Failed (Check credentials)", flush=True)
             else:

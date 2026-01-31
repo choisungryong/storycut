@@ -216,6 +216,13 @@ export default {
       return handleProxyToBackend(request, url, env, corsHeaders);
     }
 
+    // [New] Generic Asset Download (Image/Audio/Video) from R2
+    // Path: /api/asset/{projectId}/{type}/{filename}
+    // Type: 'images', 'audio', 'videos'
+    if (url.pathname.startsWith('/api/asset/')) {
+      return handleAssetDownload(url, env, corsHeaders);
+    }
+
     // 정적 파일 (Pages에서 서빙)
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
@@ -600,33 +607,68 @@ async function handleGenerate(request, env, ctx, corsHeaders, userId, userCredit
  * R2 Storage에서 가져오기
  */
 async function handleVideoDownload(url, env, corsHeaders) {
-  const projectId = url.pathname.split('/').pop();
+  // ... existing code ...
+  // Keep existing logic or refactor to use generic handleAssetDownload
+  return handleAssetDownload(url, env, corsHeaders, 'video');
+}
+
+/**
+ * Generic Asset Download
+ * /api/asset/{projectId}/{type}/{filename}
+ */
+async function handleAssetDownload(url, env, corsHeaders, forceType = null) {
+  const parts = url.pathname.split('/');
+  // Expected: ["", "api", "asset", "projectId", "type", "filename"]
+  // Or for video: ["", "api", "video", "projectId"] (Handled specially)
+
+  let projectId, type, filename;
+
+  if (forceType === 'video') {
+    projectId = parts.pop();
+    type = 'videos';
+    filename = 'final_video.mp4';
+  } else {
+    filename = parts.pop();
+    type = parts.pop();
+    projectId = parts.pop();
+  }
+
+  // Safety check path traversal
+  if (!projectId || !type || !filename || filename.includes('..')) {
+    return new Response('Invalid path', { status: 400, headers: corsHeaders });
+  }
+
+  // Map URL type to R2 folder
+  // URL type: 'image' -> R2: 'images'
+  // URL type: 'audio' -> R2: 'audio'
+  // URL type: 'video' -> R2: 'videos'
+  let folder = type;
+  if (type === 'image') folder = 'images';
+
+  const key = `${folder}/${projectId}/${filename}`;
 
   try {
-    // R2에서 영상 가져오기
-    const object = await env.R2_BUCKET.get(`videos/${projectId}/final_video.mp4`);
+    const object = await env.R2_BUCKET.get(key);
 
     if (!object) {
-      return new Response('Video not found', {
-        status: 404,
-        headers: corsHeaders,
-      });
+      return new Response(`Asset not found: ${key}`, { status: 404, headers: corsHeaders });
     }
 
-    return new Response(object.body, {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'video/mp4',
-        'Content-Disposition': `attachment; filename="storycut_${projectId}.mp4"`,
-        'Cache-Control': 'public, max-age=31536000', // 1년 캐싱
-      },
-    });
+    const headers = new Headers(object.writeHttpMetadata(corsHeaders));
+    headers.set('etag', object.httpEtag);
+
+    // Content-Type mapping
+    if (filename.endsWith('.mp4')) headers.set('Content-Type', 'video/mp4');
+    else if (filename.endsWith('.png')) headers.set('Content-Type', 'image/png');
+    else if (filename.endsWith('.jpg')) headers.set('Content-Type', 'image/jpeg');
+    else if (filename.endsWith('.mp3')) headers.set('Content-Type', 'audio/mpeg');
+    else if (filename.endsWith('.wav')) headers.set('Content-Type', 'audio/wav');
+
+    return new Response(object.body, { headers });
+
   } catch (error) {
-    console.error('Download error:', error);
-    return new Response('Error downloading video', {
-      status: 500,
-      headers: corsHeaders,
-    });
+    console.error('Asset Download Error:', error);
+    return new Response('Error downloading asset', { status: 500, headers: corsHeaders });
   }
 }
 
