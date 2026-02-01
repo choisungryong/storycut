@@ -76,20 +76,24 @@ class TTSAgent:
         audio_path = None
 
         # 1. Try Google Neural2 / Gemini (PRIMARY Selection)
-        if self.voice.startswith("neural2") or self.voice.startswith("gemini_") or os.getenv("GOOGLE_API_KEY"):
-             try:
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        if google_api_key:
+            try:
                 # Determine voice name/model based on selection
                 if "gemini" in self.voice:
                     model = "gemini-2.0-flash" if "flash" in self.voice else "gemini-2.0-pro"
                     audio_path = self._call_gemini_tts(narration, model, output_path)
-                
-                elif "neural2" in self.voice or not self.voice: # Default to Neural2
-                    voice_name = "ko-KR-Neural2-A" # Default female
-                    if "male" in self.voice:
-                        voice_name = "ko-KR-Neural2-C" # Male
+                else:
+                    # 기본값: Google Neural2 사용 (GOOGLE_API_KEY가 있으면)
+                    voice_name = "ko-KR-Neural2-A"  # Default female
+                    if "male" in self.voice or self.voice in ["neural2-c", "neural2_c"]:
+                        voice_name = "ko-KR-Neural2-C"  # Male
+                    elif self.voice in ["neural2-b", "neural2_b"]:
+                        voice_name = "ko-KR-Neural2-B"
+                    print(f"     [TTS] Using Google Neural2: {voice_name}")
                     audio_path = self._call_google_neural2(narration, voice_name, output_path)
-                    
-             except Exception as e:
+
+            except Exception as e:
                 print(f"     [Warning] Google/Gemini TTS failed: {e}")
                 audio_path = None
 
