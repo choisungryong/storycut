@@ -1311,40 +1311,50 @@ async def get_video_from_r2(project_id: str):
 
 @app.get("/api/history")
 async def get_history_list():
-    """완료된 프로젝트 목록 조회"""
-    outputs_dir = "outputs"
-    projects = []
+    """완료된 프로젝트 목록 조회 (R2 기반)"""
+    from utils.storage import StorageManager
+    
+    storage = StorageManager()
+    
+    # R2에서 프로젝트 목록 가져오기
+    projects = storage.list_projects()
+    
+    # R2 사용 불가능하면 로컬 폴더 폴백
+    if not projects:
+        print("[API] R2 unavailable, falling back to local outputs folder")
+        outputs_dir = "outputs"
+        projects = []
 
-    if not os.path.exists(outputs_dir):
-        return {"projects": []}
+        if not os.path.exists(outputs_dir):
+            return {"projects": []}
 
-    # 디렉토리 순회 (최신순 정렬)
-    try:
-        dirs = [d for d in os.listdir(outputs_dir) if os.path.isdir(os.path.join(outputs_dir, d))]
-        # 수정 시간 기준 내림차순 정렬
-        dirs.sort(key=lambda x: os.path.getmtime(os.path.join(outputs_dir, x)), reverse=True)
+        # 디렉토리 순회 (최신순 정렬)
+        try:
+            dirs = [d for d in os.listdir(outputs_dir) if os.path.isdir(os.path.join(outputs_dir, d))]
+            # 수정 시간 기준 내림차순 정렬
+            dirs.sort(key=lambda x: os.path.getmtime(os.path.join(outputs_dir, x)), reverse=True)
 
-        for pid in dirs:
-            manifest_path = os.path.join(outputs_dir, pid, "manifest.json")
-            if os.path.exists(manifest_path):
-                try:
-                    with open(manifest_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        # 필수 정보만 추출
-                        projects.append({
-                            "project_id": data.get("project_id"),
-                            "title": data.get("title", "제목 없음"),
-                            "status": data.get("status"),
-                            "created_at": data.get("created_at"),
-                            "thumbnail_url": f"/media/{pid}/thumbnail.png" if os.path.exists(os.path.join(outputs_dir, pid, "thumbnail.png")) else None,
-                            "video_url": f"/api/stream/{pid}" if data.get("status") == "completed" else None,
-                            "download_url": f"/api/download/{pid}" if data.get("status") == "completed" else None
-                        })
-                except Exception:
-                    continue
-    except Exception as e:
-        print(f"Error scanning history: {e}")
-        return {"projects": []}
+            for pid in dirs:
+                manifest_path = os.path.join(outputs_dir, pid, "manifest.json")
+                if os.path.exists(manifest_path):
+                    try:
+                        with open(manifest_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            # 필수 정보만 추출
+                            projects.append({
+                                "project_id": data.get("project_id"),
+                                "title": data.get("title", "제목 없음"),
+                                "status": data.get("status"),
+                                "created_at": data.get("created_at"),
+                                "thumbnail_url": f"/media/{pid}/thumbnail.png" if os.path.exists(os.path.join(outputs_dir, pid, "thumbnail.png")) else None,
+                                "video_url": f"/api/stream/{pid}" if data.get("status") == "completed" else None,
+                                "download_url": f"/api/download/{pid}" if data.get("status") == "completed" else None
+                            })
+                    except Exception:
+                        continue
+        except Exception as e:
+            print(f"Error scanning history: {e}")
+            return {"projects": []}
 
     return {"projects": projects}
 

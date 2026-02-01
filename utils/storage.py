@@ -86,3 +86,64 @@ class StorageManager:
         except Exception as e:
             print(f"[StorageManager] Unexpected error during download: {e}")
             return None
+
+    def list_projects(self):
+        """
+        R2에서 모든 프로젝트 목록을 가져옵니다.
+        videos/ 폴더에서 manifest.json 파일들을 찾아 프로젝트 정보를 반환합니다.
+
+        Returns:
+            프로젝트 정보 리스트 (최신순 정렬)
+        """
+        if not self.s3_client:
+            print("[StorageManager] R2 client not available.")
+            return []
+
+        try:
+            projects = []
+            
+            # R2에서 videos/ 폴더의 모든 객체 나열
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix='videos/')
+
+            for page in pages:
+                if 'Contents' not in page:
+                    continue
+
+                for obj in page['Contents']:
+                    key = obj['Key']
+                    
+                    # manifest.json 파일만 처리
+                    if key.endswith('/manifest.json'):
+                        try:
+                            # manifest.json 다운로드
+                            manifest_data = self.get_object(key)
+                            if manifest_data:
+                                import json
+                                manifest = json.loads(manifest_data.decode('utf-8'))
+                                
+                                # 프로젝트 정보 추출
+                                project_id = manifest.get('project_id')
+                                projects.append({
+                                    'project_id': project_id,
+                                    'title': manifest.get('title', '제목 없음'),
+                                    'status': manifest.get('status', 'unknown'),
+                                    'created_at': manifest.get('created_at'),
+                                    'last_modified': obj['LastModified'].isoformat() if 'LastModified' in obj else None,
+                                    'video_url': f"/api/stream/{project_id}" if manifest.get('status') == 'completed' else None,
+                                    'download_url': f"/api/download/{project_id}" if manifest.get('status') == 'completed' else None,
+                                    'thumbnail_url': None  # R2에서는 썸네일 직접 제공하지 않음
+                                })
+                        except Exception as e:
+                            print(f"[StorageManager] Error processing {key}: {e}")
+                            continue
+
+            # 최신순 정렬 (last_modified 기준)
+            projects.sort(key=lambda x: x.get('last_modified', ''), reverse=True)
+            
+            print(f"[StorageManager] Found {len(projects)} projects in R2")
+            return projects
+
+        except Exception as e:
+            print(f"[StorageManager] Error listing projects: {e}")
+            return []
