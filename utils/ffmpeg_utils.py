@@ -173,13 +173,12 @@ class FFmpegComposer:
         # vf_filter = f"subtitles='{srt_path_escaped}':fontsdir='{fonts_dir}':force_style='{force_style}'"
         vf_filter = f"subtitles='{srt_path_escaped}':force_style='{force_style}'"
 
+
         cmd = [
             "ffmpeg",
             "-y",
             "-i", video_in,
             "-vf", vf_filter,
-            # Audio copy explicitly
-            "-c:a", "copy",
             out_path
         ]
 
