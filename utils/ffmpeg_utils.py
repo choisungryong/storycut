@@ -156,9 +156,9 @@ class FFmpegComposer:
             default_font = "Noto Sans CJK KR" # standard name after installing noto-fonts-cjk
         
         # ASS 스타일 문자열 생성
-        # NanumGothic 폰트 명시 (시스템에 설치된 한글 폰트)
+        # FontName 제거: fontconfig가 자동으로 사용 가능한 한글 폰트 선택
+        # Nixpacks: Noto Sans CJK KR, Dockerfile: NanumGothic
         force_style = (
-            f"FontName=NanumGothic,"  # 명시적으로 NanumGothic 지정
             f"FontSize={style.get('font_size', 24)},"
             f"PrimaryColour={style.get('primary_color', '&HFFFFFF')},"
             f"OutlineColour={style.get('outline_color', '&H000000')},"
