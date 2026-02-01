@@ -424,11 +424,11 @@ class TTSAgent:
             # Just to distinguish them.
             
             if "flash" in model or "standard" in model:
-                voice_name = "ko-KR-Standard-A" # Female, Fast
+                voice_name = "ko-KR-Wavenet-A"  # 여성, Neural2-A와 다른 톤
             elif "pro" in model:
-                voice_name = "ko-KR-Wavenet-D" # Male, High Quality
+                voice_name = "ko-KR-Wavenet-D"  # 남성, 깊은 목소리
             else:
-                voice_name = "ko-KR-Neural2-B" # Fallback
+                voice_name = "ko-KR-Wavenet-B"  # Fallback (여성)
                 
             return self._call_google_neural2(text, voice_name, output_path)
             

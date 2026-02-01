@@ -1017,14 +1017,14 @@ async def get_voice_sample(voice_id: str):
                     if voice_id.startswith("neural2") or voice_id.startswith("gemini"):
                         print(f"[API] Generating Google/Gemini sample with voice: {voice_id}")
                         if "gemini" in voice_id:
-                             # Gemini Options
+                             # Gemini Options - Neural2와 확실히 다른 목소리 사용
                              if "flash" in voice_id:
-                                 # Flash -> Standard A (Fast/Efficient)
-                                 voice_name = "ko-KR-Standard-A"
+                                 # Flash -> Wavenet A (여성, Neural2-A와 다른 톤)
+                                 voice_name = "ko-KR-Wavenet-A"
                              else:
-                                 # Pro -> Wavenet D (High Quality Male)
+                                 # Pro -> Wavenet D (남성, 깊은 목소리)
                                  voice_name = "ko-KR-Wavenet-D"
-                             agent._call_google_neural2(text, voice_name, file_path) # Uses generic Cloud TTS call
+                             agent._call_google_neural2(text, voice_name, file_path)
                         else:
                              # Neural2 Options A, B, C
                              voice_name = "ko-KR-Neural2-A" # Default
