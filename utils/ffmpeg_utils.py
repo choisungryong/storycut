@@ -173,6 +173,20 @@ class FFmpegComposer:
         # vf_filter = f"subtitles='{srt_path_escaped}':fontsdir='{fonts_dir}':force_style='{force_style}'"
         vf_filter = f"subtitles='{srt_path_escaped}':force_style='{force_style}'"
 
+        # DEBUG: SRT 파일 존재 확인
+        if not os.path.exists(srt_path):
+            print(f"[ERROR] SRT file does not exist: {srt_path}")
+            return video_in
+        
+        # DEBUG: SRT 파일 내용 일부 출력
+        try:
+            with open(srt_path, 'r', encoding='utf-8') as f:
+                srt_preview = f.read(200)
+                print(f"[DEBUG] SRT file exists: {srt_path}")
+                print(f"[DEBUG] SRT preview (first 200 chars): {srt_preview}")
+        except Exception as e:
+            print(f"[ERROR] Cannot read SRT file: {e}")
+            return video_in
 
         cmd = [
             "ffmpeg",
