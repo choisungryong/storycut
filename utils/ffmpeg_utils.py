@@ -156,14 +156,14 @@ class FFmpegComposer:
             default_font = "Noto Sans CJK KR" # standard name after installing noto-fonts-cjk
         
         # ASS 스타일 문자열 생성
-        # FontName 제거: fontconfig가 자동으로 사용 가능한 한글 폰트 선택 (NanumGothicBold)
+        # NanumGothic 폰트 명시 (시스템에 설치된 한글 폰트)
         force_style = (
-            f"FontSize={style.get('font_size', 24)}," # Adjusted size
+            f"FontName=NanumGothic,"  # 명시적으로 NanumGothic 지정
+            f"FontSize={style.get('font_size', 24)},"
             f"PrimaryColour={style.get('primary_color', '&HFFFFFF')},"
             f"OutlineColour={style.get('outline_color', '&H000000')},"
             f"Outline={style.get('outline_width', 2)},"
-            f"MarginV={style.get('margin_v', 20)},"
-            f"Bold=1" 
+            f"MarginV={style.get('margin_v', 20)}"
         )
 
         # Windows 경로 처리 (백슬래시 이스케이프)
