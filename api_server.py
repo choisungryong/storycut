@@ -900,9 +900,9 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 r2_key = f"videos/{project_id}/final_video.mp4"
                 
                 if storage.upload_file(local_video_path, r2_key):
-                    # Worker URL (배포된 프론트엔드가 접근할 수 있는 경로)
-                    worker_url = "https://storycut-worker.twinspa0713.workers.dev"
-                    public_url = f"{worker_url}/api/video/{project_id}"
+                    # Backend URL (Worker 대신 백엔드가 직접 처리)
+                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    public_url = f"{backend_url}/api/video/{project_id}"
                     
                     print(f"[WRAPPER] R2 Upload Success! Public URL: {public_url}", flush=True)
                     
@@ -919,21 +919,21 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                                     img_filename = os.path.basename(scene.image_path)
                                     r2_key = f"images/{project_id}/{img_filename}"
                                     if storage.upload_file(scene.image_path, r2_key):
-                                        scene.image_path = f"{worker_url}/api/asset/{project_id}/image/{img_filename}"
-                                
+                                        scene.image_path = f"{backend_url}/api/asset/{project_id}/image/{img_filename}"
+
                                 # 2. Audio Upload
                                 if hasattr(scene, "audio_path") and scene.audio_path and os.path.exists(scene.audio_path):
                                     audio_filename = os.path.basename(scene.audio_path)
                                     r2_key = f"audio/{project_id}/{audio_filename}"
                                     if storage.upload_file(scene.audio_path, r2_key):
-                                        scene.audio_path = f"{worker_url}/api/asset/{project_id}/audio/{audio_filename}"
+                                        scene.audio_path = f"{backend_url}/api/asset/{project_id}/audio/{audio_filename}"
 
                                 # 3. Scene Video Upload
                                 if hasattr(scene, "video_path") and scene.video_path and os.path.exists(scene.video_path):
                                     vid_filename = os.path.basename(scene.video_path)
                                     r2_key = f"videos/{project_id}/{vid_filename}"
                                     if storage.upload_file(scene.video_path, r2_key):
-                                        scene.video_path = f"{worker_url}/api/asset/{project_id}/video/{vid_filename}"
+                                        scene.video_path = f"{backend_url}/api/asset/{project_id}/video/{vid_filename}"
                         
                         print(f"[WRAPPER] Scene assets uploaded.", flush=True)
                     except Exception as e:
@@ -1232,6 +1232,79 @@ async def stream_video(project_id: str):
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
         
     return FileResponse(video_path, media_type="video/mp4")  # filename 생략 -> Inline 재생
+
+
+@app.get("/api/asset/{project_id}/{asset_type}/{filename}")
+async def get_asset(project_id: str, asset_type: str, filename: str):
+    """
+    R2 또는 로컬에서 에셋 파일 제공 (이미지, 오디오, 비디오)
+    asset_type: image, audio, video
+    """
+    # 1. 로컬 파일 먼저 확인
+    type_to_dir = {
+        "image": "scenes",
+        "audio": "audio",
+        "video": ""
+    }
+    local_dir = type_to_dir.get(asset_type, "")
+    local_path = f"outputs/{project_id}/{local_dir}/{filename}" if local_dir else f"outputs/{project_id}/{filename}"
+
+    if os.path.exists(local_path):
+        media_types = {
+            "image": "image/png",
+            "audio": "audio/mpeg",
+            "video": "video/mp4"
+        }
+        return FileResponse(local_path, media_type=media_types.get(asset_type, "application/octet-stream"))
+
+    # 2. R2에서 가져오기
+    r2_type_map = {
+        "image": "images",
+        "audio": "audio",
+        "video": "videos"
+    }
+    r2_prefix = r2_type_map.get(asset_type, asset_type)
+    r2_path = f"{r2_prefix}/{project_id}/{filename}"
+
+    data = storage_manager.get_object(r2_path)
+    if data:
+        from fastapi.responses import Response
+        media_types = {
+            "image": "image/png",
+            "audio": "audio/mpeg",
+            "video": "video/mp4"
+        }
+        return Response(content=data, media_type=media_types.get(asset_type, "application/octet-stream"))
+
+    raise HTTPException(status_code=404, detail=f"에셋을 찾을 수 없습니다: {filename}")
+
+
+@app.get("/api/video/{project_id}")
+async def get_video_from_r2(project_id: str):
+    """
+    R2에서 최종 비디오 제공 (Worker 대신 백엔드가 처리)
+    """
+    # 1. 로컬 파일 먼저 확인
+    possible_paths = [
+        f"outputs/{project_id}/final_video_with_subtitles.mp4",
+        f"outputs/{project_id}/final_video.mp4",
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return FileResponse(path, media_type="video/mp4", filename=f"{project_id}_video.mp4")
+
+    # 2. R2에서 가져오기
+    r2_path = f"videos/{project_id}/final_video.mp4"
+    data = storage_manager.get_object(r2_path)
+    if data:
+        from fastapi.responses import Response
+        return Response(
+            content=data,
+            media_type="video/mp4",
+            headers={"Content-Disposition": f"attachment; filename={project_id}_video.mp4"}
+        )
+
+    raise HTTPException(status_code=404, detail="비디오를 찾을 수 없습니다.")
 
 
 @app.get("/api/history")
@@ -1602,8 +1675,8 @@ async def recompose_video(project_id: str):
             r2_key = f"videos/{project_id}/final_video.mp4"
             
             if storage.upload_file(final_video, r2_key):
-                worker_url = "https://storycut-worker.twinspa0713.workers.dev"
-                public_url = f"{worker_url}/api/video/{project_id}"
+                backend_url = "https://web-production-bb6bf.up.railway.app"
+                public_url = f"{backend_url}/api/video/{project_id}"
                 
                 manifest_data["outputs"]["video_url"] = public_url
                 print(f"[RECOMPOSE] R2 Upload Success: {public_url}")

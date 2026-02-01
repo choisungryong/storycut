@@ -1,5 +1,5 @@
 // Auth Logic
-const API_BASE_URL = window.location.hostname === 'localhost' ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
+const API_BASE_URL = window.location.hostname === 'localhost' ? '' : 'https://web-production-bb6bf.up.railway.app';
 
 document.addEventListener('DOMContentLoaded', () => {
     // 로그인 폼

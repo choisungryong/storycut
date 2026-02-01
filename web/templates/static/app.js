@@ -105,8 +105,8 @@ class StorycutApp {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return '';
         }
-        // [Optimized] Use Cloudflare Worker as API Gateway
-        return 'https://storycut-worker.twinspa0713.workers.dev';
+        // [Fix] Worker에 필요한 엔드포인트가 없어서 Railway 백엔드로 직접 요청
+        return 'https://web-production-bb6bf.up.railway.app';
     }
 
     // ==================== Step 1: 스토리 생성 ====================

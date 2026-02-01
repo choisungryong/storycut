@@ -62,3 +62,27 @@ class StorageManager:
         except Exception as e:
             print(f"[StorageManager] Unexpected error during upload: {e}")
             return False
+
+    def get_object(self, r2_path: str) -> Optional[bytes]:
+        """
+        R2에서 파일을 다운로드합니다.
+
+        Args:
+            r2_path: R2 내 파일 경로 (key)
+
+        Returns:
+            파일 바이트 데이터 또는 None
+        """
+        if not self.s3_client:
+            print("[StorageManager] R2 client not available.")
+            return None
+
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=r2_path)
+            return response['Body'].read()
+        except ClientError as e:
+            print(f"[StorageManager] Download failed: {e}")
+            return None
+        except Exception as e:
+            print(f"[StorageManager] Unexpected error during download: {e}")
+            return None

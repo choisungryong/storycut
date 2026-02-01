@@ -537,10 +537,9 @@
                             btn.disabled = true;
 
                             try {
-                                // [Optimization] Railway 직접 호출 제거 -> Cloudflare Worker 경유
-                                // Worker가 API 요청을 받아 백엔드로 프록시(전달)하거나 캐싱 처리함
+                                // [Fix] Worker 대신 Railway 백엔드 직접 호출
                                 const isLocal = window.location.hostname === 'localhost';
-                                const baseUrl = isLocal ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
+                                const baseUrl = isLocal ? '' : 'https://web-production-bb6bf.up.railway.app';
                                 const targetUrl = `${baseUrl}/api/sample-voice/${voice}?t=${Date.now()}`;
 
                                 btn.textContent = '⏳ 연결 중...';
