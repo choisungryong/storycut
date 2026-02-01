@@ -194,10 +194,10 @@ class FFmpegComposer:
         cmd = [
             "ffmpeg",
             "-y",
-            "-loglevel", "warning",  # 경고 이상만 출력
+            "-loglevel", "info",  # 더 자세한 로그 출력
             "-i", video_in,
             "-vf", vf_filter,
-            "-c:v", "libx264",  # 명시적으로 비디오 코덱 지정
+            "-c:v", "libx264",
             "-preset", "medium",
             "-crf", "23",
             out_path
