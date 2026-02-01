@@ -94,6 +94,8 @@ class FeatureFlags(BaseModel):
 
 class ProjectRequest(BaseModel):
     """프로젝트 요청 정보"""
+    model_config = {"populate_by_name": True}  # voice -> voice_id alias 지원
+
     topic: Optional[str] = Field(default=None, description="영상 주제")
     style_preset: Optional[str] = Field(
         default="cinematic, high contrast",
@@ -105,8 +107,9 @@ class ProjectRequest(BaseModel):
     )
     language: str = Field(default="ko", description="언어 코드")
     voice_id: str = Field(
-        default="onyx",
-        description="TTS 목소리 (alloy, echo, fable, onyx, nova, shimmer)"
+        default="neural2_a",
+        alias="voice",
+        description="TTS 목소리 (neural2_a, neural2_b, neural2_c, gemini_flash, gemini_pro)"
     )
     duration_target_sec: Optional[int] = Field(
         default=60,
