@@ -35,6 +35,7 @@ class TTSAgent:
             voice: Voice ID to use
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.voice = voice  # 기본값: "alloy"
         self.elevenlabs_key = os.getenv("ELEVENLABS_API_KEY")
         if self.elevenlabs_key:
             print("[TTS Agent] Option: ElevenLabs (High Quality - Optional)")
