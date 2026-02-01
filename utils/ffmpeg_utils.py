@@ -191,10 +191,19 @@ class FFmpegComposer:
         cmd = [
             "ffmpeg",
             "-y",
+            "-loglevel", "warning",  # 경고 이상만 출력
             "-i", video_in,
             "-vf", vf_filter,
+            "-c:v", "libx264",  # 명시적으로 비디오 코덱 지정
+            "-preset", "medium",
+            "-crf", "23",
             out_path
         ]
+
+        print(f"[DEBUG] Running FFmpeg subtitle burn-in:")
+        print(f"[DEBUG] Input: {video_in}")
+        print(f"[DEBUG] Output: {out_path}")
+        print(f"[DEBUG] Filter: {vf_filter}")
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
