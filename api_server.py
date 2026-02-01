@@ -947,6 +947,11 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                     with open(manifest_path, "w", encoding="utf-8") as f:
                         f.write(json.dumps(manifest.model_dump(mode='json'), ensure_ascii=False, indent=2))
                     
+                    # manifest.json도 R2에 업로드 (history 조회용)
+                    manifest_r2_key = f"videos/{project_id}/manifest.json"
+                    if storage.upload_file(manifest_path, manifest_r2_key):
+                        print(f"[WRAPPER] Manifest uploaded to R2: {manifest_r2_key}", flush=True)
+                    
                     print(f"[WRAPPER] Manifest updated with video_url and asset URLs", flush=True)
                 else:
                     print(f"[WRAPPER] R2 Upload Failed (Check credentials)", flush=True)
