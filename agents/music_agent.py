@@ -90,6 +90,7 @@ class MusicAgent:
                 "-y",
                 "-f", "lavfi",
                 "-i", f"sine=frequency=200:duration={duration_sec}",
+                "-f", "lavfi",
                 "-i", f"sine=frequency=300:duration={duration_sec}",
                 "-filter_complex", "amix=inputs=2:duration=first:dropout_transition=2,volume=0.1",
                 "-c:a", "libmp3lame",

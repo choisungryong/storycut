@@ -110,8 +110,11 @@ class TTSAgent:
 
 
         # 5. Try OpenAI TTS (SECONDARY - Good Quality)
-        if audio_path is None and self.api_key and "voice_" in self.voice: # Only if explicitly requested or fallback
+        # OpenAI TTS voices: alloy, echo, fable, onyx, nova, shimmer
+        openai_voices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+        if audio_path is None and self.api_key:
             try:
+                print(f"     [TTS] Trying OpenAI TTS with voice: {self.voice}")
                 audio_path = self._call_tts_api(narration, output_path)
             except Exception as e:
                 print(f"     [Warning] OpenAI TTS failed: {e}")
