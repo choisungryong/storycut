@@ -207,6 +207,18 @@ class FFmpegComposer:
             print(result.stdout)
             # 자막 실패 시 원본 복사로 폴백
             self._copy_file(video_in, out_path)
+        else:
+            # FFmpeg가 returncode=0이어도 파일이 제대로 생성되었는지 확인
+            if not os.path.exists(out_path):
+                print(f"[ERROR] Output file not created: {out_path}")
+                print(f"[ERROR] FFmpeg stderr: {result.stderr[:1000]}")
+                self._copy_file(video_in, out_path)
+            elif os.path.getsize(out_path) < 1024:  # 1KB 미만이면 실패로 간주
+                print(f"[ERROR] Output file too small ({os.path.getsize(out_path)} bytes): {out_path}")
+                print(f"[ERROR] FFmpeg likely failed silently (frame=0)")
+                print(f"[ERROR] FFmpeg stderr: {result.stderr[:1000]}")
+                os.remove(out_path)
+                self._copy_file(video_in, out_path)
 
         return out_path
 
