@@ -169,9 +169,9 @@ class FFmpegComposer:
         # Windows 경로 처리 (백슬래시 이스케이프)
         srt_path_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
         
-        # fontsdir 옵션은 로컬 파일 사용시에만 필요하므로 제거 (Nixpacks로 시스템 설치됨)
-        # vf_filter = f"subtitles='{srt_path_escaped}':fontsdir='{fonts_dir}':force_style='{force_style}'"
-        vf_filter = f"subtitles='{srt_path_escaped}':force_style='{force_style}'"
+        # FFmpeg subtitle filter syntax: paths should NOT be quoted
+        # Only special characters (like colons) need escaping
+        vf_filter = f"subtitles={srt_path_escaped}:force_style='{force_style}'"
 
         # DEBUG: SRT 파일 존재 확인
         if not os.path.exists(srt_path):
