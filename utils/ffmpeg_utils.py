@@ -186,7 +186,12 @@ class FFmpegComposer:
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            print(f"Subtitle overlay failed: {result.stderr[:500]}")
+            print(f"[ERROR] Subtitle overlay failed!")
+            print(f"[ERROR] FFmpeg command: {' '.join(cmd)}")
+            print(f"[ERROR] FFmpeg stderr (full):")
+            print(result.stderr)
+            print(f"[ERROR] FFmpeg stdout:")
+            print(result.stdout)
             # 자막 실패 시 원본 복사로 폴백
             self._copy_file(video_in, out_path)
 
