@@ -166,8 +166,11 @@ class FFmpegComposer:
             f"MarginV={style.get('margin_v', 20)}"
         )
 
-        # Windows 경로 처리 (백슬래시 이스케이프)
-        srt_path_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
+        # SRT 경로를 절대 경로로 변환 (Linux에서 상대 경로 문제 해결)
+        srt_path_abs = os.path.abspath(srt_path)
+        
+        # Windows 경로 처리 (백슬래시 이스케이프) + 콜론 이스케이프
+        srt_path_escaped = srt_path_abs.replace("\\", "/").replace(":", "\\:")
         
         # FFmpeg subtitle filter syntax: paths should NOT be quoted
         # Only special characters (like colons) need escaping
