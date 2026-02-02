@@ -105,8 +105,16 @@ class StorycutApp {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return '';
         }
-        // [Fix] Worker에 필요한 엔드포인트가 없어서 Railway 백엔드로 직접 요청
+        // Railway 백엔드 (영상 생성, 상태 조회 등)
         return 'https://web-production-bb6bf.up.railway.app';
+    }
+
+    getWorkerUrl() {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            return '';
+        }
+        // Cloudflare Worker (스토리 생성, 인증)
+        return 'https://storycut-worker.twinspa0713.workers.dev';
     }
 
     // ==================== Step 1: 스토리 생성 ====================
@@ -139,8 +147,9 @@ class StorycutApp {
         this.currentRequestParams = requestData;
 
         try {
-            const baseUrl = this.getApiBaseUrl();
-            const response = await fetch(`${baseUrl}/api/generate/story`, {
+            // 스토리 생성은 Worker에서 처리
+            const workerUrl = this.getWorkerUrl();
+            const response = await fetch(`${workerUrl}/api/generate/story`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestData)
