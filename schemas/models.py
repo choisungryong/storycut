@@ -91,6 +91,12 @@ class FeatureFlags(BaseModel):
         description="트렌드 기반 주제 후보 생성 (외부 API 필요)"
     )
 
+    # v2.0: Film Look
+    film_look: bool = Field(
+        default=False,
+        description="필름 그레인 + 색보정 후처리 (시네마틱 룩)"
+    )
+
 
 class ProjectRequest(BaseModel):
     """프로젝트 요청 정보"""

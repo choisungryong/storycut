@@ -5,6 +5,9 @@ P0 핵심 기능:
 - Ken Burns Effect: 이미지 기반 씬을 영상처럼 변환
 - Audio Ducking: 내레이션 시 BGM 자동 감쇠
 - Subtitle Burn-in: 자막을 영상에 직접 렌더링
+
+v2.0 추가 기능:
+- Film Look: 필름 그레인 + 색보정 후처리
 """
 
 import subprocess
@@ -830,3 +833,161 @@ class FFmpegComposer:
         """파일 복사."""
         import shutil
         shutil.copy2(src, dst)
+
+    # =========================================================================
+    # v2.0: Film Look Post-Processing
+    # =========================================================================
+
+    def apply_film_look(
+        self,
+        video_in: str,
+        out_path: str,
+        grain_intensity: int = 10,
+        saturation: float = 1.1,
+        contrast: float = 1.05,
+        brightness: float = 0.0,
+        gamma: float = 1.0,
+        vignette: bool = False
+    ) -> str:
+        """
+        FFmpeg 필름 그레인 + 색보정 적용.
+
+        v2.0: 시네마틱 필름 룩 후처리
+        - 필름 그레인 노이즈 추가
+        - 색상 보정 (saturation, contrast, brightness, gamma)
+        - 선택적 비네팅 효과
+
+        Args:
+            video_in: 입력 영상 경로
+            out_path: 출력 영상 경로
+            grain_intensity: 노이즈 강도 (0-30, 기본값 10)
+            saturation: 채도 (1.0 = 원본, 기본값 1.1 = 약간 증가)
+            contrast: 대비 (1.0 = 원본, 기본값 1.05 = 약간 증가)
+            brightness: 밝기 조정 (-1.0 ~ 1.0, 기본값 0.0)
+            gamma: 감마 보정 (0.1 ~ 10.0, 기본값 1.0)
+            vignette: 비네팅 효과 적용 여부
+
+        Returns:
+            출력 영상 경로
+        """
+        print(f"[FFmpeg] Applying film look to video...")
+        print(f"  Input: {video_in}")
+        print(f"  Grain: {grain_intensity}, Saturation: {saturation}, Contrast: {contrast}")
+
+        # 필터 체인 구성
+        filters = []
+
+        # 1. Film grain (noise filter)
+        # noise=alls=<intensity>:allf=t+u
+        # t = temporal noise, u = uniform noise
+        if grain_intensity > 0:
+            filters.append(f"noise=alls={grain_intensity}:allf=t+u")
+
+        # 2. Color correction (eq filter)
+        # eq=saturation=<sat>:contrast=<con>:brightness=<br>:gamma=<gam>
+        eq_params = []
+        if saturation != 1.0:
+            eq_params.append(f"saturation={saturation}")
+        if contrast != 1.0:
+            eq_params.append(f"contrast={contrast}")
+        if brightness != 0.0:
+            eq_params.append(f"brightness={brightness}")
+        if gamma != 1.0:
+            eq_params.append(f"gamma={gamma}")
+
+        if eq_params:
+            filters.append(f"eq={':'.join(eq_params)}")
+
+        # 3. Vignette effect (optional)
+        if vignette:
+            # vignette=a=PI/4:mode=backward
+            filters.append("vignette=a=PI/6:mode=backward")
+
+        # 필터 체인 조합
+        if not filters:
+            print("  No filters to apply, copying file...")
+            self._copy_file(video_in, out_path)
+            return out_path
+
+        vf_filter = ",".join(filters)
+        print(f"  Filter chain: {vf_filter}")
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_in,
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-c:a", "copy",  # 오디오는 그대로 복사
+            out_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"[ERROR] Film look failed: {result.stderr[-500:]}")
+            # 실패 시 원본 복사
+            self._copy_file(video_in, out_path)
+        else:
+            print(f"[SUCCESS] Film look applied: {out_path}")
+
+        return out_path
+
+    def apply_cinematic_lut(
+        self,
+        video_in: str,
+        out_path: str,
+        lut_path: Optional[str] = None,
+        lut_intensity: float = 1.0
+    ) -> str:
+        """
+        LUT (Look-Up Table) 기반 색보정 적용.
+
+        Args:
+            video_in: 입력 영상 경로
+            out_path: 출력 영상 경로
+            lut_path: .cube LUT 파일 경로 (None이면 기본 필름 룩 적용)
+            lut_intensity: LUT 적용 강도 (0.0 ~ 1.0)
+
+        Returns:
+            출력 영상 경로
+        """
+        if not lut_path or not os.path.exists(lut_path):
+            # LUT 파일이 없으면 기본 필름 룩 적용
+            return self.apply_film_look(video_in, out_path)
+
+        print(f"[FFmpeg] Applying LUT: {lut_path}")
+
+        # lut3d 필터 사용
+        # interp: 보간 방식 (trilinear, tetrahedral, etc.)
+        vf_filter = f"lut3d='{lut_path}':interp=trilinear"
+
+        # 강도 조절 (원본과 블렌딩)
+        if lut_intensity < 1.0:
+            # split -> [original][lut] -> blend
+            blend_expr = f"'A*(1-{lut_intensity})+B*{lut_intensity}'"
+            vf_filter = f"split[original][lut];[lut]lut3d='{lut_path}':interp=trilinear[lut_applied];[original][lut_applied]blend=all_expr={blend_expr}"
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_in,
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-c:a", "copy",
+            out_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"[ERROR] LUT application failed: {result.stderr[-500:]}")
+            self._copy_file(video_in, out_path)
+        else:
+            print(f"[SUCCESS] LUT applied: {out_path}")
+
+        return out_path

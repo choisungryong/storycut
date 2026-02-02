@@ -2,10 +2,14 @@
 Image Agent: Generates still images for scenes.
 
 Scene 2~N에서 사용되며, Ken Burns 효과와 함께 영상처럼 변환됨.
+
+v2.0 업데이트:
+- 복수 캐릭터 참조 이미지 지원 (character_reference_paths: List[str])
+- MultimodalPromptBuilder 통합
 """
 
 import os
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 import sys
 from PIL import Image, ImageDraw, ImageFont
@@ -75,6 +79,7 @@ class ImageAgent:
         character_tokens: Optional[list] = None,
         character_reference_id: Optional[str] = None,
         character_reference_path: Optional[str] = None,
+        character_reference_paths: Optional[List[str]] = None,  # v2.0: 복수 참조 이미지
         image_model: str = "standard"  # standard / premium
     ) -> tuple:
         """
@@ -83,7 +88,13 @@ class ImageAgent:
         Standard: Replicate -> Gemini 2.5 Flash Image -> Placeholder
         Premium: Gemini 3 Pro Image -> Replicate -> Placeholder
         """
-        print(f"[ImageAgent v2.2] Generating Image for Scene {scene_id} | Model: {image_model}")
+        print(f"[ImageAgent v2.3] Generating Image for Scene {scene_id} | Model: {image_model}")
+
+        # v2.0: 단일 참조를 복수 참조 리스트로 통합
+        if character_reference_paths is None:
+            character_reference_paths = []
+        if character_reference_path and character_reference_path not in character_reference_paths:
+            character_reference_paths.insert(0, character_reference_path)
         
         # Verify arguments to prevent NameError
         try:
@@ -151,7 +162,8 @@ class ImageAgent:
                         style=style,
                         output_path=output_path,
                         seed=seed,
-                        character_reference_path=character_reference_path
+                        character_reference_path=character_reference_path,
+                        character_reference_paths=character_reference_paths
                     )
             except Exception as e:
                 error_msg = str(e)
@@ -181,7 +193,8 @@ class ImageAgent:
                                 style=style,
                                 output_path=output_path,
                                 seed=seed,
-                                character_reference_path=character_reference_path
+                                character_reference_path=character_reference_path,
+                                character_reference_paths=character_reference_paths
                             )
                     except Exception as retry_e:
                         print(f"     [Error] Retry with softened prompt failed: {retry_e}")
@@ -256,7 +269,8 @@ class ImageAgent:
         style: str,
         output_path: str,
         seed: Optional[int] = None,
-        character_reference_path: Optional[str] = None
+        character_reference_path: Optional[str] = None,
+        character_reference_paths: Optional[List[str]] = None  # v2.0: 복수 참조 이미지
     ) -> tuple:
         """
         Call Google Gemini 2.5 Flash Image API for image generation.
@@ -288,23 +302,46 @@ class ImageAgent:
                 "Content-Type": "application/json"
             }
 
-            # Build contents array with text prompt
-            parts = [{
-                "text": f"Generate a high-quality image: {full_prompt}. Aspect ratio 16:9, cinematic, professional photography."
-            }]
+            # v2.0: 단일 참조를 복수 참조 리스트로 통합
+            all_reference_paths = []
+            if character_reference_paths:
+                all_reference_paths.extend(character_reference_paths)
+            if character_reference_path and character_reference_path not in all_reference_paths:
+                all_reference_paths.insert(0, character_reference_path)
 
-            # v2.0: Add character reference image if provided
-            if character_reference_path and os.path.exists(character_reference_path):
-                print(f"     Adding character reference: {character_reference_path}")
-                with open(character_reference_path, "rb") as ref_file:
-                    ref_image_data = base64.b64encode(ref_file.read()).decode('utf-8')
-                    parts.insert(0, {
-                        "inline_data": {
-                            "mime_type": "image/png",
-                            "data": ref_image_data
-                        }
-                    })
-                parts[1]["text"] = f"Using this character as reference, generate: {full_prompt}. Maintain character consistency, aspect ratio 16:9, cinematic, professional photography."
+            # Build contents array with multimodal parts
+            parts = []
+
+            # v2.0: Add all character reference images first
+            added_refs = 0
+            for ref_path in all_reference_paths[:3]:  # 최대 3개 참조 이미지
+                if ref_path and os.path.exists(ref_path):
+                    print(f"     Adding character reference [{added_refs + 1}]: {ref_path}")
+                    with open(ref_path, "rb") as ref_file:
+                        ref_image_data = base64.b64encode(ref_file.read()).decode('utf-8')
+                        # MIME type 추론
+                        ext = os.path.splitext(ref_path)[1].lower()
+                        mime_type = "image/png" if ext == ".png" else "image/jpeg"
+                        parts.append({
+                            "inline_data": {
+                                "mime_type": mime_type,
+                                "data": ref_image_data
+                            }
+                        })
+                        added_refs += 1
+
+            # 텍스트 프롬프트 구성
+            if added_refs > 0:
+                # 참조 이미지가 있을 때
+                ref_instruction = "Using the above character reference image(s), maintain exact character consistency. "
+                parts.append({
+                    "text": f"{ref_instruction}Generate: {full_prompt}. Maintain character faces, clothing, and distinctive features exactly. Aspect ratio 16:9, cinematic, professional photography."
+                })
+            else:
+                # 참조 이미지가 없을 때
+                parts.append({
+                    "text": f"Generate a high-quality image: {full_prompt}. Aspect ratio 16:9, cinematic, professional photography."
+                })
 
             payload = {
                 "contents": [{

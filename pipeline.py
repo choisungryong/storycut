@@ -37,6 +37,7 @@ from agents import (
     StoryAgent,
     SceneOrchestrator,
     OptimizationAgent,
+    CharacterManager,
 )
 from utils.ffmpeg_utils import FFmpegComposer
 
@@ -106,13 +107,29 @@ class StorycutPipeline:
             manifest.global_style = GlobalStyle(**story_data["global_style"])
             print(f"[v2.0] Global style: {manifest.global_style.art_style}")
 
+        # [NEW STEP 1.5] Character Casting - 마스터 앵커 이미지 생성
+        if manifest.character_sheet:
+            print(f"\n[STEP 1.5/5] Casting characters (generating master anchor images)...")
+            character_manager = CharacterManager()
+            character_images = character_manager.cast_characters(
+                character_sheet=manifest.character_sheet,
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
+
+            # story_data에도 master_image_path 반영 (SceneOrchestrator가 참조)
+            if "character_sheet" in story_data:
+                for token, image_path in character_images.items():
+                    if token in story_data["character_sheet"]:
+                        story_data["character_sheet"][token]["master_image_path"] = image_path
+
         try:
             print(f"\n{'='*60}")
             print(f"STORYCUT Pipeline - Video Generation - Project: {project_id}")
             print(f"{'='*60}")
 
             # Step 2: Scene 처리 (맥락 상속 포함)
-            print("\n[STEP 2/5] Processing scenes with context carry-over...")
+            print("\n[STEP 2/6] Processing scenes with context carry-over...")
             orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
             final_video = orchestrator.process_story(
                 story_data=story_data,
@@ -126,7 +143,7 @@ class StorycutPipeline:
 
             # Step 3: 자막 생성 및 영상에 적용 (옵션)
             if request.subtitles:
-                print("\n[STEP 3/5] Generating subtitles and applying to video...")
+                print("\n[STEP 3/6] Generating subtitles and applying to video...")
                 final_video = self._generate_and_apply_subtitles(
                     manifest.scenes,
                     project_dir,
@@ -134,11 +151,17 @@ class StorycutPipeline:
                 )
                 manifest.outputs.final_video_path = final_video
 
+            # Step 3.5: Film Look 후처리 (v2.0)
+            if request.feature_flags.film_look:
+                print("\n[STEP 3.5/6] Applying film look (grain + color grading)...")
+                final_video = self._apply_film_look(final_video, project_dir)
+                manifest.outputs.final_video_path = final_video
+
             # Step 4: Optimization 패키지 생성
             if request.feature_flags.optimization_pack:
                 # v2.1: Check if StoryAgent already generated optimization data
                 if "youtube_opt" in story_data:
-                    print("\n[STEP 4/5] Using pre-generated optimization package from StoryAgent...")
+                    print("\n[STEP 4/6] Using pre-generated optimization package from StoryAgent...")
                     opt = story_data["youtube_opt"]
                     manifest.outputs.title_candidates = opt.get("title_candidates", [])
                     manifest.outputs.thumbnail_texts = [opt.get("thumbnail_text")] if opt.get("thumbnail_text") else []
@@ -154,7 +177,7 @@ class StorycutPipeline:
                     manifest.outputs.metadata_json_path = opt_path
                     
                 else:
-                    print("\n[STEP 4/5] Generating optimization package (Legacy)...")
+                    print("\n[STEP 4/6] Generating optimization package (Legacy)...")
                     opt_package = self.optimization_agent.run(
                         topic=request.topic or manifest.title,
                         script=manifest.script,
@@ -170,7 +193,7 @@ class StorycutPipeline:
                 manifest.outputs.metadata_json_path = opt_path
 
             # Step 5: Manifest 저장
-            print("\n[STEP 5/5] Saving manifest...")
+            print("\n[STEP 5/6] Saving manifest...")
             manifest.status = "completed"
             manifest.execution_time_sec = time.time() - start_time
             manifest.cost_estimate = self._estimate_costs(manifest)
@@ -212,6 +235,7 @@ class StorycutPipeline:
             f"{project_dir}/media/audio",
             f"{project_dir}/media/images",
             f"{project_dir}/media/subtitles",
+            f"{project_dir}/media/characters",  # v2.0: 캐릭터 마스터 이미지
         ]
 
         for d in dirs:
@@ -429,6 +453,45 @@ class StorycutPipeline:
             json.dump(scene_dict, f, ensure_ascii=False, indent=2)
 
         return scene_path
+
+    def _apply_film_look(
+        self,
+        input_video: str,
+        project_dir: str,
+        grain_intensity: int = 10,
+        saturation: float = 1.1,
+        contrast: float = 1.05
+    ) -> str:
+        """
+        필름 룩 후처리 적용 (v2.0).
+
+        Args:
+            input_video: 입력 영상 경로
+            project_dir: 프로젝트 디렉토리
+            grain_intensity: 그레인 강도 (0-30)
+            saturation: 채도 (1.0 = 원본)
+            contrast: 대비 (1.0 = 원본)
+
+        Returns:
+            필름 룩이 적용된 영상 경로
+        """
+        composer = FFmpegComposer()
+
+        output_path = f"{project_dir}/final_video_film_look.mp4"
+
+        try:
+            result = composer.apply_film_look(
+                video_in=input_video,
+                out_path=output_path,
+                grain_intensity=grain_intensity,
+                saturation=saturation,
+                contrast=contrast
+            )
+            print(f"  Film look applied: {result}")
+            return result
+        except Exception as e:
+            print(f"  [Warning] Film look failed: {e}. Using original video.")
+            return input_video
 
 
 def run_pipeline(

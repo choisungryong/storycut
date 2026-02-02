@@ -10,6 +10,7 @@ STORYCUT Agents Package
 - MusicAgent: 음악 선택
 - ComposerAgent: 최종 합성
 - OptimizationAgent: 유튜브 최적화 (제목/썸네일/AB테스트)
+- CharacterManager: v2.0 마스터 앵커 이미지 생성/관리
 """
 
 from .story_agent import StoryAgent
@@ -20,6 +21,7 @@ from .music_agent import MusicAgent
 from .composer_agent import ComposerAgent
 from .scene_orchestrator import SceneOrchestrator
 from .optimization_agent import OptimizationAgent
+from .character_manager import CharacterManager
 
 __all__ = [
     "StoryAgent",
@@ -30,4 +32,5 @@ __all__ = [
     "ComposerAgent",
     "SceneOrchestrator",
     "OptimizationAgent",
+    "CharacterManager",
 ]

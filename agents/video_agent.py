@@ -6,13 +6,18 @@ P0 핵심 로직:
 - Scene 2~N: 이미지 + Ken Burns 효과로 비용 절감
 - 실패 시: 이미지 기반으로 자동 폴백
 
+v2.0 업데이트:
+- Image-to-Video: Veo 3.1에 첫 프레임 이미지 입력 지원
+- 복수 캐릭터 참조 전달
+
 API 우선순위: Veo 3.1 > Runway > Stability > Ken Burns
 """
 
 import os
 import subprocess
 import time
-from typing import Dict, Any, Optional, Tuple
+import base64
+from typing import Dict, Any, Optional, Tuple, List
 from pathlib import Path
 import sys
 
@@ -156,7 +161,8 @@ class VideoAgent:
         style: str,
         mood: str,
         duration_sec: int,
-        output_path: str
+        output_path: str,
+        first_frame_image: Optional[str] = None  # v2.0: Image-to-Video
     ) -> str:
         """
         Generate high-quality video using external API (Veo 3.1, Runway, etc.)
@@ -167,12 +173,13 @@ class VideoAgent:
             mood: Emotional mood
             duration_sec: Duration in seconds
             output_path: Output file path
+            first_frame_image: v2.0 - Optional first frame image for Image-to-Video mode
 
         Returns:
             Path to generated video
         """
         if self.service == "veo":
-            return self._call_veo_api(prompt, style, mood, duration_sec, output_path)
+            return self._call_veo_api(prompt, style, mood, duration_sec, output_path, first_frame_image)
         elif self.service == "runway":
             return self._call_runway_api(prompt, style, duration_sec, output_path)
         elif self.service == "stability":
@@ -188,10 +195,13 @@ class VideoAgent:
         style: str,
         mood: str,
         duration_sec: int,
-        output_path: str
+        output_path: str,
+        first_frame_image: Optional[str] = None  # v2.0: Image-to-Video
     ) -> str:
         """
         Call Google Veo 3.1 API via official google-genai SDK.
+
+        v2.0: Image-to-Video 모드 지원 - 첫 프레임 이미지 입력 가능
 
         Args:
             prompt: Video generation prompt
@@ -199,6 +209,7 @@ class VideoAgent:
             mood: Emotional mood
             duration_sec: Duration in seconds
             output_path: Output file path
+            first_frame_image: v2.0 - Optional first frame image for Image-to-Video mode
 
         Returns:
             Path to generated video
@@ -209,23 +220,56 @@ class VideoAgent:
             import requests
 
             print(f"     Calling Veo 3.1 API (veo-3.1-generate-preview)...")
-            
+
             # Using the official SDK
             client = genai.Client(api_key=self.google_api_key)
-            
-            # Enhanced prompt
-            full_prompt = f"Generate a video of: {style} style, {mood} mood: {prompt}. Cinematic, professional."
+
+            # v2.0: Image-to-Video 모드 확인
+            use_image_to_video = first_frame_image and os.path.exists(first_frame_image)
+
+            if use_image_to_video:
+                print(f"     [v2.0] Image-to-Video mode: using {first_frame_image}")
+                # Image-to-Video: 움직임 중심 프롬프트
+                # 시각적 묘사는 이미지에서 가져오므로 움직임/카메라 워크 중심으로 프롬프트 구성
+                movement_prompt = self._build_movement_prompt(prompt, style, mood)
+                full_prompt = movement_prompt
+            else:
+                # 기존 Text-to-Video 모드
+                full_prompt = f"Generate a video of: {style} style, {mood} mood: {prompt}. Cinematic, professional."
 
             print(f"     Sending request to Veo 3.1...")
-            
-            # Call generate_videos - Returns an Operation (LRO)
-            operation = client.models.generate_videos(
-                model="veo-3.1-generate-preview",
-                prompt=full_prompt,
-                config={
-                    'aspect_ratio': '16:9',
-                }
-            )
+
+            # v2.0: Image-to-Video 모드 처리
+            if use_image_to_video:
+                # 이미지 데이터 인코딩
+                with open(first_frame_image, "rb") as f:
+                    image_data = base64.b64encode(f.read()).decode()
+
+                # MIME type 추론
+                ext = os.path.splitext(first_frame_image)[1].lower()
+                mime_type = "image/png" if ext == ".png" else "image/jpeg"
+
+                # Image-to-Video API 호출
+                operation = client.models.generate_videos(
+                    model="veo-3.1-generate-preview",
+                    prompt=full_prompt,
+                    image={
+                        "image_bytes": image_data,
+                        "mime_type": mime_type
+                    },
+                    config={
+                        'aspect_ratio': '16:9',
+                    }
+                )
+            else:
+                # 기존 Text-to-Video API 호출
+                operation = client.models.generate_videos(
+                    model="veo-3.1-generate-preview",
+                    prompt=full_prompt,
+                    config={
+                        'aspect_ratio': '16:9',
+                    }
+                )
             
             print(f"     Operation started: {operation.name}")
             print(f"     Waiting for video generation to complete (this may take a minute)...")
@@ -303,6 +347,67 @@ class VideoAgent:
             # Raise exception to trigger fallback in generate_video
             raise
 
+    def _build_movement_prompt(
+        self,
+        original_prompt: str,
+        style: str,
+        mood: str
+    ) -> str:
+        """
+        Image-to-Video용 움직임 중심 프롬프트 생성.
+
+        v2.0: 시각적 묘사 → 움직임/카메라 워크 중심으로 변환
+        - Before: "영화 같은 샷, 검을 든 주인공"
+        - After: "천천히 줌 인, 머리카락이 바람에 날림, 카메라가 주인공 주위를 돈다"
+
+        Args:
+            original_prompt: 원본 프롬프트
+            style: 비주얼 스타일
+            mood: 감정/분위기
+
+        Returns:
+            움직임 중심 프롬프트
+        """
+        # 움직임 키워드 추출 및 강화
+        movement_keywords = []
+
+        # 분위기 기반 움직임 제안
+        mood_movements = {
+            "dramatic": ["slow zoom in", "camera slowly orbits subject", "subtle dolly forward"],
+            "tense": ["slight camera shake", "quick pan", "nervous camera movement"],
+            "peaceful": ["gentle pan across scene", "slow crane up", "soft floating movement"],
+            "mysterious": ["slow reveal", "camera drifts through mist", "subtle push in"],
+            "action": ["dynamic camera following movement", "quick cuts", "tracking shot"],
+            "emotional": ["slow zoom on face", "camera gently rises", "intimate close-up drift"],
+            "suspenseful": ["slow creeping zoom", "subtle rack focus", "ominous dolly"],
+        }
+
+        # 기본 움직임 패턴
+        default_movements = [
+            "subtle camera movement",
+            "characters move naturally",
+            "cinematic motion",
+        ]
+
+        # 분위기에 맞는 움직임 선택
+        mood_lower = mood.lower() if mood else "dramatic"
+        selected_movements = mood_movements.get(mood_lower, default_movements)[:2]
+        movement_keywords.extend(selected_movements)
+
+        # 환경 움직임 추가 (바람, 빛 변화 등)
+        ambient_movements = [
+            "hair gently moving in the breeze",
+            "subtle lighting changes",
+            "dust particles floating in light",
+            "fabric rippling slightly",
+        ]
+        movement_keywords.append(ambient_movements[hash(original_prompt) % len(ambient_movements)])
+
+        # 최종 프롬프트 구성
+        movement_prompt = f"Animate this scene: {', '.join(movement_keywords)}. {style} style, {mood} mood. Maintain character consistency from the reference image. Cinematic quality, smooth motion."
+
+        return movement_prompt
+
     def _call_runway_api(
         self,
         prompt: str,
@@ -359,6 +464,10 @@ class VideoAgent:
 
         P0 핵심: 이미지 기반 씬은 Ken Burns로 영상처럼 보이게
 
+        v2.0 업데이트:
+        - 복수 캐릭터 참조 이미지 전달
+        - CharacterManager 통합
+
         Args:
             scene_id: Scene identifier
             prompt: Image generation prompt
@@ -380,46 +489,58 @@ class VideoAgent:
         character_tokens = None
         character_reference_id = None
         character_reference_path = None
+        character_reference_paths = []  # v2.0: 복수 참조 이미지
+
         if scene:
             # character_sheet에서 visual_seed 추출
             seed = getattr(scene, '_seed', None)
             character_tokens = scene.characters_in_scene if scene.characters_in_scene else None
 
-            # v2.0: Extract master_image_path for character reference
+            # v2.0: Extract master_image_path for all active characters
             if character_tokens and hasattr(scene, '_character_sheet') and scene._character_sheet:
-                # 1. 시드와 레퍼런스 이미지 추출 (기존 로직)
-                first_char_token = character_tokens[0]
-                char_data = scene._character_sheet.get(first_char_token, {})
-                character_reference_id = char_data.get('master_image_id')  # deprecated
-                character_reference_path = char_data.get('master_image_path')
-                
-                # 2. [CRITICAL] 캐릭터 상세 묘사를 프롬프트에 주입
-                # 단순히 이름("지수")만 넘기는 게 아니라, "긴 생머리의 20대 여성..." 설명을 넘김
                 detailed_descriptions = []
-                for token in character_tokens:
+
+                for idx, token in enumerate(character_tokens):
                     c_data = scene._character_sheet.get(token)
-                    if c_data and isinstance(c_data, dict):
-                         # If it's a dict verify validation, else if it's a string use it
-                         # Schema uses 'appearance'
-                         desc = c_data.get('appearance') or c_data.get('visual_description') or c_data.get('description')
-                         if desc:
-                             detailed_descriptions.append(f"{token} ({desc})")
-                    elif c_data and isinstance(c_data, str):
-                         # If character_sheet is just name -> description mapping
-                         detailed_descriptions.append(f"{token} ({c_data})")
-                
-                # 상세 묘사가 있다면 이것을 character_tokens 대신 사용 (ImageAgent가 이를 프롬프트 앞에 붙임)
+                    if not c_data:
+                        continue
+
+                    # dict 또는 CharacterSheet 처리
+                    if isinstance(c_data, dict):
+                        master_path = c_data.get('master_image_path')
+                        desc = c_data.get('appearance') or c_data.get('visual_description') or c_data.get('description')
+                    elif hasattr(c_data, 'master_image_path'):
+                        master_path = c_data.master_image_path
+                        desc = getattr(c_data, 'appearance', None)
+                    else:
+                        continue
+
+                    # v2.0: 모든 활성 캐릭터의 마스터 이미지 경로 수집
+                    if master_path and os.path.exists(master_path):
+                        character_reference_paths.append(master_path)
+                        # 첫 번째 캐릭터의 경로는 레거시 호환성을 위해 별도 저장
+                        if idx == 0:
+                            character_reference_path = master_path
+                            character_reference_id = c_data.get('master_image_id') if isinstance(c_data, dict) else None
+
+                    # 상세 묘사 추출
+                    if desc:
+                        detailed_descriptions.append(f"{token} ({desc})")
+                    elif isinstance(c_data, str):
+                        detailed_descriptions.append(f"{token} ({c_data})")
+
+                # 상세 묘사가 있다면 이것을 character_tokens 대신 사용
                 if detailed_descriptions:
                     character_tokens = detailed_descriptions
-                    print(f"     [Consistency] Injected detailed character descriptions: {detailed_descriptions}")
+                    print(f"     [v2.0] Injected detailed character descriptions: {detailed_descriptions}")
 
-                if character_reference_path:
-                    print(f"     [v2.0] Using character reference: {character_reference_path}")
-            
+                if character_reference_paths:
+                    print(f"     [v2.0] Using {len(character_reference_paths)} character reference(s): {character_reference_paths}")
+
             if seed:
                 print(f"     [v2.0] Applying visual seed: {seed}")
             if character_tokens:
-                print(f"     [v2.0] Characters: {', '.join(character_tokens)}")
+                print(f"     [v2.0] Characters: {', '.join(str(t) for t in character_tokens)}")
 
         # Determine image output directory based on video output path
         # If output_path is 'outputs/xyz/media/video/scene.mp4', we want 'outputs/xyz/media/images'
@@ -439,6 +560,7 @@ class VideoAgent:
             character_tokens=character_tokens,
             character_reference_id=character_reference_id,
             character_reference_path=character_reference_path,
+            character_reference_paths=character_reference_paths,  # v2.0: 복수 참조 이미지
             image_model=self.feature_flags.image_model if hasattr(self.feature_flags, 'image_model') else "standard"
         )
 
