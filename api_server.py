@@ -1092,14 +1092,26 @@ async def get_voice_sample(voice_id: str):
 @app.get("/api/download/{project_id}")
 async def download_video(project_id: str):
     """생성된 영상 다운로드"""
+    import re
+    
+    # [보안] Path Traversal 방어
+    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-]+$')
+    if not safe_pattern.match(project_id) or '..' in project_id:
+        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
+    
     # 가능한 경로들 시도
     possible_paths = [
         f"outputs/{project_id}/final_video_with_subtitles.mp4",  # 자막 적용된 버전 우선
         f"outputs/{project_id}/final_video.mp4",                  # 원본
     ]
 
+    outputs_base = os.path.realpath("outputs")
     video_path = None
+    
     for path in possible_paths:
+        resolved = os.path.realpath(path)
+        if not resolved.startswith(outputs_base):
+            continue
         if os.path.exists(path):
             video_path = path
             break
@@ -1121,38 +1133,53 @@ async def download_video(project_id: str):
 
 
 # ============================================================================
-# Auth Endpoints (Mock for Local)
+# Auth Endpoints (Mock for Local Development ONLY)
+# ============================================================================
+# ⚠️ 보안 경고: 이 엔드포인트들은 로컬 개발용입니다!
+# 실제 인증은 Cloudflare Worker (worker.js)에서 D1 DB와 bcrypt를 사용합니다.
+# Railway 배포 환경에서는 이 엔드포인트들을 사용하지 마세요.
 # ============================================================================
 
 @app.post("/api/auth/register")
 async def register(req: RegisterRequest):
-    """회원가입 (Local Mock)"""
-    # 실제 구현에서는 DB 저장 필요
+    """
+    회원가입 (Local Mock ONLY)
+    
+    ⚠️ 경고: 이것은 개발용 Mock입니다. 실제 회원가입은 Cloudflare Worker가 처리합니다.
+    """
+    print("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
     return {
-        "message": "User created successfully",
+        "message": "User created successfully (LOCAL MOCK)",
         "user": {
-            "id": "user_local_123",
+            "id": "user_local_mock",
             "username": req.username,
             "email": req.email
-        }
+        },
+        "_warning": "This is a mock response for local development only"
     }
 
 
 @app.post("/api/auth/login")
 async def login(req: LoginRequest):
-    """로그인 (Local Mock)"""
-    # 실제 구현에서는 PW 검증 필요
+    """
+    로그인 (Local Mock ONLY)
+    
+    ⚠️ 경고: 이것은 개발용 Mock입니다. 실제 인증은 Cloudflare Worker가 처리합니다.
+    """
+    print("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
+    
     if not req.email or not req.password:
         raise HTTPException(status_code=400, detail="이메일과 비밀번호를 입력하세요.")
     
     return {
-        "token": "local_mock_token_12345",
+        "token": "local_mock_token_DO_NOT_USE_IN_PRODUCTION",
         "user": {
-            "id": "user_local_123",
+            "id": "user_local_mock",
             "username": req.email.split("@")[0],
             "email": req.email,
             "credits": 100
-        }
+        },
+        "_warning": "This is a mock response for local development only"
     }
 
 
@@ -1225,12 +1252,25 @@ async def get_manifest(project_id: str):
 @app.get("/api/stream/{project_id}")
 async def stream_video(project_id: str):
     """영상 스트리밍 (Inline Playback)"""
+    import re
+    
+    # [보안] Path Traversal 방어
+    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-]+$')
+    if not safe_pattern.match(project_id) or '..' in project_id:
+        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
+    
     possible_paths = [
         f"outputs/{project_id}/final_video_with_subtitles.mp4",
         f"outputs/{project_id}/final_video.mp4",
     ]
+    
+    outputs_base = os.path.realpath("outputs")
     video_path = None
+    
     for path in possible_paths:
+        resolved = os.path.realpath(path)
+        if not resolved.startswith(outputs_base):
+            continue
         if os.path.exists(path):
             video_path = path
             break
@@ -1247,7 +1287,27 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     R2 또는 로컬에서 에셋 파일 제공 (이미지, 오디오, 비디오)
     asset_type: image, audio, video
     """
-    # 1. 로컬 파일 먼저 확인
+    import re
+    
+    # [보안] Path Traversal 방어
+    # 1. project_id, filename 검증 (영숫자, 하이픈, 언더스코어, 점만 허용)
+    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
+    
+    if not safe_pattern.match(project_id):
+        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
+    
+    if not safe_pattern.match(filename):
+        raise HTTPException(status_code=400, detail="잘못된 filename 형식")
+    
+    # 2. asset_type 화이트리스트 검증
+    if asset_type not in ["image", "audio", "video"]:
+        raise HTTPException(status_code=400, detail="잘못된 asset_type")
+    
+    # 3. '..' 포함 여부 추가 확인 (이중 방어)
+    if '..' in project_id or '..' in filename:
+        raise HTTPException(status_code=400, detail="잘못된 경로")
+    
+    # 4. 로컬 파일 경로 생성
     type_to_dir = {
         "image": "scenes",
         "audio": "audio",
@@ -1255,6 +1315,13 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     }
     local_dir = type_to_dir.get(asset_type, "")
     local_path = f"outputs/{project_id}/{local_dir}/{filename}" if local_dir else f"outputs/{project_id}/{filename}"
+    
+    # 5. [보안] 최종 경로가 outputs 디렉토리 내부인지 확인
+    outputs_base = os.path.realpath("outputs")
+    resolved_path = os.path.realpath(local_path)
+    
+    if not resolved_path.startswith(outputs_base):
+        raise HTTPException(status_code=403, detail="접근이 거부되었습니다.")
 
     if os.path.exists(local_path):
         media_types = {
@@ -1264,7 +1331,7 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
         }
         return FileResponse(local_path, media_type=media_types.get(asset_type, "application/octet-stream"))
 
-    # 2. R2에서 가져오기
+    # 6. R2에서 가져오기
     r2_type_map = {
         "image": "images",
         "audio": "audio",
@@ -1291,12 +1358,25 @@ async def get_video_from_r2(project_id: str):
     """
     R2에서 최종 비디오 제공 (Worker 대신 백엔드가 처리)
     """
+    import re
+    
+    # [보안] Path Traversal 방어
+    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-]+$')
+    if not safe_pattern.match(project_id) or '..' in project_id:
+        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
+    
     # 1. 로컬 파일 먼저 확인
     possible_paths = [
         f"outputs/{project_id}/final_video_with_subtitles.mp4",
         f"outputs/{project_id}/final_video.mp4",
     ]
+    
+    outputs_base = os.path.realpath("outputs")
+    
     for path in possible_paths:
+        resolved = os.path.realpath(path)
+        if not resolved.startswith(outputs_base):
+            continue  # 보안 위반 시 스킵
         if os.path.exists(path):
             return FileResponse(path, media_type="video/mp4", filename=f"{project_id}_video.mp4")
 

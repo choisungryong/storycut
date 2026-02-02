@@ -13,8 +13,16 @@ import bcrypt from 'bcryptjs';
  * 5. D1에 메타데이터 저장
  */
 
-// JWT 비밀키 (실제 운영 시에는 wrangler secret으로 설정해야 함)
-const JWT_SECRET = new TextEncoder().encode('my-secret-salt-key-change-this');
+// JWT 비밀키 (반드시 wrangler secret put JWT_SECRET으로 설정!)
+// 주의: 하드코딩 금지! env.JWT_SECRET 사용
+function getJwtSecret(env) {
+  if (!env.JWT_SECRET) {
+    console.error('[SECURITY] JWT_SECRET not configured! Using fallback (INSECURE!)');
+    // 개발/테스트용 폴백 (프로덕션에서는 절대 사용 금지)
+    return new TextEncoder().encode('dev-only-insecure-key-replace-me');
+  }
+  return new TextEncoder().encode(env.JWT_SECRET);
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -95,7 +103,7 @@ export default {
           .setProtectedHeader({ alg: 'HS256' })
           .setIssuedAt()
           .setExpirationTime('24h') // 24시간 유효
-          .sign(JWT_SECRET);
+          .sign(getJwtSecret(env));
 
         return new Response(JSON.stringify({
           token,
@@ -122,7 +130,7 @@ export default {
 
       try {
         const token = authHeader.split(' ')[1];
-        const { payload } = await jwtVerify(token, JWT_SECRET);
+        const { payload } = await jwtVerify(token, getJwtSecret(env));
 
         // 최신 크레딧 정보 조회
         const user = await env.DB.prepare(`SELECT id, email, username, credits FROM users WHERE id = ?`)
@@ -152,7 +160,7 @@ export default {
       if (authHeader && authHeader.startsWith('Bearer ')) {
         try {
           const token = authHeader.split(' ')[1];
-          const { payload } = await jwtVerify(token, JWT_SECRET);
+          const { payload } = await jwtVerify(token, getJwtSecret(env));
           userId = payload.id;
 
           // 크레딧 확인
@@ -179,7 +187,7 @@ export default {
       if (authHeader && authHeader.startsWith('Bearer ')) {
         try {
           const token = authHeader.split(' ')[1];
-          const { payload } = await jwtVerify(token, JWT_SECRET);
+          const { payload } = await jwtVerify(token, getJwtSecret(env));
           userId = payload.id;
           const user = await env.DB.prepare(`SELECT credits FROM users WHERE id = ?`).bind(userId).first();
           userCredits = user ? user.credits : 0;
