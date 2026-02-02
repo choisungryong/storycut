@@ -479,7 +479,7 @@ JSON 형식으로 출력:
                         print(f"     [Subtitle] Burning in subtitles for scene {i}...")
                         subtitled_video_path = video_path.replace(".mp4", "_sub.mp4")
                         
-                        self.composer_agent.composer.overlay_subtitles(
+                        result_path, subtitle_success = self.composer_agent.composer.overlay_subtitles(
                             video_in=video_path,
                             srt_path=scene.assets.subtitle_srt_path,
                             out_path=subtitled_video_path,
@@ -489,12 +489,14 @@ JSON 형식으로 출력:
                             }
                         )
                         
-                        # Verify output exists
-                        if os.path.exists(subtitled_video_path):
-                            scene.assets.video_path = subtitled_video_path
-                            print(f"     [Subtitle] Subtitles burned successfully: {subtitled_video_path}")
+                        # Check actual subtitle application result
+                        if subtitle_success and os.path.exists(result_path):
+                            scene.assets.video_path = result_path
+                            print(f"     [Subtitle] Subtitles burned successfully: {result_path}")
                         else:
-                            print(f"     [Warning] Subtitle burn-in failed, using original video.")
+                            print(f"     [Warning] Subtitle burn-in failed (OOM?), using original video without subtitles.")
+                            # Keep original video path (fallback was already copied)
+                            scene.assets.video_path = result_path
                             
                 except Exception as sub_e:
                      print(f"     [Warning] Subtitle processing failed: {sub_e}")

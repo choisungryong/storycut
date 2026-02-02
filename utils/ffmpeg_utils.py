@@ -126,7 +126,7 @@ class FFmpegComposer:
         srt_path: str,
         out_path: str,
         style: Optional[Dict[str, Any]] = None
-    ) -> str:
+    ) -> tuple[str, bool]:
         """
         자막을 영상에 burn-in 처리.
 
@@ -196,15 +196,18 @@ class FFmpegComposer:
         video_in_abs = os.path.abspath(video_in)
         out_path_abs = os.path.abspath(out_path)
 
+        # Railway 메모리 제한 대응: ultrafast preset + 스레드 제한
         cmd = [
             "ffmpeg",
             "-y",
-            "-loglevel", "info",
+            "-loglevel", "warning",
+            "-threads", "2",  # 스레드 수 제한 (메모리 절약)
             "-i", video_in_abs,
             "-vf", vf_filter,
             "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "23",
+            "-preset", "ultrafast",  # 메모리 사용량 최소화
+            "-crf", "28",  # 품질 약간 낮춤 (파일 크기/메모리 절약)
+            "-threads", "2",  # 인코딩 스레드도 제한
             out_path_abs
         ]
 
@@ -218,31 +221,36 @@ class FFmpegComposer:
         print(f"[DEBUG] FFmpeg returncode: {result.returncode}")
         print(f"[DEBUG] FFmpeg stderr length: {len(result.stderr)}")
 
+        subtitle_applied = False
+        
         if result.returncode != 0:
             print(f"[ERROR] Subtitle overlay failed! (returncode={result.returncode})")
+            if result.returncode == -9:
+                print(f"[ERROR] Process killed by SIGKILL - likely OOM (Out of Memory)")
+                print(f"[ERROR] Consider increasing Railway container memory or reducing video quality")
             print(f"[ERROR] FFmpeg command: {' '.join(cmd)}")
-            print(f"[ERROR] FFmpeg stderr (full):")
-            print(result.stderr if result.stderr else "(empty)")
-            print(f"[ERROR] FFmpeg stdout:")
-            print(result.stdout if result.stdout else "(empty)")
+            print(f"[ERROR] FFmpeg stderr (last 500 chars):")
+            print(result.stderr[-500:] if result.stderr else "(empty)")
             # 자막 실패 시 원본 복사로 폴백
             self._copy_file(video_in_abs, out_path_abs)
+            subtitle_applied = False
         else:
             # FFmpeg가 returncode=0이어도 파일이 제대로 생성되었는지 확인
             if not os.path.exists(out_path_abs):
                 print(f"[ERROR] Output file not created: {out_path_abs}")
-                print(f"[ERROR] FFmpeg stderr: {result.stderr[:1000] if result.stderr else '(empty)'}")
                 self._copy_file(video_in_abs, out_path_abs)
+                subtitle_applied = False
             elif os.path.getsize(out_path_abs) < 1024:  # 1KB 미만이면 실패로 간주
                 print(f"[ERROR] Output file too small ({os.path.getsize(out_path_abs)} bytes): {out_path_abs}")
                 print(f"[ERROR] FFmpeg likely failed silently (frame=0)")
-                print(f"[ERROR] FFmpeg stderr: {result.stderr[:1000] if result.stderr else '(empty)'}")
                 os.remove(out_path_abs)
                 self._copy_file(video_in_abs, out_path_abs)
+                subtitle_applied = False
             else:
                 print(f"[SUCCESS] Subtitle burn-in completed: {out_path_abs} ({os.path.getsize(out_path_abs)} bytes)")
+                subtitle_applied = True
 
-        return out_path
+        return out_path, subtitle_applied
 
     def generate_srt_from_scenes(
         self,
@@ -749,7 +757,7 @@ class FFmpegComposer:
         if (feature_flags.get("subtitle_burn_in", True) and
             scene.get("assets", {}).get("subtitle_srt_path")):
             subtitled_video = f"{output_dir}/temp_sub_{scene_id:02d}.mp4"
-            current_video = self.overlay_subtitles(
+            current_video, _ = self.overlay_subtitles(
                 current_video,
                 scene["assets"]["subtitle_srt_path"],
                 subtitled_video

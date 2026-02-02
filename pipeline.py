@@ -333,13 +333,17 @@ class StorycutPipeline:
         # 2. 자막을 영상에 burn-in
         output_with_subtitles = f"{project_dir}/final_video_with_subtitles.mp4"
         try:
-            subtitled_video = composer.overlay_subtitles(
+            subtitled_video, subtitle_success = composer.overlay_subtitles(
                 input_video,
                 srt_path,
                 output_with_subtitles
             )
-            print(f"  Applied subtitles to video: {subtitled_video}")
-            return subtitled_video
+            if subtitle_success:
+                print(f"  Applied subtitles to video: {subtitled_video}")
+                return subtitled_video
+            else:
+                print(f"  [Warning] Subtitle burn-in failed (likely OOM). Using original video.")
+                return input_video
         except Exception as e:
             print(f"  [Warning] Subtitle burn-in failed: {e}. Using original video.")
             return input_video
