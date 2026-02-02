@@ -113,22 +113,79 @@ class VideoAgent:
 
         if use_high_quality_video:
             # P0: Scene 1 Hook - 고품질 비디오 생성 시도
-            print(f"     [HOOK] Scene 1: Attempting high-quality video generation...")
+            # v2.1: Image-to-Video 모드 사용 - 먼저 이미지 생성 후 Veo에 전달
+            print(f"     [HOOK] Scene 1: Generating first frame image for Image-to-Video...")
+            
+            first_frame_image = None
+            
             try:
+                # Step 1: 캐릭터 참조 이미지를 사용해 첫 프레임 이미지 생성
+                from agents.image_agent import ImageAgent
+                image_agent = ImageAgent()
+                
+                # 캐릭터 참조 정보 추출
+                character_reference_paths = []
+                character_tokens = None
+                seed = None
+                
+                if scene:
+                    seed = getattr(scene, '_seed', None)
+                    character_tokens = scene.characters_in_scene if scene.characters_in_scene else None
+                    
+                    # 캐릭터 마스터 이미지 경로 추출
+                    if character_tokens and hasattr(scene, '_character_sheet') and scene._character_sheet:
+                        for token in character_tokens:
+                            c_data = scene._character_sheet.get(token)
+                            if c_data:
+                                if isinstance(c_data, dict):
+                                    master_path = c_data.get('master_image_path')
+                                elif hasattr(c_data, 'master_image_path'):
+                                    master_path = c_data.master_image_path
+                                else:
+                                    master_path = None
+                                    
+                                if master_path and os.path.exists(master_path):
+                                    character_reference_paths.append(master_path)
+                
+                if character_reference_paths:
+                    print(f"     [v2.1] Using {len(character_reference_paths)} character reference(s) for first frame")
+                
+                # 이미지 출력 경로
+                image_dir = output_dir.replace("video", "images") if "video" in output_dir else f"{output_dir}/images"
+                os.makedirs(image_dir, exist_ok=True)
+                
+                image_path, _ = image_agent.generate_image(
+                    scene_id=scene_id,
+                    prompt=actual_prompt,
+                    style=style,
+                    output_dir=image_dir,
+                    seed=seed,
+                    character_tokens=character_tokens,
+                    character_reference_paths=character_reference_paths,
+                    image_model="standard"
+                )
+                
+                first_frame_image = image_path
+                print(f"     [v2.1] First frame generated: {image_path}")
+                
+                # Step 2: Veo 3.1 Image-to-Video 모드로 비디오 생성
+                print(f"     [HOOK] Scene 1: Generating video with Veo 3.1 Image-to-Video...")
                 video_path = self._generate_high_quality_video(
                     prompt=actual_prompt,
                     style=style,
                     mood=mood,
                     duration_sec=min(duration_sec, 10),  # Max 10 seconds for cost control
-                    output_path=video_output_path
+                    output_path=video_output_path,
+                    first_frame_image=first_frame_image  # v2.1: 첫 프레임 이미지 전달
                 )
-                generation_method = "high_quality_video"
+                generation_method = "image_to_video"
                 print(f"     Video saved: {video_path}")
 
                 # Update scene metadata if provided
                 if scene:
                     scene.generation_method = generation_method
                     scene.assets.video_path = video_path
+                    scene.assets.image_path = first_frame_image
 
                 return video_path
 
