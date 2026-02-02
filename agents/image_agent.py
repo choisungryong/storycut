@@ -152,6 +152,7 @@ class ImageAgent:
                         output_path=output_path,
                         seed=seed,
                         character_reference_path=character_reference_path,
+                        character_reference_paths=character_reference_paths,  # v2.0: 복수 참조
                         negative_prompt=negative_prompt,
                         character_tokens=character_tokens
                     )
@@ -184,6 +185,7 @@ class ImageAgent:
                                 output_path=output_path,
                                 seed=seed,
                                 character_reference_path=character_reference_path,
+                                character_reference_paths=character_reference_paths,  # v2.0: 복수 참조
                                 negative_prompt=negative_prompt,
                                 character_tokens=character_tokens
                             )
@@ -448,6 +450,7 @@ class ImageAgent:
         output_path: str,
         seed: Optional[int] = None,
         character_reference_path: Optional[str] = None,
+        character_reference_paths: Optional[List[str]] = None,  # v2.0: 복수 참조 이미지
         negative_prompt: Optional[str] = None,
         character_tokens: Optional[list] = None
     ) -> tuple:
@@ -455,8 +458,13 @@ class ImageAgent:
         Call Replicate API (Gemini 2.5 Flash Image).
         Using Gemini for high speed and good quality in various styles.
 
+        v2.0 Update:
+        - Support multiple character reference images
+        - Builds multimodal prompt with all references
+
         Args:
-            character_reference_path: Path to master character image for consistency
+            character_reference_path: Path to master character image for consistency (legacy)
+            character_reference_paths: v2.0 - List of all character reference image paths
 
         Returns:
             Tuple of (image_path, image_id)
@@ -464,12 +472,25 @@ class ImageAgent:
         try:
             import replicate
             import requests
+            import base64
+
+            # v2.0: Consolidate all reference paths
+            all_reference_paths = []
+            if character_reference_paths:
+                all_reference_paths.extend(character_reference_paths)
+            if character_reference_path and character_reference_path not in all_reference_paths:
+                all_reference_paths.insert(0, character_reference_path)
+            
+            # Filter to existing files only
+            all_reference_paths = [p for p in all_reference_paths if p and os.path.exists(p)]
 
             # Enhanced prompt for better quality
             # Remove generic qualifiers and focus on visual details
             full_prompt = self._enhance_generic_prompt(f"{style} style: {prompt}")
 
             print(f"     Calling Replicate (Gemini 2.5 Flash Image) API...")
+            if all_reference_paths:
+                print(f"     [v2.0] Using {len(all_reference_paths)} character reference(s)")
 
             # Use Gemini 2.5 Flash Image (nano banana)
             model = "google/gemini-2.5-flash-image"
@@ -495,16 +516,17 @@ class ImageAgent:
                 full_prompt = f"{char_desc}. {full_prompt}"
                 print(f"     [Character Injection] Prepending character info: {char_desc}")
 
+            # v2.0: Build multimodal prompt with character references
+            if all_reference_paths:
+                # Add character consistency instruction
+                ref_instruction = "Using the character reference image(s) provided, maintain exact character consistency including faces, clothing, and distinctive features. "
+                full_prompt = f"{ref_instruction}{full_prompt}"
+                print(f"     [v2.0] Enhanced prompt with reference instruction")
+
             input_params = {
                 "prompt": full_prompt,
                 "aspect_ratio": "16:9",
                 "output_format": "png",
-                # Flux/Replicate doesn't always support 'negative_prompt' directly in all models, 
-                # but 'google/gemini-2.5-flash-image' uses prompt-based negation or specific fields.
-                # Only Flux-dev/pro supports 'negative_prompt' officially.
-                # For safety, we Append "NO [term]" to prompt if model doesn't support negative_prompt arg,
-                # BUT this specific model might not.
-                # Let's try passing it if the schema allows, otherwise append to prompt.
             }
 
             # NOTE: Replicate usually takes 'prompt' only. 'negative_prompt' is for some implementations.
@@ -517,14 +539,31 @@ class ImageAgent:
                 input_params["seed"] = seed
                 print(f"     Using seed: {seed} for consistency")
 
-            # v2.0: Add character reference image for consistency
-            if character_reference_path and os.path.exists(character_reference_path):
-                print(f"     Adding character reference: {character_reference_path}")
-                with open(character_reference_path, "rb") as ref_image:
-                    input_params["image_input"] = [ref_image]
-                    output = replicate.run(model, input=input_params)
-            else:
-                output = replicate.run(model, input=input_params)
+            # v2.0: Add character reference images
+            # Replicate's Gemini model expects 'image' or 'images' parameter with URI or base64
+            if all_reference_paths:
+                # Convert images to data URIs for Replicate
+                image_uris = []
+                for ref_path in all_reference_paths[:3]:  # Max 3 references
+                    try:
+                        with open(ref_path, "rb") as f:
+                            image_data = base64.b64encode(f.read()).decode('utf-8')
+                            ext = os.path.splitext(ref_path)[1].lower()
+                            mime_type = "image/png" if ext == ".png" else "image/jpeg"
+                            data_uri = f"data:{mime_type};base64,{image_data}"
+                            image_uris.append(data_uri)
+                            print(f"     Added reference: {os.path.basename(ref_path)}")
+                    except Exception as e:
+                        print(f"     [Warning] Failed to load reference {ref_path}: {e}")
+
+                if image_uris:
+                    # Gemini on Replicate accepts 'image' for single or 'images' for multiple
+                    if len(image_uris) == 1:
+                        input_params["image"] = image_uris[0]
+                    else:
+                        input_params["images"] = image_uris
+
+            output = replicate.run(model, input=input_params)
 
             # Handle different output formats
             if isinstance(output, str):
