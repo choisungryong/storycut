@@ -44,11 +44,21 @@ if not os.getenv("R2_ACCOUNT_ID") and env_path.exists():
 # 최종 확인
 print(f"DEBUG: R2_ACCOUNT_ID Check: {'Set' if os.getenv('R2_ACCOUNT_ID') else 'Unset'}")
 
+# [보안] API 키 마스킹 함수
+def mask_api_key(key: str) -> str:
+    """API 키를 안전하게 마스킹하여 로그에 출력."""
+    if not key or len(key) < 10:
+        return "(not set)"
+    return f"{key[:4]}...{key[-4:]}"
+
+# [보안] 프로덕션 모드 확인
+IS_PRODUCTION = os.getenv("PRODUCTION", "").lower() == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None
+
 api_key = os.getenv("OPENAI_API_KEY")
-print(f"DEBUG: Loaded OPENAI_API_KEY: {api_key[:10]}..." if api_key else "DEBUG: OPENAI_API_KEY is None")
+print(f"DEBUG: OPENAI_API_KEY: {mask_api_key(api_key)}")
 
 google_api_key = os.getenv("GOOGLE_API_KEY")
-print(f"DEBUG: Loaded GOOGLE_API_KEY: {google_api_key[:10]}..." if google_api_key else "DEBUG: GOOGLE_API_KEY is None")
+print(f"DEBUG: GOOGLE_API_KEY: {mask_api_key(google_api_key)}")
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -101,15 +111,29 @@ async def global_exception_handler(request: Request, exc: Exception):
     print(f"[CRITICAL ERROR] Global exception caught: {exc}")
     import traceback
     traceback.print_exc()
-    return JSONResponse(
-        status_code=500,
-        content={"detail": str(exc), "traceback": traceback.format_exc()},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
+    
+    # [보안] 프로덕션에서는 트레이스백 숨김
+    if IS_PRODUCTION:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error"},
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            }
+        )
+    else:
+        # 개발 모드에서는 상세 정보 표시
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc), "traceback": traceback.format_exc()},
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            }
+        )
 
 # 정적 파일 서빙
 app.mount("/static", StaticFiles(directory="web/templates/static"), name="static")
