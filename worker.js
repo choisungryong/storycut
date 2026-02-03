@@ -1044,6 +1044,3 @@ async function handleProxyToBackend(request, url, env, corsHeaders) {
   }
 }
 
-/**
- * [New] Story Generation Handler (JS Port of StoryAgent)
- */
