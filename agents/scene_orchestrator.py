@@ -772,10 +772,14 @@ JSON 형식으로 출력:
         for scene in scenes:
             srt_path = f"{output_dir}/scene_{scene.scene_id:02d}.srt"
 
+            # CRITICAL FIX: Use tts_duration_sec if available, otherwise fallback to duration_sec
+            # This ensures subtitle timing matches actual TTS audio length
+            actual_duration = scene.tts_duration_sec if scene.tts_duration_sec else scene.duration_sec
+
             # 단일 Scene용 SRT 생성
             scene_data = [{
                 "narration": scene.narration or scene.sentence,
-                "duration_sec": scene.duration_sec
+                "duration_sec": actual_duration  # Use ACTUAL TTS duration
             }]
 
             composer.generate_srt_from_scenes(scene_data, srt_path)

@@ -367,13 +367,14 @@ class StorycutPipeline:
         composer = FFmpegComposer()
 
         # 1. 자막 파일 생성
-        scene_dicts = [
-            {
+        scene_dicts = []
+        for s in scenes:
+            # CRITICAL FIX: Use tts_duration_sec if available for accurate timing
+            actual_duration = s.tts_duration_sec if s.tts_duration_sec else s.duration_sec
+            scene_dicts.append({
                 "narration": s.narration or s.sentence,
-                "duration_sec": s.duration_sec
-            }
-            for s in scenes
-        ]
+                "duration_sec": actual_duration  # Use ACTUAL TTS duration
+            })
 
         srt_path = f"{project_dir}/media/subtitles/full.srt"
         composer.generate_srt_from_scenes(scene_dicts, srt_path)
