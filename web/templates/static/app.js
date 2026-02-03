@@ -158,13 +158,13 @@ class StorycutApp {
             duration: parseInt(formData.get('duration')),
             platform: formData.get('platform'),
 
-            // Feature Flags
-            hook_scene1_video: document.getElementById('hook_scene1_video').checked,
-            ffmpeg_kenburns: document.getElementById('ffmpeg_kenburns').checked,
-            ffmpeg_audio_ducking: document.getElementById('ffmpeg_audio_ducking').checked,
-            subtitle_burn_in: document.getElementById('subtitle_burn_in').checked,
-            context_carry_over: document.getElementById('context_carry_over').checked,
-            optimization_pack: document.getElementById('optimization_pack').checked,
+            // Feature Flags (with null checks)
+            hook_scene1_video: document.getElementById('hook_scene1_video')?.checked || false,
+            ffmpeg_kenburns: document.getElementById('ffmpeg_kenburns')?.checked || true,
+            ffmpeg_audio_ducking: document.getElementById('ffmpeg_audio_ducking')?.checked || false,
+            subtitle_burn_in: document.getElementById('subtitle_burn_in')?.checked || true,
+            context_carry_over: document.getElementById('context_carry_over')?.checked || true,
+            optimization_pack: document.getElementById('optimization_pack')?.checked || true,
         };
 
         this.currentRequestParams = requestData;
