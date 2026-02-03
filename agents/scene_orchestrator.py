@@ -1,9 +1,9 @@
 """
 Scene Orchestrator: Manages scene-by-scene processing with context carry-over.
 
-P1 핵심 기능:
-- 이전 장면의 핵심 키워드(인물/장소/감정/행동)를 다음 장면 프롬프트에 상속
-- Scene 간 일관성 유지
+P1 íµì¬ ê¸°ë¥:
+- ì´ì  ì¥ë©´ì íµì¬ í¤ìë(ì¸ë¬¼/ì¥ì/ê°ì /íë)ë¥¼ ë¤ì ì¥ë©´ íë¡¬íí¸ì ìì
+- Scene ê° ì¼ê´ì± ì ì§
 """
 
 import os
@@ -23,11 +23,11 @@ from schemas import FeatureFlags, Scene, SceneEntities, ProjectRequest, SceneSta
 
 class SceneOrchestrator:
     """
-    Scene 단위 처리 오케스트레이터
+    Scene ë¨ì ì²ë¦¬ ì¤ì¼ì¤í¸ë ì´í°
 
-    P1 핵심: Context Carry-over (맥락 상속)
-    - 이전 장면의 핵심 키워드를 다음 장면 프롬프트에 강제 포함
-    - 인물/장소/감정/행동 일관성 유지
+    P1 íµì¬: Context Carry-over (ë§¥ë½ ìì)
+    - ì´ì  ì¥ë©´ì íµì¬ í¤ìëë¥¼ ë¤ì ì¥ë©´ íë¡¬íí¸ì ê°ì  í¬í¨
+    - ì¸ë¬¼/ì¥ì/ê°ì /íë ì¼ê´ì± ì ì§
     """
 
     def __init__(self, feature_flags: FeatureFlags = None):
@@ -43,7 +43,7 @@ class SceneOrchestrator:
         self.music_agent = MusicAgent()
         self.composer_agent = ComposerAgent()
 
-        # LLM 클라이언트 (맥락 추출용)
+        # LLM í´ë¼ì´ì¸í¸ (ë§¥ë½ ì¶ì¶ì©)
         self._llm_client = None
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
 
@@ -65,7 +65,7 @@ class SceneOrchestrator:
         return self._llm_client
 
     # =========================================================================
-    # P1: Context Carry-over (맥락 상속)
+    # P1: Context Carry-over (ë§¥ë½ ìì)
     # =========================================================================
 
     def extract_entities(
@@ -74,19 +74,19 @@ class SceneOrchestrator:
         inherited_keywords: List[str] = None
     ) -> SceneEntities:
         """
-        문장에서 엔티티(인물/장소/감정/행동) 추출.
+        ë¬¸ì¥ìì ìí°í°(ì¸ë¬¼/ì¥ì/ê°ì /íë) ì¶ì¶.
 
-        P1: 맥락 상속을 위한 엔티티 추출
+        P1: ë§¥ë½ ììì ìí ìí°í° ì¶ì¶
 
         Args:
-            sentence: 장면 문장
-            inherited_keywords: 이전 장면에서 상속받은 키워드
+            sentence: ì¥ë©´ ë¬¸ì¥
+            inherited_keywords: ì´ì  ì¥ë©´ìì ììë°ì í¤ìë
 
         Returns:
-            SceneEntities 객체
+            SceneEntities ê°ì²´
         """
         if not self.llm_client:
-            # LLM 없으면 기본 엔티티 반환
+            # LLM ìì¼ë©´ ê¸°ë³¸ ìí°í° ë°í
             return SceneEntities(
                 characters=[],
                 location=None,
@@ -95,31 +95,33 @@ class SceneOrchestrator:
                 action=None
             )
 
-        inherited_context = ", ".join(inherited_keywords) if inherited_keywords else "없음"
+        inherited_context = ", ".join(inherited_keywords) if inherited_keywords else "ìì"
 
         prompt = f"""
-다음 문장에서 핵심 엔티티를 추출하세요:
+ë¤ì ë¬¸ì¥ìì íµì¬ ìí°í°ë¥¼ ì¶ì¶íì¸ì:
 
-문장: {sentence}
-이전 장면 맥락: {inherited_context}
+ë¬¸ì¥: {sentence}
+ì´ì  ì¥ë©´ ë§¥ë½: {inherited_context}
 
-JSON 형식으로 출력:
+JSON íìì¼ë¡ ì¶ë ¥:
 {{
-    "characters": ["인물1", "인물2"],
-    "location": "장소",
-    "props": ["소품1", "소품2"],
-    "mood": "분위기/감정",
-    "action": "주요 행동"
+    "characters": ["ì¸ë¬¼1", "ì¸ë¬¼2"],
+    "location": "ì¥ì",
+    "props": ["ìí1", "ìí2"],
+    "mood": "ë¶ìê¸°/ê°ì ",
+    "action": "ì£¼ì íë"
 }}
 
-주의:
-- 이전 장면 맥락과 일관성을 유지하세요
-- 뜬금없는 인물/장소 변경 감지 시 이전 맥락 우선
-- 명시적 언급이 없으면 null 사용
+ì£¼ì:
+- ì´ì  ì¥ë©´ ë§¥ë½ê³¼ ì¼ê´ì±ì ì ì§íì¸ì
+- ë¬ê¸ìë ì¸ë¬¼/ì¥ì ë³ê²½ ê°ì§ ì ì´ì  ë§¥ë½ ì°ì 
+- ëª
+ìì  ì¸ê¸ì´ ìì¼ë©´ null ì¬ì©
 """
 
         try:
-            system_prompt = "JSON만 출력하세요. 다른 설명 없이."
+            system_prompt = "JSONë§ ì¶ë ¥íì¸ì. ë¤ë¥¸ ì¤ëª
+ ìì´."
             full_prompt = f"{system_prompt}\n\n{prompt}"
 
             response = self.llm_client.generate_content(
@@ -131,7 +133,7 @@ JSON 형식으로 출력:
             )
 
             content = response.text.strip()
-            # JSON 파싱
+            # JSON íì±
             if content.startswith("```"):
                 content = content.split("```")[1]
                 if content.startswith("json"):
@@ -146,44 +148,45 @@ JSON 형식으로 출력:
 
     def summarize_prev_scene(self, scene: Scene) -> str:
         """
-        이전 장면 요약 생성.
+        ì´ì  ì¥ë©´ ìì½ ìì±.
 
         Args:
-            scene: 이전 Scene 객체
+            scene: ì´ì  Scene ê°ì²´
 
         Returns:
-            요약 문자열
+            ìì½ ë¬¸ìì´
         """
         parts = []
 
         if scene.entities.characters:
-            parts.append(f"인물: {', '.join(scene.entities.characters)}")
+            parts.append(f"ì¸ë¬¼: {', '.join(scene.entities.characters)}")
         if scene.entities.location:
-            parts.append(f"장소: {scene.entities.location}")
+            parts.append(f"ì¥ì: {scene.entities.location}")
         if scene.entities.mood:
-            parts.append(f"분위기: {scene.entities.mood}")
+            parts.append(f"ë¶ìê¸°: {scene.entities.mood}")
         if scene.entities.action:
-            parts.append(f"행동: {scene.entities.action}")
+            parts.append(f"íë: {scene.entities.action}")
 
         return " / ".join(parts) if parts else scene.sentence[:50]
 
     def extract_key_terms(self, scene: Scene) -> List[str]:
         """
-        이전 장면에서 핵심 키워드 추출.
+        ì´ì  ì¥ë©´ìì íµì¬ í¤ìë ì¶ì¶.
 
-        P1: 다음 장면 프롬프트에 상속할 키워드
+        P1: ë¤ì ì¥ë©´ íë¡¬íí¸ì ììí  í¤ìë
 
         Args:
-            scene: 이전 Scene 객체
+            scene: ì´ì  Scene ê°ì²´
 
         Returns:
-            키워드 목록
+            í¤ìë ëª©ë¡
         """
         keywords = []
 
-        # 엔티티에서 키워드 추출
+        # ìí°í°ìì í¤ìë ì¶ì¶
         if scene.entities.characters:
-            keywords.extend(scene.entities.characters[:2])  # 최대 2명
+            keywords.extend(scene.entities.characters[:2])  # ìµë 2ëª
+
         if scene.entities.location:
             keywords.append(scene.entities.location)
         if scene.entities.mood:
@@ -191,7 +194,7 @@ JSON 형식으로 출력:
         if scene.entities.action:
             keywords.append(scene.entities.action)
 
-        return keywords[:5]  # 최대 5개 키워드
+        return keywords[:5]  # ìµë 5ê° í¤ìë
 
     def build_prompt(
         self,
@@ -201,18 +204,18 @@ JSON 형식으로 출력:
         style: str = None
     ) -> str:
         """
-        영상 생성 프롬프트 구성.
+        ìì ìì± íë¡¬íí¸ êµ¬ì±.
 
-        P1: inherited 키워드는 반드시 포함
+        P1: inherited í¤ìëë ë°ëì í¬í¨
 
         Args:
-            sentence: 장면 문장
-            inherited: 이전 장면에서 상속받은 키워드
-            entities: 장면 엔티티
-            style: 영상 스타일
+            sentence: ì¥ë©´ ë¬¸ì¥
+            inherited: ì´ì  ì¥ë©´ìì ììë°ì í¤ìë
+            entities: ì¥ë©´ ìí°í°
+            style: ìì ì¤íì¼
 
         Returns:
-            영상 생성 프롬프트
+            ìì ìì± íë¡¬íí¸
         """
         if style == "webtoon":
             # Webtoon Style (Primary target)
@@ -225,7 +228,7 @@ JSON 형식으로 출력:
 
         inherited_str = ", ".join(inherited) if inherited else "none"
 
-        # 엔티티를 문자열로 변환
+        # ìí°í°ë¥¼ ë¬¸ìì´ë¡ ë³í
         entities_parts = []
         if entities.characters:
             entities_parts.append(f"Characters: {', '.join(entities.characters)}")
@@ -245,21 +248,21 @@ JSON 형식으로 출력:
 [SCENE SENTENCE] {sentence}
 [ENTITIES] {entities_str}
 [RULES]
-- 이전 장면과 동일 인물/공간/톤을 유지한다.
-- 뜬금없는 배경/소품 변경 금지.
-- 감정은 과장하되 개연성 유지."""
+- ì´ì  ì¥ë©´ê³¼ ëì¼ ì¸ë¬¼/ê³µê°/í¤ì ì ì§íë¤.
+- ë¬ê¸ìë ë°°ê²½/ìí ë³ê²½ ê¸ì§.
+- ê°ì ì ê³¼ì¥íë ê°ì°ì± ì ì§."""
 
         return prompt
 
     def build_negative_prompt(self, style: str = None) -> str:
         """
-        네거티브 프롬프트 생성.
+        ë¤ê±°í°ë¸ íë¡¬íí¸ ìì±.
 
         Args:
-            style: 영상 스타일
+            style: ìì ì¤íì¼
 
         Returns:
-            네거티브 프롬프트
+            ë¤ê±°í°ë¸ íë¡¬íí¸
         """
         base_negative = (
             "blurry, low quality, distorted, disfigured, "
@@ -275,7 +278,7 @@ JSON 형식으로 출력:
             return base_negative
 
     # =========================================================================
-    # 메인 처리 로직
+    # ë©ì¸ ì²ë¦¬ ë¡ì§
     # =========================================================================
 
     def process_story(
@@ -288,26 +291,31 @@ JSON 형식으로 출력:
         environment_anchors: Optional[Dict[int, str]] = None,
     ) -> str:
         """
-        Scene JSON에서 최종 영상까지 전체 처리.
+        Scene JSONìì ìµì¢
+ ììê¹ì§ ì ì²´ ì²ë¦¬.
 
-        P1: 맥락 상속 적용
+        P1: ë§¥ë½ ìì ì ì©
 
         Args:
-            story_data: Story JSON (scenes 포함)
-            output_path: 최종 영상 출력 경로
-            request: ProjectRequest (feature flags 포함)
-            progress_callback: 진행 콜백
-            style_anchor_path: 스타일 앵커 이미지 경로
-            environment_anchors: 씬별 환경 앵커 이미지 딕셔너리
+            story_data: Story JSON (scenes í¬í¨)
+            output_path: ìµì¢
+ ìì ì¶ë ¥ ê²½ë¡
+            request: ProjectRequest (feature flags í¬í¨)
+            progress_callback: ì§í ì½ë°±
+            style_anchor_path: ì¤íì¼ ìµì»¤ ì´ë¯¸ì§ ê²½ë¡
+            environment_anchors: ì¬ë³ íê²½ ìµì»¤ ì´ë¯¸ì§ ëì
+ëë¦¬
 
         Returns:
-            최종 영상 파일 경로
+            ìµì¢
+ ìì íì¼ ê²½ë¡
         """
         print(f"\n{'='*60}")
         print(f"STORYCUT - Processing Story: {story_data['title']}")
         print(f"{'='*60}\n")
 
-        # Feature flags 업데이트
+        # Feature flags ì
+ë°ì´í¸
         if request:
             self.feature_flags = request.feature_flags
             self.video_agent.feature_flags = request.feature_flags
@@ -316,12 +324,12 @@ JSON 형식으로 출력:
         total_scenes = len(scenes)
         style = story_data.get("style", request.style_preset if request else "cinematic")
         
-        # TTS Voice 설정
+        # TTS Voice ì¤ì 
         if request and hasattr(request, 'voice_id'):
             self.tts_agent.voice = request.voice_id
             print(f"TTS Voice set to: {self.tts_agent.voice}")
 
-        # v2.0: 글로벌 스타일 가이드 추출
+        # v2.0: ê¸ë¡ë² ì¤íì¼ ê°ì´ë ì¶ì¶
         global_style = story_data.get("global_style")
         character_sheet = story_data.get("character_sheet", {})
 
@@ -330,12 +338,12 @@ JSON 형식으로 출력:
         print(f"Target duration: {story_data['total_duration_sec']} seconds")
         print(f"Context carry-over: {'ON' if self.feature_flags.context_carry_over else 'OFF'}")
         
-        # 프로젝트 베이스 디렉토리 설정 (final_video.mp4 경로 기반)
+        # íë¡ì í¸ ë² ì´ì¤ ëë í ë¦¬ ì¤ì  (final_video.mp4 ê²½ë¡ ê¸°ë°)
         # output_path: outputs/<project_id>/final_video.mp4
         project_dir = os.path.dirname(output_path)
         print(f"Project Directory: {project_dir}")
 
-        # v2.0: 글로벌 스타일 정보 출력
+        # v2.0: ê¸ë¡ë² ì¤íì¼ ì ë³´ ì¶ë ¥
         if global_style:
             print(f"\n[Global Style Guide]")
             print(f"  Art Style: {global_style.get('art_style', 'N/A')}")
@@ -348,13 +356,14 @@ JSON 형식으로 출력:
             for token, char_data in character_sheet.items():
                 print(f"  {token}: {char_data.get('name')} (seed: {char_data.get('visual_seed')})")
 
-        # v2.0: 앵커 정보 로깅
+        # v2.0: ìµì»¤ ì ë³´ ë¡ê¹
+
         if style_anchor_path:
             print(f"\n[StyleAnchor] Path: {style_anchor_path}")
         if environment_anchors:
             print(f"[EnvAnchors] {len(environment_anchors)} scenes: {list(environment_anchors.keys())}")
 
-        # v2.0: ConsistencyValidator 초기화
+        # v2.0: ConsistencyValidator ì´ê¸°í
         consistency_validator = None
         if self.feature_flags.consistency_validation:
             from agents.consistency_validator import ConsistencyValidator
@@ -363,19 +372,19 @@ JSON 형식으로 출력:
 
         print()
 
-        # Scene 처리
+        # Scene ì²ë¦¬
         video_clips = []
         narration_clips = []
         processed_scenes = []
         prev_scene = None
 
         for i, scene_data in enumerate(scenes, 1):
-            print(f"\n{'─'*60}")
+            print(f"\n{'â'*60}")
             print(f"Processing Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
-            print(f"{'─'*60}")
+            print(f"{'â'*60}")
             print(f"  [DEBUG] Starting scene {i} processing...")
 
-            # Scene 객체 생성
+            # Scene ê°ì²´ ìì±
             scene = Scene(
                 index=i,
                 scene_id=scene_data["scene_id"],
@@ -384,27 +393,27 @@ JSON 형식으로 출력:
                 visual_description=scene_data.get("visual_description"),
                 mood=scene_data.get("mood"),
                 duration_sec=scene_data.get("duration_sec", 5),
-                # v2.0 필드
+                # v2.0 íë
                 narrative=scene_data.get("narrative"),
                 image_prompt=scene_data.get("image_prompt"),
                 characters_in_scene=scene_data.get("characters_in_scene", []),
             )
 
-            # v2.0: Character reference 로그 및 시드 추출
+            # v2.0: Character reference ë¡ê·¸ ë° ìë ì¶ì¶
             scene_seed = None
             if scene.image_prompt:
                 print(f"  [v2.0] Using image_prompt (character reference enabled)")
             if scene.characters_in_scene:
                 print(f"  [v2.0] Characters: {', '.join(scene.characters_in_scene)}")
 
-                # 첫 번째 캐릭터의 visual_seed 사용
+                # ì²« ë²ì§¸ ìºë¦­í°ì visual_seed ì¬ì©
                 if character_sheet and scene.characters_in_scene:
                     first_char_token = scene.characters_in_scene[0]
                     if first_char_token in character_sheet:
                         scene_seed = character_sheet[first_char_token].get("visual_seed")
                         print(f"  [v2.0] Using visual_seed: {scene_seed}")
 
-            # v2.0: Scene에 메타데이터 저장 (video_agent가 활용)
+            # v2.0: Sceneì ë©íë°ì´í° ì ì¥ (video_agentê° íì©)
             if not hasattr(scene, '_seed'):
                 scene._seed = scene_seed
             if not hasattr(scene, '_global_style'):
@@ -425,16 +434,16 @@ JSON 형식으로 출력:
             else:
                 scene.inherited_keywords = []
 
-            # 엔티티 추출
+            # ìí°í° ì¶ì¶
             scene.entities = self.extract_entities(
                 scene.sentence,
                 scene.inherited_keywords
             )
 
-            # 프롬프트 생성
-            # v2.0: image_prompt가 있으면 우선 사용, 없으면 기존 방식
+            # íë¡¬íí¸ ìì±
+            # v2.0: image_promptê° ìì¼ë©´ ì°ì  ì¬ì©, ìì¼ë©´ ê¸°ì¡´ ë°©ì
             if scene.image_prompt:
-                # image_prompt에 global_style 정보 추가
+                # image_promptì global_style ì ë³´ ì¶ê°
                 if global_style:
                     style_suffix = f", {global_style.get('art_style', '')}, {global_style.get('color_palette', '')}"
                     scene.prompt = scene.image_prompt + style_suffix
@@ -442,7 +451,7 @@ JSON 형식으로 출력:
                     scene.prompt = scene.image_prompt
                 print(f"  [v2.0] Using pre-defined image_prompt")
             else:
-                # v1.0 방식: build_prompt로 생성
+                # v1.0 ë°©ì: build_promptë¡ ìì±
                 scene.prompt = self.build_prompt(
                     sentence=scene.sentence,
                     inherited=scene.inherited_keywords,
@@ -452,12 +461,12 @@ JSON 형식으로 출력:
 
             scene.negative_prompt = self.build_negative_prompt(style)
 
-            # 카메라 워크 할당 (다양화)
+            # ì¹´ë©ë¼ ìí¬ í ë¹ (ë¤ìí)
             camera_works = list(CameraWork)
             scene.camera_work = camera_works[i % len(camera_works)]
 
             try:
-                # Phase 1: TTS 먼저 생성하여 실제 duration 확보
+                # Phase 1: TTS ë¨¼ì  ìì±íì¬ ì¤ì  duration íë³´
                 scene.status = SceneStatus.GENERATING_TTS
                 tts_result = self.tts_agent.generate_speech(
                     scene_id=scene.scene_id,
@@ -466,17 +475,19 @@ JSON 형식으로 출력:
                 )
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
-                # narration_clips.append(tts_result.audio_path) -> REMOVED: 나중에 한꺼번에 수집
+                # narration_clips.append(tts_result.audio_path) -> REMOVED: ëì¤ì íêº¼ë²ì ìì§
 
-                # TTS 기반으로 duration 업데이트 (최소 3초, 최대 15초)
+                # TTS ê¸°ë°ì¼ë¡ duration ì
+ë°ì´í¸ (ìµì 3ì´, ìµë 15ì´)
                 if tts_result.duration_sec > 0:
                     scene.duration_sec = max(3, min(15, int(tts_result.duration_sec) + 1))
                     print(f"     [Duration] Updated to {scene.duration_sec}s (TTS: {tts_result.duration_sec:.2f}s)")
 
-                # 영상 생성 (업데이트된 duration 사용)
+                # ìì ìì± (ì
+ë°ì´í¸ë duration ì¬ì©)
                 scene.status = SceneStatus.GENERATING_VIDEO
 
-                # 프로젝트 구조에 맞는 비디오/이미지 출력 경로 설정
+                # íë¡ì í¸ êµ¬ì¡°ì ë§ë ë¹ëì¤/ì´ë¯¸ì§ ì¶ë ¥ ê²½ë¡ ì¤ì 
                 video_output_dir = f"{os.path.dirname(output_path)}/media/video"
 
                 video_path = self.video_agent.generate_video(
@@ -488,12 +499,12 @@ JSON 형식으로 출력:
                     scene=scene,
                     output_dir=video_output_dir
                 )
-                # video_clips.append(video_path) -> REMOVED: 나중에 한꺼번에 수집
+                # video_clips.append(video_path) -> REMOVED: ëì¤ì íêº¼ë²ì ìì§
                 scene.assets.video_path = video_path
 
-                # v2.0: ConsistencyValidator 검증 (이미지 생성 후, 비디오 합성 전)
+                # v2.0: ConsistencyValidator ê²ì¦ (ì´ë¯¸ì§ ìì± í, ë¹ëì¤ í©ì± ì )
                 if consistency_validator and scene.assets.image_path:
-                    # 캐릭터 앵커 경로 수집
+                    # ìºë¦­í° ìµì»¤ ê²½ë¡ ìì§
                     char_anchor_paths = []
                     if scene.characters_in_scene and character_sheet:
                         from agents.character_manager import CharacterManager
@@ -554,7 +565,7 @@ JSON 형식으로 출력:
                      print(f"     [Warning] Subtitle processing failed: {sub_e}")
                      # Do not fail the scene, just proceed without subtitles
 
-                # 완료
+                # ìë£
                 scene.status = SceneStatus.COMPLETED
 
             except Exception as e:
@@ -562,7 +573,7 @@ JSON 형식으로 출력:
                 scene.error_message = str(e)
                 scene.retry_count += 1
                 print(f"     [ERROR] Scene {i} failed: {e}")
-                # 계속 진행 (실패한 씬은 나중에 재생성 가능)
+                # ê³ì ì§í (ì¤í¨í ì¬ì ëì¤ì ì¬ìì± ê°ë¥)
 
             processed_scenes.append(scene)
             prev_scene = scene
@@ -601,16 +612,18 @@ JSON 형식으로 출력:
         if not video_clips:
             raise RuntimeError("No scenes were successfully generated. Cannot compose video.")
 
-        # 배경 음악 선택
-        print(f"{'─'*60}")
+        # ë°°ê²½ ìì
+ ì í
+        print(f"{'â'*60}")
         music_path = self.music_agent.select_music(
             genre=story_data["genre"],
             mood=story_data.get("mood", "neutral"),
             duration_sec=story_data["total_duration_sec"]
         )
-        print(f"{'─'*60}\n")
+        print(f"{'â'*60}\n")
 
-        # 최종 영상 합성
+        # ìµì¢
+ ìì í©ì±
         final_video = self.composer_agent.compose_video(
             video_clips=video_clips,
             narration_clips=narration_clips,
@@ -632,21 +645,22 @@ JSON 형식으로 출력:
         request: ProjectRequest = None,
         style_anchor_path: Optional[str] = None,
         environment_anchors: Optional[Dict[int, str]] = None,
-    ) -\u003e List[Dict[str, Any]]:
+    ) -> List[Dict[str, Any]]:
         """
-        이미지만 생성 (TTS, 비디오 스킵).
+        ì´ë¯¸ì§ë§ ìì± (TTS, ë¹ëì¤ ì¤íµ).
         
-        사용자가 이미지를 검토한 후 재생성/I2V 변환 가능.
+        ì¬ì©ìê° ì´ë¯¸ì§ë¥¼ ê²í í í ì¬ìì±/I2V ë³í ê°ë¥.
         
         Args:
             story_data: Story JSON
-            project_dir: 프로젝트 디렉토리
+            project_dir: íë¡ì í¸ ëë í ë¦¬
             request: ProjectRequest
-            style_anchor_path: 스타일 앵커 경로
-            environment_anchors: 환경 앵커 딕셔너리
+            style_anchor_path: ì¤íì¼ ìµì»¤ ê²½ë¡
+            environment_anchors: íê²½ ìµì»¤ ëì
+ëë¦¬
             
         Returns:
-            Scene 데이터 목록 (이미지 경로 포함)
+            Scene ë°ì´í° ëª©ë¡ (ì´ë¯¸ì§ ê²½ë¡ í¬í¨)
         """
         print(f"\n[SceneOrchestrator] Generating IMAGES ONLY")
         
@@ -672,11 +686,11 @@ JSON 형식으로 출력:
         os.makedirs(image_output_dir, exist_ok=True)
         
         for i, scene_data in enumerate(scenes, 1):
-            print(f"\n{'─'*60}")
+            print(f"\n{'â'*60}")
             print(f"Generating Image for Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
-            print(f"{'─'*60}")
+            print(f"{'â'*60}")
             
-            # Scene 객체 생성
+            # Scene ê°ì²´ ìì±
             scene = Scene(
                 index=i,
                 scene_id=scene_data["scene_id"],
@@ -690,14 +704,14 @@ JSON 형식으로 출력:
                 characters_in_scene=scene_data.get("characters_in_scene", []),
             )
             
-            # Seed 추출
+            # Seed ì¶ì¶
             scene_seed = None
             if scene.characters_in_scene and character_sheet:
                 first_char_token = scene.characters_in_scene[0]
                 if first_char_token in character_sheet:
                     scene_seed = character_sheet[first_char_token].get("visual_seed")
             
-            # 메타데이터 저장
+            # ë©íë°ì´í° ì ì¥
             scene._seed = scene_seed
             scene._global_style = global_style
             scene._character_sheet = character_sheet
@@ -711,10 +725,10 @@ JSON 형식으로 출력:
             else:
                 scene.inherited_keywords = []
             
-            # 엔티티 추출
+            # ìí°í° ì¶ì¶
             scene.entities = self.extract_entities(scene.sentence, scene.inherited_keywords)
             
-            # 프롬프트 생성
+            # íë¡¬íí¸ ìì±
             if scene.image_prompt:
                 if global_style:
                     style_suffix = f", {global_style.get('art_style', '')}, {global_style.get('color_palette', '')}"
@@ -761,14 +775,16 @@ JSON 형식으로 출력:
                 scene.assets.image_path = image_path
                 scene.status = SceneStatus.COMPLETED
                 
-                print(f"  ✅ Image generated: {image_path}")
+                print(f"  â
+ Image generated: {image_path}")
                 
             except Exception as e:
                 scene.status = SceneStatus.FAILED
                 scene.error_message = str(e)
-                print(f"  ❌ Image generation failed: {e}")
+                print(f"  â Image generation failed: {e}")
             
-            # Scene 데이터를 딕셔너리로 변환하여 저장
+            # Scene ë°ì´í°ë¥¼ ëì
+ëë¦¬ë¡ ë³ííì¬ ì ì¥
             scene_dict = scene_data.copy()
             scene_dict["assets"] = {
                 "image_path": scene.assets.image_path if scene.assets else None
@@ -791,18 +807,20 @@ JSON 형식으로 출력:
         request: ProjectRequest
     ) -> List[Scene]:
         """
-        스크립트 텍스트에서 Scene 목록 생성.
+        ì¤í¬ë¦½í¸ í
+ì¤í¸ìì Scene ëª©ë¡ ìì±.
 
-        P1: 맥락 상속 적용
+        P1: ë§¥ë½ ìì ì ì©
 
         Args:
-            script_text: 전체 스크립트 텍스트
-            request: ProjectRequest (feature flags 포함)
+            script_text: ì ì²´ ì¤í¬ë¦½í¸ í
+ì¤í¸
+            request: ProjectRequest (feature flags í¬í¨)
 
         Returns:
-            Scene 객체 목록
+            Scene ê°ì²´ ëª©ë¡
         """
-        # 문장 단위 분할
+        # ë¬¸ì¥ ë¨ì ë¶í 
         sentences = self._split_into_sentences(script_text)
         scenes = []
         prev_scene = None
@@ -822,13 +840,13 @@ JSON 형식으로 출력:
             else:
                 scene.inherited_keywords = []
 
-            # 엔티티 추출
+            # ìí°í° ì¶ì¶
             scene.entities = self.extract_entities(
                 sentence,
                 scene.inherited_keywords
             )
 
-            # 프롬프트 생성
+            # íë¡¬íí¸ ìì±
             scene.prompt = self.build_prompt(
                 sentence=sentence,
                 inherited=scene.inherited_keywords,
@@ -844,29 +862,31 @@ JSON 형식으로 출력:
 
     def _split_into_sentences(self, text: str) -> List[str]:
         """
-        텍스트를 문장 단위로 분할.
+        í
+ì¤í¸ë¥¼ ë¬¸ì¥ ë¨ìë¡ ë¶í .
 
         Args:
-            text: 전체 텍스트
+            text: ì ì²´ í
+ì¤í¸
 
         Returns:
-            문장 목록
+            ë¬¸ì¥ ëª©ë¡
         """
         import re
 
-        # 한국어 및 영어 문장 분할
-        # 마침표, 물음표, 느낌표 기준
+        # íêµ­ì´ ë° ìì´ ë¬¸ì¥ ë¶í 
+        # ë§ì¹¨í, ë¬¼ìí, ëëí ê¸°ì¤
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
 
-        # 빈 문장 제거 및 정리
+        # ë¹ ë¬¸ì¥ ì ê±° ë° ì ë¦¬
         sentences = [s.strip() for s in sentences if s.strip()]
 
-        # 너무 긴 문장은 분할
+        # ëë¬´ ê¸´ ë¬¸ì¥ì ë¶í 
         result = []
         for s in sentences:
             if len(s) > 100:
-                # 쉼표나 연결어 기준으로 추가 분할
-                parts = re.split(r'(?<=,)\s+|(?<=그리고)\s+|(?<=하지만)\s+', s)
+                # ì¼íë ì°ê²°ì´ ê¸°ì¤ì¼ë¡ ì¶ê° ë¶í 
+                parts = re.split(r'(?<=,)\s+|(?<=ê·¸ë¦¬ê³ )\s+|(?<=íì§ë§)\s+', s)
                 result.extend([p.strip() for p in parts if p.strip()])
             else:
                 result.append(s)
@@ -879,14 +899,14 @@ JSON 형식으로 출력:
         story_style: str = "cinematic"
     ) -> tuple[str, str]:
         """
-        단일 Scene 재처리.
+        ë¨ì¼ Scene ì¬ì²ë¦¬.
 
         Args:
-            scene: Scene 데이터
-            story_style: 영상 스타일
+            scene: Scene ë°ì´í°
+            story_style: ìì ì¤íì¼
 
         Returns:
-            (video_path, audio_path) 튜플
+            (video_path, audio_path) íí
         """
         print(f"Retrying scene {scene['scene_id']}...")
 
@@ -913,14 +933,14 @@ JSON 형식으로 출력:
         output_dir: str = "media/subtitles"
     ) -> List[str]:
         """
-        각 Scene에 대한 SRT 자막 파일 생성.
+        ê° Sceneì ëí SRT ìë§ íì¼ ìì±.
 
         Args:
-            scenes: Scene 목록
-            output_dir: 출력 디렉토리
+            scenes: Scene ëª©ë¡
+            output_dir: ì¶ë ¥ ëë í ë¦¬
 
         Returns:
-            SRT 파일 경로 목록
+            SRT íì¼ ê²½ë¡ ëª©ë¡
         """
         from utils.ffmpeg_utils import FFmpegComposer
 
@@ -936,7 +956,7 @@ JSON 형식으로 출력:
             # This ensures subtitle timing matches actual TTS audio length
             actual_duration = scene.tts_duration_sec if scene.tts_duration_sec else scene.duration_sec
 
-            # 단일 Scene용 SRT 생성
+            # ë¨ì¼ Sceneì© SRT ìì±
             scene_data = [{
                 "narration": scene.narration or scene.sentence,
                 "duration_sec": actual_duration  # Use ACTUAL TTS duration
@@ -953,13 +973,14 @@ JSON 형식으로 출력:
         scenes: List[Scene]
     ) -> Dict[str, Any]:
         """
-        처리 통계 반환.
+        ì²ë¦¬ íµê³ ë°í.
 
         Args:
-            scenes: 처리된 Scene 목록
+            scenes: ì²ë¦¬ë Scene ëª©ë¡
 
         Returns:
-            통계 딕셔너리
+            íµê³ ëì
+ëë¦¬
         """
         video_methods = {}
         for scene in scenes:
