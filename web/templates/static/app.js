@@ -87,6 +87,29 @@ class StorycutApp {
                 }
             });
         }
+
+        // 이미지 프리뷰 섹션 네비게이션
+        const backToStoryBtn = document.getElementById('back-to-story-btn');
+        if (backToStoryBtn) {
+            backToStoryBtn.addEventListener('click', () => {
+                this.showSection('review');
+            });
+        }
+
+        const approveImagesBtn = document.getElementById('approve-images-btn');
+        if (approveImagesBtn) {
+            approveImagesBtn.addEventListener('click', () => {
+                this.startFinalGenerationAfterImageReview();
+            });
+        }
+
+        // 이미지만 먼저 생성 버튼
+        const generateImagesBtn = document.getElementById('generate-images-btn');
+        if (generateImagesBtn) {
+            generateImagesBtn.addEventListener('click', () => {
+                this.startImageGeneration();
+            });
+        }
     }
 
     setNavActive(navId) {
@@ -187,6 +210,7 @@ class StorycutApp {
         storyData.scenes.forEach((scene, index) => {
             const card = document.createElement('div');
             card.className = 'review-card';
+            card.dataset.sceneId = scene.scene_id; // IMPORTANT: Add scene_id to dataset
             card.innerHTML = `
                 <div class="review-card-header">
                     <span>Scene ${scene.scene_id}</span>
@@ -1035,6 +1059,212 @@ class StorycutApp {
         } catch (error) {
             console.error('History 로드 실패:', error);
             document.getElementById('history-grid').innerHTML = '<p style="color: #f66;">History 로드 실패</p>';
+        }
+    }
+
+    // ==================== 이미지 생성 워크플로우 ====================
+
+    async startImageGeneration() {
+        if (!this.currentStoryData) {
+            alert('스토리 데이터가 없습니다.');
+            return;
+        }
+
+        const apiUrl = this.getApiBaseUrl();
+
+        try {
+            const title = document.getElementById('review-title').value;
+            this.currentStoryData.title = title;
+
+            document.querySelectorAll('.review-card').forEach((card, index) => {
+                const sceneId = parseInt(card.dataset.sceneId);
+                const scene = this.currentStoryData.scenes.find(s => s.scene_id === sceneId);
+                if (scene) {
+                    scene.narration = card.querySelector('.review-textarea[name="narration"]').value;
+                    scene.visual_description = card.querySelector('.visual-textarea').value;
+                }
+            });
+
+            console.log('[Image Generation] Starting...');
+
+            const response = await fetch(`${apiUrl}/api/generate/images`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_id: this.projectId,
+                    story_data: this.currentStoryData,
+                    request_params: this.currentRequestParams
+                })
+            });
+
+            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+
+            const result = await response.json();
+            this.renderImagePreview(result);
+            this.showSection('image-preview');
+
+        } catch (error) {
+            console.error('[Image Generation] Error:', error);
+            alert(`이미지 생성 실패: ${error.message}`);
+        }
+    }
+
+    renderImagePreview(data) {
+        const grid = document.getElementById('image-preview-grid');
+        grid.innerHTML = '';
+
+        const scenes = data.scenes || data.story_data?.scenes || [];
+
+        scenes.forEach(scene => {
+            const card = document.createElement('div');
+            card.className = 'image-card';
+            card.dataset.sceneId = scene.scene_id;
+
+            if (scene.hook_video_enabled) card.classList.add('hook-video');
+
+            const imagePath = scene.assets?.image_path || scene.image_path || '';
+            const imageUrl = imagePath.startsWith('http') ? imagePath : `${this.getApiBaseUrl()}${imagePath}`;
+
+            card.innerHTML = `
+                <div class="image-card-header">
+                    <span class="image-card-title">Scene ${scene.scene_id}</span>
+                    ${scene.hook_video_enabled ? '<span class="hook-badge">🎥 HOOK</span>' : ''}
+                </div>
+                <img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}">
+                <div class="image-card-body">
+                    <div class="image-narration">${scene.narration || scene.sentence || ''}</div>
+                    <div class="image-actions">
+                        <button class="btn-image-action btn-regenerate" onclick="app.regenerateImage('${this.projectId}', ${scene.scene_id})">🔄 재생성</button>
+                        <button class="btn-image-action btn-i2v" onclick="app.convertToVideo('${this.projectId}', ${scene.scene_id})" ${scene.i2v_converted ? 'disabled' : ''}>${scene.i2v_converted ? '✅ I2V' : '🎬 I2V'}</button>
+                        <button class="btn-image-action btn-hook ${scene.hook_video_enabled ? 'active' : ''}" onclick="app.toggleHookVideo('${this.projectId}', ${scene.scene_id})">${scene.hook_video_enabled ? '⭐ Hook' : '☆ Hook'}</button>
+                    </div>
+                </div>
+            `;
+
+            grid.appendChild(card);
+        });
+
+        this.projectId = data.project_id;
+    }
+
+    async regenerateImage(projectId, sceneId) {
+        const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        const btn = card.querySelector('.btn-regenerate');
+        btn.textContent = '⏳...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/regenerate/image/${projectId}/${sceneId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+
+            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+
+            const result = await response.json();
+            const img = card.querySelector('img');
+            img.src = `${this.getApiBaseUrl()}${result.image_path}?t=${Date.now()}`;
+
+            btn.textContent = '🔄 재생성';
+            btn.disabled = false;
+
+        } catch (error) {
+            alert(`재생성 실패: ${error.message}`);
+            btn.textContent = '🔄 재생성';
+            btn.disabled = false;
+        }
+    }
+
+    async convertToVideo(projectId, sceneId) {
+        const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        const btn = card.querySelector('.btn-i2v');
+        btn.textContent = '⏳...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/convert/i2v/${projectId}/${sceneId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ motion_prompt: "camera slowly pans and zooms" })
+            });
+
+            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+
+            btn.textContent = '✅ I2V';
+            alert(`Scene ${sceneId} I2V 변환 완료!`);
+
+        } catch (error) {
+            alert(`I2V 실패: ${error.message}`);
+            btn.textContent = '🎬 I2V';
+            btn.disabled = false;
+        }
+    }
+
+    async toggleHookVideo(projectId, sceneId) {
+        const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        const btn = card.querySelector('.btn-hook');
+        const isHook = card.classList.contains('hook-video');
+
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/toggle/hook-video/${projectId}/${sceneId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enable: !isHook })
+            });
+
+            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+
+            if (!isHook) {
+                card.classList.add('hook-video');
+                btn.classList.add('active');
+                btn.textContent = '⭐ Hook';
+                const header = card.querySelector('.image-card-header');
+                if (!header.querySelector('.hook-badge')) {
+                    header.innerHTML += '<span class="hook-badge">🎥 HOOK</span>';
+                }
+            } else {
+                card.classList.remove('hook-video');
+                btn.classList.remove('active');
+                btn.textContent = '☆ Hook';
+                card.querySelector('.hook-badge')?.remove();
+            }
+
+        } catch (error) {
+            alert(`Hook 설정 실패: ${error.message}`);
+        }
+    }
+
+    async startFinalGenerationAfterImageReview() {
+        if (!this.projectId) {
+            alert('프로젝트 ID가 없습니다.');
+            return;
+        }
+
+        this.showSection('progress');
+        this.resetProgress();
+
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/generate/video`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_id: this.projectId,
+                    story_data: this.currentStoryData,
+                    request_params: this.currentRequestParams
+                })
+            });
+
+            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+
+            const result = await response.json();
+            this.projectId = result.project_id;
+
+            this.connectWebSocket(this.projectId);
+            this.startPolling(this.projectId);
+
+        } catch (error) {
+            alert(`영상 생성 실패: ${error.message}`);
         }
     }
 }
