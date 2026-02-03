@@ -184,13 +184,36 @@ class StorycutApp {
             }
 
             const result = await response.json();
-            this.currentStoryData = result.story_data;
-            this.currentRequestParams = result.request_params;
 
-            // 스토리 리뷰 페이지로 이동
-            this.renderStoryReview(this.currentStoryData);
-            this.showSection('review');
-            this.setNavActive('nav-create');
+            // 새로운 비동기 방식: project_id를 받고 폴링 시작
+            if (result.project_id && result.status === 'processing') {
+                btn.innerHTML = '<span class="spinner"></span> 스토리 생성 중... (백그라운드 처리)';
+
+                // 폴링으로 완료 대기
+                const storyData = await this.pollStoryStatus(result.project_id, workerUrl);
+
+                if (storyData) {
+                    this.currentStoryData = storyData;
+                    this.currentRequestParams = requestData;
+
+                    // 스토리 리뷰 페이지로 이동
+                    this.renderStoryReview(this.currentStoryData);
+                    this.showSection('review');
+                    this.setNavActive('nav-create');
+                } else {
+                    throw new Error('스토리 생성 시간 초과 또는 실패');
+                }
+            } else if (result.story_data) {
+                // 하위 호환: 기존 동기 방식 (Railway 백엔드)
+                this.currentStoryData = result.story_data;
+                this.currentRequestParams = result.request_params;
+
+                this.renderStoryReview(this.currentStoryData);
+                this.showSection('review');
+                this.setNavActive('nav-create');
+            } else {
+                throw new Error('잘못된 응답 형식');
+            }
 
         } catch (error) {
             console.error('스토리 생성 실패:', error);
@@ -200,6 +223,49 @@ class StorycutApp {
             btn.innerHTML = originalBtnText;
         }
     }
+
+    // 스토리 생성 완료 폴링
+    async pollStoryStatus(projectId, workerUrl, maxAttempts = 60) {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                const response = await fetch(`${workerUrl}/api/status/${projectId}`);
+
+                if (!response.ok) {
+                    console.warn(`Polling attempt ${attempt + 1} failed`);
+                    await this.sleep(2000);
+                    continue;
+                }
+
+                const status = await response.json();
+
+                if (status.status === 'story_ready' && status.video_url) {
+                    // video_url에 스토리 데이터가 JSON 문자열로 저장됨
+                    try {
+                        return JSON.parse(status.video_url);
+                    } catch (e) {
+                        console.error('Story data parse error:', e);
+                        return null;
+                    }
+                } else if (status.status === 'failed') {
+                    throw new Error(status.error_message || '스토리 생성 실패');
+                }
+
+                // 아직 처리 중이면 2초 대기
+                await this.sleep(2000);
+
+            } catch (error) {
+                console.error(`Polling error (attempt ${attempt + 1}):`, error);
+                await this.sleep(2000);
+            }
+        }
+
+        return null; // 타임아웃
+    }
+
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
 
     renderStoryReview(storyData) {
         const grid = document.getElementById('review-scene-grid');
