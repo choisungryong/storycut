@@ -193,6 +193,7 @@ class StorycutApp {
             }
 
             const result = await response.json();
+            console.log('Worker response:', JSON.stringify(result));
 
             if (result.project_id && result.status === 'story_ready') {
                 // D1에서 스토리 데이터 가져오기
