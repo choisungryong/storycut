@@ -267,6 +267,13 @@ async function handleGenerateStoryAsync(request, env, ctx, corsHeaders) {
     const body = await request.json();
     const projectId = Math.random().toString(36).substring(2, 10);
 
+    // D1에 초기 상태 저장
+    if (env.DB) {
+      await env.DB.prepare(
+        `INSERT INTO projects (id, status, input_data, created_at, user_id) VALUES (?, ?, ?, ?, ?)`
+      ).bind(projectId, 'processing', JSON.stringify(body), new Date().toISOString(), 5).run();
+    }
+
     // 동기 방식: Gemini 호출 완료 후 응답
     await generateStoryBackground(projectId, body, env);
 
