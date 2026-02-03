@@ -276,7 +276,7 @@ async function handleGenerateStoryAsync(request, env, ctx, corsHeaders) {
         'processing',
         JSON.stringify(body),
         new Date().toISOString(),
-        'anonymous'
+        5
       ).run();
     }
 
