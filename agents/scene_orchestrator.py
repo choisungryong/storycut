@@ -632,7 +632,7 @@ JSON 형식으로 출력:
         request: ProjectRequest = None,
         style_anchor_path: Optional[str] = None,
         environment_anchors: Optional[Dict[int, str]] = None,
-    ) -\u003e List[Dict[str, Any]]:
+    ) -> List[Dict[str, Any]]:
         """
         이미지만 생성 (TTS, 비디오 스킵).
         
