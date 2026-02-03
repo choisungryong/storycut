@@ -198,9 +198,9 @@ export default {
       return handleGenerate(request, env, ctx, corsHeaders, userId, userCredits);
     }
 
-    // [New] Step 1: Story Generation - Proxy to Backend (Fixed)
+    // [FIXED] Step 1: Story Generation - Worker Direct (Async)
     if (url.pathname === '/api/generate/story' && request.method === 'POST') {
-      return handleProxyToBackend(request, url, env, corsHeaders);
+      return handleGenerateStoryAsync(request, env, ctx, corsHeaders);
     }
 
     if (url.pathname.startsWith('/api/video/')) {
@@ -257,6 +257,184 @@ export default {
 // ... existing helper functions (handleHealth, handleGenerate, handleVideoDownload, handleStatus, etc.) ...
 // We need to keep them. But since replace_file_content replaces a block, I should be careful.
 // I will just append the new function at the end and modify the routing block.
+
+/**
+ * [ASYNC] Story Generation Handler - Immediate Response
+ * 즉시 project_id 반환 + 백그라운드에서 Gemini 호출
+ */
+async function handleGenerateStoryAsync(request, env, ctx, corsHeaders) {
+  try {
+    const body = await request.json();
+    const projectId = Math.random().toString(36).substring(2, 10);
+
+    // D1에 초기 상태 저장
+    if (env.DB) {
+      await env.DB.prepare(
+        `INSERT INTO projects (id, status, input_data, created_at) VALUES (?, ?, ?, ?)`
+      ).bind(
+        projectId,
+        'processing',
+        JSON.stringify(body),
+        new Date().toISOString()
+      ).run();
+    }
+
+    // 백그라운드에서 실제 스토리 생성 (ctx.waitUntil)
+    ctx.waitUntil(
+      generateStoryBackground(projectId, body, env)
+    );
+
+    // 즉시 응답 반환!
+    return new Response(JSON.stringify({
+      project_id: projectId,
+      status: 'processing',
+      message: '스토리 생성이 시작되었습니다. /api/status/{project_id}로 진행상황을 확인하세요.'
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('Story request error:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * 백그라운드 스토리 생성 (ctx.waitUntil용)
+ */
+async function generateStoryBackground(projectId, body, env) {
+  try {
+    // 기존 handleGenerateStory 로직 재사용
+    const { genre, mood, style, duration, topic } = body;
+    const apiKey = env.GOOGLE_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('Google API Key not configured');
+    }
+
+    const total_duration_sec = duration || 90;
+    const min_scenes = Math.floor(total_duration_sec / 8);
+    const max_scenes = Math.floor(total_duration_sec / 4);
+
+    // Step 1: Architecture
+    const step1_prompt = `
+ROLE: Professional Storyboard Artist & Director.
+TASK: Plan the structure for a ${total_duration_sec}-second YouTube Short.
+GENRE: ${genre}
+MOOD: ${mood}
+STYLE: ${style}
+SCENE COUNT: Approx ${min_scenes}-${max_scenes} scenes.
+${topic ? 'USER IDEA: ' + topic : ''}
+
+[STRUCTURE REQUIREMENT: KI-SEUNG-JEON-GYEOL]
+OUTPUT FORMAT (JSON):
+{
+  "project_title": "Creative Title",
+  "logline": "One sentence summary including the ending",
+  "global_style": {
+    "art_style": "${style}",
+    "color_palette": "e.g., Cyberpunk Neons",
+    "visual_seed": ${Math.floor(Math.random() * 100000)}
+  },
+  "characters": {
+    "Name": {"name": "Name", "appearance": "Detailed description", "role": "Protagonist/Antagonist"}
+  },
+  "outline": [
+    { "scene_id": 1, "summary": "Brief summary", "estimated_duration": 5 }
+  ]
+}
+`;
+
+    const step1_response = await callGemini(apiKey, step1_prompt, SYSTEM_PROMPT);
+    let structure_data = {};
+    try {
+      structure_data = parseGeminiResponse(step1_response);
+    } catch (e) {
+      console.error('Step 1 Parse Error:', e);
+    }
+
+    // Step 2: Scene Details
+    const structure_context = JSON.stringify(structure_data, null, 2);
+    const step2_prompt = `
+ROLE: Screenwriter & Visual Director.
+TASK: Generate detailed scene specs based on the approved structure.
+
+APPROVED STRUCTURE:
+${structure_context}
+
+[STRICT] CHARACTER CONSISTENCY RULE: Use character IDs only (e.g., STORYCUT_HERO_A).
+OUTPUT FORMAT (JSON):
+{
+  "title": "${structure_data.project_title || 'Untitled'}",
+  "genre": "${genre}",
+  "total_duration_sec": ${total_duration_sec},
+  "character_sheet": ${JSON.stringify(structure_data.characters || {})},
+  "global_style": ${JSON.stringify(structure_data.global_style || {})},
+  "scenes": [
+    {
+      "scene_id": 1,
+      "narrative": "STORYCUT_HERO_A가 카페 문을 열고 들어온다.",
+      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style.",
+      "tts_script": "드디어 이곳인가...",
+      "duration_sec": 5,
+      "camera_work": "Close-up",
+      "mood": "tense",
+      "characters_in_scene": ["STORYCUT_HERO_A"]
+    }
+  ],
+  "youtube_opt": {
+    "title_candidates": ["Title 1", "Title 2"],
+    "thumbnail_text": "Hook Text",
+    "hashtags": ["#Tag1", "#Tag2"]
+  }
+}
+`;
+
+    const step2_response = await callGemini(apiKey, step2_prompt, SYSTEM_PROMPT);
+    const story_data = parseGeminiResponse(step2_response);
+
+    // Normalization
+    if (story_data.scenes) {
+      story_data.scenes.forEach(scene => {
+        if (scene.tts_script) {
+          scene.narration = scene.tts_script;
+          scene.sentence = scene.tts_script;
+        }
+        if (scene.image_prompt) {
+          scene.visual_description = scene.image_prompt;
+          scene.prompt = scene.image_prompt;
+        }
+      });
+    }
+
+    // D1에 결과 저장
+    if (env.DB) {
+      await env.DB.prepare(
+        `UPDATE projects SET status = ?, video_url = ?, completed_at = ? WHERE id = ?`
+      ).bind(
+        'story_ready',
+        JSON.stringify(story_data),
+        new Date().toISOString(),
+        projectId
+      ).run();
+    }
+
+    console.log(`[Background] Story generated for project ${projectId}`);
+
+  } catch (error) {
+    console.error(`[Background] Story generation failed for ${projectId}:`, error);
+
+    // 실패 상태 저장
+    if (env.DB) {
+      await env.DB.prepare(
+        `UPDATE projects SET status = ?, error_message = ? WHERE id = ?`
+      ).bind('failed', error.message, projectId).run();
+    }
+  }
+}
 
 /**
  * [New] Story Generation Handler (JS Port of StoryAgent)
