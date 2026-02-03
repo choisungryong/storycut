@@ -170,7 +170,16 @@ class StorycutApp {
         this.currentRequestParams = requestData;
 
         try {
-            // 스토리 생성은 Worker에서 처리
+            // 즉시 progress 화면으로 전환
+            btn.disabled = false;
+            btn.innerHTML = originalBtnText;
+            this.showSection('progress');
+            this.updateStepStatus('story', '스토리 생성 중...');
+            document.getElementById('status-message').textContent = '스토리를 생성하고 있습니다...';
+            document.getElementById('progress-percentage').textContent = '10%';
+            document.getElementById('progress-bar').style.width = '10%';
+
+            // 스토리 생성 (Worker에서 동기 처리 - Gemini 완료까지 대기)
             const workerUrl = this.getWorkerUrl();
             const response = await fetch(`${workerUrl}/api/generate/story`, {
                 method: 'POST',
@@ -180,41 +189,36 @@ class StorycutApp {
 
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.detail || '스토리 생성 실패');
+                throw new Error(error.detail || error.error || '스토리 생성 실패');
             }
 
             const result = await response.json();
 
-            // 새로운 비동기 방식: project_id를 받고 즉시 progress 화면으로 전환
-            if (result.project_id && result.status === 'processing') {
-                // 즉시 progress 화면으로 전환
-                btn.disabled = false;
-                btn.innerHTML = originalBtnText;
-                this.showSection('progress');
-                this.updateStepStatus('story', '스토리 생성 중...');
-                document.getElementById('status-message').textContent = '스토리를 생성하고 있습니다...';
-                document.getElementById('progress-percentage').textContent = '10%';
-                document.getElementById('progress-bar').style.width = '10%';
+            if (result.project_id && result.status === 'story_ready') {
+                // D1에서 스토리 데이터 가져오기
+                const statusResponse = await fetch(`${workerUrl}/api/status/${result.project_id}`);
+                const statusData = await statusResponse.json();
 
-                // 폴링으로 완료 대기
-                const storyData = await this.pollStoryStatus(result.project_id, workerUrl);
-
-                if (storyData) {
-                    this.currentStoryData = storyData;
+                if (statusData.video_url) {
+                    try {
+                        this.currentStoryData = JSON.parse(statusData.video_url);
+                    } catch (e) {
+                        this.currentStoryData = statusData.video_url;
+                    }
                     this.currentRequestParams = requestData;
 
-                    // 스토리 리뷰 페이지로 이동
                     this.updateStepStatus('story', '완료');
+                    document.getElementById('progress-percentage').textContent = '100%';
+                    document.getElementById('progress-bar').style.width = '100%';
                     this.renderStoryReview(this.currentStoryData);
                     this.showSection('review');
                     this.setNavActive('nav-create');
                 } else {
-                    throw new Error('스토리 생성 시간 초과 또는 실패');
+                    throw new Error('스토리 데이터를 가져올 수 없습니다');
                 }
             } else if (result.story_data) {
-                // 하위 호환: 기존 동기 방식 (Railway 백엔드)
                 this.currentStoryData = result.story_data;
-                this.currentRequestParams = result.request_params;
+                this.currentRequestParams = requestData;
 
                 this.renderStoryReview(this.currentStoryData);
                 this.showSection('review');

@@ -267,35 +267,19 @@ async function handleGenerateStoryAsync(request, env, ctx, corsHeaders) {
     const body = await request.json();
     const projectId = Math.random().toString(36).substring(2, 10);
 
-    // D1에 초기 상태 저장
-    if (env.DB) {
-      await env.DB.prepare(
-        `INSERT INTO projects (id, status, input_data, created_at, user_id) VALUES (?, ?, ?, ?, ?)`
-      ).bind(
-        projectId,
-        'processing',
-        JSON.stringify(body),
-        new Date().toISOString(),
-        5
-      ).run();
-    }
+    // 동기 방식: Gemini 호출 완료 후 응답
+    await generateStoryBackground(projectId, body, env);
 
-    // 백그라운드에서 실제 스토리 생성 (ctx.waitUntil)
-    ctx.waitUntil(
-      generateStoryBackground(projectId, body, env)
-    );
-
-    // 즉시 응답 반환!
     return new Response(JSON.stringify({
       project_id: projectId,
-      status: 'processing',
-      message: '스토리 생성이 시작되었습니다. /api/status/{project_id}로 진행상황을 확인하세요.'
+      status: 'story_ready',
+      message: '스토리 생성이 완료되었습니다.'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
-    console.error('Story request error:', error);
+    console.error('Story generation error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
