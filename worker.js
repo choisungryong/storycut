@@ -198,9 +198,9 @@ export default {
       return handleGenerate(request, env, ctx, corsHeaders, userId, userCredits);
     }
 
-    // [New] Step 1: Story Generation (Worker Logic)
+    // [New] Step 1: Story Generation - Proxy to Backend (Fixed)
     if (url.pathname === '/api/generate/story' && request.method === 'POST') {
-      return handleGenerateStory(request, env, corsHeaders);
+      return handleProxyToBackend(request, url, env, corsHeaders);
     }
 
     if (url.pathname.startsWith('/api/video/')) {
