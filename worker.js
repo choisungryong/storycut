@@ -275,12 +275,12 @@ async function handleGenerateStoryAsync(request, env, ctx, corsHeaders) {
     }
 
     // 동기 방식: Gemini 호출 완료 후 응답
-    await generateStoryBackground(projectId, body, env);
+    const storyData = await generateStoryBackground(projectId, body, env);
 
     return new Response(JSON.stringify({
       project_id: projectId,
       status: 'story_ready',
-      message: '스토리 생성이 완료되었습니다.'
+      story_data: storyData
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -415,6 +415,7 @@ OUTPUT FORMAT (JSON):
     }
 
     console.log(`[Background] Story generated for project ${projectId}`);
+    return story_data;
 
   } catch (error) {
     console.error(`[Background] Story generation failed for ${projectId}:`, error);
@@ -425,6 +426,7 @@ OUTPUT FORMAT (JSON):
         `UPDATE projects SET status = ?, error_message = ? WHERE id = ?`
       ).bind('failed', error.message, projectId).run();
     }
+    throw error;
   }
 }
 

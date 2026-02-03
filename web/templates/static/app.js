@@ -195,29 +195,7 @@ class StorycutApp {
             const result = await response.json();
             console.log('Worker response:', JSON.stringify(result));
 
-            if (result.project_id && result.status === 'story_ready') {
-                // D1에서 스토리 데이터 가져오기
-                const statusResponse = await fetch(`${workerUrl}/api/status/${result.project_id}`);
-                const statusData = await statusResponse.json();
-
-                if (statusData.video_url) {
-                    try {
-                        this.currentStoryData = JSON.parse(statusData.video_url);
-                    } catch (e) {
-                        this.currentStoryData = statusData.video_url;
-                    }
-                    this.currentRequestParams = requestData;
-
-                    this.updateStepStatus('story', '완료');
-                    document.getElementById('progress-percentage').textContent = '100%';
-                    document.getElementById('progress-bar').style.width = '100%';
-                    this.renderStoryReview(this.currentStoryData);
-                    this.showSection('review');
-                    this.setNavActive('nav-create');
-                } else {
-                    throw new Error('스토리 데이터를 가져올 수 없습니다');
-                }
-            } else if (result.story_data) {
+            if (result.story_data) {
                 this.currentStoryData = result.story_data;
                 this.currentRequestParams = requestData;
 
