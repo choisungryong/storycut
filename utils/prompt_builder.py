@@ -59,81 +59,123 @@ class MultimodalPromptBuilder:
         Returns:
             Gemini API parts 리스트
         """
+        # ========================================
+        # 7-STEP LOCK ORDER (STRICTLY ENFORCED)
+        # ========================================
+        # This order is CRITICAL for visual consistency.
+        # DO NOT reorder these steps without updating the design doc.
+        
         parts = []
-
-        # ── Step 1: LOCK 선언 ──
-        lock_text = MultimodalPromptBuilder._build_lock_declaration()
-        parts.append({"text": lock_text})
-
-        # ── Step 2: Style Anchor ──
+        
+        # ──────────────────────────────────────────────────────────
+        # STEP 1: LOCK 선언 (REQUIRED)
+        # ──────────────────────────────────────────────────────────
+        lock_declaration = MultimodalPromptBuilder._build_lock_declaration()
+        parts.append({"text": lock_declaration})
+        
+        # ──────────────────────────────────────────────────────────
+        # STEP 2: Style Anchor 이미지 (OPTIONAL)
+        # ──────────────────────────────────────────────────────────
         if style_anchor_path and os.path.exists(style_anchor_path):
-            image_part = MultimodalPromptBuilder._encode_image_part(style_anchor_path)
-            if image_part:
-                parts.append(image_part)
-                parts.append({"text": "[STYLE ANCHOR] Match this visual style exactly. Preserve color palette, lighting, and art style."})
-
-        # ── Step 3: Environment Anchor ──
+            style_image = MultimodalPromptBuilder._encode_image_part(style_anchor_path)
+            if style_image:
+                parts.append(style_image)
+                parts.append({
+                    "text": "[STYLE ANCHOR] Match this visual style exactly. "
+                            "Preserve color palette, lighting, and art style."
+                })
+        
+        # ──────────────────────────────────────────────────────────
+        # STEP 3: Environment Anchor 이미지 (OPTIONAL)
+        # ──────────────────────────────────────────────────────────
         if environment_anchor_path and os.path.exists(environment_anchor_path):
-            image_part = MultimodalPromptBuilder._encode_image_part(environment_anchor_path)
-            if image_part:
-                parts.append(image_part)
-                parts.append({"text": "[ENVIRONMENT ANCHOR] Preserve this background and environment. Match lighting and atmosphere."})
-
-        # ── Step 4: Character Anchors + 설명 ──
+            env_image = MultimodalPromptBuilder._encode_image_part(environment_anchor_path)
+            if env_image:
+                parts.append(env_image)
+                parts.append({
+                    "text": "[ENVIRONMENT ANCHOR] Preserve this background and environment. "
+                            "Match lighting and atmosphere."
+                })
+        
+        # ──────────────────────────────────────────────────────────
+        # STEP 4: Character Anchors + 설명 (OPTIONAL, scene-dependent)
+        # ──────────────────────────────────────────────────────────
         active_characters = scene.characters_in_scene or []
         character_descriptions = []
-        added_images = 0
-
-        for token in active_characters:
-            if added_images >= max_reference_images:
+        character_images_added = 0
+        
+        for char_token in active_characters:
+            # Respect max_reference_images limit
+            if character_images_added >= max_reference_images:
                 break
-
-            char_data = character_sheet.get(token)
+            
+            char_data = character_sheet.get(char_token)
             if not char_data:
                 continue
-
-            # 마스터 이미지 경로 및 정보 추출
+            
+            # Extract character info
             if isinstance(char_data, CharacterSheet):
                 image_path = char_data.master_image_path
                 name = char_data.name
                 appearance = char_data.appearance
             elif isinstance(char_data, dict):
                 image_path = char_data.get("master_image_path")
-                name = char_data.get("name", token)
+                name = char_data.get("name", char_token)
                 appearance = char_data.get("appearance", "")
             else:
                 continue
-
-            # 이미지 추가
+            
+            # Add character anchor image
             if image_path and os.path.exists(image_path):
-                image_part = MultimodalPromptBuilder._encode_image_part(image_path)
-                if image_part:
-                    parts.append(image_part)
-                    added_images += 1
-
-            # 캐릭터 설명 추가
-            desc = f"[CHARACTER ANCHOR] '{name}' ({token}): {appearance}. Maintain EXACT face, body, hair, clothing from reference."
-            character_descriptions.append(desc)
-
-        # 캐릭터 참조 텍스트 통합
+                char_image = MultimodalPromptBuilder._encode_image_part(image_path)
+                if char_image:
+                    parts.append(char_image)
+                    character_images_added += 1
+            
+            # Build character description
+            char_desc = (
+                f"[CHARACTER ANCHOR] '{name}' ({char_token}): {appearance}. "
+                f"Maintain EXACT face, body, hair, clothing from reference."
+            )
+            character_descriptions.append(char_desc)
+        
+        # Add all character descriptions as a single text block
         if character_descriptions:
             parts.append({"text": "\n".join(character_descriptions)})
-
-        # ── Step 5: 금지/고정 규칙 ──
-        prohibition_text = MultimodalPromptBuilder._build_prohibition_rules(
+        
+        # ──────────────────────────────────────────────────────────
+        # STEP 5: 금지/고정 규칙 (REQUIRED)
+        # ──────────────────────────────────────────────────────────
+        prohibition_rules = MultimodalPromptBuilder._build_prohibition_rules(
             character_descriptions, global_style
         )
-        parts.append({"text": prohibition_text})
-
-        # ── Step 6: Scene Description ──
+        parts.append({"text": prohibition_rules})
+        
+        # ──────────────────────────────────────────────────────────
+        # STEP 6: Scene Description (REQUIRED)
+        # ──────────────────────────────────────────────────────────
         scene_description = MultimodalPromptBuilder._build_scene_description(scene)
         parts.append({"text": scene_description})
-
-        # ── Step 7: Cinematography ──
-        cinematography_text = MultimodalPromptBuilder._build_cinematography(scene, global_style)
-        parts.append({"text": cinematography_text})
-
+        
+        # ──────────────────────────────────────────────────────────
+        # STEP 7: Cinematography (REQUIRED)
+        # ──────────────────────────────────────────────────────────
+        cinematography = MultimodalPromptBuilder._build_cinematography(scene, global_style)
+        parts.append({"text": cinematography})
+        
+        # ========================================
+        # END OF 7-STEP LOCK ORDER
+        # ========================================
+        
+        # Validation: Ensure we have at least the required steps
+        if len(parts) < 4:  # At minimum: LOCK + prohibition + scene + cinematography
+            raise ValueError(
+                f"Invalid parts count: {len(parts)}. "
+                f"7-step LOCK order requires at least 4 parts (LOCK, rules, scene, cinematography)."
+            )
+        
         return parts
+
 
     @staticmethod
     def build_simple_request(
