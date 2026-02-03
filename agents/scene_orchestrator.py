@@ -625,6 +625,166 @@ JSON 형식으로 출력:
 
         return final_video
 
+    def generate_images_for_scenes(
+        self,
+        story_data: Dict[str, Any],
+        project_dir: str,
+        request: ProjectRequest = None,
+        style_anchor_path: Optional[str] = None,
+        environment_anchors: Optional[Dict[int, str]] = None,
+    ) -\u003e List[Dict[str, Any]]:
+        """
+        이미지만 생성 (TTS, 비디오 스킵).
+        
+        사용자가 이미지를 검토한 후 재생성/I2V 변환 가능.
+        
+        Args:
+            story_data: Story JSON
+            project_dir: 프로젝트 디렉토리
+            request: ProjectRequest
+            style_anchor_path: 스타일 앵커 경로
+            environment_anchors: 환경 앵커 딕셔너리
+            
+        Returns:
+            Scene 데이터 목록 (이미지 경로 포함)
+        """
+        print(f"\n[SceneOrchestrator] Generating IMAGES ONLY")
+        
+        if request:
+            self.feature_flags = request.feature_flags
+            self.video_agent.feature_flags = request.feature_flags
+        
+        scenes = story_data["scenes"]
+        total_scenes = len(scenes)
+        style = story_data.get("style", request.style_preset if request else "cinematic")
+        
+        global_style = story_data.get("global_style")
+        character_sheet = story_data.get("character_sheet", {})
+        
+        print(f"Total scenes: {total_scenes}")
+        print(f"Style: {style}\n")
+        
+        processed_scenes = []
+        prev_scene = None
+        
+        # Image output directory
+        image_output_dir = f"{project_dir}/media/images"
+        os.makedirs(image_output_dir, exist_ok=True)
+        
+        for i, scene_data in enumerate(scenes, 1):
+            print(f"\n{'─'*60}")
+            print(f"Generating Image for Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
+            print(f"{'─'*60}")
+            
+            # Scene 객체 생성
+            scene = Scene(
+                index=i,
+                scene_id=scene_data["scene_id"],
+                sentence=scene_data.get("narration", ""),
+                narration=scene_data.get("narration"),
+                visual_description=scene_data.get("visual_description"),
+                mood=scene_data.get("mood"),
+                duration_sec=scene_data.get("duration_sec", 5),
+                narrative=scene_data.get("narrative"),
+                image_prompt=scene_data.get("image_prompt"),
+                characters_in_scene=scene_data.get("characters_in_scene", []),
+            )
+            
+            # Seed 추출
+            scene_seed = None
+            if scene.characters_in_scene and character_sheet:
+                first_char_token = scene.characters_in_scene[0]
+                if first_char_token in character_sheet:
+                    scene_seed = character_sheet[first_char_token].get("visual_seed")
+            
+            # 메타데이터 저장
+            scene._seed = scene_seed
+            scene._global_style = global_style
+            scene._character_sheet = character_sheet
+            scene._style_anchor_path = style_anchor_path
+            scene._env_anchor_path = environment_anchors.get(scene.scene_id) if environment_anchors else None
+            
+            # Context Carry-over
+            if self.feature_flags.context_carry_over and prev_scene:
+                scene.context_summary = self.summarize_prev_scene(prev_scene)
+                scene.inherited_keywords = self.extract_key_terms(prev_scene)
+            else:
+                scene.inherited_keywords = []
+            
+            # 엔티티 추출
+            scene.entities = self.extract_entities(scene.sentence, scene.inherited_keywords)
+            
+            # 프롬프트 생성
+            if scene.image_prompt:
+                if global_style:
+                    style_suffix = f", {global_style.get('art_style', '')}, {global_style.get('color_palette', '')}"
+                    scene.prompt = scene.image_prompt + style_suffix
+                else:
+                    scene.prompt = scene.image_prompt
+            else:
+                scene.prompt = self.build_prompt(
+                    sentence=scene.sentence,
+                    inherited=scene.inherited_keywords,
+                    entities=scene.entities,
+                    style=style
+                )
+            
+            scene.negative_prompt = self.build_negative_prompt(style)
+            
+            try:
+                # Generate IMAGE ONLY (no TTS, no video)
+                from agents.image_agent import ImageAgent
+                image_agent = ImageAgent()
+                
+                # Character references
+                char_refs = []
+                if scene.characters_in_scene and character_sheet:
+                    from agents.character_manager import CharacterManager
+                    cm = CharacterManager.__new__(CharacterManager)
+                    char_refs = cm.get_active_character_images(
+                        scene.characters_in_scene,
+                        character_sheet
+                    )
+                
+                # Generate image
+                image_path, image_id = image_agent.generate_image(
+                    scene_id=scene.scene_id,
+                    prompt=scene.prompt,
+                    negative_prompt=scene.negative_prompt,
+                    style=style,
+                    output_dir=image_output_dir,
+                    seed=scene_seed,
+                    character_reference_paths=char_refs,
+                    image_model="standard"
+                )
+                
+                scene.assets.image_path = image_path
+                scene.status = SceneStatus.COMPLETED
+                
+                print(f"  ✅ Image generated: {image_path}")
+                
+            except Exception as e:
+                scene.status = SceneStatus.FAILED
+                scene.error_message = str(e)
+                print(f"  ❌ Image generation failed: {e}")
+            
+            # Scene 데이터를 딕셔너리로 변환하여 저장
+            scene_dict = scene_data.copy()
+            scene_dict["assets"] = {
+                "image_path": scene.assets.image_path if scene.assets else None
+            }
+            scene_dict["status"] = scene.status
+            scene_dict["prompt"] = scene.prompt
+            
+            processed_scenes.append(scene_dict)
+            prev_scene = scene
+            
+            print(f"Scene {i} image complete\n")
+        
+        print(f"\n[SUCCESS] {len(processed_scenes)} images generated!")
+        return processed_scenes
+
+
     def process_scenes_from_script(
         self,
         script_text: str,

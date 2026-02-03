@@ -1013,6 +1013,298 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
         print(f"[WRAPPER] Event loop closed for project: {project_id}", flush=True)
 
 
+@app.post("/api/generate/images")
+async def generate_images_only(req: GenerateVideoRequest, background_tasks: BackgroundTasks):
+    """
+    Step 2A: 스토리 확정 후 이미지만 생성 (영상 생성 전 검토용).
+    
+    사용자는 이미지들을 검토한 후:
+    - 재생성
+    - I2V 변환
+    - 최종 영상 생성
+    
+    Returns:
+        project_id와 scene 이미지 URL 목록
+    """
+    import uuid
+    from pathlib import Path
+   
+    project_id = req.project_id or str(uuid.uuid4())[:8]
+    
+    print(f"\n[API] ========== IMAGES ONLY GENERATION =========")
+    print(f"[API] Project ID: {project_id}")
+    print(f"[API] Scene count: {len(req.story_data.get('scenes', []))}")
+    
+    # Project 디렉토리 생성
+    project_dir = f"outputs/{project_id}"
+    Path(project_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Initial manifest
+    initial_manifest = {
+        "project_id": project_id,
+        "status": "generating_images",
+        "progress": 10,
+        "message": "이미지 생성 중...",
+        "created_at": datetime.now().isoformat(),
+        "title": req.story_data.get("title", "제목 없음"),
+    }
+    
+    manifest_path = f"{project_dir}/manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
+    
+    try:
+        # request_params를 ProjectRequest로 변환
+        from schemas import ProjectRequest, FeatureFlags
+        from starlette.concurrency import run_in_threadpool
+        
+        feature_flags = FeatureFlags(
+            hook_scene1_video=req.request_params.get('hook_scene1_video', False),
+            ffmpeg_kenburns=req.request_params.get('ffmpeg_kenburns', True),
+            ffmpeg_audio_ducking=req.request_params.get('ffmpeg_audio_ducking', False),
+            subtitle_burn_in=req.request_params.get('subtitle_burn_in', True),
+            context_carry_over=req.request_params.get('context_carry_over', True),
+            optimization_pack=req.request_params.get('optimization_pack', True),
+        )
+        
+        request_obj = ProjectRequest(
+            topic=req.request_params.get('topic'),
+            genre=req.request_params.get('genre', 'emotional'),
+            mood=req.request_params.get('mood', 'dramatic'),
+            style_preset=req.request_params.get('style_preset') or req.request_params.get('style', 'cinematic'),
+            duration_target_sec=req.request_params.get('duration_target_sec', 60),
+            voice_id=req.request_params.get('voice_id', 'onyx'),
+            voice_over=True,
+            bgm=True,
+            subtitles=req.request_params.get('subtitle_burn_in', True),
+            feature_flags=feature_flags
+        )
+        
+        # Pipeline에서 이미지만 생성
+        pipeline = StorycutPipeline()
+        result = await run_in_threadpool(
+            pipeline.generate_images_only,
+            req.story_data,
+            request_obj,
+            project_id
+        )
+        
+        print(f"[API] Images generated successfully!")
+        print(f"[API] ============================================\n")
+        
+        return result
+        
+    except Exception as e:
+        print(f"[API] Image generation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/regenerate/image/{project_id}/{scene_id}")
+async def regenerate_scene_image(project_id: str, scene_id: int, req: dict = {"prompt": None}):
+    """
+    특정 씬의 이미지를 재생성합니다.
+    
+    Args:
+        project_id: 프로젝트 ID
+        scene_id: 씬 ID
+        req: {"prompt": "새 프롬프트"} (선택사항)
+    
+    Returns:
+        새로 생성된 이미지 URL
+    """
+    from starlette.concurrency import run_in_threadpool
+    from agents.image_agent import ImageAgent
+    import json
+    
+    print(f"\n[API] Regenerating image for scene {scene_id} in project {project_id}")
+    
+    # Manifest 로드
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    if not os.path.exists(manifest_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest_data = json.load(f)
+    
+    # 해당 씬 찾기
+    scenes = manifest_data.get("scenes", [])
+    target_scene = None
+    for scene in scenes:
+        if scene.get("scene_id") == scene_id:
+            target_scene = scene
+            break
+    
+    if not target_scene:
+        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+    
+    # 이미지 재생성
+    image_agent = ImageAgent()
+    new_prompt = req.get("prompt") if req else target_scene.get("prompt", "")
+    
+    try:
+        image_path, image_id = await run_in_threadpool(
+            image_agent.generate_image,
+            scene_id=scene_id,
+            prompt=new_prompt or target_scene.get("prompt", ""),
+            style=target_scene.get("style", "cinematic"),
+            output_dir=f"outputs/{project_id}/media/images",
+            seed=None  # New random seed for regeneration
+        )
+        
+        # Manifest 업데이트
+        for scene in scenes:
+            if scene.get("scene_id") == scene_id:
+                if "assets" not in scene:
+                    scene["assets"] = {}
+                scene["assets"]["image_path"] = image_path
+                break
+        
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, ensure_ascii=False, indent=2)
+        
+        return {
+            "scene_id": scene_id,
+            "image_path": image_path,
+            "prompt": new_prompt
+        }
+        
+    except Exception as e:
+        print(f"[API] Image regeneration failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/convert/i2v/{project_id}/{scene_id}")
+async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"motion_prompt": None}):
+    """
+    특정 씬의 이미지를 Veo I2V로 영상 변환합니다.
+    
+    Args:
+        project_id: 프로젝트 ID
+        scene_id: 씬 ID
+        req: {"motion_prompt": "camera slowly zooms in"} (선택사항)
+    
+    Returns:
+        변환된 비디오 URL
+    """
+    from starlette.concurrency import run_in_threadpool
+    from agents.video_agent import VideoAgent
+    import json
+    
+    print(f"\n[API] Converting image to video for scene {scene_id} in project {project_id}")
+    
+    # Manifest 로드
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    if not os.path.exists(manifest_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest_data = json.load(f)
+    
+    # 해당 씬 찾기
+    scenes = manifest_data.get("scenes", [])
+    target_scene = None
+    for scene in scenes:
+        if scene.get("scene_id") == scene_id:
+            target_scene = scene
+            break
+    
+    if not target_scene:
+        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+    
+    # 이미지 경로 확인
+    image_path = target_scene.get("assets", {}).get("image_path")
+    if not image_path or not os.path.exists(image_path):
+        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id}")
+    
+    # I2V 변환
+    video_agent = VideoAgent()
+    motion_prompt = req.get("motion_prompt") if req else "camera slowly pans across the scene"
+    
+    try:
+        video_path = await run_in_threadpool(
+            video_agent.generate_from_image,
+            image_path=image_path,
+            prompt=target_scene.get("prompt", ""),
+            duration_sec=target_scene.get("duration_sec", 5),
+            output_dir=f"outputs/{project_id}/media/video",
+            scene_id=scene_id,
+            motion_prompt=motion_prompt
+        )
+        
+        # Manifest 업데이트
+        for scene in scenes:
+            if scene.get("scene_id") == scene_id:
+                if "assets" not in scene:
+                    scene["assets"] = {}
+                scene["assets"]["video_path"] = video_path
+                scene["i2v_converted"] = True
+                break
+        
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, ensure_ascii=False, indent=2)
+        
+        return {
+            "scene_id": scene_id,
+            "video_path": video_path,
+            "motion_prompt": motion_prompt
+        }
+        
+    except Exception as e:
+        print(f"[API] I2V conversion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/toggle/hook-video/{project_id}/{scene_id}")
+async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
+    """
+    특정 씬을 Hook Video로 설정/해제합니다.
+    
+    Args:
+        project_id: 프로젝트 ID
+        scene_id: 씬 ID
+        req: {"enable": true/false}
+    
+    Returns:
+        Hook video 설정 상태
+    """
+    import json
+    
+    enable = req.get("enable", False)
+    
+    print(f"\n[API] Toggle hook video for scene {scene_id}: {enable}")
+    
+    # Manifest 로드
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    if not os.path.exists(manifest_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest_data = json.load(f)
+    
+    # 해당 씬 찾기
+    scenes = manifest_data.get("scenes", [])
+    found = False
+    for scene in scenes:
+        if scene.get("scene_id") == scene_id:
+            scene["hook_video_enabled"] = enable
+            found = True
+            break
+    
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+    
+    #  Manifest 저장
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest_data, f, ensure_ascii=False, indent=2)
+    
+    return {
+        "scene_id": scene_id,
+        "hook_video_enabled": enable
+    }
+
+
 
 @app.get("/api/sample-voice/{voice_id}")
 async def get_voice_sample(voice_id: str):

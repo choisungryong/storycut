@@ -233,6 +233,143 @@ class StorycutPipeline:
             self._save_manifest(manifest, project_dir)
             raise
 
+    def generate_images_only(
+        self,
+        story_data: Dict[str, Any],
+        request: ProjectRequest,
+        project_id: str = None
+    ) -\u003e Dict[str, Any]:
+        """
+        Step 2A: 스토리에서 이미지만 생성 (영상 생성 전 검토용).
+        
+        사용자가 이미지를 검토한 후:
+        - 재생성
+        - I2V 변환
+        - 최종 영상 생성 승인
+        
+        Args:
+            story_data: Story JSON
+            request: ProjectRequest  
+            project_id: 프로젝트 ID (선택사항)
+            
+        Returns:
+            Dict with project_id and scenes with image URLs
+        """
+        start_time = time.time()
+        
+        if not project_id:
+            project_id = str(uuid.uuid4())[:8]
+            
+        project_dir = self._create_project_structure(project_id)
+        
+        print(f"\n{'='*60}")
+        print(f"STORYCUT Pipeline - Image Generation - Project: {project_id}")
+        print(f"{'='*60}\n")
+        
+        # Manifest 초기화
+        from schemas import GlobalStyle, CharacterSheet
+        
+        manifest = Manifest(
+            project_id=project_id,
+            input=request,
+            status="images_generated",  # Special status
+            title=story_data.get("title"),
+            script=json.dumps(story_data, ensure_ascii=False)
+        )
+        
+        # v2.0: character_sheet와 global_style 저장
+        if "character_sheet" in story_data:
+            manifest.character_sheet = {
+                token: CharacterSheet(**data)
+                for token, data in story_data["character_sheet"].items()
+            }
+            
+        if "global_style" in story_data:
+            manifest.global_style = GlobalStyle(**story_data["global_style"])
+        
+        # Style Anchor 생성 (v2.0)
+        style_anchor_path = None
+        env_anchors = {}
+        style_anchor_agent = StyleAnchorAgent()
+        
+        if manifest.global_style:
+            print(f"\n[StyleAnchor] Generating style anchor image...")
+            style_anchor_path = style_anchor_agent.generate_style_anchor(
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
+            
+            print(f"\n[EnvAnchors] Generating environment anchors...")
+            env_anchors = style_anchor_agent.generate_environment_anchors(
+                scenes=story_data["scenes"],
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
+        
+        # Character Casting (v2.0)
+        if manifest.character_sheet:
+            print(f"\n[Characters] Casting character anchor images...")
+            character_manager = CharacterManager()
+            character_images = character_manager.cast_characters(
+                character_sheet=manifest.character_sheet,
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
+            
+            # Update story_data with master_image_path
+            if "character_sheet" in story_data:
+                for token, image_path in character_images.items():
+                    if token in story_data["character_sheet"]:
+                        story_data["character_sheet"][token]["master_image_path"] = image_path
+        
+        try:
+            # Generate ONLY images (no TTS, no video)
+            print(f"\n[IMAGES ONLY] Generating images for {len(story_data['scenes'])} scenes...")
+            
+            orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
+            
+            # Call a new method that generates only images
+            scenes_with_images = orchestrator.generate_images_for_scenes(
+                story_data=story_data,
+                project_dir=project_dir,
+                request=request,
+                style_anchor_path=style_anchor_path,
+                environment_anchors=env_anchors
+            )
+            
+            # Update manifest
+            manifest.scenes = self._convert_scenes_to_schema(scenes_with_images)
+            manifest.status = "images_ready"
+            manifest.execution_time_sec = time.time() - start_time
+            
+            # Save manifest
+            self._save_manifest(manifest, project_dir)
+            
+            # Return image info for frontend
+            result = {
+                "project_id": project_id,
+                "scenes": []
+            }
+            
+            for scene in manifest.scenes:
+                scene_info = {
+                    "scene_id": scene.scene_id,
+                    "index": scene.index,
+                    "narration": scene.narration or scene.sentence,
+                    "image_path": scene.assets.image_path if scene.assets else None,
+                    "prompt": scene.prompt
+                }
+                result["scenes"].append(scene_info)
+            
+            return result
+            
+        except Exception as e:
+            manifest.status = "failed"
+            manifest.error_message = str(e)
+            self._save_manifest(manifest, project_dir)
+            raise
+
+
     def _create_project_structure(self, project_id: str) -> str:
         """
         프로젝트 디렉토리 구조 생성.
