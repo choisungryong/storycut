@@ -11,6 +11,8 @@ STORYCUT Agents Package
 - ComposerAgent: 최종 합성
 - OptimizationAgent: 유튜브 최적화 (제목/썸네일/AB테스트)
 - CharacterManager: v2.0 마스터 앵커 이미지 생성/관리
+- StyleAnchorAgent: v2.0 스타일/환경 앵커 이미지 생성
+- ConsistencyValidator: v2.0 Gemini Vision 기반 일관성 검증
 """
 
 from .story_agent import StoryAgent
@@ -22,6 +24,8 @@ from .composer_agent import ComposerAgent
 from .scene_orchestrator import SceneOrchestrator
 from .optimization_agent import OptimizationAgent
 from .character_manager import CharacterManager
+from .style_anchor import StyleAnchorAgent
+from .consistency_validator import ConsistencyValidator
 
 __all__ = [
     "StoryAgent",
@@ -33,4 +37,6 @@ __all__ = [
     "SceneOrchestrator",
     "OptimizationAgent",
     "CharacterManager",
+    "StyleAnchorAgent",
+    "ConsistencyValidator",
 ]

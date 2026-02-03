@@ -10,7 +10,7 @@ STORYCUT Data Models
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from pydantic import BaseModel, Field
 import uuid
 
@@ -41,6 +41,53 @@ class CameraWork(str, Enum):
     PAN_UP = "pan_up"
     PAN_DOWN = "pan_down"
     STATIC = "static"
+
+
+class PoseType(str, Enum):
+    """캐릭터 포즈 유형"""
+    FRONT = "front"
+    THREE_QUARTER = "three_quarter"
+    SIDE = "side"
+    FULL_BODY = "full_body"
+    EMOTION_NEUTRAL = "emotion_neutral"
+    EMOTION_INTENSE = "emotion_intense"
+
+
+class PoseAnchor(BaseModel):
+    """포즈별 앵커 이미지"""
+    pose: PoseType
+    image_path: str
+    score: float = Field(default=0.0, description="품질 점수 (0~1)")
+
+
+class AnchorSet(BaseModel):
+    """캐릭터의 멀티포즈 앵커 세트"""
+    character_token: str
+    poses: Dict[str, PoseAnchor] = Field(default_factory=dict)
+    best_pose: str = "three_quarter"
+
+    def get_pose_image(self, pose: str) -> Optional[str]:
+        """pose에 해당하는 이미지 경로 반환, 없으면 best_pose 폴백."""
+        anchor = self.poses.get(pose)
+        if anchor:
+            return anchor.image_path
+        fallback = self.poses.get(self.best_pose)
+        if fallback:
+            return fallback.image_path
+        # 아무 포즈라도 반환
+        if self.poses:
+            return next(iter(self.poses.values())).image_path
+        return None
+
+
+class ValidationResult(BaseModel):
+    """일관성 검증 결과"""
+    scene_id: int
+    passed: bool
+    overall_score: float = 0.0
+    dimension_scores: Dict[str, float] = Field(default_factory=dict)
+    issues: List[str] = Field(default_factory=list)
+    attempt_number: int = 1
 
 
 class FeatureFlags(BaseModel):
@@ -95,6 +142,16 @@ class FeatureFlags(BaseModel):
     film_look: bool = Field(
         default=False,
         description="필름 그레인 + 색보정 후처리 (시네마틱 룩)"
+    )
+
+    # v2.0: Consistency Validation
+    consistency_validation: bool = Field(
+        default=False,
+        description="Gemini Vision 기반 일관성 검증 활성화"
+    )
+    consistency_max_retries: int = Field(
+        default=3,
+        description="일관성 검증 실패 시 최대 재시도 횟수"
     )
 
 
@@ -192,6 +249,12 @@ class CharacterSheet(BaseModel):
         description="마스터 캐릭터 이미지 URL (외부 접근용)"
     )
 
+    # v2.0: 멀티포즈 앵커 세트
+    anchor_set: Optional[AnchorSet] = Field(
+        default=None,
+        description="멀티포즈 앵커 이미지 세트"
+    )
+
 
 class GlobalStyle(BaseModel):
     """글로벌 스타일 설정"""
@@ -205,6 +268,16 @@ class GlobalStyle(BaseModel):
     )
     aspect_ratio: str = Field(default="16:9", description="화면 비율")
     visual_seed: int = Field(default=12345, description="전체 프로젝트 시드")
+
+    # v2.0: 스타일/환경 앵커
+    style_anchor_path: Optional[str] = Field(
+        default=None,
+        description="프로젝트 전체 룩 앵커 이미지 경로"
+    )
+    environment_anchors: Dict[int, str] = Field(
+        default_factory=dict,
+        description="씬별 환경 앵커 이미지 경로 (scene_id -> path)"
+    )
 
 
 class Scene(BaseModel):

@@ -283,7 +283,9 @@ JSON 형식으로 출력:
         story_data: Dict[str, Any],
         output_path: str = "output/youtube_ready.mp4",
         request: ProjectRequest = None,
-        progress_callback: Any = None
+        progress_callback: Any = None,
+        style_anchor_path: Optional[str] = None,
+        environment_anchors: Optional[Dict[int, str]] = None,
     ) -> str:
         """
         Scene JSON에서 최종 영상까지 전체 처리.
@@ -294,6 +296,9 @@ JSON 형식으로 출력:
             story_data: Story JSON (scenes 포함)
             output_path: 최종 영상 출력 경로
             request: ProjectRequest (feature flags 포함)
+            progress_callback: 진행 콜백
+            style_anchor_path: 스타일 앵커 이미지 경로
+            environment_anchors: 씬별 환경 앵커 이미지 딕셔너리
 
         Returns:
             최종 영상 파일 경로
@@ -342,6 +347,19 @@ JSON 형식으로 출력:
             print(f"\n[Character Sheet]")
             for token, char_data in character_sheet.items():
                 print(f"  {token}: {char_data.get('name')} (seed: {char_data.get('visual_seed')})")
+
+        # v2.0: 앵커 정보 로깅
+        if style_anchor_path:
+            print(f"\n[StyleAnchor] Path: {style_anchor_path}")
+        if environment_anchors:
+            print(f"[EnvAnchors] {len(environment_anchors)} scenes: {list(environment_anchors.keys())}")
+
+        # v2.0: ConsistencyValidator 초기화
+        consistency_validator = None
+        if self.feature_flags.consistency_validation:
+            from agents.consistency_validator import ConsistencyValidator
+            consistency_validator = ConsistencyValidator()
+            print(f"[ConsistencyValidator] Enabled (max_retries={self.feature_flags.consistency_max_retries})")
 
         print()
 
@@ -393,6 +411,11 @@ JSON 형식으로 출력:
                 scene._global_style = global_style
             if not hasattr(scene, '_character_sheet'):
                 scene._character_sheet = character_sheet
+            if not hasattr(scene, '_style_anchor_path'):
+                scene._style_anchor_path = style_anchor_path
+            if not hasattr(scene, '_env_anchor_path'):
+                env_path = environment_anchors.get(scene.scene_id) if environment_anchors else None
+                scene._env_anchor_path = env_path
 
             # P1: Context Carry-over
             if self.feature_flags.context_carry_over and prev_scene:
@@ -452,10 +475,10 @@ JSON 형식으로 출력:
 
                 # 영상 생성 (업데이트된 duration 사용)
                 scene.status = SceneStatus.GENERATING_VIDEO
-                
+
                 # 프로젝트 구조에 맞는 비디오/이미지 출력 경로 설정
                 video_output_dir = f"{os.path.dirname(output_path)}/media/video"
-                
+
                 video_path = self.video_agent.generate_video(
                     scene_id=scene.scene_id,
                     visual_description=scene.visual_description or scene.prompt,
@@ -467,6 +490,35 @@ JSON 형식으로 출력:
                 )
                 # video_clips.append(video_path) -> REMOVED: 나중에 한꺼번에 수집
                 scene.assets.video_path = video_path
+
+                # v2.0: ConsistencyValidator 검증 (이미지 생성 후, 비디오 합성 전)
+                if consistency_validator and scene.assets.image_path:
+                    # 캐릭터 앵커 경로 수집
+                    char_anchor_paths = []
+                    if scene.characters_in_scene and character_sheet:
+                        from agents.character_manager import CharacterManager
+                        cm = CharacterManager.__new__(CharacterManager)
+                        char_anchor_paths = cm.get_active_character_images(
+                            scene.characters_in_scene, character_sheet
+                        )
+
+                    env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
+
+                    val_result = consistency_validator.validate_scene_image(
+                        generated_image_path=scene.assets.image_path,
+                        scene_id=scene.scene_id,
+                        character_anchor_paths=char_anchor_paths,
+                        style_anchor_path=style_anchor_path,
+                        environment_anchor_path=env_anchor,
+                    )
+
+                    if not val_result.passed and val_result.overall_score <= 0.4:
+                        print(f"     [ConsistencyValidator] Scene {i} FAILED validation (score={val_result.overall_score:.2f})")
+                        scene.status = SceneStatus.FAILED
+                        scene.error_message = f"Consistency validation failed: {val_result.issues}"
+                        processed_scenes.append(scene)
+                        prev_scene = scene
+                        continue
 
                 # [Fix] Generate & Burn-in Subtitles
                 try:

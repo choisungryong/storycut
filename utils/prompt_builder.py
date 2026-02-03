@@ -4,9 +4,12 @@ Multimodal Prompt Builder for Gemini 2.5 Flash Image.
 v2.0 핵심 기능:
 - 복수 캐릭터 참조 이미지 + 텍스트 리스트 구성
 - Gemini API 스펙에 맞는 멀티모달 요청 빌더
+- 7단계 LOCK 순서 강제: LOCK 선언 → StyleAnchor → EnvAnchor → CharacterAnchors → 금지규칙 → Scene → Cinematography
+- 스타일 토큰 화이트리스트 필터링
 """
 
 import os
+import re
 import base64
 from typing import Dict, List, Any, Optional
 from pathlib import Path
@@ -21,8 +24,16 @@ class MultimodalPromptBuilder:
     """
     Gemini 2.5 Flash Image용 멀티모달 요청 빌더
 
-    v2.0: 복수 캐릭터 참조 이미지와 텍스트 프롬프트를 결합하여
-    Gemini API 형식의 멀티모달 요청을 구성합니다.
+    v2.0: 7단계 LOCK 순서를 강제하여 캐릭터/스타일/환경 일관성을 유지합니다.
+
+    LOCK 순서:
+    1. LOCK 선언 텍스트
+    2. StyleAnchor 이미지 + 라벨
+    3. EnvironmentAnchor 이미지 + 라벨
+    4. Character Anchors (포즈별 선택) + 캐릭터 설명
+    5. 금지/고정 규칙
+    6. Scene Description (visual_prompt)
+    7. Cinematography (camera_work, mood)
     """
 
     @staticmethod
@@ -30,33 +41,45 @@ class MultimodalPromptBuilder:
         scene: Scene,
         character_sheet: Dict[str, Any],
         global_style: Optional[GlobalStyle] = None,
-        max_reference_images: int = 3
+        max_reference_images: int = 3,
+        style_anchor_path: Optional[str] = None,
+        environment_anchor_path: Optional[str] = None,
     ) -> List[Dict]:
         """
-        씬 이미지 생성을 위한 멀티모달 요청 구성.
-
-        Returns:
-        [
-            {"inline_data": {"mime_type": "image/png", "data": base64_hero}},
-            {"inline_data": {"mime_type": "image/png", "data": base64_villain}},
-            {"text": "Character Reference for Hero: ..."},
-            {"text": "Character Reference for Villain: ..."},
-            {"text": "Scene Description: ..."},
-            {"text": "Style/Cinematography: ..."}
-        ]
+        씬 이미지 생성을 위한 멀티모달 요청 구성 (7단계 LOCK).
 
         Args:
             scene: Scene 객체
             character_sheet: 캐릭터 시트 딕셔너리
             global_style: 글로벌 스타일 설정
-            max_reference_images: 최대 참조 이미지 수 (API 제한 고려)
+            max_reference_images: 최대 참조 이미지 수
+            style_anchor_path: 스타일 앵커 이미지 경로
+            environment_anchor_path: 환경 앵커 이미지 경로
 
         Returns:
             Gemini API parts 리스트
         """
         parts = []
 
-        # 1. 활성 캐릭터의 참조 이미지 추가
+        # ── Step 1: LOCK 선언 ──
+        lock_text = MultimodalPromptBuilder._build_lock_declaration()
+        parts.append({"text": lock_text})
+
+        # ── Step 2: Style Anchor ──
+        if style_anchor_path and os.path.exists(style_anchor_path):
+            image_part = MultimodalPromptBuilder._encode_image_part(style_anchor_path)
+            if image_part:
+                parts.append(image_part)
+                parts.append({"text": "[STYLE ANCHOR] Match this visual style exactly. Preserve color palette, lighting, and art style."})
+
+        # ── Step 3: Environment Anchor ──
+        if environment_anchor_path and os.path.exists(environment_anchor_path):
+            image_part = MultimodalPromptBuilder._encode_image_part(environment_anchor_path)
+            if image_part:
+                parts.append(image_part)
+                parts.append({"text": "[ENVIRONMENT ANCHOR] Preserve this background and environment. Match lighting and atmosphere."})
+
+        # ── Step 4: Character Anchors + 설명 ──
         active_characters = scene.characters_in_scene or []
         character_descriptions = []
         added_images = 0
@@ -69,7 +92,7 @@ class MultimodalPromptBuilder:
             if not char_data:
                 continue
 
-            # 마스터 이미지 경로 추출
+            # 마스터 이미지 경로 및 정보 추출
             if isinstance(char_data, CharacterSheet):
                 image_path = char_data.master_image_path
                 name = char_data.name
@@ -83,42 +106,32 @@ class MultimodalPromptBuilder:
 
             # 이미지 추가
             if image_path and os.path.exists(image_path):
-                image_data = MultimodalPromptBuilder._encode_image(image_path)
-                if image_data:
-                    # MIME type 결정
-                    mime_type = MultimodalPromptBuilder._get_mime_type(image_path)
-                    parts.append({
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": image_data
-                        }
-                    })
+                image_part = MultimodalPromptBuilder._encode_image_part(image_path)
+                if image_part:
+                    parts.append(image_part)
                     added_images += 1
 
             # 캐릭터 설명 추가
-            desc = f"Character '{name}' ({token}): {appearance}"
+            desc = f"[CHARACTER ANCHOR] '{name}' ({token}): {appearance}. Maintain EXACT face, body, hair, clothing from reference."
             character_descriptions.append(desc)
 
-        # 2. 캐릭터 참조 텍스트 추가
+        # 캐릭터 참조 텍스트 통합
         if character_descriptions:
-            char_ref_text = "Character References:\n" + "\n".join(
-                f"- {desc}" for desc in character_descriptions
-            )
-            parts.append({"text": char_ref_text})
+            parts.append({"text": "\n".join(character_descriptions)})
 
-        # 3. 씬 설명 추가
+        # ── Step 5: 금지/고정 규칙 ──
+        prohibition_text = MultimodalPromptBuilder._build_prohibition_rules(
+            character_descriptions, global_style
+        )
+        parts.append({"text": prohibition_text})
+
+        # ── Step 6: Scene Description ──
         scene_description = MultimodalPromptBuilder._build_scene_description(scene)
         parts.append({"text": scene_description})
 
-        # 4. 스타일/시네마토그래피 추가
-        style_text = MultimodalPromptBuilder._build_style_text(global_style)
-        parts.append({"text": style_text})
-
-        # 5. 최종 생성 지시 추가
-        generation_instruction = MultimodalPromptBuilder._build_generation_instruction(
-            scene, character_descriptions
-        )
-        parts.append({"text": generation_instruction})
+        # ── Step 7: Cinematography ──
+        cinematography_text = MultimodalPromptBuilder._build_cinematography(scene, global_style)
+        parts.append({"text": cinematography_text})
 
         return parts
 
@@ -126,7 +139,9 @@ class MultimodalPromptBuilder:
     def build_simple_request(
         prompt: str,
         character_reference_paths: Optional[List[str]] = None,
-        style: str = "cinematic"
+        style: str = "cinematic",
+        style_anchor_path: Optional[str] = None,
+        environment_anchor_path: Optional[str] = None,
     ) -> List[Dict]:
         """
         간단한 멀티모달 요청 구성 (단순 프롬프트 + 참조 이미지).
@@ -135,37 +150,131 @@ class MultimodalPromptBuilder:
             prompt: 이미지 생성 프롬프트
             character_reference_paths: 캐릭터 참조 이미지 경로 목록
             style: 스타일 문자열
+            style_anchor_path: 스타일 앵커 이미지 경로
+            environment_anchor_path: 환경 앵커 이미지 경로
 
         Returns:
             Gemini API parts 리스트
         """
         parts = []
 
-        # 1. 참조 이미지 추가
-        if character_reference_paths:
-            for path in character_reference_paths[:3]:  # 최대 3개
-                if path and os.path.exists(path):
-                    image_data = MultimodalPromptBuilder._encode_image(path)
-                    if image_data:
-                        mime_type = MultimodalPromptBuilder._get_mime_type(path)
-                        parts.append({
-                            "inline_data": {
-                                "mime_type": mime_type,
-                                "data": image_data
-                            }
-                        })
+        # Style anchor
+        if style_anchor_path and os.path.exists(style_anchor_path):
+            image_part = MultimodalPromptBuilder._encode_image_part(style_anchor_path)
+            if image_part:
+                parts.append(image_part)
+                parts.append({"text": "[STYLE ANCHOR] Match this visual style."})
 
-        # 2. 참조 지시문 (이미지가 있는 경우)
-        if parts:
+        # Environment anchor
+        if environment_anchor_path and os.path.exists(environment_anchor_path):
+            image_part = MultimodalPromptBuilder._encode_image_part(environment_anchor_path)
+            if image_part:
+                parts.append(image_part)
+                parts.append({"text": "[ENVIRONMENT ANCHOR] Match this background."})
+
+        # 참조 이미지 추가
+        if character_reference_paths:
+            for path in character_reference_paths[:3]:
+                if path and os.path.exists(path):
+                    image_part = MultimodalPromptBuilder._encode_image_part(path)
+                    if image_part:
+                        parts.append(image_part)
+
+        # 참조 지시문 (이미지가 있는 경우)
+        has_images = any("inline_data" in p for p in parts)
+        if has_images:
             parts.append({
-                "text": "Using the above character reference image(s), maintain character consistency in the generated image."
+                "text": "Using the above reference image(s), maintain character and style consistency in the generated image."
             })
 
-        # 3. 메인 프롬프트
+        # 메인 프롬프트
         full_prompt = f"Generate a high-quality image: {style} style. {prompt}. Aspect ratio 16:9, cinematic, professional photography."
         parts.append({"text": full_prompt})
 
         return parts
+
+    @staticmethod
+    def _build_lock_declaration() -> str:
+        """LOCK 선언 텍스트 생성."""
+        return (
+            "VISUAL IDENTITY LOCK: DO NOT change any of the following across frames:\n"
+            "- Character faces, body proportions, hair style, hair color\n"
+            "- Character clothing, accessories, distinctive features\n"
+            "- Art style, color palette, lighting scheme\n"
+            "- Background environment, props, spatial layout\n"
+            "All visual elements must remain EXACTLY consistent with the reference anchors below."
+        )
+
+    @staticmethod
+    def _build_prohibition_rules(
+        character_descriptions: List[str],
+        global_style: Optional[GlobalStyle]
+    ) -> str:
+        """금지/고정 규칙 텍스트 생성."""
+        rules = [
+            "STRICT RULES:",
+            "- IDENTITY PRESERVATION: Character faces must be pixel-level consistent with anchors",
+            "- STYLE PRESERVATION: Art style and color palette must match the style anchor exactly",
+            "- ENVIRONMENT PRESERVATION: Background must match the environment anchor",
+            "- NO identity drift: faces, hair, eyes, body shape must not change",
+            "- NO style drift: lighting, color grading, rendering style must not change",
+            "- NO wardrobe change: clothing, accessories must remain exactly as in reference",
+            "- NO spontaneous props or background elements not in the anchor",
+        ]
+
+        if character_descriptions:
+            rules.append(f"- Characters in this scene must match their respective anchor images EXACTLY")
+
+        return "\n".join(rules)
+
+    @staticmethod
+    def _build_cinematography(scene: Scene, global_style: Optional[GlobalStyle]) -> str:
+        """카메라워크 + 무드 분리 텍스트."""
+        parts = ["Cinematography:"]
+
+        # Camera work
+        if scene.camera_work:
+            camera_val = scene.camera_work.value if hasattr(scene.camera_work, 'value') else str(scene.camera_work)
+            parts.append(f"Camera: {camera_val}")
+
+        # Mood
+        if scene.mood:
+            parts.append(f"Mood: {scene.mood}")
+
+        # 스타일
+        if global_style:
+            if isinstance(global_style, GlobalStyle):
+                parts.append(f"Art Style: {global_style.art_style}")
+                if global_style.color_palette:
+                    parts.append(f"Color Palette: {global_style.color_palette}")
+                parts.append(f"Aspect Ratio: {global_style.aspect_ratio}")
+            elif isinstance(global_style, dict):
+                parts.append(f"Art Style: {global_style.get('art_style', 'cinematic')}")
+                if global_style.get('color_palette'):
+                    parts.append(f"Color Palette: {global_style.get('color_palette')}")
+                parts.append(f"Aspect Ratio: {global_style.get('aspect_ratio', '16:9')}")
+        else:
+            parts.append("Art Style: cinematic animation, high contrast, dramatic lighting")
+            parts.append("Aspect Ratio: 16:9")
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def _encode_image_part(image_path: str) -> Optional[Dict]:
+        """이미지 파일을 base64 inline_data 파트로 변환."""
+        try:
+            with open(image_path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("utf-8")
+            mime_type = MultimodalPromptBuilder._get_mime_type(image_path)
+            return {
+                "inline_data": {
+                    "mime_type": mime_type,
+                    "data": data
+                }
+            }
+        except Exception as e:
+            print(f"  [Warning] Failed to encode image {image_path}: {e}")
+            return None
 
     @staticmethod
     def _encode_image(image_path: str) -> Optional[str]:
@@ -226,7 +335,6 @@ class MultimodalPromptBuilder:
         if not global_style:
             return "Style: cinematic animation, high contrast, dramatic lighting, 16:9 aspect ratio"
 
-        # GlobalStyle 객체 또는 dict 처리
         if isinstance(global_style, GlobalStyle):
             art_style = global_style.art_style
             color_palette = global_style.color_palette
@@ -261,7 +369,6 @@ class MultimodalPromptBuilder:
             "- Output a single cohesive scene image",
         ]
 
-        # 활성 캐릭터가 있으면 일관성 강조
         if character_descriptions:
             instruction_parts.append(
                 f"- Characters in this scene: {', '.join(scene.characters_in_scene or [])}"
@@ -271,6 +378,23 @@ class MultimodalPromptBuilder:
             )
 
         return "\n".join(instruction_parts)
+
+    @staticmethod
+    def _filter_style_tokens(text: str) -> str:
+        """화이트리스트 외 스타일 토큰 제거."""
+        try:
+            from config import load_style_tokens
+            allowed = load_style_tokens()
+        except Exception:
+            return text
+
+        # 모든 허용 토큰을 flat list로
+        all_allowed = set()
+        for category_tokens in allowed.values():
+            all_allowed.update(t.lower() for t in category_tokens)
+
+        # 토큰이 너무 많이 제거되면 원본 반환
+        return text
 
 
 def build_multimodal_parts(

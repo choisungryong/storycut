@@ -14,6 +14,7 @@ API 우선순위: Veo 3.1 > Runway > Stability > Ken Burns
 """
 
 import os
+import re
 import subprocess
 import time
 import base64
@@ -31,6 +32,7 @@ class VideoAgent:
     비디오 생성 에이전트
 
     Scene 1 Hook 전용 고품질 비디오 생성 + 폴백 로직 구현
+    v2.0: Veo I2V 정책 (모션 화이트리스트, 클립 길이 제한)
     """
 
     def __init__(
@@ -52,12 +54,23 @@ class VideoAgent:
         self.service = service
         self.feature_flags = feature_flags or FeatureFlags()
 
+        # v2.0: Veo I2V 정책 로드
+        self.veo_policy = self._load_veo_policy()
+
         # Prioritize Veo 3.1 if Google API key available
         if self.google_api_key:
             self.service = "veo"
             print("  Video Agent: Using Veo 3.1 (Google) for high-quality video generation.")
         elif not self.api_key:
             print("  No video API key provided. Will use image + Ken Burns method.")
+
+    def _load_veo_policy(self) -> dict:
+        """Veo I2V 정책 로드."""
+        try:
+            from config import load_veo_policy
+            return load_veo_policy()
+        except Exception:
+            return {}
 
     def generate_video(
         self,
@@ -170,11 +183,16 @@ class VideoAgent:
                 
                 # Step 2: Veo 3.1 Image-to-Video 모드로 비디오 생성
                 print(f"     [HOOK] Scene 1: Generating video with Veo 3.1 Image-to-Video...")
+                # v2.0: 정책 기반 클립 길이 제한
+                has_chars = bool(scene and scene.characters_in_scene)
+                enforced_duration = self._enforce_clip_length(min(duration_sec, 10), has_characters=has_chars)
+                print(f"     [Policy] Clip length: {enforced_duration}s (characters={has_chars})")
+
                 video_path = self._generate_high_quality_video(
                     prompt=actual_prompt,
                     style=style,
                     mood=mood,
-                    duration_sec=min(duration_sec, 10),  # Max 10 seconds for cost control
+                    duration_sec=enforced_duration,
                     output_path=video_output_path,
                     first_frame_image=first_frame_image  # v2.1: 첫 프레임 이미지 전달
                 )
@@ -281,52 +299,42 @@ class VideoAgent:
             # Using the official SDK
             client = genai.Client(api_key=self.google_api_key)
 
-            # v2.0: Image-to-Video 모드 확인
+            # v2.0: Image-to-Video 전용 정책 (T2V 차단)
             use_image_to_video = first_frame_image and os.path.exists(first_frame_image)
 
-            if use_image_to_video:
-                print(f"     [v2.0] Image-to-Video mode: using {first_frame_image}")
-                # Image-to-Video: 움직임 중심 프롬프트
-                # 시각적 묘사는 이미지에서 가져오므로 움직임/카메라 워크 중심으로 프롬프트 구성
-                movement_prompt = self._build_movement_prompt(prompt, style, mood)
-                full_prompt = movement_prompt
-            else:
-                # 기존 Text-to-Video 모드
-                full_prompt = f"Generate a video of: {style} style, {mood} mood: {prompt}. Cinematic, professional."
+            if not use_image_to_video:
+                raise ValueError(
+                    "Veo I2V policy: Text-to-Video is disabled. "
+                    "A first_frame_image is required for Image-to-Video mode."
+                )
+
+            print(f"     [v2.0] Image-to-Video mode: using {first_frame_image}")
+            movement_prompt = self._build_movement_prompt(prompt, style, mood)
+            full_prompt = movement_prompt
 
             print(f"     Sending request to Veo 3.1...")
 
-            # v2.0: Image-to-Video 모드 처리
-            if use_image_to_video:
-                # 이미지 데이터 인코딩
-                with open(first_frame_image, "rb") as f:
-                    image_data = base64.b64encode(f.read()).decode()
+            # v2.0: Image-to-Video 전용 API 호출
+            # 이미지 데이터 인코딩
+            with open(first_frame_image, "rb") as f:
+                image_data = base64.b64encode(f.read()).decode()
 
-                # MIME type 추론
-                ext = os.path.splitext(first_frame_image)[1].lower()
-                mime_type = "image/png" if ext == ".png" else "image/jpeg"
+            # MIME type 추론
+            ext = os.path.splitext(first_frame_image)[1].lower()
+            mime_type = "image/png" if ext == ".png" else "image/jpeg"
 
-                # Image-to-Video API 호출
-                operation = client.models.generate_videos(
-                    model="veo-3.1-generate-preview",
-                    prompt=full_prompt,
-                    image={
-                        "image_bytes": image_data,
-                        "mime_type": mime_type
-                    },
-                    config={
-                        'aspect_ratio': '16:9',
-                    }
-                )
-            else:
-                # 기존 Text-to-Video API 호출
-                operation = client.models.generate_videos(
-                    model="veo-3.1-generate-preview",
-                    prompt=full_prompt,
-                    config={
-                        'aspect_ratio': '16:9',
-                    }
-                )
+            # Image-to-Video API 호출
+            operation = client.models.generate_videos(
+                model="veo-3.1-generate-preview",
+                prompt=full_prompt,
+                image={
+                    "image_bytes": image_data,
+                    "mime_type": mime_type
+                },
+                config={
+                    'aspect_ratio': '16:9',
+                }
+            )
             
             print(f"     Operation started: {operation.name}")
             print(f"     Waiting for video generation to complete (this may take a minute)...")
@@ -414,8 +422,8 @@ class VideoAgent:
         Image-to-Video용 움직임 중심 프롬프트 생성.
 
         v2.0: 시각적 묘사 → 움직임/카메라 워크 중심으로 변환
-        - Before: "영화 같은 샷, 검을 든 주인공"
-        - After: "천천히 줌 인, 머리카락이 바람에 날림, 카메라가 주인공 주위를 돈다"
+        - 화이트리스트 기반 모션 선택
+        - forbidden 토큰 자동 제거
 
         Args:
             original_prompt: 원본 프롬프트
@@ -425,45 +433,125 @@ class VideoAgent:
         Returns:
             움직임 중심 프롬프트
         """
-        # 움직임 키워드 추출 및 강화
         movement_keywords = []
 
-        # 분위기 기반 움직임 제안
-        mood_movements = {
-            "dramatic": ["slow zoom in", "camera slowly orbits subject", "subtle dolly forward"],
-            "tense": ["slight camera shake", "quick pan", "nervous camera movement"],
-            "peaceful": ["gentle pan across scene", "slow crane up", "soft floating movement"],
-            "mysterious": ["slow reveal", "camera drifts through mist", "subtle push in"],
-            "action": ["dynamic camera following movement", "quick cuts", "tracking shot"],
-            "emotional": ["slow zoom on face", "camera gently rises", "intimate close-up drift"],
-            "suspenseful": ["slow creeping zoom", "subtle rack focus", "ominous dolly"],
-        }
+        # v2.0: Veo 정책 기반 모션 선택
+        allowed_camera = self.veo_policy.get("allowed_motions", {}).get("camera", [])
+        allowed_subject = self.veo_policy.get("allowed_motions", {}).get("subject", [])
+        allowed_ambient = self.veo_policy.get("allowed_motions", {}).get("ambient", [])
 
-        # 기본 움직임 패턴
-        default_movements = [
-            "subtle camera movement",
-            "characters move naturally",
-            "cinematic motion",
-        ]
+        if allowed_camera or allowed_subject or allowed_ambient:
+            # 화이트리스트에서 분위기 기반 선택
+            mood_lower = mood.lower() if mood else "dramatic"
 
-        # 분위기에 맞는 움직임 선택
-        mood_lower = mood.lower() if mood else "dramatic"
-        selected_movements = mood_movements.get(mood_lower, default_movements)[:2]
-        movement_keywords.extend(selected_movements)
+            # 카메라 모션 (분위기 매칭)
+            camera_pick = self._pick_motion_by_mood(allowed_camera, mood_lower)
+            if camera_pick:
+                movement_keywords.append(camera_pick)
 
-        # 환경 움직임 추가 (바람, 빛 변화 등)
-        ambient_movements = [
-            "hair gently moving in the breeze",
-            "subtle lighting changes",
-            "dust particles floating in light",
-            "fabric rippling slightly",
-        ]
-        movement_keywords.append(ambient_movements[hash(original_prompt) % len(ambient_movements)])
+            # 주체 모션
+            subject_pick = self._pick_motion_by_mood(allowed_subject, mood_lower)
+            if subject_pick:
+                movement_keywords.append(subject_pick)
+
+            # 앰비언트 모션
+            if allowed_ambient:
+                ambient_pick = allowed_ambient[hash(original_prompt) % len(allowed_ambient)]
+                movement_keywords.append(ambient_pick)
+        else:
+            # 정책 없으면 기존 방식
+            mood_movements = {
+                "dramatic": ["slow zoom in", "camera slowly orbits subject", "subtle dolly forward"],
+                "tense": ["slight camera shake", "quick pan", "nervous camera movement"],
+                "peaceful": ["gentle pan across scene", "slow crane up", "soft floating movement"],
+                "mysterious": ["slow reveal", "camera drifts through mist", "subtle push in"],
+                "action": ["dynamic camera following movement", "quick cuts", "tracking shot"],
+                "emotional": ["slow zoom on face", "camera gently rises", "intimate close-up drift"],
+                "suspenseful": ["slow creeping zoom", "subtle rack focus", "ominous dolly"],
+            }
+
+            default_movements = ["subtle camera movement", "cinematic motion"]
+            mood_lower = mood.lower() if mood else "dramatic"
+            selected_movements = mood_movements.get(mood_lower, default_movements)[:2]
+            movement_keywords.extend(selected_movements)
+
+            ambient_movements = [
+                "hair gently moving in the breeze",
+                "subtle lighting changes",
+                "dust particles floating in light",
+                "fabric rippling slightly",
+            ]
+            movement_keywords.append(ambient_movements[hash(original_prompt) % len(ambient_movements)])
 
         # 최종 프롬프트 구성
         movement_prompt = f"Animate this scene: {', '.join(movement_keywords)}. {style} style, {mood} mood. Maintain character consistency from the reference image. Cinematic quality, smooth motion."
 
+        # v2.0: forbidden 토큰 제거
+        movement_prompt = self._sanitize_motion_prompt(movement_prompt)
+
         return movement_prompt
+
+    def _pick_motion_by_mood(self, motions: list, mood: str) -> str:
+        """분위기에 맞는 모션을 화이트리스트에서 선택."""
+        if not motions:
+            return ""
+
+        # 분위기 키워드 매핑
+        mood_keywords = {
+            "dramatic": ["slow", "zoom", "dolly"],
+            "tense": ["shake", "quick", "creep"],
+            "peaceful": ["gentle", "soft", "floating"],
+            "mysterious": ["slow", "drift", "reveal"],
+            "emotional": ["slow", "gentle", "intimate"],
+            "suspenseful": ["creep", "slow", "subtle"],
+        }
+
+        keywords = mood_keywords.get(mood, ["slow", "subtle"])
+
+        # 키워드 매칭 우선
+        for motion in motions:
+            for kw in keywords:
+                if kw in motion.lower():
+                    return motion
+
+        # 매칭 없으면 첫 번째
+        return motions[0]
+
+    def _sanitize_motion_prompt(self, prompt: str) -> str:
+        """forbidden 모션/콘텐츠 토큰 제거."""
+        forbidden_motions = self.veo_policy.get("forbidden_motions", [])
+        forbidden_content = self.veo_policy.get("forbidden_content_tokens", [])
+
+        result = prompt
+        for token in forbidden_motions + forbidden_content:
+            result = re.sub(r'\b' + re.escape(token) + r'\b', '', result, flags=re.IGNORECASE)
+
+        # 다중 공백/쉼표 정리
+        result = re.sub(r'\s+', ' ', result)
+        result = re.sub(r',\s*,', ',', result)
+        return result.strip()
+
+    def _enforce_clip_length(self, duration_sec: int, has_characters: bool = True) -> int:
+        """
+        Veo 정책 기반 클립 길이 제한.
+
+        Args:
+            duration_sec: 요청된 클립 길이
+            has_characters: 캐릭터 포함 여부
+
+        Returns:
+            정책에 맞게 조정된 클립 길이
+        """
+        clip_policy = self.veo_policy.get("clip_length", {})
+
+        if has_characters:
+            min_sec = clip_policy.get("character_min_sec", 2)
+            max_sec = clip_policy.get("character_max_sec", 4)
+        else:
+            min_sec = 2
+            max_sec = clip_policy.get("broll_max_sec", 6)
+
+        return max(min_sec, min(max_sec, duration_sec))
 
     def _call_runway_api(
         self,

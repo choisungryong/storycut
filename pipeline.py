@@ -38,6 +38,8 @@ from agents import (
     SceneOrchestrator,
     OptimizationAgent,
     CharacterManager,
+    StyleAnchorAgent,
+    ConsistencyValidator,
 )
 from utils.ffmpeg_utils import FFmpegComposer
 
@@ -107,9 +109,30 @@ class StorycutPipeline:
             manifest.global_style = GlobalStyle(**story_data["global_style"])
             print(f"[v2.0] Global style: {manifest.global_style.art_style}")
 
-        # [NEW STEP 1.5] Character Casting - 마스터 앵커 이미지 생성
+        # [STEP 1.3] Style Anchor - 프로젝트 전체 룩 앵커 이미지 생성
+        style_anchor_path = None
+        env_anchors = {}
+        style_anchor_agent = StyleAnchorAgent()
+
+        if manifest.global_style:
+            print(f"\n[STEP 1.3] Generating style anchor image...")
+            style_anchor_path = style_anchor_agent.generate_style_anchor(
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
+
+        # [STEP 1.4] Environment Anchors - 씬별 환경 앵커 이미지 생성
+        if manifest.global_style and "scenes" in story_data:
+            print(f"\n[STEP 1.4] Generating environment anchor images...")
+            env_anchors = style_anchor_agent.generate_environment_anchors(
+                scenes=story_data["scenes"],
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
+
+        # [STEP 1.5] Character Casting - 마스터 앵커 이미지 생성
         if manifest.character_sheet:
-            print(f"\n[STEP 1.5/5] Casting characters (generating master anchor images)...")
+            print(f"\n[STEP 1.5] Casting characters (generating master anchor images)...")
             character_manager = CharacterManager()
             character_images = character_manager.cast_characters(
                 character_sheet=manifest.character_sheet,
@@ -134,7 +157,9 @@ class StorycutPipeline:
             final_video = orchestrator.process_story(
                 story_data=story_data,
                 output_path=f"{project_dir}/final_video.mp4",
-                request=request
+                request=request,
+                style_anchor_path=style_anchor_path,
+                environment_anchors=env_anchors,
             )
 
             # Scene 정보 업데이트

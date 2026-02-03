@@ -101,3 +101,68 @@ def get_provider_config(provider_type: str) -> Dict[str, Any]:
         "llm_provider": {"primary": "openai", "model": "gpt-4"},
     }
     return config.get(provider_type, defaults.get(provider_type, {}))
+
+
+def load_veo_policy() -> Dict[str, Any]:
+    """
+    Veo I2V 정책 설정 로드.
+
+    Returns:
+        Veo 정책 딕셔너리 (없으면 기본값)
+    """
+    config_path = CONFIG_DIR / "veo_policy.yaml"
+
+    if not os.path.exists(config_path):
+        return get_default_veo_policy()
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    return config.get("veo_policy", get_default_veo_policy())
+
+
+def get_default_veo_policy() -> Dict[str, Any]:
+    """기본 Veo 정책 반환."""
+    return {
+        "mode": "image_to_video_only",
+        "clip_length": {
+            "character_min_sec": 2,
+            "character_max_sec": 4,
+            "broll_max_sec": 6,
+        },
+        "allowed_motions": {
+            "camera": ["slow zoom in", "slow zoom out", "gentle pan left"],
+            "subject": ["subtle head turn", "hair blowing in wind", "gentle breathing"],
+            "ambient": ["dust particles floating", "light flickering", "leaves rustling"],
+        },
+        "forbidden_motions": ["jump", "run", "fight", "swing", "kick", "fly", "explode"],
+        "forbidden_content_tokens": ["race", "ethnicity", "skin color"],
+    }
+
+
+def load_style_tokens() -> Dict[str, Any]:
+    """
+    스타일 토큰 화이트리스트 로드.
+
+    Returns:
+        스타일 토큰 딕셔너리 (없으면 기본값)
+    """
+    config_path = CONFIG_DIR / "style_tokens.yaml"
+
+    if not os.path.exists(config_path):
+        return get_default_style_tokens()
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    return config.get("style_tokens", get_default_style_tokens())
+
+
+def get_default_style_tokens() -> Dict[str, Any]:
+    """기본 스타일 토큰 반환."""
+    return {
+        "art_styles": ["cinematic animation", "cinematic", "photorealistic", "illustration"],
+        "lighting": ["dramatic lighting", "soft lighting", "natural lighting", "high contrast"],
+        "composition": ["rule of thirds", "wide angle", "close-up", "establishing shot"],
+        "quality": ["high quality", "detailed", "4k", "professional"],
+    }
