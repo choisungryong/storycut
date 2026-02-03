@@ -238,7 +238,7 @@ class StorycutPipeline:
         story_data: Dict[str, Any],
         request: ProjectRequest,
         project_id: str = None
-    ) -\u003e Dict[str, Any]:
+    ) -> Dict[str, Any]:
         """
         Step 2A: 스토리에서 이미지만 생성 (영상 생성 전 검토용).
         
