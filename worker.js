@@ -270,12 +270,13 @@ async function handleGenerateStoryAsync(request, env, ctx, corsHeaders) {
     // D1에 초기 상태 저장
     if (env.DB) {
       await env.DB.prepare(
-        `INSERT INTO projects (id, status, input_data, created_at) VALUES (?, ?, ?, ?)`
+        `INSERT INTO projects (id, status, input_data, created_at, user_id) VALUES (?, ?, ?, ?, ?)`
       ).bind(
         projectId,
         'processing',
         JSON.stringify(body),
-        new Date().toISOString()
+        new Date().toISOString(),
+        'anonymous'
       ).run();
     }
 
