@@ -185,9 +185,16 @@ class StorycutApp {
 
             const result = await response.json();
 
-            // 새로운 비동기 방식: project_id를 받고 폴링 시작
+            // 새로운 비동기 방식: project_id를 받고 즉시 progress 화면으로 전환
             if (result.project_id && result.status === 'processing') {
-                btn.innerHTML = '<span class="spinner"></span> 스토리 생성 중... (백그라운드 처리)';
+                // 즉시 progress 화면으로 전환
+                btn.disabled = false;
+                btn.innerHTML = originalBtnText;
+                this.showSection('progress');
+                this.updateStepStatus('story', '스토리 생성 중...');
+                document.getElementById('status-message').textContent = '스토리를 생성하고 있습니다...';
+                document.getElementById('progress-percentage').textContent = '10%';
+                document.getElementById('progress-bar').style.width = '10%';
 
                 // 폴링으로 완료 대기
                 const storyData = await this.pollStoryStatus(result.project_id, workerUrl);
@@ -197,6 +204,7 @@ class StorycutApp {
                     this.currentRequestParams = requestData;
 
                     // 스토리 리뷰 페이지로 이동
+                    this.updateStepStatus('story', '완료');
                     this.renderStoryReview(this.currentStoryData);
                     this.showSection('review');
                     this.setNavActive('nav-create');
@@ -218,6 +226,7 @@ class StorycutApp {
         } catch (error) {
             console.error('스토리 생성 실패:', error);
             alert(`오류 발생: ${error.message}`);
+            this.showSection('input');
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalBtnText;
