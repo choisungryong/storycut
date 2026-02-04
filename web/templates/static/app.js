@@ -175,9 +175,33 @@ class StorycutApp {
             btn.innerHTML = originalBtnText;
             this.showSection('progress');
             this.updateStepStatus('story', '스토리 생성 중...');
-            document.getElementById('status-message').textContent = '스토리를 생성하고 있습니다...';
-            document.getElementById('progress-percentage').textContent = '10%';
-            document.getElementById('progress-bar').style.width = '10%';
+            document.getElementById('status-message').textContent = 'AI가 스토리를 구상하고 있습니다...';
+            document.getElementById('progress-percentage').textContent = '5%';
+            document.getElementById('progress-bar').style.width = '5%';
+
+            // 가짜 진행률 애니메이션 (체감 속도 개선)
+            const storyMessages = [
+                { pct: 8,  msg: '장르와 분위기를 분석하고 있습니다...' },
+                { pct: 15, msg: '캐릭터와 세계관을 설계하고 있습니다...' },
+                { pct: 22, msg: '스토리 구조를 잡고 있습니다...' },
+                { pct: 30, msg: '기승전결 아크를 설계하고 있습니다...' },
+                { pct: 38, msg: '장면별 내러티브를 작성하고 있습니다...' },
+                { pct: 45, msg: '대사와 나레이션을 다듬고 있습니다...' },
+                { pct: 52, msg: '비주얼 프롬프트를 생성하고 있습니다...' },
+                { pct: 58, msg: '카메라 워크를 설정하고 있습니다...' },
+                { pct: 64, msg: '스토리 일관성을 검증하고 있습니다...' },
+                { pct: 70, msg: '유튜브 최적화 데이터를 생성하고 있습니다...' },
+                { pct: 75, msg: '최종 스토리를 정리하고 있습니다...' },
+                { pct: 78, msg: '거의 완료되었습니다...' },
+            ];
+            let msgIndex = 0;
+            const progressInterval = setInterval(() => {
+                if (msgIndex < storyMessages.length) {
+                    const { pct, msg } = storyMessages[msgIndex];
+                    this.updateProgress(pct, msg);
+                    msgIndex++;
+                }
+            }, 2500);
 
             // 스토리 생성 (Worker에서 동기 처리 - Gemini 완료까지 대기)
             const workerUrl = this.getWorkerUrl();
@@ -187,18 +211,26 @@ class StorycutApp {
                 body: JSON.stringify(requestData)
             });
 
+            clearInterval(progressInterval);
+
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.detail || error.error || '스토리 생성 실패');
             }
 
+            // 완료 애니메이션
+            this.updateProgress(90, '스토리 생성 완료! 결과를 불러오는 중...');
+
             const result = await response.json();
             console.log('Worker response:', JSON.stringify(result));
 
             if (result.story_data) {
+                this.updateProgress(100, '스토리가 완성되었습니다!');
                 this.currentStoryData = result.story_data;
                 this.currentRequestParams = requestData;
 
+                // 짧은 딜레이로 100% 표시 후 전환
+                await new Promise(r => setTimeout(r, 500));
                 this.renderStoryReview(this.currentStoryData);
                 this.showSection('review');
                 this.setNavActive('nav-create');
