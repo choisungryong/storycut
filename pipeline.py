@@ -303,33 +303,30 @@ class StorycutPipeline:
             manifest.scenes.append(scene)
         self._save_manifest(manifest, project_dir)
 
-        # Style Anchor 생성 (v2.0)
+        # Style Anchor 생성 (v2.0) — 1장만
         style_anchor_path = None
-        env_anchors = {}
+        env_anchors = {}  # 환경 앵커 스킵 (씬별 생성은 비용 대비 효과 낮음)
         style_anchor_agent = StyleAnchorAgent()
 
         if manifest.global_style:
-            print(f"\n[StyleAnchor] Generating style anchor image...")
+            print(f"\n[StyleAnchor] Generating style anchor image (1장)...")
             style_anchor_path = style_anchor_agent.generate_style_anchor(
                 global_style=manifest.global_style,
                 project_dir=project_dir
             )
+            # 환경 앵커는 스킵 — 씬 이미지 프롬프트에 환경 정보가 이미 포함됨
+            print(f"[EnvAnchors] Skipped (using style anchor for all scenes)")
 
-            print(f"\n[EnvAnchors] Generating environment anchors...")
-            env_anchors = style_anchor_agent.generate_environment_anchors(
-                scenes=story_data["scenes"],
-                global_style=manifest.global_style,
-                project_dir=project_dir
-            )
-
-        # Character Casting (v2.0)
+        # Character Casting (v2.0) — 포즈 1개, 후보 1장으로 경량화
         if manifest.character_sheet:
-            print(f"\n[Characters] Casting character anchor images...")
+            print(f"\n[Characters] Casting character anchor images (1 pose, 1 candidate)...")
             character_manager = CharacterManager()
             character_images = character_manager.cast_characters(
                 character_sheet=manifest.character_sheet,
                 global_style=manifest.global_style,
-                project_dir=project_dir
+                project_dir=project_dir,
+                poses=["front"],
+                candidates_per_pose=1
             )
 
             # Update story_data with master_image_path
