@@ -1331,12 +1331,18 @@ class StorycutApp {
                         const placeholder = card.querySelector('.image-placeholder');
                         if (placeholder) {
                             const imageUrl = this.resolveImageUrl(scene.image_path);
+                            console.log(`[Image Preview] Scene ${scene.scene_id} URL: ${imageUrl}`);
                             const img = document.createElement('img');
                             img.src = `${imageUrl}?t=${Date.now()}`;
                             img.alt = `Scene ${scene.scene_id}`;
                             img.style.opacity = '0';
                             img.style.transition = 'opacity 0.5s ease-in';
                             img.onload = () => { img.style.opacity = '1'; };
+                            img.onerror = () => {
+                                console.error(`[Image Preview] Failed to load: ${img.src}`);
+                                img.style.opacity = '1';
+                                img.alt = 'Image load failed';
+                            };
                             placeholder.replaceWith(img);
 
                             // 버튼 활성화

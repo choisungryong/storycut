@@ -34,27 +34,22 @@ class ImageAgent:
 
         Args:
             api_key: API key for image generation service
-            service: Service to use ("nanobana", "dalle", "replicate")
+            service: Service to use ("nanobana", "dalle")
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.nanobanana_token = os.getenv("GOOGLE_API_KEY")  # NanoBanana uses Google API key
-        self.replicate_token = os.getenv("REPLICATE_API_TOKEN")
         self.service = service
         self._llm_client = None
 
-        if not self.api_key and not self.replicate_token and not self.nanobanana_token:
+        if not self.api_key and not self.nanobanana_token:
             print("[ImageAgent] No image generation API keys provided. Will use placeholder images.")
 
-        print(f"[ImageAgent] Init - ReplicateToken: {'YES' if self.replicate_token else 'NO'}, NanoToken: {'YES' if self.nanobanana_token else 'NO'}")
+        print(f"[ImageAgent] Init - GeminiToken: {'YES' if self.nanobanana_token else 'NO'}")
 
         # Prioritize Gemini 2.5 Flash Image (direct API) if available
         if self.nanobanana_token:
             self.service = "nanobana"
             print("[ImageAgent] Using Gemini 2.5 Flash Image (direct API) for image generation.")
-        # Fallback to Replicate if available
-        elif self.replicate_token:
-            self.service = "replicate"
-            print("[ImageAgent] Using Replicate for image generation (fallback).")
 
     @property
     def llm_client(self):
@@ -87,24 +82,23 @@ class ImageAgent:
         """
         Generate an image with specific model strategies.
 
-        Standard: Gemini 2.5 Flash Image -> Replicate -> Placeholder
-        Premium: Gemini 2.5 Flash Image (high) -> Replicate -> Placeholder
+        Standard: Gemini 2.5 Flash Image (retry x2) -> Placeholder
+        Premium: Gemini 2.5 Flash Image high (retry x2) -> Placeholder
         """
-        print(f"[ImageAgent v2.3] Generating Image for Scene {scene_id} | Model: {image_model}")
+        print(f"[ImageAgent v2.4] Generating Image for Scene {scene_id} | Model: {image_model}")
 
         # v2.0: 단일 참조를 복수 참조 리스트로 통합
         if character_reference_paths is None:
             character_reference_paths = []
         if character_reference_path and character_reference_path not in character_reference_paths:
             character_reference_paths.insert(0, character_reference_path)
-        
+
         # Verify arguments to prevent NameError
         try:
             _ = negative_prompt
             _ = character_tokens
         except NameError as ne:
             print(f"[CRITICAL] Arg missing in scope: {ne}")
-            # This shouldn't happen if signature is correct, but safe fallback
             negative_prompt = negative_prompt if 'negative_prompt' in locals() else None
             character_tokens = character_tokens if 'character_tokens' in locals() else None
 
@@ -121,42 +115,16 @@ class ImageAgent:
         print(f"     Prompt: {prompt[:60]}...")
 
         # -------------------------------------------------------------------------
-        # Strategy Definition
+        # Strategy: Gemini Flash Image with retry (no Replicate)
         # -------------------------------------------------------------------------
-        
-        # Define attempts list based on model choice
-        attempts = []
-        
-        if image_model == "premium":
-            # Premium: Gemini Flash Image first, then Replicate fallback
-            attempts.append(("gemini_flash", "high"))
-            attempts.append(("replicate", "premium"))
-        else:
-            # Standard: Gemini Flash Image first, Replicate fallback
-            attempts.append(("gemini_flash", "standard"))
-            attempts.append(("replicate", "standard"))
 
-        # -------------------------------------------------------------------------
-        # Execution Loop
-        # -------------------------------------------------------------------------
-        
-        for service, quality in attempts:
-            try:
-                if service == "replicate" and self.replicate_token:
-                    print(f"     Attempting Replicate ({quality})...")
-                    return self._call_replicate_api(
-                        prompt=prompt,
-                        style=style,
-                        aspect_ratio=aspect_ratio,
-                        output_path=output_path,
-                        seed=seed,
-                        character_reference_path=character_reference_path,
-                        character_reference_paths=character_reference_paths,  # v2.0: 복수 참조
-                        negative_prompt=negative_prompt,
-                        character_tokens=character_tokens
-                    )
-                elif service == "gemini_flash" and self.nanobanana_token:
-                    print(f"     Attempting Gemini 2.5 Flash Image ({quality})...")
+        quality = "high" if image_model == "premium" else "standard"
+        max_retries = 2
+
+        if self.nanobanana_token:
+            for attempt in range(1, max_retries + 1):
+                try:
+                    print(f"     Attempting Gemini 2.5 Flash Image ({quality}) [attempt {attempt}/{max_retries}]...")
                     return self._call_nanobana_api(
                         prompt=prompt,
                         style=style,
@@ -167,30 +135,16 @@ class ImageAgent:
                         style_anchor_path=style_anchor_path,
                         environment_anchor_path=environment_anchor_path
                     )
-            except Exception as e:
-                error_msg = str(e)
-                print(f"     [Error] {service} failed: {error_msg}")
-                
-                # Censorship Handling (Prompt Softening)
-                if "sensitive" in error_msg.lower() or "safety" in error_msg.lower() or "nsfw" in error_msg.lower():
-                    print(f"     [Safety] Content filter triggered. Softening prompt...")
-                    try:
-                        softened_prompt = self._soften_prompt(prompt, error_msg)
-                        print(f"     Softened: {softened_prompt[:60]}...")
-                        # Retry immediately with softened prompt using same service
-                        if service == "replicate" and self.replicate_token:
-                             return self._call_replicate_api(
-                                prompt=softened_prompt,
-                                style=style,
-                                aspect_ratio=aspect_ratio,
-                                output_path=output_path,
-                                seed=seed,
-                                character_reference_path=character_reference_path,
-                                character_reference_paths=character_reference_paths,  # v2.0: 복수 참조
-                                negative_prompt=negative_prompt,
-                                character_tokens=character_tokens
-                            )
-                        elif service == "gemini_flash" and self.nanobanana_token:
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"     [Error] Gemini attempt {attempt} failed: {error_msg}")
+
+                    # Safety filter → soften prompt and retry
+                    if "sensitive" in error_msg.lower() or "safety" in error_msg.lower() or "nsfw" in error_msg.lower():
+                        print(f"     [Safety] Content filter triggered. Softening prompt...")
+                        try:
+                            softened_prompt = self._soften_prompt(prompt, error_msg)
+                            print(f"     Softened: {softened_prompt[:60]}...")
                             return self._call_nanobana_api(
                                 prompt=softened_prompt,
                                 style=style,
@@ -201,8 +155,15 @@ class ImageAgent:
                                 style_anchor_path=style_anchor_path,
                                 environment_anchor_path=environment_anchor_path
                             )
-                    except Exception as retry_e:
-                        print(f"     [Error] Retry with softened prompt failed: {retry_e}")
+                        except Exception as retry_e:
+                            print(f"     [Error] Softened prompt retry failed: {retry_e}")
+
+                    # "No image data" → retry (Gemini sometimes returns text instead of image)
+                    if attempt < max_retries and "no image data" in error_msg.lower():
+                        import time as _time
+                        print(f"     [Retry] Waiting 2s before retry...")
+                        _time.sleep(2)
+                        continue
 
         # -------------------------------------------------------------------------
         # Fallback: Placeholder (Red Screen)
@@ -379,8 +340,17 @@ class ImageAgent:
 
                             print(f"     Image saved: {output_path}")
                             return (output_path, None)  # Gemini doesn't return image ID
+                    # Log text parts if no image found
+                    text_parts = [p.get("text", "") for p in candidate["content"]["parts"] if "text" in p]
+                    if text_parts:
+                        print(f"     [Gemini] Returned text instead of image: {' '.join(text_parts)[:200]}")
 
-            print(f"     [Gemini DEBUG] Raw Result: {json.dumps(result)}")
+                # Check for safety/finish_reason
+                finish_reason = candidate.get("finishReason", "")
+                if finish_reason:
+                    print(f"     [Gemini] finishReason: {finish_reason}")
+
+            print(f"     [Gemini DEBUG] Response keys: {list(result.keys())}")
             raise RuntimeError("No image data found in Gemini API response")
 
         except ImportError:
@@ -436,185 +406,6 @@ class ImageAgent:
         except Exception as e:
             print(f"     DALL-E API error: {e}")
             raise
-
-    def _call_replicate_api(
-        self,
-        prompt: str,
-        style: str,
-        aspect_ratio: str,
-        output_path: str,
-        seed: Optional[int] = None,
-        character_reference_path: Optional[str] = None,
-        character_reference_paths: Optional[List[str]] = None,  # v2.0: 복수 참조 이미지
-        negative_prompt: Optional[str] = None,
-        character_tokens: Optional[list] = None
-    ) -> tuple:
-        """
-        Call Replicate API (Gemini 2.5 Flash Image).
-        Using Gemini for high speed and good quality in various styles.
-
-        v2.0 Update:
-        - Support multiple character reference images
-        - Builds multimodal prompt with all references
-
-        Args:
-            character_reference_path: Path to master character image for consistency (legacy)
-            character_reference_paths: v2.0 - List of all character reference image paths
-
-        Returns:
-            Tuple of (image_path, image_id)
-        """
-        try:
-            import replicate
-            import requests
-            import base64
-
-            # v2.0: Consolidate all reference paths
-            all_reference_paths = []
-            if character_reference_paths:
-                all_reference_paths.extend(character_reference_paths)
-            if character_reference_path and character_reference_path not in all_reference_paths:
-                all_reference_paths.insert(0, character_reference_path)
-            
-            # Filter to existing files only
-            all_reference_paths = [p for p in all_reference_paths if p and os.path.exists(p)]
-
-            # Enhanced prompt for better quality
-            # Remove generic qualifiers and focus on visual details
-            full_prompt = self._enhance_generic_prompt(f"{style} style: {prompt}")
-
-            print(f"     Calling Replicate (Gemini 2.5 Flash Image) API...")
-            if all_reference_paths:
-                print(f"     [v2.0] Using {len(all_reference_paths)} character reference(s)")
-
-            # Use Gemini 2.5 Flash Image (nano banana)
-            model = "google/gemini-2.5-flash-image"
-
-            # v2.1: Advanced Style & Negative Prompt Logic
-            # "Realistic" specifically requested to BAN anime/cartoon
-            strong_negative_prompt = ""
-            if "real" in style.lower() or "cinematic" in style.lower() or "photo" in style.lower():
-                strong_negative_prompt = "anime, cartoon, illustration, drawing, painting, sketch, 3d render, plastic, fake, deformed, disfigured"
-                print(f"     [Style Enforcement] Enforcing REALISTIC style. Negative: {strong_negative_prompt}")
-
-            # Combine user negative prompt with system negative prompt
-            final_negative_prompt = negative_prompt or ""
-            if strong_negative_prompt:
-                final_negative_prompt = f"{final_negative_prompt}, {strong_negative_prompt}".strip(", ")
-
-            # v2.1: Force character description to be part of the prompt if tokens exist
-            # This ensures character consistency better than just 'character_tokens' list
-            if character_tokens:
-                # Assuming character_tokens is a list of descriptions like ["A young man with glasses", "A woman in a red coat"]
-                # We prepend them to make them the MAIN SUBJECT
-                char_desc = " ".join(character_tokens)
-                full_prompt = f"{char_desc}. {full_prompt}"
-                print(f"     [Character Injection] Prepending character info: {char_desc}")
-
-            # v2.0: Build multimodal prompt with character references
-            if all_reference_paths:
-                # Add character consistency instruction
-                ref_instruction = "Using the character reference image(s) provided, maintain exact character consistency including faces, clothing, and distinctive features. "
-                full_prompt = f"{ref_instruction}{full_prompt}"
-                print(f"     [v2.0] Enhanced prompt with reference instruction")
-
-            input_params = {
-                "prompt": full_prompt,
-                "aspect_ratio": "16:9",
-                "output_format": "png",
-            }
-
-            # NOTE: Replicate usually takes 'prompt' only. 'negative_prompt' is for some implementations.
-            # We will append exclusionary terms to prompt for maximum compatibility: "..., avoid anime, avoid cartoon"
-            if strong_negative_prompt:
-                 input_params["prompt"] += f" --no {strong_negative_prompt}" # Common syntax
-            
-            # v2.0: Add seed for character consistency
-            if seed is not None:
-                input_params["seed"] = seed
-                print(f"     Using seed: {seed} for consistency")
-
-            # v2.0: Add character reference images
-            # Replicate's Gemini model expects 'image' or 'images' parameter with URI or base64
-            if all_reference_paths:
-                # Convert images to data URIs for Replicate
-                image_uris = []
-                for ref_path in all_reference_paths[:3]:  # Max 3 references
-                    try:
-                        with open(ref_path, "rb") as f:
-                            image_data = base64.b64encode(f.read()).decode('utf-8')
-                            ext = os.path.splitext(ref_path)[1].lower()
-                            mime_type = "image/png" if ext == ".png" else "image/jpeg"
-                            data_uri = f"data:{mime_type};base64,{image_data}"
-                            image_uris.append(data_uri)
-                            print(f"     Added reference: {os.path.basename(ref_path)}")
-                    except Exception as e:
-                        print(f"     [Warning] Failed to load reference {ref_path}: {e}")
-
-                if image_uris:
-                    # Gemini on Replicate accepts 'image' for single or 'images' for multiple
-                    if len(image_uris) == 1:
-                        input_params["image"] = image_uris[0]
-                    else:
-                        input_params["images"] = image_uris
-
-            output = replicate.run(model, input=input_params)
-
-            # Handle different output formats
-            if isinstance(output, str):
-                image_url = output
-            elif isinstance(output, list) and len(output) > 0:
-                image_url = output[0]
-            elif hasattr(output, 'url'):
-                # FileOutput object from Replicate
-                image_url = output.url
-            else:
-                # Try to convert to string
-                image_url = str(output)
-
-            print(f"     Downloading image from Replicate...")
-            print(f"     Image URL: {image_url[:60]}...")
-            img_response = requests.get(image_url, timeout=30)
-
-            if img_response.status_code == 200:
-                with open(output_path, "wb") as f:
-                    f.write(img_response.content)
-                print(f"     Image saved: {output_path}")
-                return (output_path, None)  # Replicate doesn't provide stable image IDs
-            else:
-                raise RuntimeError(f"Failed to download image: {img_response.status_code}")
-
-        except ImportError:
-            raise RuntimeError("replicate library not installed")
-        except Exception as e:
-            error_msg = str(e).lower()
-            if any(kw in error_msg for kw in ["quota", "rate", "limit", "429", "exceeded", "billing", "payment"]):
-                print(f"     [Replicate] QUOTA/RATE LIMIT exceeded: {e}")
-                print(f"     [Replicate] Will fallback to Gemini Flash Image...")
-            else:
-                print(f"     Replicate API error: {e}")
-            raise
-
-    def _enhance_generic_prompt(self, prompt: str) -> str:
-        """
-        Enhance prompt for better image quality.
-
-        Args:
-            prompt: Original prompt
-
-        Returns:
-            Enhanced prompt with quality keywords
-        """
-        # Add quality enhancers
-        quality_keywords = (
-            "masterpiece, professional artwork, high detail, sharp focus, "
-            "cinematic lighting, vibrant colors, intricate details"
-        )
-
-        # Avoid redundancy - check if quality keywords already present
-        if "masterpiece" not in prompt.lower():
-            return f"{prompt}, {quality_keywords}"
-        return prompt
 
     def _generate_placeholder_image(
         self,
