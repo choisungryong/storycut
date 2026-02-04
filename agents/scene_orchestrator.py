@@ -632,6 +632,7 @@ JSON 형식으로 출력:
         request: ProjectRequest = None,
         style_anchor_path: Optional[str] = None,
         environment_anchors: Optional[Dict[int, str]] = None,
+        on_scene_complete: Any = None,
     ) -> List[Dict[str, Any]]:
         """
         이미지만 생성 (TTS, 비디오 스킵).
@@ -644,7 +645,8 @@ JSON 형식으로 출력:
             request: ProjectRequest
             style_anchor_path: 스타일 앵커 경로
             environment_anchors: 환경 앵커 딕셔너리
-            
+            on_scene_complete: 각 씬 이미지 완료 시 콜백 (scene_dict, scene_index, total)
+
         Returns:
             Scene 데이터 목록 (이미지 경로 포함)
         """
@@ -767,12 +769,12 @@ JSON 형식으로 출력:
                 scene.assets.image_path = image_path
                 scene.status = SceneStatus.COMPLETED
                 
-                print(f"  ✅ Image generated: {image_path}")
+                print(f"  [OK] Image generated: {image_path}")
                 
             except Exception as e:
                 scene.status = SceneStatus.FAILED
                 scene.error_message = str(e)
-                print(f"  ❌ Image generation failed: {e}")
+                print(f"  [FAIL] Image generation failed: {e}")
             
             # Scene 데이터를 딕셔너리로 변환하여 저장
             scene_dict = scene_data.copy()
@@ -784,7 +786,14 @@ JSON 형식으로 출력:
             
             processed_scenes.append(scene_dict)
             prev_scene = scene
-            
+
+            # 콜백 호출 (프로그레시브 로딩용)
+            if on_scene_complete:
+                try:
+                    on_scene_complete(scene_dict, i, total_scenes)
+                except Exception as cb_err:
+                    print(f"  [WARNING] on_scene_complete callback error: {cb_err}")
+
             print(f"Scene {i} image complete\n")
         
         print(f"\n[SUCCESS] {len(processed_scenes)} images generated!")

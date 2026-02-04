@@ -846,13 +846,24 @@
                     각 씬의 이미지를 확인하세요. 마음에 들지 않으면 재생성하거나, I2V로 영상 변환할 수 있습니다.<br>
                     확인이 끝나면 <strong>이미지 확정 및 영상 생성</strong> 버튼을 누르세요.
                 </p>
+                <!-- 이미지 생성 진행 바 -->
+                <div id="image-progress-container" class="progress-container hidden" style="margin-bottom: 20px;">
+                    <div class="progress-header">
+                        <span class="progress-label" id="image-progress-label">이미지 생성 중...</span>
+                        <span class="progress-percentage" id="image-progress-percentage">0%</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar" id="image-progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="status-message" id="image-status-message">준비 중...</div>
+                </div>
                 <div id="image-preview-grid" class="image-preview-grid"></div>
                 <div class="review-actions">
                     <button id="back-to-review-btn" class="btn btn-secondary">
                         <span class="btn-icon">⬅️</span>
                         스토리 수정하기
                     </button>
-                    <button id="approve-images-btn" class="btn btn-primary btn-large">
+                    <button id="approve-images-btn" class="btn btn-primary btn-large" disabled>
                         <span class="btn-icon">🎬</span>
                         이미지 확정 및 영상 생성 (3단계)
                     </button>

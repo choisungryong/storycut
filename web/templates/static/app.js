@@ -900,6 +900,10 @@ class StorycutApp {
         this.currentRequestParams = null;
         this.isGenerating = false;
         this.stopPolling();
+        if (this.imagePollingInterval) {
+            clearInterval(this.imagePollingInterval);
+            this.imagePollingInterval = null;
+        }
 
         // 폼 초기화
         document.getElementById('generate-form').reset();
@@ -1183,7 +1187,7 @@ class StorycutApp {
         const btn = document.getElementById('generate-images-btn');
         const originalBtnText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<span class="btn-icon">⏳</span> 이미지 생성 중...';
+        btn.innerHTML = '<span class="btn-icon">⏳</span> 이미지 생성 시작...';
 
         try {
             const title = document.getElementById('review-title').value;
@@ -1200,7 +1204,7 @@ class StorycutApp {
                 }
             });
 
-            console.log('[Image Generation] Starting...');
+            console.log('[Image Generation] Starting (async)...');
 
             const response = await fetch(`${apiUrl}/api/generate/images`, {
                 method: 'POST',
@@ -1224,8 +1228,22 @@ class StorycutApp {
             }
 
             const result = await response.json();
-            this.renderImagePreview(result);
+            this.projectId = result.project_id;
+
+            // 즉시 프리뷰 화면으로 전환 (플레이스홀더 표시)
+            this.renderImagePreviewPlaceholders(this.currentStoryData.scenes, result.total_scenes);
             this.showSection('image-preview');
+
+            // 진행 바 표시
+            const progressContainer = document.getElementById('image-progress-container');
+            if (progressContainer) progressContainer.classList.remove('hidden');
+
+            // approve 버튼 비활성화 (생성 완료까지)
+            const approveBtn = document.getElementById('approve-images-btn');
+            if (approveBtn) approveBtn.disabled = true;
+
+            // 폴링 시작
+            this.pollImageStatus(this.projectId);
 
         } catch (error) {
             console.error('[Image Generation] Error:', error);
@@ -1236,11 +1254,158 @@ class StorycutApp {
         }
     }
 
+    renderImagePreviewPlaceholders(scenes, totalScenes) {
+        const grid = document.getElementById('image-preview-grid');
+        grid.innerHTML = '';
+
+        scenes.forEach((scene, index) => {
+            const card = document.createElement('div');
+            card.className = 'image-card';
+            card.dataset.sceneId = scene.scene_id;
+
+            card.innerHTML = `
+                <div class="image-card-header">
+                    <span class="image-card-title">Scene ${scene.scene_id}</span>
+                </div>
+                <div class="image-placeholder" style="width:100%;aspect-ratio:16/9;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;border-radius:8px;font-size:24px;">
+                    <div class="spinner" style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.1);border-top-color:#646cff;border-radius:50%;animation:spin 1s linear infinite;"></div>
+                </div>
+                <div class="image-card-body">
+                    <div class="image-narration">${scene.narration || scene.sentence || ''}</div>
+                    <div class="image-actions">
+                        <button class="btn-image-action btn-regenerate" disabled>🔄 재생성</button>
+                        <button class="btn-image-action btn-i2v" disabled>🎬 I2V</button>
+                        <button class="btn-image-action btn-hook" disabled>☆ Hook</button>
+                    </div>
+                </div>
+            `;
+
+            grid.appendChild(card);
+        });
+
+        // 진행 바 초기화
+        this.updateImageProgress(0, totalScenes, '이미지 생성 준비 중...');
+    }
+
+    updateImageProgress(completed, total, message) {
+        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const bar = document.getElementById('image-progress-bar');
+        const pctEl = document.getElementById('image-progress-percentage');
+        const msgEl = document.getElementById('image-status-message');
+        const labelEl = document.getElementById('image-progress-label');
+
+        if (bar) bar.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct}%`;
+        if (msgEl) msgEl.textContent = message || '';
+        if (labelEl) labelEl.textContent = `이미지 생성 중 (${completed}/${total})`;
+    }
+
+    async pollImageStatus(projectId) {
+        if (this.imagePollingInterval) {
+            clearInterval(this.imagePollingInterval);
+        }
+
+        const apiUrl = this.getApiBaseUrl();
+
+        this.imagePollingInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`${apiUrl}/api/status/images/${projectId}`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const { completed, total, scenes, status, error_message } = data;
+
+                // 진행 바 업데이트
+                this.updateImageProgress(completed, total, `Scene ${completed}/${total} 완료`);
+
+                // 완료된 씬 카드 업데이트
+                scenes.forEach(scene => {
+                    if (scene.status === 'completed' && scene.image_path) {
+                        const card = document.querySelector(`.image-card[data-scene-id="${scene.scene_id}"]`);
+                        if (!card) return;
+
+                        // 이미 이미지가 있는 경우 스킵
+                        if (card.querySelector('img')) return;
+
+                        // 플레이스홀더를 이미지로 교체
+                        const placeholder = card.querySelector('.image-placeholder');
+                        if (placeholder) {
+                            const imageUrl = this.resolveImageUrl(scene.image_path);
+                            const img = document.createElement('img');
+                            img.src = `${imageUrl}?t=${Date.now()}`;
+                            img.alt = `Scene ${scene.scene_id}`;
+                            img.style.opacity = '0';
+                            img.style.transition = 'opacity 0.5s ease-in';
+                            img.onload = () => { img.style.opacity = '1'; };
+                            placeholder.replaceWith(img);
+
+                            // 버튼 활성화
+                            const regenBtn = card.querySelector('.btn-regenerate');
+                            const i2vBtn = card.querySelector('.btn-i2v');
+                            const hookBtn = card.querySelector('.btn-hook');
+                            if (regenBtn) {
+                                regenBtn.disabled = false;
+                                regenBtn.setAttribute('onclick', `app.regenerateImage('${projectId}', ${scene.scene_id})`);
+                            }
+                            if (i2vBtn) {
+                                i2vBtn.disabled = false;
+                                i2vBtn.setAttribute('onclick', `app.convertToVideo('${projectId}', ${scene.scene_id})`);
+                            }
+                            if (hookBtn) {
+                                hookBtn.disabled = false;
+                                hookBtn.setAttribute('onclick', `app.toggleHookVideo('${projectId}', ${scene.scene_id})`);
+                            }
+                        }
+                    }
+                });
+
+                // 전체 완료 체크
+                if (status === 'images_ready' || (completed === total && total > 0)) {
+                    clearInterval(this.imagePollingInterval);
+                    this.imagePollingInterval = null;
+
+                    this.updateImageProgress(total, total, '모든 이미지 생성 완료!');
+
+                    // 진행 바 숨기기 (1초 후)
+                    setTimeout(() => {
+                        const progressContainer = document.getElementById('image-progress-container');
+                        if (progressContainer) progressContainer.classList.add('hidden');
+                    }, 1500);
+
+                    // approve 버튼 활성화
+                    const approveBtn = document.getElementById('approve-images-btn');
+                    if (approveBtn) approveBtn.disabled = false;
+                }
+
+                // 실패 체크
+                if (status === 'failed') {
+                    clearInterval(this.imagePollingInterval);
+                    this.imagePollingInterval = null;
+                    this.updateImageProgress(completed, total, `오류: ${error_message || '이미지 생성 실패'}`);
+                    const approveBtn = document.getElementById('approve-images-btn');
+                    if (approveBtn) approveBtn.disabled = false;
+                }
+
+            } catch (error) {
+                console.error('[Image Polling] Error:', error);
+            }
+        }, 2500);
+    }
+
     renderImagePreview(data) {
         const grid = document.getElementById('image-preview-grid');
         grid.innerHTML = '';
 
+        // 진행 바 숨기기 (완성 데이터를 직접 렌더링하는 경우)
+        const progressContainer = document.getElementById('image-progress-container');
+        if (progressContainer) progressContainer.classList.add('hidden');
+
+        // approve 버튼 활성화
+        const approveBtn = document.getElementById('approve-images-btn');
+        if (approveBtn) approveBtn.disabled = false;
+
         const scenes = data.scenes || data.story_data?.scenes || [];
+        const projectId = data.project_id || this.projectId;
 
         scenes.forEach(scene => {
             const card = document.createElement('div');
@@ -1261,9 +1426,9 @@ class StorycutApp {
                 <div class="image-card-body">
                     <div class="image-narration">${scene.narration || scene.sentence || ''}</div>
                     <div class="image-actions">
-                        <button class="btn-image-action btn-regenerate" onclick="app.regenerateImage('${this.projectId}', ${scene.scene_id})">🔄 재생성</button>
-                        <button class="btn-image-action btn-i2v" onclick="app.convertToVideo('${this.projectId}', ${scene.scene_id})" ${scene.i2v_converted ? 'disabled' : ''}>${scene.i2v_converted ? '✅ I2V' : '🎬 I2V'}</button>
-                        <button class="btn-image-action btn-hook ${scene.hook_video_enabled ? 'active' : ''}" onclick="app.toggleHookVideo('${this.projectId}', ${scene.scene_id})">${scene.hook_video_enabled ? '⭐ Hook' : '☆ Hook'}</button>
+                        <button class="btn-image-action btn-regenerate" onclick="app.regenerateImage('${projectId}', ${scene.scene_id})">🔄 재생성</button>
+                        <button class="btn-image-action btn-i2v" onclick="app.convertToVideo('${projectId}', ${scene.scene_id})" ${scene.i2v_converted ? 'disabled' : ''}>${scene.i2v_converted ? '✅ I2V' : '🎬 I2V'}</button>
+                        <button class="btn-image-action btn-hook ${scene.hook_video_enabled ? 'active' : ''}" onclick="app.toggleHookVideo('${projectId}', ${scene.scene_id})">${scene.hook_video_enabled ? '⭐ Hook' : '☆ Hook'}</button>
                     </div>
                 </div>
             `;
@@ -1271,7 +1436,7 @@ class StorycutApp {
             grid.appendChild(card);
         });
 
-        this.projectId = data.project_id;
+        this.projectId = projectId;
     }
 
     async regenerateImage(projectId, sceneId) {
@@ -1300,7 +1465,8 @@ class StorycutApp {
 
             const result = await response.json();
             const img = card.querySelector('img');
-            img.src = `${this.getApiBaseUrl()}${result.image_path}?t=${Date.now()}`;
+            const imageUrl = this.resolveImageUrl(result.image_path);
+            img.src = `${imageUrl}?t=${Date.now()}`;
 
             btn.textContent = '🔄 재생성';
             btn.disabled = false;

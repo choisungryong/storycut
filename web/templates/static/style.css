@@ -678,6 +678,10 @@ label {
     }
 }
 
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 .step.active .step-icon {
     animation: pulse 2s infinite;
 }

@@ -1016,68 +1016,141 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
 @app.post("/api/generate/images")
 async def generate_images_only(req: GenerateVideoRequest, background_tasks: BackgroundTasks):
     """
-    Step 2A: 스토리 확정 후 이미지만 생성 (영상 생성 전 검토용).
-    
-    사용자는 이미지들을 검토한 후:
-    - 재생성
-    - I2V 변환
-    - 최종 영상 생성
-    
+    Step 2A: 스토리 확정 후 이미지만 생성 (비동기, 프로그레시브).
+
+    즉시 응답 반환 후 백그라운드에서 이미지 생성.
+    프론트엔드는 GET /api/status/images/{project_id}로 진행 상황 폴링.
+
     Returns:
-        project_id와 scene 이미지 URL 목록
+        project_id, status, total_scenes
     """
     import uuid
+    import threading
     from pathlib import Path
-   
+
     project_id = req.project_id or str(uuid.uuid4())[:8]
-    
-    print(f"\n[API] ========== IMAGES ONLY GENERATION =========")
+    total_scenes = len(req.story_data.get('scenes', []))
+
+    print(f"\n[API] ========== IMAGES ONLY GENERATION (ASYNC) =========")
     print(f"[API] Project ID: {project_id}")
-    print(f"[API] Scene count: {len(req.story_data.get('scenes', []))}")
-    
-    # Project 디렉토리 생성
-    project_dir = f"outputs/{project_id}"
-    Path(project_dir).mkdir(parents=True, exist_ok=True)
-    
-    # Initial manifest
-    initial_manifest = {
+    print(f"[API] Scene count: {total_scenes}")
+
+    # req.request_params는 이미 ProjectRequest 객체
+    request_obj = req.request_params
+    story_data = req.story_data
+
+    def run_image_generation():
+        try:
+            pipeline = StorycutPipeline()
+            pipeline.generate_images_only(
+                story_data,
+                request_obj,
+                project_id
+            )
+            print(f"[API] Images generated successfully!")
+        except Exception as e:
+            print(f"[API] Image generation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # manifest에 에러 기록
+            manifest_path = f"outputs/{project_id}/manifest.json"
+            try:
+                if os.path.exists(manifest_path):
+                    with open(manifest_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    data['status'] = 'failed'
+                    data['error_message'] = str(e)
+                    with open(manifest_path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=run_image_generation, daemon=True)
+    thread.start()
+
+    return {
         "project_id": project_id,
-        "status": "generating_images",
-        "progress": 10,
-        "message": "이미지 생성 중...",
-        "created_at": datetime.now().isoformat(),
-        "title": req.story_data.get("title", "제목 없음"),
+        "status": "started",
+        "total_scenes": total_scenes,
+        "message": "이미지 생성이 시작되었습니다."
     }
-    
-    manifest_path = f"{project_dir}/manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
-    
+
+
+@app.get("/api/status/images/{project_id}")
+async def get_image_generation_status(project_id: str):
+    """
+    이미지 생성 진행 상황 조회 (프로그레시브 폴링용).
+
+    manifest.json을 읽어서 각 씬의 이미지 생성 상태 반환.
+    """
+    manifest_path = f"outputs/{project_id}/manifest.json"
+
+    if not os.path.exists(manifest_path):
+        return {
+            "project_id": project_id,
+            "status": "not_found",
+            "completed": 0,
+            "total": 0,
+            "scenes": []
+        }
+
     try:
-        from starlette.concurrency import run_in_threadpool
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest_data = json.load(f)
 
-        # req.request_params는 이미 ProjectRequest 객체
-        request_obj = req.request_params
+        scenes = manifest_data.get("scenes", [])
+        total = len(scenes)
+        completed = 0
+        scene_list = []
 
-        # Pipeline에서 이미지만 생성
-        pipeline = StorycutPipeline()
-        result = await run_in_threadpool(
-            pipeline.generate_images_only,
-            req.story_data,
-            request_obj,
-            project_id
-        )
-        
-        print(f"[API] Images generated successfully!")
-        print(f"[API] ============================================\n")
-        
-        return result
-        
+        for s in scenes:
+            status = s.get("status", "pending")
+            assets = s.get("assets", {})
+            image_path = assets.get("image_path") if isinstance(assets, dict) else None
+
+            # 이미지 경로를 웹 URL로 변환
+            web_path = None
+            if image_path:
+                normalized = image_path.replace("\\", "/")
+                if normalized.startswith("/media/"):
+                    web_path = normalized
+                elif "outputs/" in normalized:
+                    rel = normalized.split("outputs/", 1)[1]
+                    web_path = f"/media/{rel}"
+                else:
+                    web_path = f"/media/{project_id}/{normalized}"
+
+            if status == "completed":
+                completed += 1
+
+            scene_list.append({
+                "scene_id": s.get("scene_id", s.get("index")),
+                "status": status,
+                "image_path": web_path,
+                "narration": s.get("narration", s.get("sentence", "")),
+                "prompt": s.get("prompt", ""),
+            })
+
+        overall_status = manifest_data.get("status", "generating_images")
+
+        return {
+            "project_id": project_id,
+            "status": overall_status,
+            "completed": completed,
+            "total": total,
+            "scenes": scene_list,
+            "error_message": manifest_data.get("error_message"),
+        }
+
     except Exception as e:
-        print(f"[API] Image generation failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "project_id": project_id,
+            "status": "error",
+            "error_message": str(e),
+            "completed": 0,
+            "total": 0,
+            "scenes": []
+        }
 
 
 @app.post("/api/regenerate/image/{project_id}/{scene_id}")
@@ -1132,20 +1205,31 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: dict = {"p
             seed=None  # New random seed for regeneration
         )
         
-        # Manifest 업데이트
+        # image_path를 웹 URL로 정규화
+        web_path = image_path
+        if image_path:
+            normalized = image_path.replace("\\", "/")
+            if not normalized.startswith("/media/") and not normalized.startswith("http"):
+                if "outputs/" in normalized:
+                    rel = normalized.split("outputs/", 1)[1]
+                    web_path = f"/media/{rel}"
+                else:
+                    web_path = f"/media/{project_id}/{normalized}"
+
+        # Manifest 업데이트 (원본 경로 유지)
         for scene in scenes:
             if scene.get("scene_id") == scene_id:
                 if "assets" not in scene:
                     scene["assets"] = {}
                 scene["assets"]["image_path"] = image_path
                 break
-        
+
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_data, f, ensure_ascii=False, indent=2)
-        
+
         return {
             "scene_id": scene_id,
-            "image_path": image_path,
+            "image_path": web_path,
             "prompt": new_prompt
         }
         
@@ -1192,10 +1276,17 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
     if not target_scene:
         raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
     
-    # 이미지 경로 확인
+    # 이미지 경로 확인 (웹 URL → 파일시스템 경로 변환)
     image_path = target_scene.get("assets", {}).get("image_path")
+    if image_path:
+        # /media/xxx → outputs/xxx 변환
+        normalized = image_path.replace("\\", "/")
+        if normalized.startswith("/media/"):
+            image_path = f"outputs/{normalized[len('/media/'):]}"
+        elif not os.path.isabs(normalized) and not normalized.startswith("outputs/"):
+            image_path = f"outputs/{project_id}/{normalized}"
     if not image_path or not os.path.exists(image_path):
-        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id}")
+        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id}: {image_path}")
     
     # I2V 변환
     video_agent = VideoAgent()

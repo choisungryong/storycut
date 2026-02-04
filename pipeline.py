@@ -237,21 +237,23 @@ class StorycutPipeline:
         self,
         story_data: Dict[str, Any],
         request: ProjectRequest,
-        project_id: str = None
+        project_id: str = None,
+        on_scene_complete: Any = None
     ) -> Dict[str, Any]:
         """
         Step 2A: 스토리에서 이미지만 생성 (영상 생성 전 검토용).
-        
+
         사용자가 이미지를 검토한 후:
         - 재생성
         - I2V 변환
         - 최종 영상 생성 승인
-        
+
         Args:
             story_data: Story JSON
-            request: ProjectRequest  
+            request: ProjectRequest
             project_id: 프로젝트 ID (선택사항)
-            
+            on_scene_complete: 각 씬 이미지 완료 시 콜백
+
         Returns:
             Dict with project_id and scenes with image URLs
         """
@@ -323,18 +325,47 @@ class StorycutPipeline:
                         story_data["character_sheet"][token]["master_image_path"] = image_path
         
         try:
+            # 초기 manifest에 전체 scene을 pending으로 저장 (프로그레시브 로딩용)
+            total_scenes = len(story_data['scenes'])
+            manifest.scenes = []
+            for idx, sd in enumerate(story_data['scenes'], start=1):
+                scene = Scene(
+                    index=idx,
+                    scene_id=sd.get("scene_id", idx),
+                    sentence=sd.get("narration", ""),
+                    narration=sd.get("narration"),
+                    status="pending",
+                )
+                manifest.scenes.append(scene)
+            self._save_manifest(manifest, project_dir)
+
             # Generate ONLY images (no TTS, no video)
-            print(f"\n[IMAGES ONLY] Generating images for {len(story_data['scenes'])} scenes...")
-            
+            print(f"\n[IMAGES ONLY] Generating images for {total_scenes} scenes...")
+
             orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
-            
+
+            # 프로그레시브 콜백: 각 씬 완료 시 manifest 업데이트
+            def _on_scene_image_complete(scene_dict, scene_index, total):
+                # manifest.scenes의 해당 씬 업데이트
+                if scene_index <= len(manifest.scenes):
+                    raw_path = scene_dict.get("assets", {}).get("image_path")
+                    web_path = self._normalize_to_web_path(raw_path, project_id)
+                    manifest.scenes[scene_index - 1].assets.image_path = raw_path
+                    manifest.scenes[scene_index - 1].prompt = scene_dict.get("prompt", "")
+                    manifest.scenes[scene_index - 1].status = scene_dict.get("status", "completed")
+                    self._save_manifest(manifest, project_dir)
+                # 외부 콜백도 호출
+                if on_scene_complete:
+                    on_scene_complete(scene_dict, scene_index, total)
+
             # Call a new method that generates only images
             scenes_with_images = orchestrator.generate_images_for_scenes(
                 story_data=story_data,
                 project_dir=project_dir,
                 request=request,
                 style_anchor_path=style_anchor_path,
-                environment_anchors=env_anchors
+                environment_anchors=env_anchors,
+                on_scene_complete=_on_scene_image_complete
             )
             
             # Update manifest
@@ -350,17 +381,19 @@ class StorycutPipeline:
                 "project_id": project_id,
                 "scenes": []
             }
-            
+
             for scene in manifest.scenes:
+                raw_path = scene.assets.image_path if scene.assets else None
+                web_path = self._normalize_to_web_path(raw_path, project_id)
                 scene_info = {
                     "scene_id": scene.scene_id,
                     "index": scene.index,
                     "narration": scene.narration or scene.sentence,
-                    "image_path": scene.assets.image_path if scene.assets else None,
+                    "image_path": web_path,
                     "prompt": scene.prompt
                 }
                 result["scenes"].append(scene_info)
-            
+
             return result
             
         except Exception as e:
@@ -369,6 +402,23 @@ class StorycutPipeline:
             self._save_manifest(manifest, project_dir)
             raise
 
+
+    def _normalize_to_web_path(self, file_path: str, project_id: str) -> str:
+        """
+        파일시스템 경로를 웹 URL 경로로 변환.
+
+        예: "outputs/abc123/media/images/scene_01.png" → "/media/abc123/media/images/scene_01.png"
+        """
+        if not file_path:
+            return None
+        if file_path.startswith("http") or file_path.startswith("/media/"):
+            return file_path
+        # 절대/상대 경로 → outputs/ 기준 상대 경로로 정규화
+        normalized = file_path.replace("\\", "/")
+        if "outputs/" in normalized:
+            rel = normalized.split("outputs/", 1)[1]
+            return f"/media/{rel}"
+        return f"/media/{project_id}/{normalized}"
 
     def _create_project_structure(self, project_id: str) -> str:
         """
@@ -438,8 +488,17 @@ class StorycutPipeline:
         Returns:
             Scene 객체 목록
         """
+        from schemas import SceneAssets
         scenes = []
         for idx, sd in enumerate(scene_dicts, start=1):
+            # assets 복원
+            assets_data = sd.get("assets", {})
+            assets = SceneAssets(
+                image_path=assets_data.get("image_path") if isinstance(assets_data, dict) else None,
+                video_path=assets_data.get("video_path") if isinstance(assets_data, dict) else None,
+                narration_path=assets_data.get("narration_path") if isinstance(assets_data, dict) else None,
+            )
+
             scene = Scene(
                 index=idx,
                 scene_id=sd.get("scene_id", idx),
@@ -448,10 +507,13 @@ class StorycutPipeline:
                 visual_description=sd.get("visual_description"),
                 mood=sd.get("mood"),
                 duration_sec=sd.get("duration_sec", 5),
+                prompt=sd.get("prompt", ""),
                 # v2.0 필드
                 narrative=sd.get("narrative"),
                 image_prompt=sd.get("image_prompt"),
                 characters_in_scene=sd.get("characters_in_scene", []),
+                assets=assets,
+                status=sd.get("status", "pending"),
             )
             scenes.append(scene)
         return scenes
