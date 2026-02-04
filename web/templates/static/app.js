@@ -1362,42 +1362,41 @@ class StorycutApp {
                         const card = document.querySelector(`.image-card[data-scene-id="${scene.scene_id}"]`);
                         if (!card) return;
 
-                        // 이미 이미지가 있는 경우 스킵
-                        if (card.querySelector('img')) return;
+                        // 플레이스홀더 → 이미지 교체 (아직 이미지 없는 경우만)
+                        if (!card.querySelector('img')) {
+                            const placeholder = card.querySelector('.image-placeholder');
+                            if (placeholder) {
+                                const imageUrl = this.resolveImageUrl(scene.image_path);
+                                console.log(`[Image Preview] Scene ${scene.scene_id} URL: ${imageUrl}`);
+                                const img = document.createElement('img');
+                                img.alt = `Scene ${scene.scene_id}`;
+                                img.onload = () => {
+                                    console.log(`[Image Preview] Scene ${scene.scene_id} loaded OK`);
+                                };
+                                img.onerror = () => {
+                                    console.error(`[Image Preview] Failed to load: ${img.src}`);
+                                    img.alt = 'Image load failed';
+                                };
+                                img.src = `${imageUrl}?t=${Date.now()}`;
+                                placeholder.replaceWith(img);
+                            }
+                        }
 
-                        // 플레이스홀더를 이미지로 교체
-                        const placeholder = card.querySelector('.image-placeholder');
-                        if (placeholder) {
-                            const imageUrl = this.resolveImageUrl(scene.image_path);
-                            console.log(`[Image Preview] Scene ${scene.scene_id} URL: ${imageUrl}`);
-                            const img = document.createElement('img');
-                            img.alt = `Scene ${scene.scene_id}`;
-                            img.onload = () => {
-                                console.log(`[Image Preview] Scene ${scene.scene_id} loaded OK`);
-                            };
-                            img.onerror = () => {
-                                console.error(`[Image Preview] Failed to load: ${img.src}`);
-                                img.alt = 'Image load failed';
-                            };
-                            img.src = `${imageUrl}?t=${Date.now()}`;
-                            placeholder.replaceWith(img);
-
-                            // 버튼 활성화
-                            const regenBtn = card.querySelector('.btn-regenerate');
-                            const i2vBtn = card.querySelector('.btn-i2v');
-                            const hookBtn = card.querySelector('.btn-hook');
-                            if (regenBtn) {
-                                regenBtn.disabled = false;
-                                regenBtn.setAttribute('onclick', `app.regenerateImage('${projectId}', ${scene.scene_id})`);
-                            }
-                            if (i2vBtn) {
-                                i2vBtn.disabled = false;
-                                i2vBtn.setAttribute('onclick', `app.convertToVideo('${projectId}', ${scene.scene_id})`);
-                            }
-                            if (hookBtn) {
-                                hookBtn.disabled = false;
-                                hookBtn.setAttribute('onclick', `app.toggleHookVideo('${projectId}', ${scene.scene_id})`);
-                            }
+                        // 버튼 활성화 (이미지 교체와 무관하게 항상 실행)
+                        const regenBtn = card.querySelector('.btn-regenerate');
+                        const i2vBtn = card.querySelector('.btn-i2v');
+                        const hookBtn = card.querySelector('.btn-hook');
+                        if (regenBtn && regenBtn.disabled) {
+                            regenBtn.disabled = false;
+                            regenBtn.setAttribute('onclick', `app.regenerateImage('${projectId}', ${scene.scene_id})`);
+                        }
+                        if (i2vBtn && i2vBtn.disabled) {
+                            i2vBtn.disabled = false;
+                            i2vBtn.setAttribute('onclick', `app.convertToVideo('${projectId}', ${scene.scene_id})`);
+                        }
+                        if (hookBtn && hookBtn.disabled) {
+                            hookBtn.disabled = false;
+                            hookBtn.setAttribute('onclick', `app.toggleHookVideo('${projectId}', ${scene.scene_id})`);
                         }
                     }
                 });
