@@ -137,13 +137,13 @@ class TTSAgent:
             print(f"     [Fallback] Using silent placeholder audio")
             audio_path = self._generate_placeholder_audio(scene_id, narration, output_path)
 
-        # 측정: 실제 오디오 길이 (FFprobe 사용)
-        duration_sec = self._get_audio_duration(audio_path)
+        # 측정: 실제 오디오 길이 (FFprobe 사용, 실패 시 텍스트 기반 추정)
+        duration_sec = self._get_audio_duration(audio_path, narration_text=narration)
 
         print(f"     [TTS Agent] Audio saved: {audio_path} (duration: {duration_sec:.2f}s)")
         return TTSResult(audio_path=audio_path, duration_sec=duration_sec)
 
-    def _get_audio_duration(self, audio_path: str) -> float:
+    def _get_audio_duration(self, audio_path: str, narration_text: str = None) -> float:
         """FFprobe로 오디오 실제 길이 측정"""
         try:
             cmd = [
@@ -155,12 +155,30 @@ class TTSAgent:
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             if result.returncode == 0 and result.stdout.strip():
-                return float(result.stdout.strip())
+                duration = float(result.stdout.strip())
+                if duration > 0:
+                    return duration
         except Exception as e:
             print(f"     [Warning] FFprobe duration check failed: {e}")
 
-        # Fallback: 텍스트 기반 추정 (150 wpm = 2.5 words/sec)
-        return 5.0  # 기본값
+        # Fallback: 파일 크기 기반 추정 (MP3 128kbps = 16KB/sec)
+        try:
+            file_size = os.path.getsize(audio_path)
+            if file_size > 0:
+                estimated = file_size / 16000.0  # 128kbps MP3 ≈ 16KB/sec
+                print(f"     [Duration] Estimated from file size: {estimated:.2f}s ({file_size} bytes)")
+                return max(1.0, estimated)
+        except Exception:
+            pass
+
+        # Fallback: 텍스트 기반 추정 (한국어: ~4음절/초)
+        if narration_text:
+            char_count = len(narration_text.replace(" ", ""))
+            estimated = max(2.0, char_count / 4.0)
+            print(f"     [Duration] Estimated from text: {estimated:.2f}s ({char_count} chars)")
+            return estimated
+
+        return 5.0  # 최종 기본값
 
     def _call_tts_api(self, text: str, output_path: str) -> str:
         """

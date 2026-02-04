@@ -368,7 +368,7 @@ class FFmpegComposer:
             f"[2:a]aformat=fltp:44100:stereo,volume={ducking_config.get('bgm_volume_normal', 0.3)}[bgm];"
             f"[bgm][narr]sidechaincompress="
             f"threshold={threshold}:ratio={ratio}:attack={attack}:release={release}[bgm_ducked];"
-            f"[bgm_ducked][narr]amix=inputs=2:duration=first:normalize=0[aout]"
+            f"[bgm_ducked][narr]amix=inputs=2:duration=longest:normalize=0[aout]"
         )
 
         cmd = [
@@ -407,7 +407,7 @@ class FFmpegComposer:
         filter_complex = (
             "[1:a]volume=1.0[narr];"
             "[2:a]volume=0.2[bgm];"
-            "[narr][bgm]amix=inputs=2:duration=first:normalize=0[aout]"
+            "[narr][bgm]amix=inputs=2:duration=longest:normalize=0[aout]"
         )
 
         cmd = [
@@ -553,7 +553,7 @@ class FFmpegComposer:
             filter_complex = (
                 f"[1:a]volume=1.0[narr];"
                 f"[2:a]volume={music_volume}[mus];"
-                f"[narr][mus]amix=inputs=2:duration=first[aout]"
+                f"[narr][mus]amix=inputs=2:duration=longest[aout]"
             )
             cmd = [
                 "ffmpeg",

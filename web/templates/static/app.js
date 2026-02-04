@@ -89,9 +89,9 @@ class StorycutApp {
         }
 
         // 이미지 프리뷰 섹션 네비게이션
-        const backToStoryBtn = document.getElementById('back-to-story-btn');
-        if (backToStoryBtn) {
-            backToStoryBtn.addEventListener('click', () => {
+        const backToReviewBtn = document.getElementById('back-to-review-btn');
+        if (backToReviewBtn) {
+            backToReviewBtn.addEventListener('click', () => {
                 this.showSection('review');
             });
         }
@@ -836,6 +836,7 @@ class StorycutApp {
         document.getElementById('result-section').classList.add('hidden');
         document.getElementById('review-section').classList.add('hidden');
         document.getElementById('history-section').classList.add('hidden');
+        document.getElementById('image-preview-section').classList.add('hidden');
 
         // 선택한 섹션 표시
         switch (sectionName) {
@@ -844,6 +845,9 @@ class StorycutApp {
                 break;
             case 'review':
                 document.getElementById('review-section').classList.remove('hidden');
+                break;
+            case 'image-preview':
+                document.getElementById('image-preview-section').classList.remove('hidden');
                 break;
             case 'progress':
                 document.getElementById('progress-section').classList.remove('hidden');
@@ -1120,6 +1124,20 @@ class StorycutApp {
         }
     }
 
+    // ==================== 이미지 URL 경로 변환 ====================
+    resolveImageUrl(imagePath) {
+        if (!imagePath) return '';
+        if (imagePath.startsWith('http')) return imagePath;
+        // outputs/xxx → /media/xxx 변환 (FastAPI StaticFiles 마운트: /media = outputs/)
+        if (imagePath.startsWith('outputs/')) {
+            return `${this.getApiBaseUrl()}/media/${imagePath.slice('outputs/'.length)}`;
+        }
+        if (imagePath.startsWith('/')) {
+            return `${this.getApiBaseUrl()}${imagePath}`;
+        }
+        return `${this.getApiBaseUrl()}/media/${imagePath}`;
+    }
+
     // ==================== 이미지 생성 워크플로우 ====================
 
     async startImageGeneration() {
@@ -1129,6 +1147,10 @@ class StorycutApp {
         }
 
         const apiUrl = this.getApiBaseUrl();
+        const btn = document.getElementById('generate-images-btn');
+        const originalBtnText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> 이미지 생성 중...';
 
         try {
             const title = document.getElementById('review-title').value;
@@ -1138,8 +1160,10 @@ class StorycutApp {
                 const sceneId = parseInt(card.dataset.sceneId);
                 const scene = this.currentStoryData.scenes.find(s => s.scene_id === sceneId);
                 if (scene) {
-                    scene.narration = card.querySelector('.review-textarea[name="narration"]').value;
-                    scene.visual_description = card.querySelector('.visual-textarea').value;
+                    scene.narration = card.querySelector('.narration-input').value;
+                    scene.sentence = card.querySelector('.narration-input').value;
+                    scene.visual_description = card.querySelector('.visual-input').value;
+                    scene.prompt = card.querySelector('.visual-input').value;
                 }
             });
 
@@ -1164,6 +1188,9 @@ class StorycutApp {
         } catch (error) {
             console.error('[Image Generation] Error:', error);
             alert(`이미지 생성 실패: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalBtnText;
         }
     }
 
@@ -1181,7 +1208,7 @@ class StorycutApp {
             if (scene.hook_video_enabled) card.classList.add('hook-video');
 
             const imagePath = scene.assets?.image_path || scene.image_path || '';
-            const imageUrl = imagePath.startsWith('http') ? imagePath : `${this.getApiBaseUrl()}${imagePath}`;
+            const imageUrl = this.resolveImageUrl(imagePath);
 
             card.innerHTML = `
                 <div class="image-card-header">

@@ -828,11 +828,35 @@
                             <span class="btn-icon">⬅️</span>
                             다시 설정하기
                         </button>
-                        <button id="start-video-generation-btn" class="btn btn-primary btn-large">
+                        <button id="generate-images-btn" class="btn btn-primary btn-large">
+                            <span class="btn-icon">🖼️</span>
+                            이미지 생성 (2단계)
+                        </button>
+                        <button id="start-video-generation-btn" class="btn btn-secondary btn-large">
                             <span class="btn-icon">🎬</span>
-                            이대로 영상 생성 시작 (2단계)
+                            이미지 건너뛰고 영상 생성
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <!-- 이미지 프리뷰 섹션 -->
+            <div id="image-preview-section" class="section hidden">
+                <h2>🖼️ 이미지 검토</h2>
+                <p class="section-description">
+                    각 씬의 이미지를 확인하세요. 마음에 들지 않으면 재생성하거나, I2V로 영상 변환할 수 있습니다.<br>
+                    확인이 끝나면 <strong>이미지 확정 및 영상 생성</strong> 버튼을 누르세요.
+                </p>
+                <div id="image-preview-grid" class="image-preview-grid"></div>
+                <div class="review-actions">
+                    <button id="back-to-review-btn" class="btn btn-secondary">
+                        <span class="btn-icon">⬅️</span>
+                        스토리 수정하기
+                    </button>
+                    <button id="approve-images-btn" class="btn btn-primary btn-large">
+                        <span class="btn-icon">🎬</span>
+                        이미지 확정 및 영상 생성 (3단계)
+                    </button>
                 </div>
             </div>
 
