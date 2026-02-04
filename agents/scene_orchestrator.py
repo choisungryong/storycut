@@ -746,6 +746,10 @@ JSON 형식으로 출력:
                         character_sheet
                     )
                 
+                # v2.1: Extract anchors for this scene
+                scene_style_anchor = style_anchor_path
+                scene_env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
+
                 # Generate image
                 image_path, image_id = image_agent.generate_image(
                     scene_id=scene.scene_id,
@@ -755,6 +759,8 @@ JSON 형식으로 출력:
                     output_dir=image_output_dir,
                     seed=scene_seed,
                     character_reference_paths=char_refs,
+                    style_anchor_path=scene_style_anchor,       # v2.1: 스타일 앵커
+                    environment_anchor_path=scene_env_anchor,   # v2.1: 환경 앵커
                     image_model="standard"
                 )
                 

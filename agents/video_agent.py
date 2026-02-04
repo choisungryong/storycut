@@ -167,6 +167,10 @@ class VideoAgent:
                 image_dir = output_dir.replace("video", "images") if "video" in output_dir else f"{output_dir}/images"
                 os.makedirs(image_dir, exist_ok=True)
                 
+                # v2.1: Extract anchors from scene metadata
+                hook_style_anchor = getattr(scene, '_style_anchor_path', None) if scene else None
+                hook_env_anchor = getattr(scene, '_env_anchor_path', None) if scene else None
+
                 image_path, _ = image_agent.generate_image(
                     scene_id=scene_id,
                     prompt=actual_prompt,
@@ -175,6 +179,8 @@ class VideoAgent:
                     seed=seed,
                     character_tokens=character_tokens,
                     character_reference_paths=character_reference_paths,
+                    style_anchor_path=hook_style_anchor,       # v2.1: 스타일 앵커
+                    environment_anchor_path=hook_env_anchor,   # v2.1: 환경 앵커
                     image_model="standard"
                 )
                 
@@ -696,6 +702,10 @@ class VideoAgent:
         else:
              image_dir = "media/images"
 
+        # v2.1: Extract style/env anchors from scene metadata
+        style_anchor = getattr(scene, '_style_anchor_path', None) if scene else None
+        env_anchor = getattr(scene, '_env_anchor_path', None) if scene else None
+
         image_path, image_id = image_agent.generate_image(
             scene_id=scene_id,
             prompt=prompt,
@@ -706,6 +716,8 @@ class VideoAgent:
             character_reference_id=character_reference_id,
             character_reference_path=character_reference_path,
             character_reference_paths=character_reference_paths,  # v2.0: 복수 참조 이미지
+            style_anchor_path=style_anchor,           # v2.1: 스타일 앵커
+            environment_anchor_path=env_anchor,       # v2.1: 환경 앵커
             image_model=self.feature_flags.image_model if hasattr(self.feature_flags, 'image_model') else "standard"
         )
 

@@ -80,6 +80,8 @@ class ImageAgent:
         character_reference_id: Optional[str] = None,
         character_reference_path: Optional[str] = None,
         character_reference_paths: Optional[List[str]] = None,  # v2.0: 복수 참조 이미지
+        style_anchor_path: Optional[str] = None,           # v2.1: 스타일 앵커
+        environment_anchor_path: Optional[str] = None,     # v2.1: 환경 앵커
         image_model: str = "standard"  # standard / premium
     ) -> tuple:
         """
@@ -161,7 +163,9 @@ class ImageAgent:
                         output_path=output_path,
                         seed=seed,
                         character_reference_path=character_reference_path,
-                        character_reference_paths=character_reference_paths
+                        character_reference_paths=character_reference_paths,
+                        style_anchor_path=style_anchor_path,
+                        environment_anchor_path=environment_anchor_path
                     )
             except Exception as e:
                 error_msg = str(e)
@@ -193,7 +197,9 @@ class ImageAgent:
                                 output_path=output_path,
                                 seed=seed,
                                 character_reference_path=character_reference_path,
-                                character_reference_paths=character_reference_paths
+                                character_reference_paths=character_reference_paths,
+                                style_anchor_path=style_anchor_path,
+                                environment_anchor_path=environment_anchor_path
                             )
                     except Exception as retry_e:
                         print(f"     [Error] Retry with softened prompt failed: {retry_e}")
@@ -269,10 +275,13 @@ class ImageAgent:
         output_path: str,
         seed: Optional[int] = None,
         character_reference_path: Optional[str] = None,
-        character_reference_paths: Optional[List[str]] = None  # v2.0: 복수 참조 이미지
+        character_reference_paths: Optional[List[str]] = None,  # v2.0: 복수 참조 이미지
+        style_anchor_path: Optional[str] = None,           # v2.1: 스타일 앵커
+        environment_anchor_path: Optional[str] = None,     # v2.1: 환경 앵커
     ) -> tuple:
         """
         Call Google Gemini 2.5 Flash Image API for image generation.
+        v2.1: MultimodalPromptBuilder 통합 - 스타일/환경 앵커 지원
 
         Args:
             prompt: Image generation prompt
@@ -280,6 +289,9 @@ class ImageAgent:
             output_path: Path to save the generated image
             seed: Visual seed for consistency
             character_reference_path: Master character image path for reference
+            character_reference_paths: v2.0 - List of character reference paths
+            style_anchor_path: v2.1 - Style anchor image for visual consistency
+            environment_anchor_path: v2.1 - Environment anchor for background consistency
 
         Returns:
             Tuple of (image_path, image_id)
@@ -288,9 +300,7 @@ class ImageAgent:
             import requests
             import json
             import base64
-
-            # Enhance prompt for better quality
-            full_prompt = f"{style} style: {prompt}"
+            from utils.prompt_builder import MultimodalPromptBuilder
 
             print(f"     Calling Gemini 2.5 Flash Image API...")
 
@@ -307,40 +317,25 @@ class ImageAgent:
                 all_reference_paths.extend(character_reference_paths)
             if character_reference_path and character_reference_path not in all_reference_paths:
                 all_reference_paths.insert(0, character_reference_path)
+            # Filter to existing files
+            all_reference_paths = [p for p in all_reference_paths if p and os.path.exists(p)]
 
-            # Build contents array with multimodal parts
-            parts = []
+            # v2.1: Use MultimodalPromptBuilder for consistent part ordering
+            parts = MultimodalPromptBuilder.build_simple_request(
+                prompt=prompt,
+                character_reference_paths=all_reference_paths,
+                style=style,
+                style_anchor_path=style_anchor_path,
+                environment_anchor_path=environment_anchor_path,
+            )
 
-            # v2.0: Add all character reference images first
-            added_refs = 0
-            for ref_path in all_reference_paths[:3]:  # 최대 3개 참조 이미지
-                if ref_path and os.path.exists(ref_path):
-                    print(f"     Adding character reference [{added_refs + 1}]: {ref_path}")
-                    with open(ref_path, "rb") as ref_file:
-                        ref_image_data = base64.b64encode(ref_file.read()).decode('utf-8')
-                        # MIME type 추론
-                        ext = os.path.splitext(ref_path)[1].lower()
-                        mime_type = "image/png" if ext == ".png" else "image/jpeg"
-                        parts.append({
-                            "inline_data": {
-                                "mime_type": mime_type,
-                                "data": ref_image_data
-                            }
-                        })
-                        added_refs += 1
-
-            # 텍스트 프롬프트 구성
-            if added_refs > 0:
-                # 참조 이미지가 있을 때
-                ref_instruction = "Using the above character reference image(s), maintain exact character consistency. "
-                parts.append({
-                    "text": f"{ref_instruction}Generate: {full_prompt}. Maintain character faces, clothing, and distinctive features exactly. Aspect ratio 16:9, cinematic, professional photography."
-                })
-            else:
-                # 참조 이미지가 없을 때
-                parts.append({
-                    "text": f"Generate a high-quality image: {full_prompt}. Aspect ratio 16:9, cinematic, professional photography."
-                })
+            # Log what anchors are being used
+            if style_anchor_path and os.path.exists(style_anchor_path):
+                print(f"     [v2.1] Style anchor included: {os.path.basename(style_anchor_path)}")
+            if environment_anchor_path and os.path.exists(environment_anchor_path):
+                print(f"     [v2.1] Environment anchor included: {os.path.basename(environment_anchor_path)}")
+            if all_reference_paths:
+                print(f"     [v2.1] Character references: {len(all_reference_paths)}")
 
             payload = {
                 "contents": [{
