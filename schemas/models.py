@@ -170,9 +170,9 @@ class ProjectRequest(BaseModel):
     )
     language: str = Field(default="ko", description="언어 코드")
     voice_id: str = Field(
-        default="neural2_a",
+        default="pNInz6obpgDQGcFmaJgB",
         alias="voice",
-        description="TTS 목소리 (neural2_a, neural2_b, neural2_c, gemini_flash, gemini_pro)"
+        description="ElevenLabs voice ID (default: Adam)"
     )
     duration_target_sec: Optional[int] = Field(
         default=60,

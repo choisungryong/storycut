@@ -12,7 +12,7 @@ requests>=2.31.0
 boto3>=1.34.0  # R2/S3 Storage
 
 # TTS (Text-to-Speech)
-pyttsx3>=2.90  # Fallback TTS (offline, free)
+# ElevenLabs is the sole TTS provider (listed above)
 
 # Media processing
 ffmpeg-python>=0.2.0

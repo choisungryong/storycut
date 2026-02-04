@@ -264,7 +264,7 @@ class GenerateRequest(BaseModel):
     genre: str = "emotional"
     mood: str = "dramatic"
     style: str = "cinematic, high contrast"
-    voice: str = "voice_brian"  # Default voice
+    voice: str = "pNInz6obpgDQGcFmaJgB"  # Default voice (ElevenLabs Adam)
     duration: int = 60
     platform: str = "youtube_long"
 
@@ -888,7 +888,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 mood=request_params.get('mood', 'dramatic'),
                 style_preset=request_params.get('style_preset') or request_params.get('style', 'cinematic'),
                 duration_target_sec=request_params.get('duration_target_sec') or request_params.get('duration', 60),
-                voice_id=request_params.get('voice_id') or request_params.get('voice', 'onyx'),
+                voice_id=request_params.get('voice_id') or request_params.get('voice', 'pNInz6obpgDQGcFmaJgB'),
                 voice_over=request_params.get('voice_over', True),
                 bgm=request_params.get('bgm', True),
                 # subtitle_burn_in is what frontend sends. Map it to subtitles.
@@ -1073,7 +1073,7 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
             mood=req.request_params.get('mood', 'dramatic'),
             style_preset=req.request_params.get('style_preset') or req.request_params.get('style', 'cinematic'),
             duration_target_sec=req.request_params.get('duration_target_sec', 60),
-            voice_id=req.request_params.get('voice_id', 'onyx'),
+            voice_id=req.request_params.get('voice_id', 'pNInz6obpgDQGcFmaJgB'),
             voice_over=True,
             bgm=True,
             subtitles=req.request_params.get('subtitle_burn_in', True),
@@ -1320,86 +1320,26 @@ async def get_voice_sample(voice_id: str):
     # 캐시된 파일이 없으면 생성
     if not os.path.exists(file_path):
         print(f"[API] Generating sample for voice: {voice_id}")
-        agent = TTSAgent()
-        agent.voice = voice_id
-        
+        agent = TTSAgent(voice=voice_id)
+
         # 샘플 멘트
         text = "안녕하세요? 저는 당신의 이야기를 들려줄 AI 목소리입니다."
-        
+
         # TTS 생성 (Run synchronous agent method in threadpool)
         from starlette.concurrency import run_in_threadpool
-        
+
         try:
             def generate_sample():
-                try:
-                    print(f"[DEBUG] Processing sample for voice_id: '{voice_id}'")
-                    
-                    # 1. Try Google Neural2 / Gemini (PRIMARY)
-                    if voice_id.startswith("neural2") or voice_id.startswith("gemini"):
-                        print(f"[API] Generating Google/Gemini sample with voice: {voice_id}")
-                        if "gemini" in voice_id:
-                             # Gemini Options - Neural2와 확실히 다른 목소리 사용
-                             if "flash" in voice_id:
-                                 # Flash -> Wavenet A (여성, Neural2-A와 다른 톤)
-                                 voice_name = "ko-KR-Wavenet-A"
-                             else:
-                                 # Pro -> Wavenet D (남성, 깊은 목소리)
-                                 voice_name = "ko-KR-Wavenet-D"
-                             agent._call_google_neural2(text, voice_name, file_path)
-                        else:
-                             # Neural2 Options A, B, C
-                             voice_name = "ko-KR-Neural2-A" # Default
-                             if "_b" in voice_id:
-                                 voice_name = "ko-KR-Neural2-B"
-                             elif "_c" in voice_id or "male" in voice_id:
-                                 voice_name = "ko-KR-Neural2-C"
-                             
-                             agent._call_google_neural2(text, voice_name, file_path)
-                        return
-
-                    # 2. Try ElevenLabs
-                    elif hasattr(agent, '_call_elevenlabs_api') and agent.elevenlabs_key:
-                        # OpenAI voices -> ElevenLabs IDs mapping
-                        voice_map = {
-                            # --- TOP 3 SELECTED VOICES ---
-                            "voice_brian": "nPczCjzI2devNBz1zQrb",
-                            "voice_sarah": "EXAVITQu4vr4xnSDxMaL",
-                            "voice_laura": "FGY2WhTYpPnrIDTdsKH5",
-                            
-                            # Fallbacks
-                            "onyx": "nPczCjzI2devNBz1zQrb",
-                            "alloy": "EXAVITQu4vr4xnSDxMaL",
-                        }
-                        
-                        # Use mapped ID or fallback
-                        target_voice = voice_map.get(voice_id, "pNInz6obpgDQGcFmaJgB")
-                        print(f"[API] Generating ElevenLabs sample with voice: {target_voice} (mapped from {voice_id})")
-                        agent._call_elevenlabs_api(text, target_voice, file_path)
-                        
-                    # 3. Try OpenAI
-                    elif hasattr(agent, '_call_tts_api') and agent.api_key:
-                        agent._call_tts_api(text, file_path)
-                        
-                    # 4. Fallback: pyttsx3 (Local)
-                    elif hasattr(agent, '_call_pyttsx3_local'):
-                        print("[API] No Cloud API keys found. Using Local TTS.")
-                        agent._call_pyttsx3_local(0, text, file_path)
-                    
-                    else:
-                        raise Exception("No available TTS method found.")
-
-                except Exception as e:
-                    print(f"[API] Primary TTS failed ({e}). Trying fallback to Local...")
-                    # Critical Fallback: pyttsx3
-                    if hasattr(agent, '_call_pyttsx3_local'):
-                        agent._call_pyttsx3_local(0, text, file_path)
-                    else:
-                        raise e
+                print(f"[DEBUG] Processing sample for voice_id: '{voice_id}'")
+                if agent.elevenlabs_key:
+                    agent._call_elevenlabs_api(text, voice_id, file_path)
+                else:
+                    raise Exception("ELEVENLABS_API_KEY not set")
 
             await run_in_threadpool(generate_sample)
-            
+
         except Exception as e:
-            print(f"[API] All TTS methods failed: {e}")
+            print(f"[API] TTS sample generation failed: {e}")
             raise HTTPException(status_code=500, detail=f"TTS 생성 실패: {str(e)}")
             
     return FileResponse(file_path, media_type="audio/mpeg")
