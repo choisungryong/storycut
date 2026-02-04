@@ -1212,7 +1212,16 @@ class StorycutApp {
                 })
             });
 
-            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+            if (!response.ok) {
+                let errorDetail = response.statusText;
+                try {
+                    const errorBody = await response.json();
+                    errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
+                } catch (e) {
+                    try { errorDetail = await response.text(); } catch (e2) {}
+                }
+                throw new Error(`${response.status}: ${errorDetail}`);
+            }
 
             const result = await response.json();
             this.renderImagePreview(result);
@@ -1278,7 +1287,16 @@ class StorycutApp {
                 body: JSON.stringify({})
             });
 
-            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+            if (!response.ok) {
+                let errorDetail = response.statusText;
+                try {
+                    const errorBody = await response.json();
+                    errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
+                } catch (e) {
+                    try { errorDetail = await response.text(); } catch (e2) {}
+                }
+                throw new Error(`${response.status}: ${errorDetail}`);
+            }
 
             const result = await response.json();
             const img = card.querySelector('img');
@@ -1307,7 +1325,16 @@ class StorycutApp {
                 body: JSON.stringify({ motion_prompt: "camera slowly pans and zooms" })
             });
 
-            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+            if (!response.ok) {
+                let errorDetail = response.statusText;
+                try {
+                    const errorBody = await response.json();
+                    errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
+                } catch (e) {
+                    try { errorDetail = await response.text(); } catch (e2) {}
+                }
+                throw new Error(`${response.status}: ${errorDetail}`);
+            }
 
             btn.textContent = '✅ I2V';
             alert(`Scene ${sceneId} I2V 변환 완료!`);
@@ -1331,7 +1358,16 @@ class StorycutApp {
                 body: JSON.stringify({ enable: !isHook })
             });
 
-            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+            if (!response.ok) {
+                let errorDetail = response.statusText;
+                try {
+                    const errorBody = await response.json();
+                    errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
+                } catch (e) {
+                    try { errorDetail = await response.text(); } catch (e2) {}
+                }
+                throw new Error(`${response.status}: ${errorDetail}`);
+            }
 
             if (!isHook) {
                 card.classList.add('hook-video');
@@ -1373,7 +1409,16 @@ class StorycutApp {
                 })
             });
 
-            if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+            if (!response.ok) {
+                let errorDetail = response.statusText;
+                try {
+                    const errorBody = await response.json();
+                    errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
+                } catch (e) {
+                    try { errorDetail = await response.text(); } catch (e2) {}
+                }
+                throw new Error(`${response.status}: ${errorDetail}`);
+            }
 
             const result = await response.json();
             this.projectId = result.project_id;
