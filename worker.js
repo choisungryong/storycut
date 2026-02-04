@@ -321,21 +321,33 @@ STYLE: ${style}
 SCENE COUNT: Approx ${min_scenes}-${max_scenes} scenes.
 ${topic ? 'USER IDEA: ' + topic : ''}
 
+[LANGUAGE RULE - CRITICAL]
+- "project_title": 반드시 한국어로 작성 (예: "마지막 편지의 비밀")
+- "logline": 반드시 한국어로 작성
+- "outline" → "summary": 반드시 한국어로 작성
+- character "name": 한국어 이름 사용 (예: 지민, 준혁, 서연)
+- character "appearance": 영어로 작성 (이미지 생성용)
+
 [STRUCTURE REQUIREMENT: KI-SEUNG-JEON-GYEOL]
+1. **기 (Introduction)**: Hook the audience, introduce characters/setting.
+2. **승 (Development)**: Escalate tension, build the conflict.
+3. **전 (Twist)**: The climax, a shocking revelation or turning point.
+4. **결 (Resolution)**: **MANDATORY**. The aftermath. Show the consequence.
+
 OUTPUT FORMAT (JSON):
 {
-  "project_title": "Creative Title",
-  "logline": "One sentence summary including the ending",
+  "project_title": "한국어 제목 (Hook처럼 작동)",
+  "logline": "한 문장 요약 (한국어)",
   "global_style": {
     "art_style": "${style}",
     "color_palette": "e.g., Cyberpunk Neons",
     "visual_seed": ${Math.floor(Math.random() * 100000)}
   },
   "characters": {
-    "Name": {"name": "Name", "appearance": "Detailed description", "role": "Protagonist/Antagonist"}
+    "Name": {"name": "한국어 이름", "appearance": "Detailed description in English", "role": "Protagonist/Antagonist"}
   },
   "outline": [
-    { "scene_id": 1, "summary": "Brief summary", "estimated_duration": 5 }
+    { "scene_id": 1, "summary": "한국어로 간략한 요약", "estimated_duration": 5 }
   ]
 }
 `;
@@ -357,10 +369,29 @@ TASK: Generate detailed scene specs based on the approved structure.
 APPROVED STRUCTURE:
 ${structure_context}
 
-[STRICT] CHARACTER CONSISTENCY RULE: Use character IDs only (e.g., STORYCUT_HERO_A).
-OUTPUT FORMAT (JSON):
+REQUIREMENTS:
+- "narrative": 장면 설명 (반드시 한국어). 예: "지민이 카페 문을 열고 들어온다."
+- "tts_script": 나레이션 대사 (반드시 자연스러운 한국어 구어체). 예: "드디어 이곳인가..."
+- "image_prompt": Visual description for AI Image Generator (MUST BE English). ${style} style.
+- "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
+
+[LANGUAGE RULE - CRITICAL]
+- "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
+- "image_prompt"만 영어로 작성 (이미지 생성 AI용).
+- "title"도 반드시 한국어로 작성.
+
+[STRICT] CHARACTER CONSISTENCY RULE:
+- Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
+- DO NOT describe their physical appearance in "image_prompt".
+- Focus ONLY on the scene's action, lighting, and composition.
+
+[STRICT] ENDING RULE:
+- The final scenes MUST clearly show the conclusion.
+- The last "tts_script" should leave a lingering impression but NOT be open-ended.
+
+OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
 {
-  "title": "${structure_data.project_title || 'Untitled'}",
+  "title": "${structure_data.project_title || '제목 없음'}",
   "genre": "${genre}",
   "total_duration_sec": ${total_duration_sec},
   "character_sheet": ${JSON.stringify(structure_data.characters || {})},
@@ -369,7 +400,7 @@ OUTPUT FORMAT (JSON):
     {
       "scene_id": 1,
       "narrative": "STORYCUT_HERO_A가 카페 문을 열고 들어온다.",
-      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style.",
+      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style, high contrast, cinematic lighting.",
       "tts_script": "드디어 이곳인가...",
       "duration_sec": 5,
       "camera_work": "Close-up",
@@ -378,9 +409,9 @@ OUTPUT FORMAT (JSON):
     }
   ],
   "youtube_opt": {
-    "title_candidates": ["Title 1", "Title 2"],
-    "thumbnail_text": "Hook Text",
-    "hashtags": ["#Tag1", "#Tag2"]
+    "title_candidates": ["한국어 제목 후보 1", "한국어 제목 후보 2"],
+    "thumbnail_text": "한국어 Hook 텍스트",
+    "hashtags": ["#태그1", "#태그2"]
   }
 }
 `;

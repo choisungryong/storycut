@@ -222,7 +222,6 @@ class StorycutApp {
             this.updateProgress(90, '스토리 생성 완료! 결과를 불러오는 중...');
 
             const result = await response.json();
-            console.log('Worker response:', JSON.stringify(result));
 
             if (result.story_data) {
                 this.updateProgress(100, '스토리가 완성되었습니다!');
@@ -348,6 +347,8 @@ class StorycutApp {
         try {
             this.isGenerating = true;
             this.showSection('progress');
+            const progressTitle = document.getElementById('progress-title');
+            if (progressTitle) progressTitle.textContent = '⏳ 영상 생성 중...';
 
             let urlToUse = this.getApiBaseUrl();
 
