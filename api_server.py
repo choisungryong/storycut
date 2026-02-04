@@ -1238,6 +1238,77 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: dict = {"p
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/test/image")
+async def test_image_generation():
+    """
+    이미지 생성 테스트 엔드포인트.
+    Gemini 모델 폴백 확인용 — 참조 이미지 없이 간단한 프롬프트로 테스트.
+    """
+    import requests as req_lib
+    import base64
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        return {"status": "error", "detail": "GOOGLE_API_KEY not set"}
+
+    models = [
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.0-flash-exp",
+        "gemini-2.5-flash-preview-04-17",
+    ]
+
+    results = []
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": "Generate a simple image of a cute cat sitting on a chair, digital art style."}]}],
+            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+        }
+        try:
+            resp = req_lib.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=60)
+            has_image = False
+            text_content = ""
+            finish_reason = ""
+            if resp.status_code == 200:
+                data = resp.json()
+                if "candidates" in data and len(data["candidates"]) > 0:
+                    cand = data["candidates"][0]
+                    finish_reason = cand.get("finishReason", "")
+                    if "content" in cand and "parts" in cand["content"]:
+                        for part in cand["content"]["parts"]:
+                            if "inline_data" in part:
+                                has_image = True
+                            if "text" in part:
+                                text_content += part["text"][:100]
+            results.append({
+                "model": model,
+                "status_code": resp.status_code,
+                "has_image": has_image,
+                "text": text_content[:200] if text_content else None,
+                "finish_reason": finish_reason,
+                "error": resp.text[:200] if resp.status_code != 200 else None,
+            })
+            if has_image:
+                # 성공한 모델이 있으면 이미지를 테스트 파일로 저장
+                os.makedirs("outputs/_test", exist_ok=True)
+                for part in data["candidates"][0]["content"]["parts"]:
+                    if "inline_data" in part:
+                        img_data = base64.b64decode(part["inline_data"]["data"])
+                        with open("outputs/_test/test_image.png", "wb") as f:
+                            f.write(img_data)
+                        break
+                results[-1]["test_image_url"] = "/media/_test/test_image.png"
+        except Exception as e:
+            results.append({"model": model, "error": str(e)})
+
+    working = [r for r in results if r.get("has_image")]
+    return {
+        "status": "ok" if working else "all_failed",
+        "working_models": [r["model"] for r in working],
+        "details": results,
+    }
+
+
 @app.post("/api/convert/i2v/{project_id}/{scene_id}")
 async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"motion_prompt": None}):
     """

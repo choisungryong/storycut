@@ -1500,6 +1500,57 @@ class StorycutApp {
         }
     }
 
+    async testImageGeneration() {
+        const btn = document.getElementById('test-image-btn');
+        const resultDiv = document.getElementById('image-test-result');
+        btn.disabled = true;
+        btn.textContent = '🧪 테스트 중...';
+        resultDiv.style.display = 'block';
+        resultDiv.textContent = 'Gemini 이미지 모델 테스트 중...';
+
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/test/image`);
+            const data = await response.json();
+
+            let output = `상태: ${data.status}\n`;
+            output += `작동 모델: ${data.working_models?.join(', ') || '없음'}\n\n`;
+
+            for (const d of (data.details || [])) {
+                output += `--- ${d.model} ---\n`;
+                output += `  HTTP: ${d.status_code || 'N/A'}\n`;
+                output += `  이미지: ${d.has_image ? 'YES' : 'NO'}\n`;
+                if (d.text) output += `  텍스트: ${d.text}\n`;
+                if (d.finish_reason) output += `  finishReason: ${d.finish_reason}\n`;
+                if (d.error) output += `  에러: ${d.error}\n`;
+                if (d.test_image_url) {
+                    output += `  테스트 이미지: ${d.test_image_url}\n`;
+                    // 테스트 이미지 표시
+                    const testImg = document.createElement('img');
+                    testImg.src = `${this.getApiBaseUrl()}${d.test_image_url}?t=${Date.now()}`;
+                    testImg.style.cssText = 'max-width:200px; margin-top:8px; border-radius:8px;';
+                    resultDiv.appendChild(document.createElement('br'));
+                    resultDiv.appendChild(testImg);
+                }
+                output += '\n';
+            }
+
+            resultDiv.textContent = output;
+            // Re-append image if working
+            const working = data.details?.find(d => d.test_image_url);
+            if (working) {
+                const testImg = document.createElement('img');
+                testImg.src = `${this.getApiBaseUrl()}${working.test_image_url}?t=${Date.now()}`;
+                testImg.style.cssText = 'max-width:200px; margin-top:8px; border-radius:8px;';
+                resultDiv.appendChild(testImg);
+            }
+        } catch (error) {
+            resultDiv.textContent = `테스트 실패: ${error.message}`;
+        }
+
+        btn.textContent = '🧪 이미지 생성 테스트';
+        btn.disabled = false;
+    }
+
     async convertToVideo(projectId, sceneId) {
         const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
         const btn = card.querySelector('.btn-i2v');

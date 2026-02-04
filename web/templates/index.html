@@ -858,10 +858,15 @@
                     <div class="status-message" id="image-status-message">준비 중...</div>
                 </div>
                 <div id="image-preview-grid" class="image-preview-grid"></div>
+                <div id="image-test-result" style="display:none; margin: 10px 0; padding: 12px; border-radius: 8px; background: #1a1a2e; font-size: 13px; white-space: pre-wrap; max-height: 200px; overflow-y: auto;"></div>
                 <div class="review-actions">
                     <button id="back-to-review-btn" class="btn btn-secondary">
                         <span class="btn-icon">⬅️</span>
                         스토리 수정하기
+                    </button>
+                    <button id="test-image-btn" class="btn btn-secondary" onclick="app.testImageGeneration()">
+                        <span class="btn-icon">🧪</span>
+                        이미지 생성 테스트
                     </button>
                     <button id="approve-images-btn" class="btn btn-primary btn-large" disabled>
                         <span class="btn-icon">🎬</span>
