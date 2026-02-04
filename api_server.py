@@ -1310,13 +1310,22 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
 async def get_voice_sample(voice_id: str):
     """TTS 목소리 샘플 반환 (없으면 생성)"""
     from agents.tts_agent import TTSAgent
-    
+
     # 샘플 디렉토리
     sample_dir = "media/samples"
     os.makedirs(sample_dir, exist_ok=True)
-    
+
+    # 서버 시작 후 최초 1회: 이전 프로바이더 캐시 파일 정리
+    if not getattr(get_voice_sample, '_cache_cleaned', False):
+        for old_file in os.listdir(sample_dir):
+            old_path = os.path.join(sample_dir, old_file)
+            if os.path.isfile(old_path):
+                os.remove(old_path)
+                print(f"[API] Cleaned old sample cache: {old_file}")
+        get_voice_sample._cache_cleaned = True
+
     file_path = f"{sample_dir}/{voice_id}.mp3"
-    
+
     # 캐시된 파일이 없거나 빈 파일이면 (재)생성
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         # 빈 파일 정리
