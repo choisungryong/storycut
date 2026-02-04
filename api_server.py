@@ -1317,8 +1317,12 @@ async def get_voice_sample(voice_id: str):
     
     file_path = f"{sample_dir}/{voice_id}.mp3"
     
-    # 캐시된 파일이 없으면 생성
-    if not os.path.exists(file_path):
+    # 캐시된 파일이 없거나 빈 파일이면 (재)생성
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        # 빈 파일 정리
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
         print(f"[API] Generating sample for voice: {voice_id}")
         agent = TTSAgent(voice=voice_id)
 
@@ -1339,9 +1343,12 @@ async def get_voice_sample(voice_id: str):
             await run_in_threadpool(generate_sample)
 
         except Exception as e:
+            # 실패 시 빈/불완전 파일 정리
+            if os.path.exists(file_path):
+                os.remove(file_path)
             print(f"[API] TTS sample generation failed: {e}")
             raise HTTPException(status_code=500, detail=f"TTS 생성 실패: {str(e)}")
-            
+
     return FileResponse(file_path, media_type="audio/mpeg")
 
 
