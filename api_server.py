@@ -1241,8 +1241,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: dict = {"p
 @app.get("/api/test/image")
 async def test_image_generation():
     """
-    이미지 생성 테스트 엔드포인트.
-    Gemini 모델 폴백 확인용 — 참조 이미지 없이 간단한 프롬프트로 테스트.
+    이미지 생성 테스트 — gemini-2.5-flash-image (Nano Banana).
     """
     import requests as req_lib
     import base64
@@ -1251,61 +1250,52 @@ async def test_image_generation():
     if not api_key:
         return {"status": "error", "detail": "GOOGLE_API_KEY not set"}
 
-    models = [
-        "gemini-2.0-flash-exp-image-generation",
-        "gemini-2.5-flash-image",
-    ]
+    model = "gemini-2.5-flash-image"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": "Generate an image of a cute cat sitting on a chair, digital art style, cinematic."}]}],
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+    }
 
-    results = []
-    for model in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        payload = {
-            "contents": [{"parts": [{"text": "Generate a simple image of a cute cat sitting on a chair, digital art style."}]}],
-            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
-        }
-        try:
-            resp = req_lib.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=60)
-            has_image = False
-            text_content = ""
-            finish_reason = ""
-            if resp.status_code == 200:
-                data = resp.json()
-                if "candidates" in data and len(data["candidates"]) > 0:
-                    cand = data["candidates"][0]
-                    finish_reason = cand.get("finishReason", "")
-                    if "content" in cand and "parts" in cand["content"]:
-                        for part in cand["content"]["parts"]:
-                            if "inline_data" in part:
-                                has_image = True
-                            if "text" in part:
-                                text_content += part["text"][:100]
-            results.append({
-                "model": model,
-                "status_code": resp.status_code,
-                "has_image": has_image,
-                "text": text_content[:200] if text_content else None,
-                "finish_reason": finish_reason,
-                "error": resp.text[:200] if resp.status_code != 200 else None,
-            })
-            if has_image:
-                # 성공한 모델이 있으면 이미지를 테스트 파일로 저장
-                os.makedirs("outputs/_test", exist_ok=True)
-                for part in data["candidates"][0]["content"]["parts"]:
-                    if "inline_data" in part:
-                        img_data = base64.b64decode(part["inline_data"]["data"])
+    try:
+        resp = req_lib.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=60)
+        has_image = False
+        text_content = ""
+        finish_reason = ""
+        response_keys = []
+
+        if resp.status_code == 200:
+            data = resp.json()
+            if "candidates" in data and len(data["candidates"]) > 0:
+                cand = data["candidates"][0]
+                finish_reason = cand.get("finishReason", "")
+                parts = cand.get("content", {}).get("parts", [])
+                response_keys = [list(p.keys()) for p in parts]
+                for part in parts:
+                    # REST API는 camelCase (inlineData), SDK는 snake_case (inline_data)
+                    image_part = part.get("inlineData") or part.get("inline_data")
+                    if image_part:
+                        has_image = True
+                        os.makedirs("outputs/_test", exist_ok=True)
+                        img_data = base64.b64decode(image_part["data"])
                         with open("outputs/_test/test_image.png", "wb") as f:
                             f.write(img_data)
-                        break
-                results[-1]["test_image_url"] = "/media/_test/test_image.png"
-        except Exception as e:
-            results.append({"model": model, "error": str(e)})
+                    if "text" in part:
+                        text_content += part["text"][:100]
 
-    working = [r for r in results if r.get("has_image")]
-    return {
-        "status": "ok" if working else "all_failed",
-        "working_models": [r["model"] for r in working],
-        "details": results,
-    }
+        return {
+            "status": "ok" if has_image else "failed",
+            "model": model,
+            "status_code": resp.status_code,
+            "has_image": has_image,
+            "text": text_content[:200] if text_content else None,
+            "finish_reason": finish_reason,
+            "response_part_keys": response_keys,
+            "test_image_url": "/media/_test/test_image.png" if has_image else None,
+            "error": resp.text[:200] if resp.status_code != 200 else None,
+        }
+    except Exception as e:
+        return {"status": "error", "model": model, "error": str(e)}
 
 
 @app.post("/api/convert/i2v/{project_id}/{scene_id}")

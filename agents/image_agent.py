@@ -263,9 +263,12 @@ class ImageAgent:
             import base64
             from utils.prompt_builder import MultimodalPromptBuilder
 
-            headers = {
-                "Content-Type": "application/json"
-            }
+            print(f"     Calling Gemini 2.5 Flash Image API...")
+
+            headers = {"Content-Type": "application/json"}
+
+            # Google Gemini API endpoint (Nano Banana)
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={self.nanobanana_token}"
 
             # v2.0: 단일 참조를 복수 참조 리스트로 통합
             all_reference_paths = []
@@ -273,7 +276,6 @@ class ImageAgent:
                 all_reference_paths.extend(character_reference_paths)
             if character_reference_path and character_reference_path not in all_reference_paths:
                 all_reference_paths.insert(0, character_reference_path)
-            # Filter to existing files
             all_reference_paths = [p for p in all_reference_paths if p and os.path.exists(p)]
 
             # v2.1: Use MultimodalPromptBuilder for consistent part ordering
@@ -293,101 +295,47 @@ class ImageAgent:
             if all_reference_paths:
                 print(f"     [v2.1] Character references: {len(all_reference_paths)}")
 
-            # 모델 폴백 리스트 (순서대로 시도)
-            MODELS = [
-                "gemini-2.0-flash-exp-image-generation",
-                "gemini-2.5-flash-image",
-            ]
-
-            # Note: Gemini Flash Image doesn't support seed parameter
-            if seed is not None:
-                print(f"     [Warning] Seed parameter not supported in Gemini Flash Image")
-
-            last_error = None
-            for model_name in MODELS:
-                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.nanobanana_token}"
-                print(f"     [Gemini] Trying model: {model_name}")
-
-                payload = {
-                    "contents": [{"parts": parts}],
-                    "generationConfig": {
-                        "responseModalities": ["TEXT", "IMAGE"]
-                    }
+            payload = {
+                "contents": [{"parts": parts}],
+                "generationConfig": {
+                    "responseModalities": ["TEXT", "IMAGE"]
                 }
+            }
 
-                try:
-                    response = requests.post(
-                        api_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=120
-                    )
+            response = requests.post(api_url, headers=headers, json=payload, timeout=120)
 
-                    if response.status_code != 200:
-                        error_text = response.text[:300]
-                        print(f"     [Gemini] {model_name} → {response.status_code}: {error_text}")
-                        last_error = f"{model_name}: {response.status_code}"
-                        continue
+            if response.status_code != 200:
+                error_text = response.text[:500]
+                print(f"     [Gemini DEBUG] Status: {response.status_code}, Response: {error_text}")
+                raise RuntimeError(f"Gemini API error: {response.status_code} - {error_text}")
 
-                    result = response.json()
+            result = response.json()
 
-                    # Extract image from response
-                    if "candidates" in result and len(result["candidates"]) > 0:
-                        candidate = result["candidates"][0]
-                        if "content" in candidate and "parts" in candidate["content"]:
-                            for part in candidate["content"]["parts"]:
-                                if "inline_data" in part:
-                                    image_data = base64.b64decode(part["inline_data"]["data"])
-                                    with open(output_path, "wb") as f:
-                                        f.write(image_data)
-                                    print(f"     Image saved ({model_name}): {output_path}")
-                                    return (output_path, None)
-                            # Log text parts if no image
-                            text_parts = [p.get("text", "") for p in candidate["content"]["parts"] if "text" in p]
-                            if text_parts:
-                                print(f"     [Gemini] {model_name} returned text: {' '.join(text_parts)[:200]}")
-                        finish_reason = candidate.get("finishReason", "")
-                        if finish_reason:
-                            print(f"     [Gemini] {model_name} finishReason: {finish_reason}")
+            # Extract image from response
+            # NOTE: REST API returns camelCase keys (inlineData), not snake_case (inline_data)
+            if "candidates" in result and len(result["candidates"]) > 0:
+                candidate = result["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    for part in candidate["content"]["parts"]:
+                        # camelCase (REST API) 또는 snake_case (SDK) 모두 지원
+                        image_part = part.get("inlineData") or part.get("inline_data")
+                        if image_part:
+                            image_data = base64.b64decode(image_part["data"])
+                            with open(output_path, "wb") as f:
+                                f.write(image_data)
+                            print(f"     Image saved: {output_path}")
+                            return (output_path, None)
+                    # Log text parts if no image found
+                    text_parts = [p.get("text", "") for p in candidate["content"]["parts"] if "text" in p]
+                    if text_parts:
+                        print(f"     [Gemini] Returned text instead of image: {' '.join(text_parts)[:200]}")
 
-                    last_error = f"{model_name}: no image data"
-                    print(f"     [Gemini] {model_name} → no image data, trying next model...")
+                finish_reason = candidate.get("finishReason", "")
+                if finish_reason:
+                    print(f"     [Gemini] finishReason: {finish_reason}")
 
-                except Exception as model_err:
-                    last_error = f"{model_name}: {model_err}"
-                    print(f"     [Gemini] {model_name} error: {model_err}")
-                    continue
-
-            # 모든 모델 실패 시 텍스트 전용 프롬프트로 마지막 시도
-            print(f"     [Gemini] All models failed with references. Trying text-only prompt...")
-            text_only_parts = [{"text": f"Generate a high-quality image: {style} style. {prompt}. Aspect ratio 16:9, cinematic."}]
-            for model_name in MODELS[:2]:
-                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.nanobanana_token}"
-                payload = {
-                    "contents": [{"parts": text_only_parts}],
-                    "generationConfig": {
-                        "responseModalities": ["TEXT", "IMAGE"]
-                    }
-                }
-                try:
-                    response = requests.post(api_url, headers=headers, json=payload, timeout=120)
-                    if response.status_code == 200:
-                        result = response.json()
-                        if "candidates" in result and len(result["candidates"]) > 0:
-                            candidate = result["candidates"][0]
-                            if "content" in candidate and "parts" in candidate["content"]:
-                                for part in candidate["content"]["parts"]:
-                                    if "inline_data" in part:
-                                        image_data = base64.b64decode(part["inline_data"]["data"])
-                                        with open(output_path, "wb") as f:
-                                            f.write(image_data)
-                                        print(f"     Image saved (text-only, {model_name}): {output_path}")
-                                        return (output_path, None)
-                    print(f"     [Gemini] text-only {model_name} → failed")
-                except Exception as e:
-                    print(f"     [Gemini] text-only {model_name} error: {e}")
-
-            raise RuntimeError(f"All Gemini models failed. Last: {last_error}")
+            print(f"     [Gemini DEBUG] Response keys: {list(result.keys())}")
+            raise RuntimeError("No image data found in Gemini API response")
 
         except ImportError:
             raise RuntimeError("requests library not installed")
