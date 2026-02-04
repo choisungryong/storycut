@@ -69,12 +69,19 @@ MOOD: {mood}
 STYLE: {style}
 SCENE COUNT: Approx {min_scenes}-{max_scenes} scenes.
 
+[LANGUAGE RULE - CRITICAL]
+- "project_title": 반드시 한국어로 작성 (예: "마지막 편지의 비밀")
+- "logline": 반드시 한국어로 작성
+- "outline" → "summary": 반드시 한국어로 작성
+- character "name": 한국어 이름 사용 (예: 지민, 준혁, 서연)
+- character "appearance": 영어로 작성 (이미지 생성용)
+
 {'USER IDEA: ' + user_idea if user_idea else ''}
 
 OUTPUT FORMAT (JSON):
 {{
-  "project_title": "Creative Title",
-  "logline": "One sentence summary",
+  "project_title": "한국어 제목 (Hook처럼 작동)",
+  "logline": "한 문장 요약 (한국어)",
   "global_style": {{
     "art_style": "{style}",
     "color_palette": "e.g., Cyberpunk Neons",
@@ -117,10 +124,15 @@ APPROVED STRUCTURE:
 
 REQUIREMENTS:
 - Follow the outline exactly.
-- "narrative": The action description (Korean).
-- "tts_script": The spoken line (Korean). Natural, conversational.
-- "image_prompt": Visual description for AI Image Generator (English). {style} style.
+- "narrative": 장면 설명 (반드시 한국어). 예: "지민이 카페 문을 열고 들어온다."
+- "tts_script": 나레이션 대사 (반드시 자연스러운 한국어 구어체). 예: "드디어 이곳인가..."
+- "image_prompt": Visual description for AI Image Generator (MUST BE English). {style} style.
 - "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
+
+[LANGUAGE RULE - CRITICAL]
+- "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
+- "image_prompt"만 영어로 작성 (이미지 생성 AI용).
+- "title"도 반드시 한국어로 작성.
 
 [STRICT] CHARACTER CONSISTENCY RULE:
 - Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
@@ -129,9 +141,9 @@ REQUIREMENTS:
 - Correct example: "STORYCUT_HERO_A is running through the rain, city lights background, cinematic lighting."
 - Wrong example: "A young woman with red hair is running..." (DO NOT DO THIS)
 
-OUTPUT FORMAT (JSON):
+OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
 {{
-  "title": "{structure_data.get('project_title', 'Untitled')}",
+  "title": "{structure_data.get('project_title', '제목 없음')}",
   "genre": "{genre}",
   "total_duration_sec": {total_duration_sec},
   "character_sheet": {json.dumps(structure_data.get('characters', {}), ensure_ascii=False)},
@@ -149,9 +161,9 @@ OUTPUT FORMAT (JSON):
     }}
   ],
   "youtube_opt": {{
-    "title_candidates": ["Title 1", "Title 2"],
-    "thumbnail_text": "Hook Text",
-    "hashtags": ["#Tag1", "#Tag2"]
+    "title_candidates": ["한국어 제목 후보 1", "한국어 제목 후보 2"],
+    "thumbnail_text": "한국어 Hook 텍스트",
+    "hashtags": ["#태그1", "#태그2"]
   }}
 }}
 """

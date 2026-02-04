@@ -47,14 +47,14 @@ class ImageAgent:
 
         print(f"[ImageAgent] Init - ReplicateToken: {'YES' if self.replicate_token else 'NO'}, NanoToken: {'YES' if self.nanobanana_token else 'NO'}")
 
-        # Prioritize Replicate if available
-        if self.replicate_token:
-            self.service = "replicate"
-            print("[ImageAgent] Using Replicate for image generation.")
-        # Fallback to NanoBanana if available
-        elif self.nanobanana_token:
+        # Prioritize Gemini 2.5 Flash Image (direct API) if available
+        if self.nanobanana_token:
             self.service = "nanobana"
-            print("[ImageAgent] Using NanoBanana (Google API Key) for image generation.")
+            print("[ImageAgent] Using Gemini 2.5 Flash Image (direct API) for image generation.")
+        # Fallback to Replicate if available
+        elif self.replicate_token:
+            self.service = "replicate"
+            print("[ImageAgent] Using Replicate for image generation (fallback).")
 
     @property
     def llm_client(self):
@@ -84,9 +84,9 @@ class ImageAgent:
     ) -> tuple:
         """
         Generate an image with specific model strategies.
-        
-        Standard: Replicate -> Gemini 2.5 Flash Image -> Placeholder
-        Premium: Gemini 3 Pro Image -> Replicate -> Placeholder
+
+        Standard: Gemini 2.5 Flash Image -> Replicate -> Placeholder
+        Premium: Gemini 2.5 Flash Image (high) -> Replicate -> Placeholder
         """
         print(f"[ImageAgent v2.3] Generating Image for Scene {scene_id} | Model: {image_model}")
 
@@ -126,16 +126,13 @@ class ImageAgent:
         attempts = []
         
         if image_model == "premium":
-            # Premium: Try Gemini 3 Pro first (if available/implemented), then Replicate
-            # Currently mapping 'gemini-3-pro-image-preview' to Replicate with high quality settings or specific mock
-            # Since Gemini 3 Image is not standard yet, we might use a specific Replicate model or Gemini if available.
-            # For now, let's treat Premium as High Quality Replicate or Gemini
+            # Premium: Gemini Flash Image first, then Replicate fallback
+            attempts.append(("gemini_flash", "high"))
             attempts.append(("replicate", "premium"))
-            attempts.append(("gemini_flash", "high")) # Backup
         else:
-            # Standard: Replicate -> Gemini Flash
-            attempts.append(("replicate", "standard"))
+            # Standard: Gemini Flash Image first, Replicate fallback
             attempts.append(("gemini_flash", "standard"))
+            attempts.append(("replicate", "standard"))
 
         # -------------------------------------------------------------------------
         # Execution Loop
@@ -350,6 +347,7 @@ class ImageAgent:
                     "parts": parts
                 }],
                 "generationConfig": {
+                    "responseModalities": ["image"],
                     "response_modalities": ["image"]
                 }
             }
@@ -366,7 +364,9 @@ class ImageAgent:
             )
 
             if response.status_code != 200:
-                raise RuntimeError(f"Gemini API error: {response.status_code} - {response.text}")
+                error_text = response.text[:500]
+                print(f"     [Gemini DEBUG] Status: {response.status_code}, Response: {error_text}")
+                raise RuntimeError(f"Gemini API error: {response.status_code} - {error_text}")
 
             result = response.json()
 
@@ -592,7 +592,12 @@ class ImageAgent:
         except ImportError:
             raise RuntimeError("replicate library not installed")
         except Exception as e:
-            print(f"     Replicate API error: {e}")
+            error_msg = str(e).lower()
+            if any(kw in error_msg for kw in ["quota", "rate", "limit", "429", "exceeded", "billing", "payment"]):
+                print(f"     [Replicate] QUOTA/RATE LIMIT exceeded: {e}")
+                print(f"     [Replicate] Will fallback to Gemini Flash Image...")
+            else:
+                print(f"     Replicate API error: {e}")
             raise
 
     def _enhance_generic_prompt(self, prompt: str) -> str:
