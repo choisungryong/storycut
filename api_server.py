@@ -800,8 +800,8 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
     initial_manifest = {
         "project_id": project_id,
         "status": "processing",
-        "progress": 5,
-        "message": "영상 생성 준비 중...",
+        "progress": 25,
+        "message": "장면 처리 준비 중...",
         "created_at": datetime.now().isoformat(),
         "title": req.story_data.get("title", "제목 없음"),
         "input": {},

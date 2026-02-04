@@ -1655,7 +1655,15 @@ class StorycutApp {
         }
 
         this.showSection('progress');
+        const progressTitle = document.getElementById('progress-title');
+        if (progressTitle) progressTitle.textContent = '⏳ 영상 생성 중...';
         this.resetProgress();
+        // 스토리는 이미 완료 → 스토리 단계 건너뛰기
+        this.updateStepStatus('story', '완료');
+        const storyStep = document.querySelector('[data-step="story"]');
+        if (storyStep) storyStep.classList.add('completed');
+        this.updateProgress(25, '영상 생성 시작 중...');
+        this.updateStepStatus('scenes', '장면 처리 준비 중');
 
         try {
             const response = await fetch(`${this.getApiBaseUrl()}/api/generate/video`, {
