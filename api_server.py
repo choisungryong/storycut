@@ -1252,9 +1252,8 @@ async def test_image_generation():
         return {"status": "error", "detail": "GOOGLE_API_KEY not set"}
 
     models = [
-        "gemini-2.0-flash-preview-image-generation",
-        "gemini-2.0-flash-exp",
-        "gemini-2.5-flash-preview-04-17",
+        "gemini-2.0-flash-exp-image-generation",
+        "gemini-2.5-flash-image",
     ]
 
     results = []

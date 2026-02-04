@@ -295,9 +295,8 @@ class ImageAgent:
 
             # 모델 폴백 리스트 (순서대로 시도)
             MODELS = [
-                "gemini-2.0-flash-preview-image-generation",
-                "gemini-2.0-flash-exp",
-                "gemini-2.5-flash-preview-04-17",
+                "gemini-2.0-flash-exp-image-generation",
+                "gemini-2.5-flash-image",
             ]
 
             # Note: Gemini Flash Image doesn't support seed parameter
