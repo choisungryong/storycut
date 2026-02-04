@@ -1054,32 +1054,11 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
         json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
     
     try:
-        # request_params를 ProjectRequest로 변환
-        from schemas import ProjectRequest, FeatureFlags
         from starlette.concurrency import run_in_threadpool
-        
-        feature_flags = FeatureFlags(
-            hook_scene1_video=req.request_params.get('hook_scene1_video', False),
-            ffmpeg_kenburns=req.request_params.get('ffmpeg_kenburns', True),
-            ffmpeg_audio_ducking=req.request_params.get('ffmpeg_audio_ducking', False),
-            subtitle_burn_in=req.request_params.get('subtitle_burn_in', True),
-            context_carry_over=req.request_params.get('context_carry_over', True),
-            optimization_pack=req.request_params.get('optimization_pack', True),
-        )
-        
-        request_obj = ProjectRequest(
-            topic=req.request_params.get('topic'),
-            genre=req.request_params.get('genre', 'emotional'),
-            mood=req.request_params.get('mood', 'dramatic'),
-            style_preset=req.request_params.get('style_preset') or req.request_params.get('style', 'cinematic'),
-            duration_target_sec=req.request_params.get('duration_target_sec', 60),
-            voice_id=req.request_params.get('voice_id', 'uyVNoMrnUku1dZyVEXwD'),
-            voice_over=True,
-            bgm=True,
-            subtitles=req.request_params.get('subtitle_burn_in', True),
-            feature_flags=feature_flags
-        )
-        
+
+        # req.request_params는 이미 ProjectRequest 객체
+        request_obj = req.request_params
+
         # Pipeline에서 이미지만 생성
         pipeline = StorycutPipeline()
         result = await run_in_threadpool(
