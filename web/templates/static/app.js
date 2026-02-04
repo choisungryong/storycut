@@ -203,19 +203,40 @@ class StorycutApp {
                 }
             }, 2500);
 
-            // 스토리 생성 (Worker에서 동기 처리 - Gemini 완료까지 대기)
+            // 스토리 생성: Worker 먼저 시도, 타임아웃 시 Railway 폴백
             const workerUrl = this.getWorkerUrl();
-            const response = await fetch(`${workerUrl}/api/generate/story`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
-            });
+            const railwayUrl = this.getApiBaseUrl();
+            let response;
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 120000); // 2분 타임아웃
+                response = await fetch(`${workerUrl}/api/generate/story`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+            } catch (workerError) {
+                console.warn('[Story] Worker 실패, Railway 폴백:', workerError.message);
+                this.updateProgress(40, 'Worker 타임아웃 — 백엔드로 재시도 중...');
+                response = await fetch(`${railwayUrl}/api/generate/story`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+            }
 
             clearInterval(progressInterval);
 
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || error.error || '스토리 생성 실패');
+                let errorMsg = '스토리 생성 실패';
+                try {
+                    const error = await response.json();
+                    errorMsg = error.detail || error.error || errorMsg;
+                } catch (e) {}
+                throw new Error(errorMsg);
             }
 
             // 완료 애니메이션
