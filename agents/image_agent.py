@@ -303,8 +303,7 @@ class ImageAgent:
                     "parts": parts
                 }],
                 "generationConfig": {
-                    "responseModalities": ["image"],
-                    "response_modalities": ["image"]
+                    "responseModalities": ["TEXT", "IMAGE"]
                 }
             }
 
