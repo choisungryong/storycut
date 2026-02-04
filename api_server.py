@@ -264,7 +264,7 @@ class GenerateRequest(BaseModel):
     genre: str = "emotional"
     mood: str = "dramatic"
     style: str = "cinematic, high contrast"
-    voice: str = "pNInz6obpgDQGcFmaJgB"  # Default voice (ElevenLabs Adam)
+    voice: str = "uyVNoMrnUku1dZyVEXwD"  # Default voice (ElevenLabs Anna Kim)
     duration: int = 60
     platform: str = "youtube_long"
 
@@ -888,7 +888,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 mood=request_params.get('mood', 'dramatic'),
                 style_preset=request_params.get('style_preset') or request_params.get('style', 'cinematic'),
                 duration_target_sec=request_params.get('duration_target_sec') or request_params.get('duration', 60),
-                voice_id=request_params.get('voice_id') or request_params.get('voice', 'pNInz6obpgDQGcFmaJgB'),
+                voice_id=request_params.get('voice_id') or request_params.get('voice', 'uyVNoMrnUku1dZyVEXwD'),
                 voice_over=request_params.get('voice_over', True),
                 bgm=request_params.get('bgm', True),
                 # subtitle_burn_in is what frontend sends. Map it to subtitles.
@@ -1073,7 +1073,7 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
             mood=req.request_params.get('mood', 'dramatic'),
             style_preset=req.request_params.get('style_preset') or req.request_params.get('style', 'cinematic'),
             duration_target_sec=req.request_params.get('duration_target_sec', 60),
-            voice_id=req.request_params.get('voice_id', 'pNInz6obpgDQGcFmaJgB'),
+            voice_id=req.request_params.get('voice_id', 'uyVNoMrnUku1dZyVEXwD'),
             voice_over=True,
             bgm=True,
             subtitles=req.request_params.get('subtitle_burn_in', True),

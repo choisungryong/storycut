@@ -170,7 +170,7 @@ class ProjectRequest(BaseModel):
     )
     language: str = Field(default="ko", description="언어 코드")
     voice_id: str = Field(
-        default="pNInz6obpgDQGcFmaJgB",
+        default="uyVNoMrnUku1dZyVEXwD",
         alias="voice",
         description="ElevenLabs voice ID (default: Adam)"
     )

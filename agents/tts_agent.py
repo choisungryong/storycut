@@ -25,7 +25,7 @@ class TTSAgent:
     Fallback: silent placeholder audio.
     """
 
-    def __init__(self, voice: str = "pNInz6obpgDQGcFmaJgB"):
+    def __init__(self, voice: str = "uyVNoMrnUku1dZyVEXwD"):
         """
         Initialize TTS Agent.
 
