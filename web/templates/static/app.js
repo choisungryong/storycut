@@ -1205,6 +1205,7 @@ class StorycutApp {
             });
 
             console.log('[Image Generation] Starting (async)...');
+            console.log('[Image Generation] Scenes count:', this.currentStoryData.scenes?.length);
 
             const response = await fetch(`${apiUrl}/api/generate/images`, {
                 method: 'POST',
@@ -1229,10 +1230,12 @@ class StorycutApp {
 
             const result = await response.json();
             this.projectId = result.project_id;
+            console.log('[Image Generation] Response:', JSON.stringify(result));
 
             // 즉시 프리뷰 화면으로 전환 (플레이스홀더 표시)
             this.renderImagePreviewPlaceholders(this.currentStoryData.scenes, result.total_scenes);
             this.showSection('image-preview');
+            console.log('[Image Generation] Section switched to image-preview');
 
             // 진행 바 표시
             const progressContainer = document.getElementById('image-progress-container');
@@ -1310,13 +1313,27 @@ class StorycutApp {
         this.imagePollingInterval = setInterval(async () => {
             try {
                 const response = await fetch(`${apiUrl}/api/status/images/${projectId}`);
-                if (!response.ok) return;
+                if (!response.ok) {
+                    console.warn(`[Image Polling] HTTP ${response.status}`);
+                    return;
+                }
 
                 const data = await response.json();
                 const { completed, total, scenes, status, error_message } = data;
+                console.log(`[Image Polling] status=${status}, completed=${completed}/${total}, scenes=${scenes?.length || 0}`);
+
+                // 상태별 메시지 표시
+                let statusMsg = `Scene ${completed}/${total} 완료`;
+                if (status === 'not_found') {
+                    statusMsg = '프로젝트 초기화 중...';
+                } else if (status === 'preparing') {
+                    statusMsg = '스타일/캐릭터 앵커 준비 중...';
+                } else if (status === 'generating_images' && completed === 0) {
+                    statusMsg = '이미지 생성 시작 중...';
+                }
 
                 // 진행 바 업데이트
-                this.updateImageProgress(completed, total, `Scene ${completed}/${total} 완료`);
+                this.updateImageProgress(completed, total, statusMsg);
 
                 // 완료된 씬 카드 업데이트
                 scenes.forEach(scene => {
@@ -1365,8 +1382,8 @@ class StorycutApp {
                     }
                 });
 
-                // 전체 완료 체크
-                if (status === 'images_ready' || (completed === total && total > 0)) {
+                // 전체 완료 체크 (preparing/generating 단계에서는 완료 아님)
+                if (status === 'images_ready' || (status !== 'preparing' && status !== 'generating_images' && status !== 'not_found' && completed === total && total > 0)) {
                     clearInterval(this.imagePollingInterval);
                     this.imagePollingInterval = null;
 

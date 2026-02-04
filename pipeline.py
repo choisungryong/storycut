@@ -270,44 +270,58 @@ class StorycutPipeline:
         
         # Manifest 초기화
         from schemas import GlobalStyle, CharacterSheet
-        
+
         manifest = Manifest(
             project_id=project_id,
             input=request,
-            status="images_generated",  # Special status
+            status="preparing",  # 준비 단계
             title=story_data.get("title"),
             script=json.dumps(story_data, ensure_ascii=False)
         )
-        
+
         # v2.0: character_sheet와 global_style 저장
         if "character_sheet" in story_data:
             manifest.character_sheet = {
                 token: CharacterSheet(**data)
                 for token, data in story_data["character_sheet"].items()
             }
-            
+
         if "global_style" in story_data:
             manifest.global_style = GlobalStyle(**story_data["global_style"])
-        
+
+        # 초기 manifest 즉시 저장 (프론트엔드 폴링이 바로 데이터를 받을 수 있도록)
+        total_scenes = len(story_data['scenes'])
+        manifest.scenes = []
+        for idx, sd in enumerate(story_data['scenes'], start=1):
+            scene = Scene(
+                index=idx,
+                scene_id=sd.get("scene_id", idx),
+                sentence=sd.get("narration", ""),
+                narration=sd.get("narration"),
+                status="pending",
+            )
+            manifest.scenes.append(scene)
+        self._save_manifest(manifest, project_dir)
+
         # Style Anchor 생성 (v2.0)
         style_anchor_path = None
         env_anchors = {}
         style_anchor_agent = StyleAnchorAgent()
-        
+
         if manifest.global_style:
             print(f"\n[StyleAnchor] Generating style anchor image...")
             style_anchor_path = style_anchor_agent.generate_style_anchor(
                 global_style=manifest.global_style,
                 project_dir=project_dir
             )
-            
+
             print(f"\n[EnvAnchors] Generating environment anchors...")
             env_anchors = style_anchor_agent.generate_environment_anchors(
                 scenes=story_data["scenes"],
                 global_style=manifest.global_style,
                 project_dir=project_dir
             )
-        
+
         # Character Casting (v2.0)
         if manifest.character_sheet:
             print(f"\n[Characters] Casting character anchor images...")
@@ -317,27 +331,18 @@ class StorycutPipeline:
                 global_style=manifest.global_style,
                 project_dir=project_dir
             )
-            
+
             # Update story_data with master_image_path
             if "character_sheet" in story_data:
                 for token, image_path in character_images.items():
                     if token in story_data["character_sheet"]:
                         story_data["character_sheet"][token]["master_image_path"] = image_path
-        
+
+        # 준비 완료 → 이미지 생성 시작
+        manifest.status = "generating_images"
+        self._save_manifest(manifest, project_dir)
+
         try:
-            # 초기 manifest에 전체 scene을 pending으로 저장 (프로그레시브 로딩용)
-            total_scenes = len(story_data['scenes'])
-            manifest.scenes = []
-            for idx, sd in enumerate(story_data['scenes'], start=1):
-                scene = Scene(
-                    index=idx,
-                    scene_id=sd.get("scene_id", idx),
-                    sentence=sd.get("narration", ""),
-                    narration=sd.get("narration"),
-                    status="pending",
-                )
-                manifest.scenes.append(scene)
-            self._save_manifest(manifest, project_dir)
 
             # Generate ONLY images (no TTS, no video)
             print(f"\n[IMAGES ONLY] Generating images for {total_scenes} scenes...")
