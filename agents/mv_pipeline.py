@@ -445,14 +445,28 @@ class MVPipeline:
             for i, scene in enumerate(completed_scenes):
                 clip_path = f"{project_dir}/media/video/scene_{scene.scene_id:02d}.mp4"
 
+                # 이미지 파일 존재 확인
+                if not os.path.exists(scene.image_path):
+                    print(f"    [WARNING] Image not found: {scene.image_path}")
+                    continue
+
                 # Ken Burns 효과로 이미지 → 비디오
                 effect = effect_types[i % len(effect_types)]
-                self.ffmpeg_composer.ken_burns_clip(
-                    image_path=scene.image_path,
-                    out_path=clip_path,
-                    duration_sec=scene.duration_sec,
-                    effect_type=effect
-                )
+                try:
+                    self.ffmpeg_composer.ken_burns_clip(
+                        image_path=scene.image_path,
+                        out_path=clip_path,
+                        duration_sec=scene.duration_sec,
+                        effect_type=effect
+                    )
+                except Exception as kb_err:
+                    print(f"    [WARNING] Ken Burns failed, using static: {kb_err}")
+                    # Fallback: 정적 이미지 → 비디오
+                    self._image_to_static_video(
+                        scene.image_path,
+                        clip_path,
+                        scene.duration_sec
+                    )
 
                 scene.video_path = clip_path
                 video_clips.append(clip_path)
@@ -556,6 +570,31 @@ class MVPipeline:
     # ================================================================
     # 유틸리티
     # ================================================================
+
+    def _image_to_static_video(
+        self,
+        image_path: str,
+        output_path: str,
+        duration_sec: float
+    ):
+        """이미지를 정적 비디오로 변환 (Ken Burns 실패 시 fallback)"""
+        import subprocess
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1",
+            "-i", image_path,
+            "-c:v", "libx264",
+            "-t", str(duration_sec),
+            "-pix_fmt", "yuv420p",
+            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+            "-r", "30",
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Static video failed: {result.stderr[:500]}")
 
     def _save_manifest(self, project: MVProject, project_dir: str):
         """매니페스트 저장"""
