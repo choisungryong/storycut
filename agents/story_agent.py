@@ -125,9 +125,29 @@ APPROVED STRUCTURE:
 REQUIREMENTS:
 - Follow the outline exactly.
 - "narrative": 장면 설명 (반드시 한국어). 예: "지민이 카페 문을 열고 들어온다."
-- "tts_script": 나레이션 대사 (반드시 자연스러운 한국어 구어체). 예: "드디어 이곳인가..."
+- "tts_script": 풍부한 스토리텔링 나레이션 (반드시 한국어, 최소 4-6문장 필수!)
 - "image_prompt": Visual description for AI Image Generator (MUST BE English). {style} style.
 - "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
+
+[CRITICAL] STORYTELLING NARRATION RULE (스토리텔링 필수):
+You are a PROFESSIONAL STORYTELLER for YouTube. Each "tts_script" MUST be rich and immersive!
+DO NOT write short, boring narrations like "그는 문을 열었다." ❌
+
+Each "tts_script" MUST include (최소 4-6문장):
+1. 상황 묘사: 현재 장면의 분위기와 배경을 생생하게 묘사
+2. 감정 전달: 캐릭터의 내면 심리, 두려움, 희망, 절망 등을 표현
+3. 긴장감/몰입: 시청자가 다음이 궁금해지도록 서스펜스 조성
+4. 디테일: 구체적인 감각 묘사 (소리, 냄새, 촉감, 시각)
+5. 시청자 교감: "과연 그녀는...", "하지만 그것은..." 같은 화법으로 몰입 유도
+
+BAD tts_script (짧고 지루함 - FORBIDDEN):
+- "그녀는 문을 열었다." ❌
+- "편지가 도착했다." ❌
+- "그는 놀랐다." ❌
+
+GOOD tts_script (풍부한 스토리텔링 - REQUIRED):
+- "빗소리가 창문을 두드리는 그 밤, 지민의 손은 떨리고 있었습니다. 20년 전 사라진 아버지... 그 이름이 적힌 편지를 손에 쥔 순간, 심장이 멎는 것 같았죠. 과연 이 편지는 진짜일까요? 아니면 누군가의 잔인한 장난일까요?" ✓
+- "카페 문을 밀어젖히는 순간, 익숙한 커피 향이 코끝을 스쳤습니다. 하지만 지민의 눈에 들어온 건 향긋한 라떼가 아니었어요. 구석 자리에 앉아 있는 그 사람... 분명 죽었다고 들었던 그 사람이 거기 있었습니다." ✓
 
 [LANGUAGE RULE - CRITICAL]
 - "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
@@ -170,8 +190,8 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
       "scene_id": 1,
       "narrative": "STORYCUT_HERO_A가 급하게 카페 문을 밀치며 들어온다.",
       "image_prompt": "STORYCUT_HERO_A bursting through cafe door, body leaning forward in urgent motion, eyes scanning the room desperately, one hand pushing door open while other clutches a crumpled letter, rain-soaked clothes, dramatic side lighting, {style} style.",
-      "tts_script": "드디어 이곳인가...",
-      "duration_sec": 5,
+      "tts_script": "비에 흠뻑 젖은 채로 카페 문을 밀어젖히는 순간, 지민의 심장은 미친 듯이 뛰고 있었습니다. 손에 꼭 쥔 구겨진 편지... 20년 전 사라진 아버지가 보낸 것이라는 그 편지에는 이 카페의 주소가 적혀 있었죠. 과연 이곳에서 무엇을 발견하게 될까요? 지민은 떨리는 눈으로 카페 안을 훑어보았습니다.",
+      "duration_sec": 8,
       "camera_work": "Medium shot, slight low angle",
       "mood": "tense",
       "characters_in_scene": ["STORYCUT_HERO_A"]
