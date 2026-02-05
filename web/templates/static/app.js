@@ -404,8 +404,8 @@ class StorycutApp {
             this.addLog('INFO', `✅ 영상 생성 요청 접수됨 (Project ID: ${this.projectId})`);
             this.addLog('INFO', '⏳ 서버에서 영상 생성 중... 진행 상황을 아래에서 확인하세요.');
 
-            // 진행률 초기화
-            this.resetProgress();
+            // 진행률 초기화 (스토리는 이미 완료 → 장면 처리부터 시작)
+            this.resetProgress('scenes');
 
             // WebSocket 연결 시도
             this.connectWebSocket(this.projectId);
@@ -427,7 +427,7 @@ class StorycutApp {
         }
     }
 
-    resetProgress() {
+    resetProgress(startFromStep = 'story') {
         this.updateProgress(5, '초기화 중...');
 
         // 단계 초기화
@@ -436,11 +436,24 @@ class StorycutApp {
             el.querySelector('.step-status').textContent = '대기 중';
         });
 
-        // 첫 번째 단계 활성화
-        const firstStep = document.querySelector('[data-step="story"]');
-        if (firstStep) {
-            firstStep.classList.add('active');
-            firstStep.querySelector('.step-status').textContent = '진행 중';
+        // 시작 단계 설정
+        const stepOrder = ['story', 'scenes', 'compose', 'optimize'];
+        const startIndex = stepOrder.indexOf(startFromStep);
+
+        // 시작 단계 이전 단계들은 완료 처리
+        for (let i = 0; i < startIndex; i++) {
+            const stepEl = document.querySelector(`[data-step="${stepOrder[i]}"]`);
+            if (stepEl) {
+                stepEl.classList.add('completed');
+                stepEl.querySelector('.step-status').textContent = '완료';
+            }
+        }
+
+        // 시작 단계 활성화
+        const startStep = document.querySelector(`[data-step="${startFromStep}"]`);
+        if (startStep) {
+            startStep.classList.add('active');
+            startStep.querySelector('.step-status').textContent = '진행 중';
         }
     }
 
@@ -1649,16 +1662,25 @@ class StorycutApp {
             return;
         }
 
+        // 중복 생성 방지
+        if (this.isGenerating) {
+            alert('이미 영상 생성이 진행 중입니다.');
+            return;
+        }
+
+        this.isGenerating = true;
+
+        // 이미지 프리뷰 → 영상 생성: "장면 처리" 단계부터 시작
         this.showSection('progress');
         const progressTitle = document.getElementById('progress-title');
         if (progressTitle) progressTitle.textContent = '⏳ 영상 생성 중...';
-        this.resetProgress();
-        // 스토리는 이미 완료 → 스토리 단계 건너뛰기
-        this.updateStepStatus('story', '완료');
-        const storyStep = document.querySelector('[data-step="story"]');
-        if (storyStep) storyStep.classList.add('completed');
+
+        // 스토리/이미지는 이미 완료 → scenes 단계부터 시작
+        this.resetProgress('scenes');
         this.updateProgress(25, '영상 생성 시작 중...');
         this.updateStepStatus('scenes', '장면 처리 준비 중');
+
+        this.addLog('INFO', '📤 영상 생성 요청 전송 중...');
 
         try {
             const response = await fetch(`${this.getApiBaseUrl()}/api/generate/video`, {
@@ -1685,11 +1707,19 @@ class StorycutApp {
             const result = await response.json();
             this.projectId = result.project_id;
 
+            this.addLog('INFO', `✅ 영상 생성 요청 접수됨 (Project ID: ${this.projectId})`);
+            this.addLog('INFO', '⏳ 서버에서 영상 생성 중...');
+
             this.connectWebSocket(this.projectId);
             this.startPolling(this.projectId);
 
         } catch (error) {
+            console.error('영상 생성 요청 실패:', error);
+            this.addLog('ERROR', `❌ 오류: ${error.message}`);
             alert(`영상 생성 실패: ${error.message}`);
+            this.isGenerating = false;
+            // 에러 시 이미지 프리뷰 화면으로 복귀
+            this.showSection('image-preview');
         }
     }
 }
