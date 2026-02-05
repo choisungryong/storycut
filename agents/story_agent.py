@@ -138,8 +138,25 @@ REQUIREMENTS:
 - Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
 - DO NOT describe their physical appearance (age, hair, clothes) in "image_prompt". This is already handled by the system.
 - Focus ONLY on the scene's action, lighting, and composition.
-- Correct example: "STORYCUT_HERO_A is running through the rain, city lights background, cinematic lighting."
-- Wrong example: "A young woman with red hair is running..." (DO NOT DO THIS)
+
+[CRITICAL] DYNAMIC POSE & ACTION RULE (영상 연출 필수):
+You are a FILM DIRECTOR. Each scene MUST have dynamic, cinematic poses. NO static standing poses!
+Every "image_prompt" MUST include ALL of the following:
+1. BODY ACTION: What is the character physically doing? (running, falling, reaching, kneeling, jumping, crawling, fighting, embracing)
+2. BODY POSE: Specific posture details (leaning forward desperately, arms raised in fear, crouching low, body twisted mid-turn)
+3. FACIAL EXPRESSION: Emotional state on face (eyes wide with terror, tears streaming down, gritted teeth, shocked open mouth)
+4. GESTURE/HANDS: What are the hands doing? (clenched fists, trembling hands reaching out, gripping a weapon, covering mouth in shock)
+5. EYE DIRECTION: Where is the character looking? (staring at camera, looking over shoulder, eyes cast downward, glaring at enemy)
+
+BAD (Static - FORBIDDEN):
+- "STORYCUT_HERO_A standing in a room" ❌
+- "STORYCUT_HERO_A at the door" ❌
+- "STORYCUT_HERO_A in the rain" ❌
+
+GOOD (Dynamic - REQUIRED):
+- "STORYCUT_HERO_A bursting through the door, body leaning forward mid-stride, eyes wide with desperation, hand reaching out, rain soaking through clothes" ✓
+- "STORYCUT_HERO_A collapsed on knees, head thrown back in anguish, tears streaming, fists pounding the ground, dramatic low-angle shot" ✓
+- "STORYCUT_HERO_A spinning around in shock, body twisted mid-turn, hand flying to mouth, eyes locked on something off-screen, dramatic backlight" ✓
 
 OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
 {{
@@ -151,11 +168,11 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
   "scenes": [
     {{
       "scene_id": 1,
-      "narrative": "STORYCUT_HERO_A가 카페 문을 열고 들어온다.",
-      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style, high contrast, cinematic lighting.",
+      "narrative": "STORYCUT_HERO_A가 급하게 카페 문을 밀치며 들어온다.",
+      "image_prompt": "STORYCUT_HERO_A bursting through cafe door, body leaning forward in urgent motion, eyes scanning the room desperately, one hand pushing door open while other clutches a crumpled letter, rain-soaked clothes, dramatic side lighting, {style} style.",
       "tts_script": "드디어 이곳인가...",
       "duration_sec": 5,
-      "camera_work": "Close-up",
+      "camera_work": "Medium shot, slight low angle",
       "mood": "tense",
       "characters_in_scene": ["STORYCUT_HERO_A"]
     }}

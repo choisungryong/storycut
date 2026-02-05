@@ -305,7 +305,7 @@ class StorycutPipeline:
 
         # Style Anchor 생성 (v2.0) — 1장만
         style_anchor_path = None
-        env_anchors = {}  # 환경 앵커 스킵 (씬별 생성은 비용 대비 효과 낮음)
+        env_anchors = {}
         style_anchor_agent = StyleAnchorAgent()
 
         if manifest.global_style:
@@ -314,8 +314,15 @@ class StorycutPipeline:
                 global_style=manifest.global_style,
                 project_dir=project_dir
             )
-            # 환경 앵커는 스킵 — 씬 이미지 프롬프트에 환경 정보가 이미 포함됨
-            print(f"[EnvAnchors] Skipped (using style anchor for all scenes)")
+
+        # Environment Anchors - 씬별 환경 앵커 이미지 생성
+        if manifest.global_style and "scenes" in story_data:
+            print(f"\n[EnvAnchors] Generating environment anchor images...")
+            env_anchors = style_anchor_agent.generate_environment_anchors(
+                scenes=story_data["scenes"],
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
 
         # Character Casting (v2.0) — 포즈 1개, 후보 1장으로 경량화
         if manifest.character_sheet:
