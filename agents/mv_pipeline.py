@@ -499,10 +499,38 @@ class MVPipeline:
 
             project.progress = 90
 
-            # 3. 음악 합성
+            # 3. 가사 자막 생성 및 burn-in (가사가 있는 경우)
+            video_with_subtitles = concat_video
+            if project.lyrics:
+                print(f"  Adding lyrics subtitles...")
+                srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
+                os.makedirs(os.path.dirname(srt_path), exist_ok=True)
+
+                # SRT 파일 생성
+                self._generate_lyrics_srt(project.scenes, srt_path)
+
+                # 자막 burn-in
+                subtitled_video = f"{project_dir}/media/video/subtitled.mp4"
+                try:
+                    self.ffmpeg_composer.overlay_subtitles(
+                        video_in=concat_video,
+                        srt_path=srt_path,
+                        out_path=subtitled_video
+                    )
+                    if os.path.exists(subtitled_video) and os.path.getsize(subtitled_video) > 1024:
+                        video_with_subtitles = subtitled_video
+                        print(f"    Subtitles added successfully")
+                    else:
+                        print(f"    [WARNING] Subtitle burn-in failed, using video without subtitles")
+                except Exception as sub_err:
+                    print(f"    [WARNING] Subtitle error: {sub_err}")
+
+            project.progress = 95
+
+            # 4. 음악 합성
             final_video = f"{project_dir}/final_mv.mp4"
             self.ffmpeg_composer._add_audio_to_video(
-                video_path=concat_video,
+                video_path=video_with_subtitles,
                 audio_path=project.music_file_path,
                 output_path=final_video
             )
@@ -615,6 +643,44 @@ class MVPipeline:
         if result.returncode != 0:
             # 에러 메시지 끝부분 출력 (실제 에러가 담김)
             raise RuntimeError(f"Static video failed: {result.stderr[-500:]}")
+
+    def _generate_lyrics_srt(
+        self,
+        scenes: List[MVScene],
+        output_path: str
+    ):
+        """씬별 가사를 SRT 자막 파일로 생성"""
+        srt_lines = []
+
+        for i, scene in enumerate(scenes, start=1):
+            if not scene.lyrics_text:
+                continue
+
+            # 시간 포맷 변환 (초 → SRT 타임코드)
+            start_tc = self._sec_to_srt_timecode(scene.start_sec)
+            end_tc = self._sec_to_srt_timecode(scene.end_sec)
+
+            # 가사 텍스트 (줄바꿈 유지)
+            lyrics = scene.lyrics_text.strip()
+
+            srt_lines.append(str(i))
+            srt_lines.append(f"{start_tc} --> {end_tc}")
+            srt_lines.append(lyrics)
+            srt_lines.append("")  # 빈 줄로 구분
+
+        # 파일 저장
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(srt_lines))
+
+        print(f"    SRT generated: {output_path} ({len([s for s in scenes if s.lyrics_text])} entries)")
+
+    def _sec_to_srt_timecode(self, seconds: float) -> str:
+        """초를 SRT 타임코드 형식으로 변환 (HH:MM:SS,mmm)"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
     def _save_manifest(self, project: MVProject, project_dir: str):
         """매니페스트 저장"""
