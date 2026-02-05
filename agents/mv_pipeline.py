@@ -223,10 +223,10 @@ class MVPipeline:
 
             scene = MVScene(
                 scene_id=i + 1,
-                start_sec=segment["start_sec"],
-                end_sec=segment["end_sec"],
-                duration_sec=segment["duration_sec"],
-                visual_description=f"{segment['segment_type']} section",
+                start_sec=segment.start_sec,
+                end_sec=segment.end_sec,
+                duration_sec=segment.duration_sec,
+                visual_description=f"{segment.segment_type} section",
                 lyrics_text=lyrics_text,
                 image_prompt=""
             )
