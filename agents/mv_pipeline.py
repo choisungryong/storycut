@@ -696,7 +696,18 @@ class MVPipeline:
         """프로젝트 로드"""
         manifest_path = f"{self.output_base_dir}/{project_id}/manifest.json"
 
+        print(f"[MV Pipeline] Loading project: {project_id}")
+        print(f"[MV Pipeline] Manifest path: {manifest_path}")
+        print(f"[MV Pipeline] CWD: {os.getcwd()}")
+        print(f"[MV Pipeline] outputs/ exists: {os.path.exists('outputs')}")
+        print(f"[MV Pipeline] project_dir exists: {os.path.exists(f'{self.output_base_dir}/{project_id}')}")
+        print(f"[MV Pipeline] manifest exists: {os.path.exists(manifest_path)}")
+
         if not os.path.exists(manifest_path):
+            # 디렉토리 내용 출력
+            if os.path.exists('outputs'):
+                dirs = os.listdir('outputs')
+                print(f"[MV Pipeline] outputs/ contents: {dirs[:10]}")  # 처음 10개만
             return None
 
         with open(manifest_path, 'r', encoding='utf-8') as f:
