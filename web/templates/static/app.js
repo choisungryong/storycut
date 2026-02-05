@@ -2078,17 +2078,24 @@ class StorycutApp {
 
     renderMVSceneGrid(scenes) {
         const grid = document.getElementById('mv-scene-grid');
-        grid.innerHTML = '';
 
+        // 스마트 업데이트: 이미 있는 씬은 건너뛰고, 새 씬만 추가
         scenes.forEach(scene => {
             if (scene.status === 'completed' && scene.image_path) {
+                // 이미 해당 씬 카드가 있는지 확인
+                const existingCard = grid.querySelector(`.scene-card[data-scene-id="${scene.scene_id}"]`);
+                if (existingCard) {
+                    return; // 이미 있으면 스킵 (깜빡임 방지)
+                }
+
                 const card = document.createElement('div');
                 card.className = 'scene-card';
+                card.setAttribute('data-scene-id', scene.scene_id);
 
                 const imageUrl = this.resolveImageUrl(scene.image_path);
 
                 card.innerHTML = `
-                    <img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
+                    <img src="${imageUrl}" alt="Scene ${scene.scene_id}"
                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                     <div class="scene-placeholder" style="display: none;">📷</div>
                     <div class="scene-info">
