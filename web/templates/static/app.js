@@ -892,6 +892,18 @@ class StorycutApp {
     }
 
     showSection(sectionName) {
+        // 폴링 인터벌 정리 (섹션 변경 시 불필요한 폴링 중단)
+        if (sectionName !== 'image-preview' && this.imagePollingInterval) {
+            clearInterval(this.imagePollingInterval);
+            this.imagePollingInterval = null;
+            console.log('[Cleanup] Image polling stopped');
+        }
+        if (sectionName !== 'mv-progress' && this.mvPollingInterval) {
+            clearInterval(this.mvPollingInterval);
+            this.mvPollingInterval = null;
+            console.log('[Cleanup] MV polling stopped');
+        }
+
         // 모든 섹션 숨기기
         document.getElementById('input-section').classList.add('hidden');
         document.getElementById('progress-section').classList.add('hidden');
@@ -947,9 +959,14 @@ class StorycutApp {
         this.currentRequestParams = null;
         this.isGenerating = false;
         this.stopPolling();
+        // 모든 폴링 인터벌 정리
         if (this.imagePollingInterval) {
             clearInterval(this.imagePollingInterval);
             this.imagePollingInterval = null;
+        }
+        if (this.mvPollingInterval) {
+            clearInterval(this.mvPollingInterval);
+            this.mvPollingInterval = null;
         }
 
         // 폼 초기화
