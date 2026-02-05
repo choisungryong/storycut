@@ -899,6 +899,11 @@ class StorycutApp {
         document.getElementById('review-section').classList.add('hidden');
         document.getElementById('history-section').classList.add('hidden');
         document.getElementById('image-preview-section').classList.add('hidden');
+        // MV 섹션들
+        document.getElementById('mv-section')?.classList.add('hidden');
+        document.getElementById('mv-analysis-section')?.classList.add('hidden');
+        document.getElementById('mv-progress-section')?.classList.add('hidden');
+        document.getElementById('mv-result-section')?.classList.add('hidden');
 
         // 선택한 섹션 표시
         switch (sectionName) {
@@ -919,6 +924,19 @@ class StorycutApp {
                 break;
             case 'history':
                 document.getElementById('history-section').classList.remove('hidden');
+                break;
+            // MV 섹션들
+            case 'mv':
+                document.getElementById('mv-section')?.classList.remove('hidden');
+                break;
+            case 'mv-analysis':
+                document.getElementById('mv-analysis-section')?.classList.remove('hidden');
+                break;
+            case 'mv-progress':
+                document.getElementById('mv-progress-section')?.classList.remove('hidden');
+                break;
+            case 'mv-result':
+                document.getElementById('mv-result-section')?.classList.remove('hidden');
                 break;
         }
     }
@@ -1722,7 +1740,440 @@ class StorycutApp {
             this.showSection('image-preview');
         }
     }
+
+    // ==================== Music Video Mode ====================
+
+    initMVEventListeners() {
+        // MV 네비게이션
+        document.getElementById('nav-mv')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showSection('mv');
+            this.setNavActive('nav-mv');
+        });
+
+        // MV 폼 제출 (음악 업로드)
+        document.getElementById('mv-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.uploadAndAnalyzeMusic();
+        });
+
+        // MV 분석 결과에서 뒤로
+        document.getElementById('mv-back-btn')?.addEventListener('click', () => {
+            this.showSection('mv');
+        });
+
+        // MV 생성 시작
+        document.getElementById('mv-generate-btn')?.addEventListener('click', () => {
+            this.startMVGeneration();
+        });
+
+        // MV 새로 만들기
+        document.getElementById('mv-new-btn')?.addEventListener('click', () => {
+            this.resetMVUI();
+        });
+
+        // MV 로그 클리어
+        document.getElementById('mv-clear-log-btn')?.addEventListener('click', () => {
+            document.getElementById('mv-log-content').innerHTML = '';
+        });
+    }
+
+    async uploadAndAnalyzeMusic() {
+        const fileInput = document.getElementById('mv-music-file');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            alert('음악 파일을 선택해주세요.');
+            return;
+        }
+
+        const btn = document.getElementById('mv-upload-btn');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> 분석 중...';
+
+        try {
+            const formData = new FormData();
+            formData.append('music_file', file);
+            formData.append('lyrics', document.getElementById('mv-lyrics').value || '');
+            formData.append('concept', document.getElementById('mv-concept').value || '');
+            formData.append('genre', document.getElementById('mv-genre').value);
+            formData.append('mood', document.getElementById('mv-mood').value);
+            formData.append('style', document.getElementById('mv-style').value);
+
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/api/mv/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                let errorMsg = '음악 업로드 실패';
+                try {
+                    const error = await response.json();
+                    errorMsg = error.detail || error.message || errorMsg;
+                } catch (e) {}
+                throw new Error(errorMsg);
+            }
+
+            const result = await response.json();
+            this.mvProjectId = result.project_id;
+            this.mvAnalysis = result.music_analysis;
+            this.mvRequestParams = {
+                lyrics: document.getElementById('mv-lyrics').value || '',
+                concept: document.getElementById('mv-concept').value || '',
+                genre: document.getElementById('mv-genre').value,
+                mood: document.getElementById('mv-mood').value,
+                style: document.getElementById('mv-style').value
+            };
+
+            this.renderMVAnalysisResult(result);
+            this.showSection('mv-analysis');
+
+        } catch (error) {
+            console.error('MV 업로드 실패:', error);
+            alert(`오류: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+
+    renderMVAnalysisResult(result) {
+        const analysis = result.music_analysis;
+
+        // 기본 정보 표시
+        const durationMin = Math.floor(analysis.duration_sec / 60);
+        const durationSec = Math.floor(analysis.duration_sec % 60);
+        document.getElementById('mv-duration').textContent = `${durationMin}:${durationSec.toString().padStart(2, '0')}`;
+        document.getElementById('mv-bpm').textContent = analysis.bpm ? Math.round(analysis.bpm) : '-';
+        document.getElementById('mv-suggested-scenes').textContent = analysis.segments?.length || '-';
+        document.getElementById('mv-detected-mood').textContent = analysis.mood || '-';
+
+        // 씬 편집기 렌더링
+        const editor = document.getElementById('mv-scene-editor');
+        editor.innerHTML = '';
+
+        const segments = analysis.segments || [];
+        segments.forEach((seg, index) => {
+            const card = document.createElement('div');
+            card.className = 'mv-scene-card';
+            card.style.cssText = 'background: #1a1a2e; border: 1px solid #393e46; border-radius: 8px; padding: 15px;';
+            card.dataset.segmentIndex = index;
+
+            const startMin = Math.floor(seg.start_sec / 60);
+            const startSec = Math.floor(seg.start_sec % 60);
+            const endMin = Math.floor(seg.end_sec / 60);
+            const endSec = Math.floor(seg.end_sec % 60);
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="color: #00adb5; font-weight: bold;">Scene ${index + 1}</span>
+                    <span style="color: #888; font-size: 0.85rem;">${startMin}:${startSec.toString().padStart(2, '0')} - ${endMin}:${endSec.toString().padStart(2, '0')}</span>
+                </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <span style="background: #393e46; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem;">${seg.segment_type || 'verse'}</span>
+                    <span style="color: #888; font-size: 0.85rem;">${seg.duration_sec?.toFixed(1) || '-'}초</span>
+                </div>
+                <label style="font-size: 0.85rem; color: #ccc; margin-bottom: 5px; display: block;">씬 설명 (선택)</label>
+                <textarea class="mv-scene-description input" rows="2" placeholder="이 구간에 원하는 비주얼을 설명하세요..." style="width: 100%; font-size: 0.9rem;"></textarea>
+            `;
+
+            editor.appendChild(card);
+        });
+    }
+
+    async startMVGeneration() {
+        if (!this.mvProjectId) {
+            alert('프로젝트 ID가 없습니다. 다시 업로드해주세요.');
+            return;
+        }
+
+        // 씬 설명 수집
+        const sceneDescriptions = [];
+        document.querySelectorAll('.mv-scene-description').forEach((textarea, index) => {
+            if (textarea.value.trim()) {
+                sceneDescriptions.push({
+                    segment_index: index,
+                    description: textarea.value.trim()
+                });
+            }
+        });
+
+        const btn = document.getElementById('mv-generate-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> 생성 요청 중...';
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/api/mv/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_id: this.mvProjectId,
+                    lyrics: this.mvRequestParams?.lyrics || '',
+                    concept: this.mvRequestParams?.concept || '',
+                    genre: this.mvRequestParams?.genre || 'fantasy',
+                    mood: this.mvRequestParams?.mood || 'epic',
+                    style: this.mvRequestParams?.style || 'cinematic',
+                    scene_descriptions: sceneDescriptions
+                })
+            });
+
+            if (!response.ok) {
+                let errorMsg = 'MV 생성 요청 실패';
+                try {
+                    const error = await response.json();
+                    errorMsg = error.detail || error.message || errorMsg;
+                } catch (e) {}
+                throw new Error(errorMsg);
+            }
+
+            const result = await response.json();
+
+            // 진행 화면으로 전환
+            this.showSection('mv-progress');
+            this.mvAddLog('INFO', `✅ MV 생성 시작 (Project: ${this.mvProjectId})`);
+            this.mvAddLog('INFO', `📊 총 ${result.total_scenes}개 씬, 예상 소요: ${Math.ceil(result.estimated_time_sec / 60)}분`);
+
+            // 진행률 초기화
+            this.updateMVProgress(5, '씬 프롬프트 생성 중...');
+            this.updateMVStepStatus('scenes', '진행 중');
+
+            // 폴링 시작
+            this.startMVPolling(this.mvProjectId);
+
+        } catch (error) {
+            console.error('MV 생성 요청 실패:', error);
+            alert(`오류: ${error.message}`);
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🎬</span> 뮤직비디오 생성 시작';
+        }
+    }
+
+    startMVPolling(projectId) {
+        if (this.mvPollingInterval) {
+            clearInterval(this.mvPollingInterval);
+        }
+
+        const baseUrl = this.getApiBaseUrl();
+
+        this.mvPollingInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
+
+                if (!response.ok) {
+                    console.warn(`MV status check failed: ${response.status}`);
+                    return;
+                }
+
+                const data = await response.json();
+
+                // 상태별 처리
+                if (data.status === 'completed') {
+                    this.mvAddLog('SUCCESS', '🎉 뮤직비디오 생성 완료!');
+                    this.updateMVProgress(100, '완료');
+                    this.stopMVPolling();
+                    this.fetchMVResult(projectId);
+
+                } else if (data.status === 'failed') {
+                    this.mvAddLog('ERROR', `❌ 오류: ${data.error_message || '알 수 없는 오류'}`);
+                    this.updateMVProgress(0, '실패');
+                    this.stopMVPolling();
+                    alert(`뮤직비디오 생성 실패: ${data.error_message || '알 수 없는 오류'}`);
+
+                } else {
+                    // 진행 중
+                    const progress = data.progress || 10;
+                    const step = data.current_step || '';
+
+                    this.updateMVProgress(progress, step);
+
+                    // 단계 상태 업데이트
+                    if (step.includes('씬') || step.includes('scene') || step.includes('프롬프트')) {
+                        this.updateMVStepStatus('scenes', step);
+                    } else if (step.includes('이미지') || step.includes('image')) {
+                        this.updateMVStepStatus('images', step);
+                    } else if (step.includes('합성') || step.includes('compose') || step.includes('비디오')) {
+                        this.updateMVStepStatus('compose', step);
+                    }
+
+                    // 씬 그리드 업데이트 (이미지가 있으면)
+                    if (data.scenes && data.scenes.length > 0) {
+                        this.renderMVSceneGrid(data.scenes);
+                    }
+                }
+
+            } catch (error) {
+                console.error('MV polling error:', error);
+            }
+        }, 3000);
+    }
+
+    stopMVPolling() {
+        if (this.mvPollingInterval) {
+            clearInterval(this.mvPollingInterval);
+            this.mvPollingInterval = null;
+        }
+    }
+
+    async fetchMVResult(projectId) {
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/api/mv/result/${projectId}`);
+
+            if (!response.ok) {
+                throw new Error('결과 조회 실패');
+            }
+
+            const result = await response.json();
+            this.showMVResult(result);
+
+        } catch (error) {
+            console.error('MV 결과 조회 실패:', error);
+            this.mvAddLog('ERROR', `결과 조회 실패: ${error.message}`);
+        }
+    }
+
+    showMVResult(data) {
+        this.showSection('mv-result');
+
+        document.getElementById('mv-result-project-id').textContent = data.project_id;
+
+        const durationMin = Math.floor(data.duration_sec / 60);
+        const durationSec = Math.floor(data.duration_sec % 60);
+        document.getElementById('mv-result-duration').textContent = `${durationMin}:${durationSec.toString().padStart(2, '0')}`;
+        document.getElementById('mv-result-scene-count').textContent = `${data.scenes?.length || 0}개`;
+
+        // 비디오 플레이어
+        const baseUrl = this.getApiBaseUrl();
+        const video = document.getElementById('mv-result-video');
+        video.src = `${baseUrl}/api/mv/stream/${data.project_id}`;
+
+        // 다운로드 버튼
+        const downloadBtn = document.getElementById('mv-download-btn');
+        downloadBtn.href = `${baseUrl}/api/mv/download/${data.project_id}`;
+        downloadBtn.download = `musicvideo_${data.project_id}.mp4`;
+
+        // 씬 그리드
+        this.renderMVResultSceneGrid(data.scenes || []);
+    }
+
+    renderMVSceneGrid(scenes) {
+        const grid = document.getElementById('mv-scene-grid');
+        grid.innerHTML = '';
+
+        scenes.forEach(scene => {
+            if (scene.status === 'completed' && scene.image_path) {
+                const card = document.createElement('div');
+                card.className = 'scene-card';
+
+                const imageUrl = this.resolveImageUrl(scene.image_path);
+
+                card.innerHTML = `
+                    <img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
+                        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="scene-placeholder" style="display: none;">📷</div>
+                    <div class="scene-info">
+                        <span class="scene-narration">Scene ${scene.scene_id}</span>
+                        <span class="scene-visual">${scene.lyrics_text || ''}</span>
+                    </div>
+                `;
+
+                grid.appendChild(card);
+            }
+        });
+    }
+
+    renderMVResultSceneGrid(scenes) {
+        const grid = document.getElementById('mv-result-scene-grid');
+        grid.innerHTML = '';
+
+        scenes.forEach(scene => {
+            const card = document.createElement('div');
+            card.className = 'scene-card';
+
+            const imageUrl = scene.image_path ? this.resolveImageUrl(scene.image_path) : '';
+
+            card.innerHTML = `
+                ${imageUrl ? `<img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}">` : '<div class="scene-placeholder">📷</div>'}
+                <div class="scene-info">
+                    <span class="scene-narration">Scene ${scene.scene_id}</span>
+                    <span class="scene-visual">${scene.lyrics_text || ''}</span>
+                </div>
+            `;
+
+            grid.appendChild(card);
+        });
+    }
+
+    updateMVProgress(progress, message) {
+        const bar = document.getElementById('mv-progress-bar');
+        const pct = document.getElementById('mv-progress-percentage');
+        const msg = document.getElementById('mv-status-message');
+
+        if (bar) bar.style.width = `${Math.min(progress, 100)}%`;
+        if (pct) pct.textContent = `${Math.min(progress, 100)}%`;
+        if (msg) msg.textContent = message;
+    }
+
+    updateMVStepStatus(step, message) {
+        const container = document.getElementById('mv-steps-container');
+        if (!container) return;
+
+        // 모든 단계 비활성화
+        container.querySelectorAll('.step').forEach(el => {
+            el.classList.remove('active');
+        });
+
+        // 현재 단계 활성화
+        const currentStep = container.querySelector(`[data-step="${step}"]`);
+        if (currentStep) {
+            currentStep.classList.add('active');
+            currentStep.querySelector('.step-status').textContent = message;
+
+            // 이전 단계들은 완료로
+            let prev = currentStep.previousElementSibling;
+            while (prev && prev.classList.contains('step')) {
+                prev.classList.add('completed');
+                prev.querySelector('.step-status').textContent = '완료';
+                prev = prev.previousElementSibling;
+            }
+        }
+    }
+
+    mvAddLog(level, message) {
+        const logContent = document.getElementById('mv-log-content');
+        if (!logContent) return;
+
+        const timestamp = new Date().toLocaleTimeString('ko-KR');
+        const logLevel = level === 'ERROR' ? '❌' : level === 'SUCCESS' ? '✅' : level === 'WARNING' ? '⚠️' : 'ℹ️';
+
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = `
+            <span class="log-timestamp">[${timestamp}]</span>
+            <span class="log-level">${logLevel}</span>
+            <span class="log-message">${message}</span>
+        `;
+        logContent.appendChild(entry);
+        logContent.scrollTop = logContent.scrollHeight;
+    }
+
+    resetMVUI() {
+        this.mvProjectId = null;
+        this.mvAnalysis = null;
+        this.mvRequestParams = null;
+        this.stopMVPolling();
+
+        document.getElementById('mv-form').reset();
+        this.showSection('mv');
+        this.setNavActive('nav-mv');
+    }
 }
 
 // 앱 초기화
 const app = new StorycutApp();
+
+// MV 이벤트 리스너 초기화
+app.initMVEventListeners();

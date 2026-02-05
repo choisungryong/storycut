@@ -558,6 +558,7 @@
             <p class="tagline">이야기를 입력하면, 조회수 터지는 유튜브 영상이 완성됩니다</p>
             <nav class="nav-links">
                 <a href="#" id="nav-create" class="nav-link active">새 영상 만들기</a>
+                <a href="#" id="nav-mv" class="nav-link">뮤직비디오</a>
                 <a href="#" id="nav-history" class="nav-link">내 비디오 (History)</a>
             </nav>
         </header>
@@ -1021,6 +1022,253 @@
                         <div class="opt-section">
                             <h4>#️⃣ 해시태그</h4>
                             <div id="hashtags" class="hashtag-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 뮤직비디오 섹션 -->
+            <div id="mv-section" class="section hidden">
+                <h2>🎵 뮤직비디오 만들기</h2>
+                <p class="section-description" style="color: #ccc; margin-bottom: 20px;">
+                    Suno, Udio 등에서 만든 음악을 업로드하고 AI가 자동으로 뮤직비디오를 생성합니다.
+                </p>
+
+                <form id="mv-form" class="form">
+                    <!-- 음악 파일 업로드 -->
+                    <div class="form-group">
+                        <label for="mv-music-file">
+                            <span class="label-icon">🎵</span>
+                            음악 파일 업로드
+                        </label>
+                        <input type="file" id="mv-music-file" name="music_file"
+                            accept=".mp3,.wav,.m4a,.ogg,.flac" class="input" required />
+                        <small class="helper-text">MP3, WAV, M4A, OGG, FLAC (최대 10분)</small>
+                    </div>
+
+                    <!-- 가사 (선택) -->
+                    <div class="form-group">
+                        <label for="mv-lyrics">
+                            <span class="label-icon">📝</span>
+                            가사 (선택)
+                        </label>
+                        <textarea id="mv-lyrics" name="lyrics" class="input" rows="6"
+                            placeholder="가사를 입력하면 더 정확한 씬 분할이 가능합니다..."></textarea>
+                        <small class="helper-text">가사를 입력하면 장면에 가사가 연동됩니다</small>
+                    </div>
+
+                    <!-- 비주얼 컨셉 -->
+                    <div class="form-group">
+                        <label for="mv-concept">
+                            <span class="label-icon">🎨</span>
+                            비주얼 컨셉 (선택)
+                        </label>
+                        <input type="text" id="mv-concept" name="concept" class="input"
+                            placeholder="예: 달빛 아래 춤추는 요정들, 미래 도시의 네온 거리..." />
+                        <small class="helper-text">원하는 비주얼 컨셉을 자유롭게 설명하세요</small>
+                    </div>
+
+                    <!-- 장르 -->
+                    <div class="form-group">
+                        <label for="mv-genre">
+                            <span class="label-icon">🎭</span>
+                            장르
+                        </label>
+                        <select id="mv-genre" name="genre" class="select">
+                            <option value="fantasy" selected>Fantasy (판타지)</option>
+                            <option value="romance">Romance (로맨스)</option>
+                            <option value="action">Action (액션)</option>
+                            <option value="horror">Horror (공포)</option>
+                            <option value="scifi">Sci-Fi (SF)</option>
+                            <option value="drama">Drama (드라마)</option>
+                            <option value="comedy">Comedy (코미디)</option>
+                            <option value="abstract">Abstract (추상)</option>
+                        </select>
+                    </div>
+
+                    <!-- 분위기 -->
+                    <div class="form-group">
+                        <label for="mv-mood">
+                            <span class="label-icon">✨</span>
+                            분위기
+                        </label>
+                        <select id="mv-mood" name="mood" class="select">
+                            <option value="epic" selected>Epic (웅장)</option>
+                            <option value="dreamy">Dreamy (몽환)</option>
+                            <option value="energetic">Energetic (역동)</option>
+                            <option value="calm">Calm (평온)</option>
+                            <option value="dark">Dark (어두움)</option>
+                            <option value="romantic">Romantic (로맨틱)</option>
+                            <option value="melancholic">Melancholic (우울)</option>
+                            <option value="uplifting">Uplifting (고양)</option>
+                        </select>
+                    </div>
+
+                    <!-- 스타일 -->
+                    <div class="form-group">
+                        <label for="mv-style">
+                            <span class="label-icon">🖼️</span>
+                            비주얼 스타일
+                        </label>
+                        <select id="mv-style" name="style" class="select">
+                            <option value="cinematic" selected>Cinematic (영화적)</option>
+                            <option value="anime">Anime (애니메이션)</option>
+                            <option value="webtoon">Webtoon (웹툰)</option>
+                            <option value="realistic">Realistic (사실적)</option>
+                            <option value="illustration">Illustration (일러스트)</option>
+                            <option value="abstract">Abstract (추상)</option>
+                        </select>
+                    </div>
+
+                    <!-- 업로드 버튼 -->
+                    <button type="submit" class="btn btn-primary" id="mv-upload-btn">
+                        <span class="btn-icon">📤</span>
+                        음악 업로드 및 분석
+                    </button>
+                </form>
+            </div>
+
+            <!-- 뮤직비디오 분석 결과 섹션 -->
+            <div id="mv-analysis-section" class="section hidden">
+                <h2>🎼 음악 분석 결과</h2>
+                <div class="mv-analysis-info" style="background: #1a1a2e; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px;">
+                        <div class="mv-info-card">
+                            <span style="color: #00adb5; font-size: 0.9rem;">길이</span>
+                            <p id="mv-duration" style="font-size: 1.5rem; font-weight: bold;">0:00</p>
+                        </div>
+                        <div class="mv-info-card">
+                            <span style="color: #00adb5; font-size: 0.9rem;">BPM</span>
+                            <p id="mv-bpm" style="font-size: 1.5rem; font-weight: bold;">-</p>
+                        </div>
+                        <div class="mv-info-card">
+                            <span style="color: #00adb5; font-size: 0.9rem;">추천 씬 수</span>
+                            <p id="mv-suggested-scenes" style="font-size: 1.5rem; font-weight: bold;">-</p>
+                        </div>
+                        <div class="mv-info-card">
+                            <span style="color: #00adb5; font-size: 0.9rem;">분위기</span>
+                            <p id="mv-detected-mood" style="font-size: 1.5rem; font-weight: bold;">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 씬 분할 편집 -->
+                <h3 style="color: #00adb5; margin-bottom: 15px;">📍 씬 분할 편집</h3>
+                <p class="section-description" style="color: #ccc; margin-bottom: 15px;">
+                    자동 분할된 씬을 확인하고 필요시 수정하세요. 각 씬에 대한 설명을 추가하면 더 정확한 영상이 생성됩니다.
+                </p>
+                <div id="mv-scene-editor" style="display: flex; flex-direction: column; gap: 15px;">
+                    <!-- JS로 씬 카드 동적 생성 -->
+                </div>
+
+                <div style="display: flex; justify-content: center; gap: 15px; margin-top: 30px;">
+                    <button id="mv-back-btn" class="btn btn-secondary">
+                        <span class="btn-icon">⬅️</span>
+                        다시 업로드
+                    </button>
+                    <button id="mv-generate-btn" class="btn btn-primary btn-large">
+                        <span class="btn-icon">🎬</span>
+                        뮤직비디오 생성 시작
+                    </button>
+                </div>
+            </div>
+
+            <!-- 뮤직비디오 생성 진행 섹션 -->
+            <div id="mv-progress-section" class="section hidden">
+                <h2 id="mv-progress-title">⏳ 뮤직비디오 생성 중...</h2>
+
+                <div class="progress-container">
+                    <div class="progress-header">
+                        <span class="progress-label">전체 진행률</span>
+                        <span class="progress-percentage" id="mv-progress-percentage">0%</span>
+                    </div>
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar" id="mv-progress-bar"></div>
+                    </div>
+                    <div class="status-message" id="mv-status-message">초기화 중...</div>
+
+                    <!-- 단계 표시 -->
+                    <div class="steps-container" id="mv-steps-container">
+                        <div class="step" data-step="analyze">
+                            <div class="step-icon">🎵</div>
+                            <div class="step-content">
+                                <div class="step-title">음악 분석</div>
+                                <div class="step-status">완료</div>
+                            </div>
+                        </div>
+                        <div class="step" data-step="scenes">
+                            <div class="step-icon">📝</div>
+                            <div class="step-content">
+                                <div class="step-title">씬 프롬프트 생성</div>
+                                <div class="step-status">대기 중</div>
+                            </div>
+                        </div>
+                        <div class="step" data-step="images">
+                            <div class="step-icon">🖼️</div>
+                            <div class="step-content">
+                                <div class="step-title">이미지 생성</div>
+                                <div class="step-status">대기 중</div>
+                            </div>
+                        </div>
+                        <div class="step" data-step="compose">
+                            <div class="step-icon">🎬</div>
+                            <div class="step-content">
+                                <div class="step-title">영상 합성</div>
+                                <div class="step-status">대기 중</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 씬 미리보기 그리드 -->
+                    <div id="mv-scene-preview" style="margin-top: 20px;">
+                        <h3 style="color: #00adb5; margin-bottom: 15px;">🎨 생성된 씬</h3>
+                        <div id="mv-scene-grid" class="scene-grid">
+                            <!-- JS로 동적 생성 -->
+                        </div>
+                    </div>
+
+                    <!-- 로그 -->
+                    <div class="log-container" style="margin-top: 20px;">
+                        <div class="log-header">
+                            <span>📋 실시간 로그</span>
+                            <button id="mv-clear-log-btn" class="btn-small">지우기</button>
+                        </div>
+                        <div class="log-content" id="mv-log-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 뮤직비디오 결과 섹션 -->
+            <div id="mv-result-section" class="section hidden">
+                <h2 id="mv-result-header">🎉 뮤직비디오 완성!</h2>
+
+                <div class="result-container">
+                    <div class="result-info">
+                        <p><strong>프로젝트 ID:</strong> <code id="mv-result-project-id"></code></p>
+                        <p><strong>길이:</strong> <span id="mv-result-duration"></span></p>
+                        <p><strong>씬 수:</strong> <span id="mv-result-scene-count"></span></p>
+                    </div>
+
+                    <div class="video-player" id="mv-result-video-container">
+                        <video id="mv-result-video" controls style="width: 100%; border-radius: 8px;"></video>
+                    </div>
+
+                    <div class="result-actions">
+                        <a id="mv-download-btn" class="btn btn-primary" download>
+                            <span class="btn-icon">📥</span>
+                            뮤직비디오 다운로드
+                        </a>
+                        <button id="mv-new-btn" class="btn btn-secondary">
+                            <span class="btn-icon">➕</span>
+                            새 뮤직비디오 만들기
+                        </button>
+                    </div>
+
+                    <!-- 씬 썸네일 그리드 -->
+                    <div style="margin-top: 30px;">
+                        <h3 style="color: #00adb5; margin-bottom: 15px;">🎨 생성된 씬</h3>
+                        <div id="mv-result-scene-grid" class="scene-grid">
+                            <!-- JS로 동적 생성 -->
                         </div>
                     </div>
                 </div>

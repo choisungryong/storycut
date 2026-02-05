@@ -2238,13 +2238,234 @@ async def get_system_errors(limit: int = 50):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# ============================================================
+# Music Video Mode API Endpoints
+# ============================================================
+
+from schemas.mv_models import (
+    MVProject, MVProjectRequest, MVUploadResponse,
+    MVGenerateResponse, MVStatusResponse, MVResultResponse,
+    MVProjectStatus
+)
+
+@app.post("/api/mv/upload", response_model=MVUploadResponse)
+async def mv_upload_music(file: UploadFile = File(...)):
+    """
+    Step 1: 음악 파일 업로드 및 분석
+
+    - 지원 포맷: mp3, wav, m4a, ogg, flac
+    - 최대 길이: 10분
+    """
+    from agents.mv_pipeline import MVPipeline
+    import uuid
+    import shutil
+
+    # 지원 포맷 확인
+    filename = file.filename or "unknown.mp3"
+    ext = os.path.splitext(filename)[1].lower()
+    supported = ['.mp3', '.wav', '.m4a', '.ogg', '.flac']
+
+    if ext not in supported:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format: {ext}. Supported: {supported}"
+        )
+
+    # 프로젝트 ID 생성
+    project_id = f"mv_{uuid.uuid4().hex[:8]}"
+    project_dir = f"outputs/{project_id}"
+    os.makedirs(f"{project_dir}/music", exist_ok=True)
+
+    # 파일 저장
+    music_path = f"{project_dir}/music/{filename}"
+    with open(music_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    print(f"[MV API] Music uploaded: {music_path}")
+
+    # 분석
+    try:
+        pipeline = MVPipeline()
+        project = pipeline.upload_and_analyze(music_path, project_id)
+
+        if project.status == MVProjectStatus.FAILED:
+            raise HTTPException(status_code=500, detail=project.error_message)
+
+        return MVUploadResponse(
+            project_id=project.project_id,
+            status=project.status.value,
+            music_analysis=project.music_analysis,
+            message="음악 업로드 및 분석 완료"
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mv/generate", response_model=MVGenerateResponse)
+async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTasks):
+    """
+    Step 2: 뮤직비디오 생성 시작 (비동기)
+
+    업로드된 음악을 기반으로 MV 생성을 시작합니다.
+    """
+    from agents.mv_pipeline import MVPipeline
+    import threading
+
+    if not request.project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(request.project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {request.project_id}")
+
+    if project.status == MVProjectStatus.GENERATING:
+        raise HTTPException(status_code=400, detail="Generation already in progress")
+
+    total_scenes = len(project.music_analysis.segments) if project.music_analysis else 6
+    estimated_time = total_scenes * 30  # 씬당 약 30초
+
+    def run_mv_generation():
+        try:
+            print(f"[MV Thread] Starting generation for {request.project_id}")
+
+            # Step 2: 씬 생성
+            project_updated = pipeline.generate_scenes(project, request)
+
+            # Step 3: 이미지 생성
+            project_updated = pipeline.generate_images(project_updated)
+
+            # Step 4: 영상 합성
+            project_updated = pipeline.compose_video(project_updated)
+
+            print(f"[MV Thread] Generation complete: {project_updated.status}")
+
+        except Exception as e:
+            print(f"[MV Thread] Error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # 백그라운드 스레드에서 실행
+    thread = threading.Thread(target=run_mv_generation, daemon=True)
+    thread.start()
+
+    return MVGenerateResponse(
+        project_id=request.project_id,
+        status="generating",
+        total_scenes=total_scenes,
+        estimated_time_sec=estimated_time,
+        message="뮤직비디오 생성이 시작되었습니다"
+    )
+
+
+@app.get("/api/mv/status/{project_id}", response_model=MVStatusResponse)
+async def mv_status(project_id: str):
+    """
+    MV 생성 상태 조회
+    """
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    return MVStatusResponse(
+        project_id=project.project_id,
+        status=project.status,
+        progress=project.progress,
+        current_step=project.current_step,
+        scenes=project.scenes,
+        error_message=project.error_message
+    )
+
+
+@app.get("/api/mv/result/{project_id}", response_model=MVResultResponse)
+async def mv_result(project_id: str):
+    """
+    MV 결과 조회
+    """
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    video_url = None
+    download_url = None
+
+    if project.final_video_path:
+        video_url = f"/api/mv/stream/{project_id}"
+        download_url = f"/api/mv/download/{project_id}"
+
+    return MVResultResponse(
+        project_id=project.project_id,
+        status=project.status,
+        video_url=video_url,
+        thumbnail_url=None,  # TODO: 썸네일 생성
+        duration_sec=project.music_analysis.duration_sec if project.music_analysis else 0,
+        scenes=project.scenes,
+        download_url=download_url
+    )
+
+
+@app.get("/api/mv/stream/{project_id}")
+async def mv_stream(project_id: str):
+    """
+    MV 스트리밍
+    """
+    from fastapi.responses import FileResponse
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project or not project.final_video_path:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if not os.path.exists(project.final_video_path):
+        raise HTTPException(status_code=404, detail="Video file not found")
+
+    return FileResponse(
+        project.final_video_path,
+        media_type="video/mp4",
+        filename=f"mv_{project_id}.mp4"
+    )
+
+
+@app.get("/api/mv/download/{project_id}")
+async def mv_download(project_id: str):
+    """
+    MV 다운로드
+    """
+    from fastapi.responses import FileResponse
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project or not project.final_video_path:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    return FileResponse(
+        project.final_video_path,
+        media_type="video/mp4",
+        filename=f"storycut_mv_{project_id}.mp4",
+        headers={"Content-Disposition": f"attachment; filename=storycut_mv_{project_id}.mp4"}
+    )
+
 
 if __name__ == "__main__":
     import uvicorn
 
     print("""
 ============================================================
-              STORYCUT API Server v2.5 (More Voices)
+              STORYCUT API Server v2.6 (Music Video Mode)
 ============================================================
   Server: http://localhost:8000
   API Docs: http://localhost:8000/docs
