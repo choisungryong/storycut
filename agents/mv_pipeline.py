@@ -440,18 +440,18 @@ class MVPipeline:
         try:
             # 1. 각 이미지를 비디오 클립으로 변환 (Ken Burns 효과)
             video_clips = []
-            zoom_directions = ["in", "out"]  # 다양하게
+            effect_types = ["zoom_in", "zoom_out", "pan_left", "pan_right"]  # 다양하게
 
             for i, scene in enumerate(completed_scenes):
                 clip_path = f"{project_dir}/media/video/scene_{scene.scene_id:02d}.mp4"
 
                 # Ken Burns 효과로 이미지 → 비디오
-                zoom_dir = zoom_directions[i % len(zoom_directions)]
+                effect = effect_types[i % len(effect_types)]
                 self.ffmpeg_composer.ken_burns_clip(
                     image_path=scene.image_path,
-                    output_path=clip_path,
+                    out_path=clip_path,
                     duration_sec=scene.duration_sec,
-                    zoom_type=zoom_dir
+                    effect_type=effect
                 )
 
                 scene.video_path = clip_path
