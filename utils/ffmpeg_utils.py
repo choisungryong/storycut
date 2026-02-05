@@ -168,9 +168,9 @@ class FFmpegComposer:
             default_font = "Noto Sans CJK KR" # standard name after installing noto-fonts-cjk
         
         # ASS 스타일 문자열 생성
-        # NanumGothic 폰트 명시 (시스템에 설치된 한글 폰트)
+        # 플랫폼별 한글 폰트 사용 (Windows: Malgun Gothic, Linux: Noto Sans CJK KR)
         force_style = (
-            f"FontName=NanumGothic,"  # 명시적으로 NanumGothic 지정
+            f"FontName={default_font},"  # 플랫폼별 기본 폰트 사용
             f"FontSize={style.get('font_size', 24)},"
             f"PrimaryColour={style.get('primary_color', '&HFFFFFF')},"
             f"OutlineColour={style.get('outline_color', '&H000000')},"
@@ -191,8 +191,8 @@ class FFmpegComposer:
         # DEBUG: SRT 파일 존재 확인
         if not os.path.exists(srt_path):
             print(f"[ERROR] SRT file does not exist: {srt_path}")
-            return video_in
-        
+            return video_in, False
+
         # DEBUG: SRT 파일 내용 일부 출력
         try:
             with open(srt_path, 'r', encoding='utf-8') as f:
@@ -201,7 +201,7 @@ class FFmpegComposer:
                 print(f"[DEBUG] SRT preview (first 200 chars): {srt_preview}")
         except Exception as e:
             print(f"[ERROR] Cannot read SRT file: {e}")
-            return video_in
+            return video_in, False
 
 
         # 모든 경로를 절대 경로로 변환 (Linux에서 상대 경로 문제 해결)
