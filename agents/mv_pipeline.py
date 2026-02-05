@@ -445,9 +445,11 @@ class MVPipeline:
             for i, scene in enumerate(completed_scenes):
                 clip_path = f"{project_dir}/media/video/scene_{scene.scene_id:02d}.mp4"
 
+                print(f"    [Scene {scene.scene_id}] image_path: {scene.image_path}")
+
                 # 이미지 파일 존재 확인
-                if not os.path.exists(scene.image_path):
-                    print(f"    [WARNING] Image not found: {scene.image_path}")
+                if not scene.image_path or not os.path.exists(scene.image_path):
+                    print(f"    [SKIP] Image not found: {scene.image_path}")
                     continue
 
                 # Ken Burns 효과로 이미지 → 비디오
@@ -459,20 +461,34 @@ class MVPipeline:
                         duration_sec=scene.duration_sec,
                         effect_type=effect
                     )
+                    scene.video_path = clip_path
+                    video_clips.append(clip_path)
+                    print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip created (Ken Burns)")
                 except Exception as kb_err:
-                    print(f"    [WARNING] Ken Burns failed, using static: {kb_err}")
+                    print(f"    [WARNING] Ken Burns failed: {str(kb_err)[-200:]}")
                     # Fallback: 정적 이미지 → 비디오
-                    self._image_to_static_video(
-                        scene.image_path,
-                        clip_path,
-                        scene.duration_sec
-                    )
-
-                scene.video_path = clip_path
-                video_clips.append(clip_path)
-                print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip created")
+                    try:
+                        self._image_to_static_video(
+                            scene.image_path,
+                            clip_path,
+                            scene.duration_sec
+                        )
+                        scene.video_path = clip_path
+                        video_clips.append(clip_path)
+                        print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip created (static)")
+                    except Exception as static_err:
+                        print(f"    [SKIP] Static also failed: {str(static_err)[-200:]}")
+                        continue
 
             project.progress = 85
+
+            # 비디오 클립이 없으면 실패
+            if not video_clips:
+                project.status = MVProjectStatus.FAILED
+                project.error_message = "No video clips were created. Check image generation."
+                return project
+
+            print(f"  Video clips created: {len(video_clips)}")
 
             # 2. 클립들 이어붙이기
             concat_video = f"{project_dir}/media/video/concat.mp4"
@@ -580,8 +596,11 @@ class MVPipeline:
         """이미지를 정적 비디오로 변환 (Ken Burns 실패 시 fallback)"""
         import subprocess
 
+        print(f"    [DEBUG] Static video: {image_path} -> {output_path}")
+        print(f"    [DEBUG] Image exists: {os.path.exists(image_path)}")
+
         cmd = [
-            "ffmpeg", "-y",
+            "ffmpeg", "-y", "-hide_banner",
             "-loop", "1",
             "-i", image_path,
             "-c:v", "libx264",
@@ -594,7 +613,8 @@ class MVPipeline:
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(f"Static video failed: {result.stderr[:500]}")
+            # 에러 메시지 끝부분 출력 (실제 에러가 담김)
+            raise RuntimeError(f"Static video failed: {result.stderr[-500:]}")
 
     def _save_manifest(self, project: MVProject, project_dir: str):
         """매니페스트 저장"""
