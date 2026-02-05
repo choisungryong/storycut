@@ -2249,7 +2249,7 @@ from schemas.mv_models import (
 )
 
 @app.post("/api/mv/upload", response_model=MVUploadResponse)
-async def mv_upload_music(file: UploadFile = File(...)):
+async def mv_upload_music(music_file: UploadFile = File(...)):
     """
     Step 1: 음악 파일 업로드 및 분석
 
@@ -2261,7 +2261,7 @@ async def mv_upload_music(file: UploadFile = File(...)):
     import shutil
 
     # 지원 포맷 확인
-    filename = file.filename or "unknown.mp3"
+    filename = music_file.filename or "unknown.mp3"
     ext = os.path.splitext(filename)[1].lower()
     supported = ['.mp3', '.wav', '.m4a', '.ogg', '.flac']
 
@@ -2279,7 +2279,7 @@ async def mv_upload_music(file: UploadFile = File(...)):
     # 파일 저장
     music_path = f"{project_dir}/music/{filename}"
     with open(music_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        shutil.copyfileobj(music_file.file, f)
 
     print(f"[MV API] Music uploaded: {music_path}")
 
