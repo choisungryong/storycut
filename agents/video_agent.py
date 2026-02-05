@@ -706,20 +706,31 @@ class VideoAgent:
         style_anchor = getattr(scene, '_style_anchor_path', None) if scene else None
         env_anchor = getattr(scene, '_env_anchor_path', None) if scene else None
 
-        image_path, image_id = image_agent.generate_image(
-            scene_id=scene_id,
-            prompt=prompt,
-            style=style,
-            output_dir=image_dir,
-            seed=seed,
-            character_tokens=character_tokens,
-            character_reference_id=character_reference_id,
-            character_reference_path=character_reference_path,
-            character_reference_paths=character_reference_paths,  # v2.0: 복수 참조 이미지
-            style_anchor_path=style_anchor,           # v2.1: 스타일 앵커
-            environment_anchor_path=env_anchor,       # v2.1: 환경 앵커
-            image_model=self.feature_flags.image_model if hasattr(self.feature_flags, 'image_model') else "standard"
-        )
+        # v2.2: Check for existing image (from previous image-only generation)
+        existing_image = None
+        if scene and hasattr(scene, 'assets') and scene.assets and scene.assets.image_path:
+            if os.path.exists(scene.assets.image_path):
+                existing_image = scene.assets.image_path
+                print(f"     [SKIP] Using existing image: {existing_image}")
+
+        if existing_image:
+            image_path = existing_image
+            image_id = None
+        else:
+            image_path, image_id = image_agent.generate_image(
+                scene_id=scene_id,
+                prompt=prompt,
+                style=style,
+                output_dir=image_dir,
+                seed=seed,
+                character_tokens=character_tokens,
+                character_reference_id=character_reference_id,
+                character_reference_path=character_reference_path,
+                character_reference_paths=character_reference_paths,  # v2.0: 복수 참조 이미지
+                style_anchor_path=style_anchor,           # v2.1: 스타일 앵커
+                environment_anchor_path=env_anchor,       # v2.1: 환경 앵커
+                image_model=self.feature_flags.image_model if hasattr(self.feature_flags, 'image_model') else "standard"
+            )
 
         # Step 2: Apply Ken Burns effect if enabled
         if self.feature_flags.ffmpeg_kenburns:

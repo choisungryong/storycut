@@ -335,6 +335,26 @@ JSON 형식으로 출력:
         project_dir = os.path.dirname(output_path)
         print(f"Project Directory: {project_dir}")
 
+        # v2.2: Load existing images from manifest (이미지 생성 스킵용)
+        existing_images = {}  # scene_id -> image_path
+        manifest_path = os.path.join(project_dir, "manifest.json")
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest_data = json.load(f)
+                if manifest_data.get('status') == 'images_ready':
+                    for sc in manifest_data.get('scenes', []):
+                        sc_id = sc.get('scene_id')
+                        img_path = sc.get('assets', {}).get('image_path') if isinstance(sc.get('assets'), dict) else None
+                        if not img_path and isinstance(sc.get('assets'), dict):
+                            img_path = sc['assets'].get('image_path')
+                        if sc_id and img_path and os.path.exists(img_path):
+                            existing_images[sc_id] = img_path
+                    if existing_images:
+                        print(f"\n[v2.2] Loaded {len(existing_images)} existing images from manifest (skipping regeneration)")
+            except Exception as e:
+                print(f"[v2.2] Failed to load manifest: {e}")
+
         # v2.0: 글로벌 스타일 정보 출력
         if global_style:
             print(f"\n[Global Style Guide]")
@@ -389,6 +409,11 @@ JSON 형식으로 출력:
                 image_prompt=scene_data.get("image_prompt"),
                 characters_in_scene=scene_data.get("characters_in_scene", []),
             )
+
+            # v2.2: Set existing image path if available (skip image generation)
+            if scene_data["scene_id"] in existing_images:
+                scene.assets.image_path = existing_images[scene_data["scene_id"]]
+                print(f"  [v2.2] Using existing image: {scene.assets.image_path}")
 
             # v2.0: Character reference 로그 및 시드 추출
             scene_seed = None
