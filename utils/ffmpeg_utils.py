@@ -99,12 +99,18 @@ class FFmpegComposer:
 
         filter_str = effects.get(effect_type, effects["zoom_in"])
 
+        # v2.2: Pre-scale image to maintain aspect ratio before zoompan
+        # scale to cover target resolution (may be larger), then crop to exact size
+        # This prevents stretching/squishing of the image
+        prescale_filter = f"scale={self.width}:{self.height}:force_original_aspect_ratio=increase,crop={self.width}:{self.height}"
+        full_filter = f"{prescale_filter},{filter_str}"
+
         cmd = [
             "ffmpeg",
             "-y",
             "-loop", "1",
             "-i", image_path,
-            "-vf", filter_str,
+            "-vf", full_filter,
             "-c:v", "libx264",
             "-t", str(duration_sec),
             "-pix_fmt", "yuv420p",
