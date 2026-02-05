@@ -99,10 +99,13 @@ class FFmpegComposer:
 
         filter_str = effects.get(effect_type, effects["zoom_in"])
 
-        # v2.2: Pre-scale image to maintain aspect ratio before zoompan
-        # scale to cover target resolution (may be larger), then crop to exact size
-        # This prevents stretching/squishing of the image
-        prescale_filter = f"scale={self.width}:{self.height}:force_original_aspect_ratio=increase,crop={self.width}:{self.height}"
+        # v2.2: Pre-scale image to correct aspect ratio (16:9) at larger size for zoom headroom
+        # 1. Scale to cover 2x target resolution while maintaining aspect ratio
+        # 2. Crop to exactly 2x target (gives zoom/pan headroom)
+        # 3. zoompan then outputs at final target resolution
+        scaled_w = self.width * 2
+        scaled_h = self.height * 2
+        prescale_filter = f"scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=increase,crop={scaled_w}:{scaled_h}"
         full_filter = f"{prescale_filter},{filter_str}"
 
         cmd = [
