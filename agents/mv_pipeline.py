@@ -627,22 +627,27 @@ class MVPipeline:
         print(f"    [DEBUG] Static video: {image_path} -> {output_path}")
         print(f"    [DEBUG] Image exists: {os.path.exists(image_path)}")
 
+        # 더 간단한 FFmpeg 명령 - 호환성 최대화
         cmd = [
             "ffmpeg", "-y", "-hide_banner",
+            "-framerate", "1",           # 입력 프레임레이트
             "-loop", "1",
             "-i", image_path,
-            "-c:v", "libx264",
             "-t", str(duration_sec),
+            "-r", "30",                  # 출력 프레임레이트
+            "-c:v", "libx264",
+            "-preset", "fast",
             "-pix_fmt", "yuv420p",
-            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
-            "-r", "30",
+            "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=black",
             output_path
         ]
 
+        print(f"    [DEBUG] FFmpeg cmd: {' '.join(cmd[:10])}...")
+
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            # 에러 메시지 끝부분 출력 (실제 에러가 담김)
-            raise RuntimeError(f"Static video failed: {result.stderr[-500:]}")
+            print(f"    [DEBUG] FFmpeg stderr: {result.stderr[-800:]}")
+            raise RuntimeError(f"Static video failed: {result.stderr[-300:]}")
 
     def _generate_lyrics_srt(
         self,
