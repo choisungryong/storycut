@@ -466,12 +466,12 @@ class MVPipeline:
                     print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip created (Ken Burns)")
                 except Exception as kb_err:
                     print(f"    [WARNING] Ken Burns failed: {str(kb_err)[-200:]}")
-                    # Fallback: 정적 이미지 → 비디오
+                    # Fallback: 정적 이미지 → 비디오 (FFmpegComposer 사용으로 해상도 일관성 보장)
                     try:
-                        self._image_to_static_video(
-                            scene.image_path,
-                            clip_path,
-                            scene.duration_sec
+                        self.ffmpeg_composer._image_to_static_video(
+                            image_path=scene.image_path,
+                            duration_sec=scene.duration_sec,
+                            output_path=clip_path
                         )
                         scene.video_path = clip_path
                         video_clips.append(clip_path)
@@ -530,9 +530,9 @@ class MVPipeline:
             # 4. 음악 합성
             final_video = f"{project_dir}/final_mv.mp4"
             self.ffmpeg_composer._add_audio_to_video(
-                video_path=video_with_subtitles,
+                video_in=video_with_subtitles,
                 audio_path=project.music_file_path,
-                output_path=final_video
+                out_path=final_video
             )
 
             project.final_video_path = final_video
@@ -615,40 +615,6 @@ class MVPipeline:
     # 유틸리티
     # ================================================================
 
-    def _image_to_static_video(
-        self,
-        image_path: str,
-        output_path: str,
-        duration_sec: float
-    ):
-        """이미지를 정적 비디오로 변환 (Ken Burns 실패 시 fallback)"""
-        import subprocess
-
-        print(f"    [DEBUG] Static video: {image_path} -> {output_path}")
-        print(f"    [DEBUG] Image exists: {os.path.exists(image_path)}")
-
-        # 더 간단한 FFmpeg 명령 - 호환성 최대화
-        cmd = [
-            "ffmpeg", "-y", "-hide_banner",
-            "-framerate", "1",           # 입력 프레임레이트
-            "-loop", "1",
-            "-i", image_path,
-            "-t", str(duration_sec),
-            "-r", "30",                  # 출력 프레임레이트
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-pix_fmt", "yuv420p",
-            "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=black",
-            output_path
-        ]
-
-        print(f"    [DEBUG] FFmpeg cmd: {' '.join(cmd[:10])}...")
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"    [DEBUG] FFmpeg stderr: {result.stderr[-800:]}")
-            raise RuntimeError(f"Static video failed: {result.stderr[-300:]}")
-
     def _generate_lyrics_srt(
         self,
         scenes: List[MVScene],
@@ -688,14 +654,18 @@ class MVPipeline:
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
     def _save_manifest(self, project: MVProject, project_dir: str):
-        """매니페스트 저장"""
+        """매니페스트 저장 (atomic write로 손상 방지)"""
         manifest_path = f"{project_dir}/manifest.json"
+        temp_path = f"{manifest_path}.tmp"
 
         # Pydantic → dict
         data = project.model_dump(mode='json')
 
-        with open(manifest_path, 'w', encoding='utf-8') as f:
+        with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+        # atomic rename (기존 파일 덮어쓰기)
+        os.replace(temp_path, manifest_path)
 
     def load_project(self, project_id: str) -> Optional[MVProject]:
         """프로젝트 로드"""

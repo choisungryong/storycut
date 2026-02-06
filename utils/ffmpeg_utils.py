@@ -162,11 +162,15 @@ class FFmpegComposer:
         
         import platform
         system = platform.system()
-        
+
         default_font = "Malgun Gothic" # Windows Default
         if system == "Linux":
             default_font = "Noto Sans CJK KR" # standard name after installing noto-fonts-cjk
-        
+
+        # style이 None이면 빈 딕셔너리로 대체
+        if style is None:
+            style = {}
+
         # ASS 스타일 문자열 생성
         # 플랫폼별 한글 폰트 사용 (Windows: Malgun Gothic, Linux: Noto Sans CJK KR)
         force_style = (
@@ -180,13 +184,13 @@ class FFmpegComposer:
 
         # SRT 경로를 절대 경로로 변환 (Linux에서 상대 경로 문제 해결)
         srt_path_abs = os.path.abspath(srt_path)
-        
-        # Windows 경로 처리 (백슬래시 이스케이프) + 콜론 이스케이프
-        srt_path_escaped = srt_path_abs.replace("\\", "/").replace(":", "\\:")
-        
-        # FFmpeg subtitle filter syntax: paths should NOT be quoted
-        # Only special characters (like colons) need escaping
-        vf_filter = f"subtitles={srt_path_escaped}:force_style='{force_style}'"
+
+        # Windows 경로 처리: 백슬래시를 슬래시로, 콜론 이스케이프
+        # FFmpeg subtitles 필터는 콜론을 옵션 구분자로 사용하므로 경로 내 콜론 이스케이프 필요
+        srt_path_escaped = srt_path_abs.replace("\\", "/").replace(":", "\\\\:")
+
+        # FFmpeg subtitle filter - Windows에서는 콜론 이중 이스케이프 필요
+        vf_filter = f"subtitles='{srt_path_escaped}':force_style='{force_style}'"
 
         # DEBUG: SRT 파일 존재 확인
         if not os.path.exists(srt_path):
@@ -494,13 +498,16 @@ class FFmpegComposer:
         if not video_paths:
             raise ValueError("No video paths provided")
 
-        # FFmpeg concat 리스트 파일 생성
-        concat_file = "temp_concat_list.txt"
+        # temp 파일을 출력 디렉토리에 생성 (CWD 의존 제거)
+        output_dir = os.path.dirname(os.path.abspath(output_path))
+        concat_file = os.path.join(output_dir, "temp_concat_list.txt")
+
         with open(concat_file, "w", encoding="utf-8") as f:
             for video_path in video_paths:
                 f.write(f"file '{os.path.abspath(video_path)}'\n")
 
         try:
+            # 먼저 -c copy 시도 (빠름, 동일 코덱일 때)
             cmd = [
                 "ffmpeg",
                 "-y",
@@ -514,8 +521,29 @@ class FFmpegComposer:
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
-                print(f"FFmpeg error: {result.stderr}")
-                return False
+                print(f"[FFmpeg] concat -c copy failed, retrying with re-encode...")
+                print(f"[FFmpeg] Error: {result.stderr[-300:]}")
+                # 재인코딩 fallback (해상도/코덱 불일치 시)
+                cmd_reencode = [
+                    "ffmpeg",
+                    "-y",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", concat_file,
+                    "-c:v", "libx264",
+                    "-preset", "fast",
+                    "-crf", "23",
+                    "-pix_fmt", "yuv420p",
+                    "-vf", f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
+                           f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2",
+                    "-r", str(self.fps),
+                    output_path
+                ]
+
+                result2 = subprocess.run(cmd_reencode, capture_output=True, text=True)
+                if result2.returncode != 0:
+                    print(f"[FFmpeg] Re-encode concat also failed: {result2.stderr[-300:]}")
+                    return False
 
             return True
 
