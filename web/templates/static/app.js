@@ -1526,9 +1526,17 @@ class StorycutApp {
 
     async regenerateImage(projectId, sceneId) {
         const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        if (!card) {
+            console.error(`[regenerateImage] Card not found for scene ${sceneId}`);
+            alert('씬 카드를 찾을 수 없습니다.');
+            return;
+        }
+
         const btn = card.querySelector('.btn-regenerate');
-        btn.textContent = '⏳...';
-        btn.disabled = true;
+        if (btn) {
+            btn.textContent = '⏳...';
+            btn.disabled = true;
+        }
 
         try {
             const response = await fetch(`${this.getApiBaseUrl()}/api/regenerate/image/${projectId}/${sceneId}`, {
@@ -1550,16 +1558,19 @@ class StorycutApp {
 
             const result = await response.json();
             const img = card.querySelector('img');
-            const imageUrl = this.resolveImageUrl(result.image_path);
-            img.src = `${imageUrl}?t=${Date.now()}`;
-
-            btn.textContent = '🔄 재생성';
-            btn.disabled = false;
+            if (img) {
+                const imageUrl = this.resolveImageUrl(result.image_path);
+                img.src = `${imageUrl}?t=${Date.now()}`;
+            }
 
         } catch (error) {
+            console.error('[regenerateImage] Error:', error);
             alert(`재생성 실패: ${error.message}`);
-            btn.textContent = '🔄 재생성';
-            btn.disabled = false;
+        } finally {
+            if (btn) {
+                btn.textContent = '🔄 재생성';
+                btn.disabled = false;
+            }
         }
     }
 
@@ -1718,9 +1729,15 @@ class StorycutApp {
         this.addLog('INFO', '📤 영상 생성 요청 전송 중...');
 
         try {
+            const token = localStorage.getItem('token');
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             const response = await fetch(`${this.getApiBaseUrl()}/api/generate/video`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify({
                     project_id: this.projectId,
                     story_data: this.currentStoryData,

@@ -1154,7 +1154,7 @@ async def get_image_generation_status(project_id: str):
 
 
 @app.post("/api/regenerate/image/{project_id}/{scene_id}")
-async def regenerate_scene_image(project_id: str, scene_id: int, req: dict = {"prompt": None}):
+async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[dict] = None):
     """
     특정 씬의 이미지를 재생성합니다.
     
@@ -1193,7 +1193,9 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: dict = {"p
     
     # 이미지 재생성
     image_agent = ImageAgent()
-    new_prompt = req.get("prompt") if req else target_scene.get("prompt", "")
+    if req is None:
+        req = {}
+    new_prompt = req.get("prompt")
     
     try:
         image_path, image_id = await run_in_threadpool(
