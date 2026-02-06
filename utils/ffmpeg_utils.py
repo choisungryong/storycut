@@ -121,7 +121,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode != 0:
             raise RuntimeError(f"Ken Burns effect failed: {result.stderr}")
@@ -186,8 +186,8 @@ class FFmpegComposer:
         srt_path_abs = os.path.abspath(srt_path)
 
         # Windows 경로 처리: 백슬래시를 슬래시로, 콜론 이스케이프
-        # FFmpeg subtitles 필터는 콜론을 옵션 구분자로 사용하므로 경로 내 콜론 이스케이프 필요
-        srt_path_escaped = srt_path_abs.replace("\\", "/").replace(":", "\\\\:")
+        # FFmpeg subtitles 필터는 콜론을 옵션 구분자로 사용하므로 경로 내 콜론을 \: 로 이스케이프
+        srt_path_escaped = srt_path_abs.replace("\\", "/").replace(":", "\\:")
 
         # FFmpeg subtitle filter - Windows에서는 콜론 이중 이스케이프 필요
         vf_filter = f"subtitles='{srt_path_escaped}':force_style='{force_style}'"
@@ -232,7 +232,7 @@ class FFmpegComposer:
         print(f"[DEBUG] Output: {out_path_abs}")
         print(f"[DEBUG] Filter: {vf_filter}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         print(f"[DEBUG] FFmpeg returncode: {result.returncode}")
         print(f"[DEBUG] FFmpeg stderr length: {len(result.stderr)}")
@@ -400,7 +400,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode != 0:
             print(f"Audio ducking failed: {result.stderr[:500]}")
@@ -438,7 +438,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode != 0:
             raise RuntimeError(f"Audio mix failed: {result.stderr}")
@@ -467,7 +467,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode != 0:
             raise RuntimeError(f"Failed to add audio: {result.stderr}")
@@ -518,7 +518,7 @@ class FFmpegComposer:
                 output_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
             if result.returncode != 0:
                 print(f"[FFmpeg] concat -c copy failed, retrying with re-encode...")
@@ -540,7 +540,7 @@ class FFmpegComposer:
                     output_path
                 ]
 
-                result2 = subprocess.run(cmd_reencode, capture_output=True, text=True)
+                result2 = subprocess.run(cmd_reencode, capture_output=True, text=True, encoding='utf-8', errors='replace')
                 if result2.returncode != 0:
                     print(f"[FFmpeg] Re-encode concat also failed: {result2.stderr[-300:]}")
                     return False
@@ -623,7 +623,7 @@ class FFmpegComposer:
         print(f"  Narration files: {len(narration_paths)}")
         print(f"  Music: {music_path if music_path else 'None'}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         # 임시 파일 정리
         if os.path.exists(narration_concat):
@@ -666,7 +666,7 @@ class FFmpegComposer:
             output_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if os.path.exists(concat_file):
             os.remove(concat_file)
@@ -686,7 +686,7 @@ class FFmpegComposer:
             video_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode == 0:
             return float(result.stdout.strip())
@@ -859,7 +859,7 @@ class FFmpegComposer:
             output_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode != 0:
             raise RuntimeError(f"Image to video conversion failed: {result.stderr}")
@@ -961,7 +961,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode != 0:
             print(f"[ERROR] Film look failed: {result.stderr[-500:]}")
@@ -1019,7 +1019,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode != 0:
             print(f"[ERROR] LUT application failed: {result.stderr[-500:]}")

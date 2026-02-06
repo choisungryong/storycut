@@ -1853,8 +1853,16 @@ class StorycutApp {
             const result = await response.json();
             this.mvProjectId = result.project_id;
             this.mvAnalysis = result.music_analysis;
+
+            // Gemini로 추출된 가사가 있고, 사용자가 직접 입력하지 않았으면 자동 채우기
+            const lyricsInput = document.getElementById('mv-lyrics');
+            if (result.extracted_lyrics && !lyricsInput.value.trim()) {
+                lyricsInput.value = result.extracted_lyrics;
+                console.log(`[MV] Auto-filled lyrics: ${result.extracted_lyrics.length} chars`);
+            }
+
             this.mvRequestParams = {
-                lyrics: document.getElementById('mv-lyrics').value || '',
+                lyrics: lyricsInput.value || '',
                 concept: document.getElementById('mv-concept').value || '',
                 genre: document.getElementById('mv-genre').value,
                 mood: document.getElementById('mv-mood').value,

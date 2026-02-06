@@ -84,6 +84,7 @@ class MusicAnalysis(BaseModel):
     energy: Optional[float] = Field(None, description="전체 에너지 레벨 (0-1)")
     segments: List[MusicSegment] = Field(default_factory=list, description="구간 분할")
     key_timestamps: List[float] = Field(default_factory=list, description="주요 전환 포인트")
+    extracted_lyrics: Optional[str] = Field(None, description="Gemini로 자동 추출된 가사")
 
 
 # ============================================================
@@ -191,6 +192,7 @@ class MVUploadResponse(BaseModel):
     project_id: str
     status: str
     music_analysis: MusicAnalysis
+    extracted_lyrics: Optional[str] = Field(None, description="자동 추출된 가사")
     message: str = "음악 업로드 및 분석 완료"
 
 

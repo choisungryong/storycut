@@ -97,6 +97,12 @@ class MVPipeline:
             print(f"\n[Step 1] Analyzing music...")
             analysis_result = self.music_analyzer.analyze(stored_music_path)
 
+            # Gemini로 가사 자동 추출
+            print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
+            extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
+            if extracted_lyrics:
+                analysis_result["extracted_lyrics"] = extracted_lyrics
+
             project.music_analysis = MusicAnalysis(**analysis_result)
             project.status = MVProjectStatus.READY
             project.progress = 10
@@ -104,6 +110,7 @@ class MVPipeline:
             print(f"  Duration: {project.music_analysis.duration_sec:.1f}s")
             print(f"  BPM: {project.music_analysis.bpm or 'N/A'}")
             print(f"  Segments: {len(project.music_analysis.segments)}")
+            print(f"  Lyrics: {'YES (' + str(len(extracted_lyrics)) + ' chars)' if extracted_lyrics else 'NONE'}")
 
         except Exception as e:
             project.status = MVProjectStatus.FAILED
@@ -142,6 +149,7 @@ class MVPipeline:
 
         # 요청 정보 저장
         project.lyrics = request.lyrics
+        print(f"  Lyrics received: {'YES (' + str(len(request.lyrics)) + ' chars)' if request.lyrics else 'EMPTY'}")
         project.concept = request.concept
         project.genre = request.genre
         project.mood = request.mood
@@ -160,18 +168,23 @@ class MVPipeline:
 
         print(f"  Total scenes: {len(scenes)}")
 
-        # 각 씬에 이미지 프롬프트 생성
+        # Gemini LLM으로 씬별 프롬프트 일괄 생성 시도
+        gemini_prompts = self._generate_prompts_with_gemini(project, request)
+
         for i, scene in enumerate(project.scenes):
             print(f"\n  [Scene {scene.scene_id}] {scene.start_sec:.1f}s - {scene.end_sec:.1f}s")
 
-            # 이미지 프롬프트 생성
-            scene.image_prompt = self._generate_image_prompt(
-                scene=scene,
-                project=project,
-                request=request,
-                scene_index=i,
-                total_scenes=len(project.scenes)
-            )
+            if gemini_prompts and i < len(gemini_prompts):
+                scene.image_prompt = gemini_prompts[i]
+            else:
+                # fallback: 템플릿 기반 프롬프트
+                scene.image_prompt = self._generate_image_prompt(
+                    scene=scene,
+                    project=project,
+                    request=request,
+                    scene_index=i,
+                    total_scenes=len(project.scenes)
+                )
 
             print(f"    Prompt: {scene.image_prompt[:80]}...")
 
@@ -255,6 +268,92 @@ class MVPipeline:
 
         return '\n'.join(lines[start_idx:end_idx])
 
+    def _generate_prompts_with_gemini(
+        self,
+        project: MVProject,
+        request: MVProjectRequest
+    ) -> Optional[List[str]]:
+        """
+        Gemini LLM으로 씬별 이미지 프롬프트를 한 번에 생성
+
+        Returns:
+            씬별 프롬프트 리스트 (실패 시 None → fallback 사용)
+        """
+        import os as _os
+        api_key = _os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            return None
+
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=api_key)
+
+            # 씬 정보 구성
+            scene_descriptions = []
+            for i, scene in enumerate(project.scenes):
+                lyrics_part = f'  가사: "{scene.lyrics_text}"' if scene.lyrics_text else "  가사: (없음)"
+                scene_descriptions.append(
+                    f"Scene {i+1} [{scene.start_sec:.1f}s-{scene.end_sec:.1f}s] "
+                    f"({scene.visual_description})\n{lyrics_part}"
+                )
+
+            scenes_text = "\n".join(scene_descriptions)
+
+            system_prompt = (
+                "당신은 뮤직비디오 비주얼 디렉터입니다. "
+                "각 씬에 대해 이미지 생성 AI가 사용할 영어 프롬프트를 만들어주세요.\n\n"
+                "규칙:\n"
+                "- 각 씬마다 완전히 다른 구체적인 장면을 묘사하세요\n"
+                "- 가사의 감정과 의미를 시각적으로 표현하세요\n"
+                "- 인물, 배경, 조명, 색감, 구도를 구체적으로 지정하세요\n"
+                "- 노래의 흐름에 따라 시각적 스토리가 진행되도록 하세요\n"
+                "- 각 프롬프트는 영어로 1-2문장, 쉼표로 구분된 키워드 형태\n"
+                "- 절대 씬 번호나 설명 없이 프롬프트만 출력\n"
+                "- 정확히 씬 개수만큼 줄을 출력하세요 (한 줄에 하나의 프롬프트)\n"
+                "- 중요: 모든 프롬프트 끝에 반드시 'no text, no letters, no words, no writing, no watermark'를 포함하세요"
+            )
+
+            user_prompt = (
+                f"장르: {request.genre.value}\n"
+                f"분위기: {request.mood.value}\n"
+                f"스타일: {request.style.value}\n"
+                f"컨셉: {request.concept or '자유'}\n"
+                f"총 씬 수: {len(project.scenes)}\n\n"
+                f"씬 정보:\n{scenes_text}\n\n"
+                f"위 {len(project.scenes)}개 씬에 대해 각각 이미지 생성 프롬프트를 한 줄씩 출력하세요."
+            )
+
+            print(f"  [Gemini] Generating {len(project.scenes)} scene prompts...")
+
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.8,
+                )
+            )
+
+            result_text = response.text.strip()
+            lines = [l.strip() for l in result_text.split('\n') if l.strip()]
+
+            # 씬 수와 프롬프트 수가 일치하는지 확인
+            if len(lines) < len(project.scenes):
+                print(f"  [Gemini] Warning: got {len(lines)} prompts for {len(project.scenes)} scenes, padding with last")
+                while len(lines) < len(project.scenes):
+                    lines.append(lines[-1] if lines else "cinematic scene, dramatic lighting")
+            elif len(lines) > len(project.scenes):
+                lines = lines[:len(project.scenes)]
+
+            print(f"  [Gemini] Generated {len(lines)} unique prompts")
+            return lines
+
+        except Exception as e:
+            print(f"  [Gemini] Prompt generation failed: {e}, using template fallback")
+            return None
+
     def _generate_image_prompt(
         self,
         scene: MVScene,
@@ -263,7 +362,7 @@ class MVPipeline:
         scene_index: int,
         total_scenes: int
     ) -> str:
-        """씬별 이미지 프롬프트 생성"""
+        """씬별 이미지 프롬프트 생성 (템플릿 fallback)"""
 
         # 스타일 프리픽스
         style_map = {
@@ -332,7 +431,8 @@ class MVPipeline:
             concept_hint,
             "music video scene",
             "16:9 aspect ratio",
-            "professional quality"
+            "professional quality",
+            "no text, no letters, no words, no writing, no watermark"
         ]
 
         # 빈 문자열 제거하고 조합
@@ -501,6 +601,7 @@ class MVPipeline:
 
             # 3. 가사 자막 생성 및 burn-in (가사가 있는 경우)
             video_with_subtitles = concat_video
+            print(f"  [Lyrics Check] project.lyrics = '{(project.lyrics or '')[:50]}...' (truthy={bool(project.lyrics)})")
             if project.lyrics:
                 print(f"  Adding lyrics subtitles...")
                 srt_path = f"{project_dir}/media/subtitles/lyrics.srt"

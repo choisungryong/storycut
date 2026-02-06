@@ -148,14 +148,14 @@ class MusicAnalyzer:
     def _create_basic_segments(
         self,
         duration_sec: float,
-        target_segment_duration: float = 20.0
+        target_segment_duration: float = 8.0
     ) -> List[dict]:
         """
         기본 균등 구간 분할
 
         Args:
             duration_sec: 전체 길이
-            target_segment_duration: 목표 구간 길이 (기본 20초)
+            target_segment_duration: 목표 구간 길이 (기본 8초)
 
         Returns:
             구간 목록
@@ -163,8 +163,8 @@ class MusicAnalyzer:
         segments = []
         num_segments = max(1, int(duration_sec / target_segment_duration))
 
-        # 최소 4개, 최대 12개 구간
-        num_segments = max(4, min(12, num_segments))
+        # 최소 6개, 최대 24개 구간
+        num_segments = max(6, min(24, num_segments))
 
         segment_duration = duration_sec / num_segments
 
@@ -173,8 +173,11 @@ class MusicAnalyzer:
             types = ["intro", "verse", "chorus", "outro"]
         elif num_segments <= 6:
             types = ["intro", "verse", "chorus", "verse", "chorus", "outro"]
-        else:
+        elif num_segments <= 9:
             types = ["intro", "verse", "pre-chorus", "chorus", "verse", "chorus", "bridge", "chorus", "outro"]
+        else:
+            types = ["intro", "verse", "verse", "pre-chorus", "chorus", "chorus",
+                     "verse", "verse", "pre-chorus", "chorus", "bridge", "chorus", "outro"]
 
         for i in range(num_segments):
             start = i * segment_duration
@@ -191,6 +194,77 @@ class MusicAnalyzer:
             })
 
         return segments
+
+    def extract_lyrics_with_gemini(self, audio_path: str) -> Optional[str]:
+        """
+        Gemini API로 음악에서 가사 자동 추출
+
+        Args:
+            audio_path: 음악 파일 경로
+
+        Returns:
+            추출된 가사 텍스트 (실패 시 None)
+        """
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("[MusicAnalyzer] GOOGLE_API_KEY not set. Skipping lyrics extraction.")
+            return None
+
+        try:
+            from google import genai
+            from google.genai import types
+            import shutil
+            import tempfile
+
+            client = genai.Client(api_key=api_key)
+
+            print(f"[MusicAnalyzer] Extracting lyrics with Gemini...")
+
+            # 한국어 파일명 등 non-ASCII 경로 대응: 임시 ASCII 파일명으로 복사
+            ext = Path(audio_path).suffix
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, f"gemini_lyrics_upload{ext}")
+            shutil.copy2(audio_path, temp_path)
+
+            # 오디오 파일 업로드
+            try:
+                audio_file = client.files.upload(file=temp_path)
+                print(f"  File uploaded: {audio_file.name}")
+            finally:
+                # 임시 파일 정리
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+            # Gemini에 가사 추출 요청
+            prompt_text = (
+                "이 음악에서 가사를 추출해주세요. "
+                "가사만 줄바꿈으로 구분하여 텍스트로 출력해주세요. "
+                "가사가 없는 인스트루멘탈 음악이면 빈 문자열만 출력해주세요. "
+                "가사 외 설명이나 부가 텍스트는 절대 포함하지 마세요."
+            )
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[audio_file, prompt_text],
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                )
+            )
+
+            lyrics = response.text.strip()
+
+            # 빈 가사 또는 인스트루멘탈 판별
+            if not lyrics or lyrics in ("", "없음", "가사 없음", "instrumental"):
+                print(f"  No lyrics detected (instrumental)")
+                return None
+
+            print(f"  Lyrics extracted: {len(lyrics)} chars")
+            return lyrics
+
+        except Exception as e:
+            print(f"[MusicAnalyzer] Lyrics extraction failed: {e}")
+            return None
 
     def get_suggested_scene_count(self, duration_sec: float) -> int:
         """

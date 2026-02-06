@@ -2293,10 +2293,13 @@ async def mv_upload_music(music_file: UploadFile = File(...)):
         if project.status == MVProjectStatus.FAILED:
             raise HTTPException(status_code=500, detail=project.error_message)
 
+        extracted_lyrics = project.music_analysis.extracted_lyrics if project.music_analysis else None
+
         return MVUploadResponse(
             project_id=project.project_id,
             status=project.status.value,
             music_analysis=project.music_analysis,
+            extracted_lyrics=extracted_lyrics,
             message="음악 업로드 및 분석 완료"
         )
 
