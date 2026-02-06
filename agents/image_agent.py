@@ -302,7 +302,7 @@ class ImageAgent:
                 }
             }
 
-            response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+            response = requests.post(api_url, headers=headers, json=payload, timeout=90)
 
             if response.status_code != 200:
                 error_text = response.text[:500]

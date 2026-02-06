@@ -2352,6 +2352,16 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
             import traceback
             traceback.print_exc()
 
+            # 프로젝트 상태를 FAILED로 설정하여 프론트엔드에 에러 전달
+            try:
+                project.status = MVProjectStatus.FAILED
+                project.error_message = str(e)[:500]
+                project.progress = 0
+                project_dir = f"outputs/{request.project_id}"
+                pipeline._save_manifest(project, project_dir)
+            except Exception:
+                pass
+
     # 백그라운드 스레드에서 실행
     thread = threading.Thread(target=run_mv_generation, daemon=True)
     thread.start()

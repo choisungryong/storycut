@@ -544,6 +544,10 @@ class MVPipeline:
                 scene.status = MVSceneStatus.FAILED
                 print(f"    [ERROR] Image generation failed: {e}")
 
+                # 실패해도 진행률은 업데이트 (멈춤 방지)
+                progress_per_scene = 50 / total_scenes
+                project.progress = int(20 + (i + 1) * progress_per_scene)
+
             # 콜백 호출
             if on_scene_complete:
                 try:
