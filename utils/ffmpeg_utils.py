@@ -39,6 +39,18 @@ class FFmpegComposer:
     # P0: Ken Burns Effect
     # =========================================================================
 
+    def _dynamic_timeout(self, video_path: str, factor: float = 3.0, minimum: int = 120) -> int:
+        """
+        영상 길이 기반 동적 timeout 계산.
+        factor: 영상 1초당 허용할 인코딩 시간 (초)
+        minimum: 최소 timeout (초)
+        """
+        try:
+            duration = self.get_video_duration(video_path)
+            return max(minimum, int(duration * factor))
+        except Exception:
+            return minimum
+
     def ken_burns_clip(
         self,
         image_path: str,
@@ -232,7 +244,9 @@ class FFmpegComposer:
         print(f"[DEBUG] Output: {out_path_abs}")
         print(f"[DEBUG] Filter: {vf_filter}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
+        sub_timeout = self._dynamic_timeout(video_in_abs, factor=5.0, minimum=120)
+        print(f"[DEBUG] Subtitle timeout: {sub_timeout}s")
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=sub_timeout)
 
         print(f"[DEBUG] FFmpeg returncode: {result.returncode}")
         print(f"[DEBUG] FFmpeg stderr length: {len(result.stderr)}")
@@ -467,7 +481,8 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
+        audio_timeout = self._dynamic_timeout(video_in, factor=2.0, minimum=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=audio_timeout)
 
         if result.returncode != 0:
             raise RuntimeError(f"Failed to add audio: {result.stderr}")
@@ -519,7 +534,9 @@ class FFmpegComposer:
                 output_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
+            # copy는 빠르므로 클립당 10초 + 최소 60초
+            copy_timeout = max(60, len(video_paths) * 10)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=copy_timeout)
 
             if result.returncode != 0:
                 print(f"[FFmpeg] concat -c copy failed, retrying with re-encode...")
@@ -541,8 +558,10 @@ class FFmpegComposer:
                     output_path
                 ]
 
-                print(f"[FFmpeg] Re-encoding with ultrafast preset...")
-                result2 = subprocess.run(cmd_reencode, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
+                # 재인코딩은 클립당 30초 + 최소 120초 (긴 영상 대응)
+                reencode_timeout = max(120, len(video_paths) * 30)
+                print(f"[FFmpeg] Re-encoding with ultrafast preset... (timeout={reencode_timeout}s)")
+                result2 = subprocess.run(cmd_reencode, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=reencode_timeout)
                 if result2.returncode != 0:
                     print(f"[FFmpeg] Re-encode concat also failed: {result2.stderr[-300:]}")
                     return False
