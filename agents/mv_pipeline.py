@@ -580,6 +580,7 @@ class MVPipeline:
         project.status = MVProjectStatus.COMPOSING
         project.current_step = "영상 합성 중..."
         project.progress = 75
+        self._save_manifest(project, project_dir)
 
         # 완료된 씬만 수집
         completed_scenes = [s for s in project.scenes if s.status == MVSceneStatus.COMPLETED and s.image_path]
@@ -635,6 +636,8 @@ class MVPipeline:
                         continue
 
             project.progress = 85
+            project.current_step = "영상 클립 생성 완료, 이어붙이는 중..."
+            self._save_manifest(project, project_dir)
 
             # 비디오 클립이 없으면 실패
             if not video_clips:
@@ -652,6 +655,8 @@ class MVPipeline:
             )
 
             project.progress = 90
+            project.current_step = "자막 처리 중..."
+            self._save_manifest(project, project_dir)
 
             # 3. 가사 자막 생성 및 burn-in (가사가 있는 경우)
             video_with_subtitles = concat_video
@@ -684,6 +689,8 @@ class MVPipeline:
                     print(f"    [WARNING] Subtitle error: {sub_err}")
 
             project.progress = 95
+            project.current_step = "음악 합성 중..."
+            self._save_manifest(project, project_dir)
 
             # 4. 음악 합성
             final_video = f"{project_dir}/final_mv.mp4"
