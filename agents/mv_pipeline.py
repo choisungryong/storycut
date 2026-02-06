@@ -795,12 +795,14 @@ class MVPipeline:
                     continue
 
                 start_sec = float(entry.get("t", 0))
-                # 다음 가사 시작 시간까지 또는 +4초
+                # 다음 가사 시작 0.3초 전까지 또는 최대 5초 표시
                 if i + 1 < len(timed_lyrics):
                     next_start = float(timed_lyrics[i + 1].get("t", start_sec + 4))
-                    end_sec = min(next_start, start_sec + 6)  # 최대 6초
+                    end_sec = min(next_start - 0.3, start_sec + 5)  # 겹침 방지 0.3초 gap
                 else:
                     end_sec = start_sec + 4
+                # 최소 1초는 표시
+                end_sec = max(end_sec, start_sec + 1.0)
 
                 start_tc = self._sec_to_srt_timecode(start_sec)
                 end_tc = self._sec_to_srt_timecode(end_sec)
