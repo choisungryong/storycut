@@ -121,7 +121,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
         if result.returncode != 0:
             raise RuntimeError(f"Ken Burns effect failed: {result.stderr}")
@@ -232,7 +232,7 @@ class FFmpegComposer:
         print(f"[DEBUG] Output: {out_path_abs}")
         print(f"[DEBUG] Filter: {vf_filter}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
 
         print(f"[DEBUG] FFmpeg returncode: {result.returncode}")
         print(f"[DEBUG] FFmpeg stderr length: {len(result.stderr)}")
@@ -467,7 +467,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
 
         if result.returncode != 0:
             raise RuntimeError(f"Failed to add audio: {result.stderr}")
@@ -508,6 +508,7 @@ class FFmpegComposer:
 
         try:
             # 먼저 -c copy 시도 (빠름, 동일 코덱일 때)
+            print(f"[FFmpeg] Concatenating {len(video_paths)} clips...")
             cmd = [
                 "ffmpeg",
                 "-y",
@@ -518,12 +519,12 @@ class FFmpegComposer:
                 output_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
 
             if result.returncode != 0:
                 print(f"[FFmpeg] concat -c copy failed, retrying with re-encode...")
                 print(f"[FFmpeg] Error: {result.stderr[-300:]}")
-                # 재인코딩 fallback (해상도/코덱 불일치 시)
+                # 재인코딩 fallback (해상도/코덱 불일치 시) - ultrafast로 속도 우선
                 cmd_reencode = [
                     "ffmpeg",
                     "-y",
@@ -531,7 +532,7 @@ class FFmpegComposer:
                     "-safe", "0",
                     "-i", concat_file,
                     "-c:v", "libx264",
-                    "-preset", "fast",
+                    "-preset", "ultrafast",
                     "-crf", "23",
                     "-pix_fmt", "yuv420p",
                     "-vf", f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
@@ -540,11 +541,13 @@ class FFmpegComposer:
                     output_path
                 ]
 
-                result2 = subprocess.run(cmd_reencode, capture_output=True, text=True, encoding='utf-8', errors='replace')
+                print(f"[FFmpeg] Re-encoding with ultrafast preset...")
+                result2 = subprocess.run(cmd_reencode, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
                 if result2.returncode != 0:
                     print(f"[FFmpeg] Re-encode concat also failed: {result2.stderr[-300:]}")
                     return False
 
+            print(f"[FFmpeg] Concatenation complete: {output_path}")
             return True
 
         finally:
@@ -859,7 +862,7 @@ class FFmpegComposer:
             output_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
         if result.returncode != 0:
             raise RuntimeError(f"Image to video conversion failed: {result.stderr}")
