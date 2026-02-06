@@ -180,7 +180,7 @@ class CharacterManager:
                     char_data["master_image_path"] = best_image
 
             character_images[token] = anchor_set.get_pose_image(anchor_set.best_pose) or ""
-            print(f"    ✓ Anchor set complete: {len(anchor_set.poses)} poses")
+            print(f"    [OK] Anchor set complete: {len(anchor_set.poses)} poses")
 
         print(f"\n[CharacterManager] Casting complete: {len(character_images)}/{total_chars} characters")
         return character_images

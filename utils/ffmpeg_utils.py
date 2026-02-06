@@ -289,6 +289,7 @@ class FFmpegComposer:
     ) -> str:
         """
         Scene 목록에서 SRT 자막 파일 생성.
+        긴 문장을 15-20자 단위로 분할하여 순차 표시.
 
         Args:
             scenes: Scene 데이터 목록
@@ -301,23 +302,37 @@ class FFmpegComposer:
 
         srt_content = []
         current_time_ms = 0
+        sub_index = 1
 
-        for i, scene in enumerate(scenes, start=1):
-            # Scene에서 타이밍 정보 추출
+        for scene in scenes:
             duration_sec = scene.get("duration_sec", 5)
             duration_ms = duration_sec * 1000
-
-            start_time = self._ms_to_srt_time(current_time_ms)
-            end_time = self._ms_to_srt_time(current_time_ms + duration_ms)
-
-            # 자막 텍스트 (narration 또는 sentence)
             text = scene.get("narration") or scene.get("sentence", "")
 
             if text:
-                srt_content.append(f"{i}")
-                srt_content.append(f"{start_time} --> {end_time}")
-                srt_content.append(text)
-                srt_content.append("")
+                # 긴 텍스트를 짧은 청크로 분할
+                chunks = self._split_subtitle_text(text, max_chars=20)
+
+                if len(chunks) == 1:
+                    # 짧은 텍스트: 그대로 표시
+                    start_time = self._ms_to_srt_time(current_time_ms)
+                    end_time = self._ms_to_srt_time(current_time_ms + duration_ms)
+                    srt_content.append(f"{sub_index}")
+                    srt_content.append(f"{start_time} --> {end_time}")
+                    srt_content.append(chunks[0])
+                    srt_content.append("")
+                    sub_index += 1
+                else:
+                    # 긴 텍스트: 청크별로 균등 시간 분배
+                    chunk_duration_ms = duration_ms / len(chunks)
+                    for j, chunk in enumerate(chunks):
+                        chunk_start = current_time_ms + j * chunk_duration_ms
+                        chunk_end = chunk_start + chunk_duration_ms
+                        srt_content.append(f"{sub_index}")
+                        srt_content.append(f"{self._ms_to_srt_time(chunk_start)} --> {self._ms_to_srt_time(chunk_end)}")
+                        srt_content.append(chunk)
+                        srt_content.append("")
+                        sub_index += 1
 
             current_time_ms += duration_ms
 
@@ -326,8 +341,60 @@ class FFmpegComposer:
 
         return output_path
 
-    def _ms_to_srt_time(self, ms: int) -> str:
+    def _split_subtitle_text(self, text: str, max_chars: int = 20) -> List[str]:
+        """
+        자막 텍스트를 자연스러운 단위로 분할.
+        문장 부호(. ? ! ,) 우선, 그 외 띄어쓰기 기준.
+        """
+        text = text.strip()
+        if len(text) <= max_chars:
+            return [text]
+
+        chunks = []
+
+        # 1차: 문장 단위 분할 (. ? !)
+        import re
+        sentences = re.split(r'(?<=[.?!])\s+', text)
+
+        for sentence in sentences:
+            if len(sentence) <= max_chars:
+                chunks.append(sentence)
+            else:
+                # 2차: 쉼표 기준 분할
+                parts = sentence.split(',')
+                buffer = ""
+                for part in parts:
+                    part = part.strip()
+                    if not part:
+                        continue
+                    test = f"{buffer}, {part}" if buffer else part
+                    if len(test) <= max_chars:
+                        buffer = test
+                    else:
+                        if buffer:
+                            chunks.append(buffer)
+                        # 그래도 길면 띄어쓰기 기준으로 자르기
+                        if len(part) > max_chars:
+                            words = part.split()
+                            buffer = ""
+                            for word in words:
+                                test_w = f"{buffer} {word}" if buffer else word
+                                if len(test_w) <= max_chars:
+                                    buffer = test_w
+                                else:
+                                    if buffer:
+                                        chunks.append(buffer)
+                                    buffer = word
+                        else:
+                            buffer = part
+                if buffer:
+                    chunks.append(buffer)
+
+        return chunks if chunks else [text]
+
+    def _ms_to_srt_time(self, ms) -> str:
         """밀리초를 SRT 시간 형식으로 변환."""
+        ms = int(ms)
         hours = ms // 3600000
         minutes = (ms % 3600000) // 60000
         seconds = (ms % 60000) // 1000

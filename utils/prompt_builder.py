@@ -229,8 +229,17 @@ class MultimodalPromptBuilder:
                 "text": "Using the above reference image(s), maintain character and style consistency in the generated image."
             })
 
-        # 메인 프롬프트 (스타일 중복 방지 - 이미 프롬프트에 스타일 키워드가 포함됨)
-        full_prompt = f"Generate a high-quality image in {style} style. {prompt}. Aspect ratio 16:9."
+        # 스타일별 강력한 이미지 생성 지시
+        style_directives = {
+            "cinematic": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster.",
+            "anime": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art, NOT a photograph.",
+            "webtoon": "Generate a Korean webtoon (manhwa) style digital art with clean sharp lines, flat color blocks, and stylized character design. This MUST look like a webtoon panel, NOT a photograph.",
+            "realistic": "Generate a hyperrealistic photograph with DSLR quality, natural lighting, sharp focus, and real-world textures. This should be indistinguishable from a real photo.",
+            "illustration": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork, NOT a photograph.",
+            "abstract": "Generate an abstract expressionist artwork with surreal dreamlike imagery, bold geometric shapes, and non-representational color fields. This MUST be abstract art, NOT realistic.",
+        }
+        style_directive = style_directives.get(style, f"Generate a high-quality image in {style} style.")
+        full_prompt = f"{style_directive} {prompt}. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts

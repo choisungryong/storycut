@@ -796,6 +796,11 @@ class MVPipeline:
         if timed_lyrics and len(timed_lyrics) > 0:
             # 타임스탬프 기반 SRT 생성 (정확한 싱크)
             print(f"    Using timed lyrics ({len(timed_lyrics)} entries)")
+
+            # 전처리: 비단조 타임스탬프 감지 및 보간
+            timed_lyrics = self._fix_broken_timestamps(timed_lyrics, scenes)
+
+            srt_idx = 0
             for i, entry in enumerate(timed_lyrics):
                 text = entry.get("text", "").strip()
                 if not text:
@@ -811,10 +816,11 @@ class MVPipeline:
                 # 최소 1초는 표시
                 end_sec = max(end_sec, start_sec + 1.0)
 
+                srt_idx += 1
                 start_tc = self._sec_to_srt_timecode(start_sec)
                 end_tc = self._sec_to_srt_timecode(end_sec)
 
-                srt_lines.append(str(i + 1))
+                srt_lines.append(str(srt_idx))
                 srt_lines.append(f"{start_tc} --> {end_tc}")
                 srt_lines.append(text)
                 srt_lines.append("")
@@ -843,6 +849,57 @@ class MVPipeline:
 
         entry_count = len([l for l in srt_lines if l.startswith("00:") or l.startswith("01:") or l.startswith("02:")])
         print(f"    SRT generated: {output_path}")
+
+    def _fix_broken_timestamps(self, timed_lyrics: list, scenes: List[MVScene]) -> list:
+        """
+        Gemini가 반환한 타임스탬프 중 비단조(뒤로 가는) 값을 감지하여 보간.
+
+        예: [1.2, 5.0, ..., 57.4, 1.0, 1.0, 1.0, ...]
+        → 57.4 이후 1.0들은 깨진 것이므로 균등 보간으로 대체
+        """
+        if not timed_lyrics or len(timed_lyrics) < 2:
+            return timed_lyrics
+
+        # 마지막 유효 타임스탬프 인덱스 찾기
+        last_valid_idx = 0
+        last_valid_t = float(timed_lyrics[0].get("t", 0))
+
+        for i in range(1, len(timed_lyrics)):
+            t = float(timed_lyrics[i].get("t", 0))
+            if t > last_valid_t:
+                last_valid_idx = i
+                last_valid_t = t
+            else:
+                # 이 지점부터 타임스탬프가 깨짐
+                break
+        else:
+            # 모든 타임스탬프가 단조 증가 → 문제 없음
+            return timed_lyrics
+
+        broken_start = last_valid_idx + 1
+        broken_count = len(timed_lyrics) - broken_start
+
+        if broken_count <= 0:
+            return timed_lyrics
+
+        print(f"    [WARNING] Broken timestamps detected from entry {broken_start + 1}/{len(timed_lyrics)}")
+        print(f"    [FIX] Interpolating {broken_count} entries after {last_valid_t:.1f}s")
+
+        # 총 음악 길이 구하기
+        total_duration = max(s.end_sec for s in scenes) if scenes else last_valid_t + broken_count * 3
+        remaining_duration = total_duration - last_valid_t
+
+        # 남은 시간을 깨진 엔트리들에 균등 분배
+        interval = remaining_duration / (broken_count + 1)
+
+        for i in range(broken_count):
+            idx = broken_start + i
+            interpolated_t = round(last_valid_t + interval * (i + 1), 1)
+            timed_lyrics[idx]["t"] = interpolated_t
+
+        print(f"    [FIX] Interpolated range: {timed_lyrics[broken_start]['t']}s ~ {timed_lyrics[-1]['t']}s")
+
+        return timed_lyrics
 
     def _sec_to_srt_timecode(self, seconds: float) -> str:
         """초를 SRT 타임코드 형식으로 변환 (HH:MM:SS,mmm)"""

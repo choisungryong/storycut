@@ -907,7 +907,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
         manifest = loop.run_until_complete(pipeline.run_video_only_async(story_data, request))
 
         print(f"\n[WRAPPER] =========================================", flush=True)
-        print(f"[WRAPPER] ✅ VIDEO GENERATION COMPLETED", flush=True)
+        print(f"[WRAPPER] VIDEO GENERATION COMPLETED", flush=True)
         print(f"[WRAPPER] Project ID: {project_id}", flush=True)
         print(f"[WRAPPER] Final video path: {manifest.outputs.final_video_path}", flush=True)
         print(f"[WRAPPER] =========================================\n", flush=True)
@@ -989,7 +989,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
 
     except Exception as e:
         print(f"\n[WRAPPER] =========================================", flush=True)
-        print(f"[WRAPPER] ❌ ERROR IN VIDEO GENERATION", flush=True)
+        print(f"[WRAPPER] ERROR IN VIDEO GENERATION", flush=True)
         print(f"[WRAPPER] Error: {str(e)}", flush=True)
         print(f"[WRAPPER] Traceback:\n{traceback.format_exc()}", flush=True)
         print(f"[WRAPPER] =========================================\n", flush=True)

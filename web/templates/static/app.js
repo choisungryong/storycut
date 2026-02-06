@@ -1046,18 +1046,25 @@ class StorycutApp {
                 errorMsg = `<div class="scene-error-message">❌ ${scene.error_message}</div>`;
             }
 
+            // 이미지 경로 추론: assets에 있으면 사용, 없으면 기본 경로 추정
+            const imagePath = scene.assets?.image_path
+                || `outputs/${projectId}/media/images/scene_${String(scene.scene_id).padStart(2, '0')}.png`;
+            const imageUrl = this.resolveImageUrl(imagePath);
+
             card.innerHTML = `
                 <div class="scene-card-header">
                     <span class="scene-card-title">Scene ${scene.scene_id}</span>
                     ${statusBadge}
                 </div>
 
-                <div class="scene-card-narration">
-                    ${scene.narration || '내레이션 없음'}
+                <div class="scene-card-image">
+                    <img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
+                        onerror="this.style.display='none'"
+                        style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;display:block;">
                 </div>
 
-                <div class="scene-card-visual">
-                    📸 ${scene.generation_method || 'unknown'}
+                <div class="scene-card-narration">
+                    ${scene.narration || '내레이션 없음'}
                 </div>
 
                 ${errorMsg}
@@ -1065,7 +1072,7 @@ class StorycutApp {
                 <div class="scene-card-actions">
                     <button class="btn-regenerate" data-scene-id="${scene.scene_id}" data-project-id="${projectId}"
                         ${scene.status === 'regenerating' ? 'disabled' : ''}>
-                        🔄 재생성
+                        재생성
                     </button>
                 </div>
             `;
@@ -1085,12 +1092,19 @@ class StorycutApp {
 
     async regenerateScene(projectId, sceneId) {
         const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        if (!card) {
+            console.error(`[regenerateScene] Card not found for scene ${sceneId}`);
+            alert('씬 카드를 찾을 수 없습니다.');
+            return;
+        }
         const btn = card.querySelector('.btn-regenerate');
 
         try {
             // UI 업데이트
-            btn.disabled = true;
-            btn.textContent = '⏳ 재생성 중...';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '재생성 중...';
+            }
             card.classList.add('regenerating');
 
             this.addLog('INFO', `Scene ${sceneId} 재생성 시작...`);
@@ -1114,7 +1128,6 @@ class StorycutApp {
                         const error = JSON.parse(errorText);
                         errorMsg = error.detail || error.message || errorMsg;
                     } catch (e) {
-                        // JSON 파싱 실패 시 텍스트 그대로 사용
                         errorMsg = errorText || errorMsg;
                     }
                 } catch (e) {
@@ -1124,7 +1137,7 @@ class StorycutApp {
             }
 
             const result = await response.json();
-            this.addLog('SUCCESS', `✅ Scene ${sceneId} 재생성 완료!`);
+            this.addLog('SUCCESS', `Scene ${sceneId} 재생성 완료!`);
 
             // 씬 목록 새로고침
             await this.loadSceneList(projectId);
@@ -1139,12 +1152,14 @@ class StorycutApp {
 
         } catch (error) {
             console.error('씬 재생성 실패:', error);
-            this.addLog('ERROR', `❌ Scene ${sceneId} 재생성 실패: ${error.message}`);
+            this.addLog('ERROR', `Scene ${sceneId} 재생성 실패: ${error.message}`);
             alert(`씬 재생성 실패: ${error.message}`);
 
             // UI 복구
-            btn.disabled = false;
-            btn.textContent = '🔄 재생성';
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '재생성';
+            }
             card.classList.remove('regenerating');
         }
     }
@@ -1838,7 +1853,7 @@ class StorycutApp {
         const btn = document.getElementById('mv-upload-btn');
         const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<span class="btn-icon">⏳</span> 분석 중...';
+        btn.innerHTML = '<span class="btn-icon">⏳</span> 업로드 중...';
 
         try {
             const formData = new FormData();
@@ -1883,8 +1898,10 @@ class StorycutApp {
                 style: document.getElementById('mv-style').value
             };
 
+            // 분석 결과 저장 (나중에 필요할 수 있으므로)
             this.renderMVAnalysisResult(result);
-            this.showSection('mv-analysis');
+            // 분석 페이지 스킵 → 바로 생성 시작
+            this.startMVGeneration();
 
         } catch (error) {
             console.error('MV 업로드 실패:', error);
@@ -1957,8 +1974,10 @@ class StorycutApp {
         });
 
         const btn = document.getElementById('mv-generate-btn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="btn-icon">⏳</span> 생성 요청 중...';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> 생성 요청 중...';
+        }
 
         try {
             const baseUrl = this.getApiBaseUrl();
@@ -2002,8 +2021,10 @@ class StorycutApp {
         } catch (error) {
             console.error('MV 생성 요청 실패:', error);
             alert(`오류: ${error.message}`);
-            btn.disabled = false;
-            btn.innerHTML = '<span class="btn-icon">🎬</span> 뮤직비디오 생성 시작';
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">🎬</span> 뮤직비디오 생성 시작';
+            }
         }
     }
 
