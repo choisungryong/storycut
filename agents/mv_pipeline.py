@@ -97,11 +97,15 @@ class MVPipeline:
             print(f"\n[Step 1] Analyzing music...")
             analysis_result = self.music_analyzer.analyze(stored_music_path)
 
-            # Gemini로 가사 자동 추출
+            # Gemini로 가사 자동 추출 (타임스탬프 포함)
             print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
             extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
             if extracted_lyrics:
                 analysis_result["extracted_lyrics"] = extracted_lyrics
+                # 타임스탬프 가사 저장
+                timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
+                if timed_lyrics:
+                    analysis_result["timed_lyrics"] = timed_lyrics
 
             project.music_analysis = MusicAnalysis(**analysis_result)
             project.status = MVProjectStatus.READY
@@ -468,21 +472,32 @@ class MVPipeline:
         total_scenes = len(project.scenes)
         project.current_step = "이미지 생성 중..."
 
+        # 스타일 앵커: 첫 번째 씬 이미지를 앵커로 사용하여 비주얼 일관성 유지
+        style_anchor_path = None
+
         for i, scene in enumerate(project.scenes):
             print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
+            if style_anchor_path:
+                print(f"    [Anchor] Using style anchor: {os.path.basename(style_anchor_path)}")
             scene.status = MVSceneStatus.GENERATING
 
             try:
-                # 이미지 생성
+                # 이미지 생성 (스타일 앵커 참조)
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
                     prompt=scene.image_prompt,
                     style=project.style.value,
-                    output_dir=image_dir
+                    output_dir=image_dir,
+                    style_anchor_path=style_anchor_path,
                 )
 
                 scene.image_path = image_path
                 scene.status = MVSceneStatus.COMPLETED
+
+                # 첫 번째 성공 이미지를 스타일 앵커로 설정
+                if style_anchor_path is None and image_path and os.path.exists(image_path):
+                    style_anchor_path = image_path
+                    print(f"    [Anchor] Style anchor set: {os.path.basename(image_path)}")
 
                 print(f"    Image saved: {image_path}")
 
@@ -607,8 +622,11 @@ class MVPipeline:
                 srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
                 os.makedirs(os.path.dirname(srt_path), exist_ok=True)
 
-                # SRT 파일 생성
-                self._generate_lyrics_srt(project.scenes, srt_path)
+                # SRT 파일 생성 (타임스탬프 가사 우선 사용)
+                timed_lyrics = None
+                if project.music_analysis and project.music_analysis.timed_lyrics:
+                    timed_lyrics = project.music_analysis.timed_lyrics
+                self._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=timed_lyrics)
 
                 # 자막 burn-in
                 subtitled_video = f"{project_dir}/media/video/subtitled.mp4"
@@ -719,32 +737,64 @@ class MVPipeline:
     def _generate_lyrics_srt(
         self,
         scenes: List[MVScene],
-        output_path: str
+        output_path: str,
+        timed_lyrics: Optional[list] = None
     ):
-        """씬별 가사를 SRT 자막 파일로 생성"""
+        """
+        가사 SRT 자막 파일 생성
+
+        타임스탬프 가사가 있으면 실제 타이밍 사용, 없으면 씬 기반 균등 분할
+        """
         srt_lines = []
 
-        for i, scene in enumerate(scenes, start=1):
-            if not scene.lyrics_text:
-                continue
+        if timed_lyrics and len(timed_lyrics) > 0:
+            # 타임스탬프 기반 SRT 생성 (정확한 싱크)
+            print(f"    Using timed lyrics ({len(timed_lyrics)} entries)")
+            for i, entry in enumerate(timed_lyrics):
+                text = entry.get("text", "").strip()
+                if not text:
+                    continue
 
-            # 시간 포맷 변환 (초 → SRT 타임코드)
-            start_tc = self._sec_to_srt_timecode(scene.start_sec)
-            end_tc = self._sec_to_srt_timecode(scene.end_sec)
+                start_sec = float(entry.get("t", 0))
+                # 다음 가사 시작 시간까지 또는 +4초
+                if i + 1 < len(timed_lyrics):
+                    next_start = float(timed_lyrics[i + 1].get("t", start_sec + 4))
+                    end_sec = min(next_start, start_sec + 6)  # 최대 6초
+                else:
+                    end_sec = start_sec + 4
 
-            # 가사 텍스트 (줄바꿈 유지)
-            lyrics = scene.lyrics_text.strip()
+                start_tc = self._sec_to_srt_timecode(start_sec)
+                end_tc = self._sec_to_srt_timecode(end_sec)
 
-            srt_lines.append(str(i))
-            srt_lines.append(f"{start_tc} --> {end_tc}")
-            srt_lines.append(lyrics)
-            srt_lines.append("")  # 빈 줄로 구분
+                srt_lines.append(str(i + 1))
+                srt_lines.append(f"{start_tc} --> {end_tc}")
+                srt_lines.append(text)
+                srt_lines.append("")
+        else:
+            # fallback: 씬 기반 균등 분할
+            print(f"    Using scene-based lyrics (no timestamps)")
+            idx = 0
+            for scene in scenes:
+                if not scene.lyrics_text:
+                    continue
+
+                lyrics = scene.lyrics_text.strip()
+                idx += 1
+
+                start_tc = self._sec_to_srt_timecode(scene.start_sec)
+                end_tc = self._sec_to_srt_timecode(scene.end_sec)
+
+                srt_lines.append(str(idx))
+                srt_lines.append(f"{start_tc} --> {end_tc}")
+                srt_lines.append(lyrics)
+                srt_lines.append("")
 
         # 파일 저장
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(srt_lines))
 
-        print(f"    SRT generated: {output_path} ({len([s for s in scenes if s.lyrics_text])} entries)")
+        entry_count = len([l for l in srt_lines if l.startswith("00:") or l.startswith("01:") or l.startswith("02:")])
+        print(f"    SRT generated: {output_path}")
 
     def _sec_to_srt_timecode(self, seconds: float) -> str:
         """초를 SRT 타임코드 형식으로 변환 (HH:MM:SS,mmm)"""

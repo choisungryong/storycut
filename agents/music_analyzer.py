@@ -197,7 +197,7 @@ class MusicAnalyzer:
 
     def extract_lyrics_with_gemini(self, audio_path: str) -> Optional[str]:
         """
-        Gemini API로 음악에서 가사 자동 추출
+        Gemini API로 음악에서 가사 자동 추출 (타임스탬프 포함)
 
         Args:
             audio_path: 음악 파일 경로
@@ -237,33 +237,53 @@ class MusicAnalyzer:
                 except OSError:
                     pass
 
-            # Gemini에 가사 추출 요청
+            # Gemini에 타임스탬프 포함 가사 추출 요청
             prompt_text = (
-                "이 음악에서 가사를 추출해주세요. "
-                "가사만 줄바꿈으로 구분하여 텍스트로 출력해주세요. "
-                "가사가 없는 인스트루멘탈 음악이면 빈 문자열만 출력해주세요. "
-                "가사 외 설명이나 부가 텍스트는 절대 포함하지 마세요."
+                "이 음악을 듣고 가사를 타임스탬프와 함께 추출해주세요.\n"
+                "각 줄마다 가사가 시작되는 시간(초)을 포함해주세요.\n\n"
+                "출력 형식 (JSON 배열):\n"
+                '[{"t": 0.0, "text": "첫 번째 가사 줄"}, {"t": 5.2, "text": "두 번째 가사 줄"}, ...]\n\n'
+                "규칙:\n"
+                "- t는 해당 가사가 불리기 시작하는 시간(초, 소수점 1자리)\n"
+                "- 인스트루멘탈 구간은 건너뛰세요\n"
+                "- 가사가 없는 음악이면 빈 배열 []을 출력하세요\n"
+                "- JSON 형식만 출력하고 다른 텍스트는 포함하지 마세요"
             )
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=[audio_file, prompt_text],
                 config=types.GenerateContentConfig(
                     temperature=0.1,
+                    response_mime_type="application/json",
                 )
             )
 
-            lyrics = response.text.strip()
+            import json
+            result_text = response.text.strip()
 
-            # 빈 가사 또는 인스트루멘탈 판별
-            if not lyrics or lyrics in ("", "없음", "가사 없음", "instrumental"):
+            # JSON 파싱
+            timed_lyrics = json.loads(result_text)
+
+            if not timed_lyrics or not isinstance(timed_lyrics, list):
                 print(f"  No lyrics detected (instrumental)")
                 return None
 
-            print(f"  Lyrics extracted: {len(lyrics)} chars")
-            return lyrics
+            # 플레인 텍스트 가사 (호환용)
+            plain_lyrics = "\n".join([item["text"] for item in timed_lyrics if item.get("text")])
+
+            if not plain_lyrics.strip():
+                print(f"  No lyrics detected (empty)")
+                return None
+
+            # timed_lyrics를 별도 속성에 저장
+            self._last_timed_lyrics = timed_lyrics
+
+            print(f"  Lyrics extracted: {len(plain_lyrics)} chars, {len(timed_lyrics)} timed entries")
+            return plain_lyrics
 
         except Exception as e:
             print(f"[MusicAnalyzer] Lyrics extraction failed: {e}")
+            self._last_timed_lyrics = None
             return None
 
     def get_suggested_scene_count(self, duration_sec: float) -> int:
