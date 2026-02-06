@@ -364,10 +364,12 @@ class ProgressTracker:
 
     async def scene_start(self, scene_id: int):
         progress = 15 + int((scene_id / self.total_scenes) * 60)
+        progress = max(progress, self.current_progress)  # Never decrease
         await self.update(f"scene_{scene_id}", progress, f"Scene {scene_id}/{self.total_scenes} 처리 중...")
 
     async def scene_complete(self, scene_id: int, method: str, image_url: str = None):
         progress = 15 + int((scene_id / self.total_scenes) * 60)
+        progress = max(progress, self.current_progress)  # Never decrease
         await self.update(f"scene_{scene_id}", progress, f"Scene {scene_id} 완료", {
             "scene_id": scene_id,
             "method": method,
@@ -566,8 +568,8 @@ class TrackedPipeline(StorycutPipeline):
         )
         
         try:
-            # 진행상황 초기화 (Story complete = 20% of total)
-            await self.tracker.update("story", 20, "스토리 확정됨 - 영상 생성 시작", {
+            # 진행상황 초기화 (Story complete = 25% of total, matching initial manifest)
+            await self.tracker.update("story", 25, "스토리 확정됨 - 영상 생성 시작", {
                 "title": story_data["title"],
                 "scene_count": len(story_data["scenes"])
             })

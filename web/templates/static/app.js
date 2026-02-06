@@ -16,12 +16,35 @@ class StorycutApp {
         this.pollingFailCount = 0;
         this.mvPollingFailCount = 0;
 
+        // Regeneration tracking (prevent double-click)
+        this._regeneratingScenes = new Set();
+
         this.init();
     }
 
     init() {
         this.setupEventListeners();
         this.updateDurationDisplay();
+        this._ensureToastContainer();
+    }
+
+    // ===== Toast Notification (alert 대체) =====
+    _ensureToastContainer() {
+        if (!document.querySelector('.toast-container')) {
+            const container = document.createElement('div');
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+    }
+
+    showToast(message, type = 'info') {
+        const container = document.querySelector('.toast-container');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+        setTimeout(() => toast.remove(), 5000);
     }
 
     setupEventListeners() {
@@ -1059,8 +1082,9 @@ class StorycutApp {
 
                 <div class="scene-card-image">
                     <img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
-                        onerror="this.style.display='none'"
+                        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
                         style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;display:block;">
+                    <div class="image-placeholder" style="display:none;">이미지 생성 대기</div>
                 </div>
 
                 <div class="scene-card-narration">
@@ -1091,21 +1115,39 @@ class StorycutApp {
     }
 
     async regenerateScene(projectId, sceneId) {
+        // 중복 클릭 방지
+        const regenKey = `scene_${projectId}_${sceneId}`;
+        if (this._regeneratingScenes.has(regenKey)) {
+            this.showToast('이미 재생성 중입니다. 잠시 기다려주세요.', 'info');
+            return;
+        }
+
         const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
         if (!card) {
             console.error(`[regenerateScene] Card not found for scene ${sceneId}`);
-            alert('씬 카드를 찾을 수 없습니다.');
+            this.showToast('씬 카드를 찾을 수 없습니다.', 'error');
             return;
         }
+
         const btn = card.querySelector('.btn-regenerate');
+        const imageDiv = card.querySelector('.scene-card-image');
+
+        this._regeneratingScenes.add(regenKey);
 
         try {
-            // UI 업데이트
+            // UI: 버튼 비활성화 + 로딩 오버레이 표시
             if (btn) {
                 btn.disabled = true;
                 btn.textContent = '재생성 중...';
             }
             card.classList.add('regenerating');
+
+            if (imageDiv) {
+                const overlay = document.createElement('div');
+                overlay.className = 'regen-overlay';
+                overlay.innerHTML = '<div class="regen-spinner"></div><span class="regen-text">이미지 재생성 중...</span>';
+                imageDiv.appendChild(overlay);
+            }
 
             this.addLog('INFO', `Scene ${sceneId} 재생성 시작...`);
 
@@ -1139,8 +1181,28 @@ class StorycutApp {
             const result = await response.json();
             this.addLog('SUCCESS', `Scene ${sceneId} 재생성 완료!`);
 
-            // 씬 목록 새로고침
-            await this.loadSceneList(projectId);
+            // 오버레이를 성공 표시로 변경
+            const overlay = imageDiv ? imageDiv.querySelector('.regen-overlay') : null;
+            if (overlay) {
+                overlay.className = 'regen-overlay success';
+                overlay.innerHTML = '<span class="regen-text">완료</span>';
+                setTimeout(() => overlay.remove(), 1500);
+            }
+
+            // 이미지 즉시 갱신
+            const img = imageDiv ? imageDiv.querySelector('img') : null;
+            if (img && result.image_path) {
+                const imageUrl = this.resolveImageUrl(result.image_path);
+                img.src = `${imageUrl}?t=${Date.now()}`;
+                img.style.display = 'block';
+            }
+
+            // 버튼 복구
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '재생성';
+            }
+            card.classList.remove('regenerating');
 
             // 재합성 버튼 표시
             const recomposeBtn = document.getElementById('recompose-btn');
@@ -1148,12 +1210,16 @@ class StorycutApp {
                 recomposeBtn.style.display = 'block';
             }
 
-            alert(`Scene ${sceneId} 재생성 완료!\n\n수정된 씬을 영상에 반영하려면 "영상 재합성" 버튼을 누르세요.`);
+            this.showToast(`Scene ${sceneId} 재생성 완료! 영상 반영은 "영상 재합성"을 누르세요.`, 'success');
 
         } catch (error) {
             console.error('씬 재생성 실패:', error);
             this.addLog('ERROR', `Scene ${sceneId} 재생성 실패: ${error.message}`);
-            alert(`씬 재생성 실패: ${error.message}`);
+            this.showToast(`Scene ${sceneId} 재생성 실패: ${error.message}`, 'error');
+
+            // 오버레이 제거
+            const overlay = imageDiv ? imageDiv.querySelector('.regen-overlay') : null;
+            if (overlay) overlay.remove();
 
             // UI 복구
             if (btn) {
@@ -1161,6 +1227,8 @@ class StorycutApp {
                 btn.textContent = '재생성';
             }
             card.classList.remove('regenerating');
+        } finally {
+            this._regeneratingScenes.delete(regenKey);
         }
     }
 
@@ -1554,20 +1622,42 @@ class StorycutApp {
     }
 
     async regenerateImage(projectId, sceneId) {
+        // 중복 클릭 방지
+        const regenKey = `image_${projectId}_${sceneId}`;
+        if (this._regeneratingScenes.has(regenKey)) {
+            this.showToast('이미 재생성 중입니다. 잠시 기다려주세요.', 'info');
+            return;
+        }
+
         const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
         if (!card) {
             console.error(`[regenerateImage] Card not found for scene ${sceneId}`);
-            alert('씬 카드를 찾을 수 없습니다.');
+            this.showToast('씬 카드를 찾을 수 없습니다.', 'error');
             return;
         }
 
         const btn = card.querySelector('.btn-regenerate');
-        if (btn) {
-            btn.textContent = '⏳...';
-            btn.disabled = true;
-        }
+        const imgEl = card.querySelector('img');
+
+        this._regeneratingScenes.add(regenKey);
 
         try {
+            // UI: 버튼 비활성화 + 이미지 영역에 로딩 오버레이
+            if (btn) {
+                btn.textContent = '재생성 중...';
+                btn.disabled = true;
+            }
+
+            // 이미지 위에 오버레이 추가
+            if (imgEl && imgEl.parentElement) {
+                const wrapper = imgEl.parentElement;
+                wrapper.style.position = 'relative';
+                const overlay = document.createElement('div');
+                overlay.className = 'regen-overlay';
+                overlay.innerHTML = '<div class="regen-spinner"></div><span class="regen-text">이미지 재생성 중...</span>';
+                wrapper.appendChild(overlay);
+            }
+
             const response = await fetch(`${this.getApiBaseUrl()}/api/regenerate/image/${projectId}/${sceneId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1586,20 +1676,39 @@ class StorycutApp {
             }
 
             const result = await response.json();
-            const img = card.querySelector('img');
-            if (img) {
+
+            // 이미지 갱신
+            if (imgEl && result.image_path) {
                 const imageUrl = this.resolveImageUrl(result.image_path);
-                img.src = `${imageUrl}?t=${Date.now()}`;
+                imgEl.src = `${imageUrl}?t=${Date.now()}`;
+                imgEl.style.display = 'block';
             }
+
+            // 오버레이를 성공 표시로 변경
+            const overlay = imgEl ? imgEl.parentElement.querySelector('.regen-overlay') : null;
+            if (overlay) {
+                overlay.className = 'regen-overlay success';
+                overlay.innerHTML = '<span class="regen-text">완료</span>';
+                setTimeout(() => overlay.remove(), 1500);
+            }
+
+            this.showToast(`Scene ${sceneId} 이미지 재생성 완료!`, 'success');
 
         } catch (error) {
             console.error('[regenerateImage] Error:', error);
-            alert(`재생성 실패: ${error.message}`);
+            this.showToast(`재생성 실패: ${error.message}`, 'error');
+
+            // 오버레이 제거
+            if (imgEl && imgEl.parentElement) {
+                const overlay = imgEl.parentElement.querySelector('.regen-overlay');
+                if (overlay) overlay.remove();
+            }
         } finally {
             if (btn) {
-                btn.textContent = '🔄 재생성';
+                btn.textContent = '\uD83D\uDD04 재생성';
                 btn.disabled = false;
             }
+            this._regeneratingScenes.delete(regenKey);
         }
     }
 

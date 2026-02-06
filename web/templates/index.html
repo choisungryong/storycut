@@ -409,6 +409,95 @@
             cursor: not-allowed;
         }
 
+        /* 재생성 로딩 오버레이 */
+        .scene-card-image {
+            position: relative;
+        }
+
+        .regen-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            z-index: 10;
+            gap: 8px;
+        }
+
+        .regen-overlay .regen-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top-color: #00adb5;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .regen-overlay .regen-text {
+            color: #fff;
+            font-size: 0.8rem;
+        }
+
+        .regen-overlay.success {
+            background: rgba(39, 174, 96, 0.8);
+            animation: fadeOut 1.5s ease forwards;
+        }
+
+        .regen-overlay.success .regen-text {
+            font-size: 1.2rem;
+        }
+
+        .scene-card-image .image-placeholder {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #2a2d35;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 2rem;
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            70% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        /* 토스트 알림 */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease, fadeOut 3s ease 2s forwards;
+            max-width: 350px;
+        }
+
+        .toast.success { background: #27ae60; }
+        .toast.error { background: #e74c3c; }
+        .toast.info { background: #2980b9; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
         .recompose-actions {
             display: flex;
             justify-content: center;
