@@ -13,6 +13,8 @@ class StorycutApp {
         // Progress tracking
         this.pollingInterval = null;
         this.isGenerating = false;
+        this.pollingFailCount = 0;
+        this.mvPollingFailCount = 0;
 
         this.init();
     }
@@ -467,6 +469,7 @@ class StorycutApp {
         }
 
         // 2초마다 상태 확인
+        this.pollingFailCount = 0;
         this.pollingInterval = setInterval(async () => {
             try {
                 let urlToUse = this.getApiBaseUrl();
@@ -476,6 +479,9 @@ class StorycutApp {
                     console.error(`Status check failed: ${response.status}`);
                     return;
                 }
+
+                // 연결 성공 시 실패 카운터 리셋
+                this.pollingFailCount = 0;
 
                 const data = await response.json();
 
@@ -522,8 +528,16 @@ class StorycutApp {
                 }
 
             } catch (error) {
-                console.error('Polling error:', error);
-                // 일시적 오류는 무시하고 계속 재시도
+                this.pollingFailCount++;
+                console.warn(`Polling error (${this.pollingFailCount}/10):`, error.message);
+
+                if (this.pollingFailCount >= 10) {
+                    this.stopPolling();
+                    this.isGenerating = false;
+                    this.addLog('ERROR', '서버 연결이 끊어졌습니다. 페이지를 새로고침 해주세요.');
+                    this.updateProgress(0, '서버 연결 끊김');
+                    alert('서버와의 연결이 끊어졌습니다.\n서버가 재시작 중일 수 있습니다.\n잠시 후 페이지를 새로고침 해주세요.');
+                }
             }
         }, 2000);
     }
@@ -2000,6 +2014,7 @@ class StorycutApp {
 
         const baseUrl = this.getApiBaseUrl();
 
+        this.mvPollingFailCount = 0;
         this.mvPollingInterval = setInterval(async () => {
             try {
                 const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
@@ -2008,6 +2023,9 @@ class StorycutApp {
                     console.warn(`MV status check failed: ${response.status}`);
                     return;
                 }
+
+                // 연결 성공 시 실패 카운터 리셋
+                this.mvPollingFailCount = 0;
 
                 const data = await response.json();
 
@@ -2047,7 +2065,15 @@ class StorycutApp {
                 }
 
             } catch (error) {
-                console.error('MV polling error:', error);
+                this.mvPollingFailCount++;
+                console.warn(`MV polling error (${this.mvPollingFailCount}/10):`, error.message);
+
+                if (this.mvPollingFailCount >= 10) {
+                    this.stopMVPolling();
+                    this.mvAddLog('ERROR', '서버 연결이 끊어졌습니다. 페이지를 새로고침 해주세요.');
+                    this.updateMVProgress(0, '서버 연결 끊김');
+                    alert('서버와의 연결이 끊어졌습니다.\n서버가 재시작 중일 수 있습니다.\n잠시 후 페이지를 새로고침 해주세요.');
+                }
             }
         }, 3000);
     }

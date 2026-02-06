@@ -305,6 +305,38 @@ class MVPipeline:
 
             scenes_text = "\n".join(scene_descriptions)
 
+            # 스타일별 구체적 비주얼 가이드
+            style_guide = {
+                "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
+                "anime": "Japanese anime cel-shaded illustration, bold outlines, vibrant saturated colors, anime eyes and proportions, manga-inspired composition",
+                "webtoon": "Korean webtoon digital art style, clean sharp lines, flat color blocks, manhwa character design, vertical scroll composition",
+                "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures",
+                "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, artstation trending",
+                "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational"
+            }.get(request.style.value, "cinematic film still, dramatic lighting")
+
+            genre_guide = {
+                "fantasy": "magical fantasy world, enchanted forests, glowing runes, ethereal creatures, mythical landscapes",
+                "romance": "intimate romantic scenes, warm golden hour lighting, soft bokeh, couples in tender moments",
+                "action": "high-energy action scenes, dynamic motion blur, explosive effects, intense close-ups",
+                "horror": "dark horror atmosphere, unsettling shadows, eerie fog, distorted perspectives, muted desaturated colors",
+                "scifi": "futuristic sci-fi environment, neon holographics, cyberpunk city, advanced technology, chrome surfaces",
+                "drama": "dramatic emotional scenes, theatrical lighting, expressive faces, strong contrast",
+                "comedy": "bright cheerful scenes, exaggerated expressions, warm vivid colors, playful compositions",
+                "abstract": "surreal abstract visuals, impossible geometry, color explosions, dreamscape"
+            }.get(request.genre.value, "")
+
+            mood_guide = {
+                "epic": "grand epic scale, sweeping wide shots, majestic skylines, golden hour, heroic poses",
+                "dreamy": "soft dreamy atmosphere, pastel haze, lens diffusion, floating particles, ethereal glow",
+                "energetic": "high energy dynamic composition, vivid neon colors, speed lines, angular framing",
+                "calm": "serene peaceful mood, soft natural light, muted earth tones, minimalist composition",
+                "dark": "dark moody atmosphere, deep shadows, cool blue-black tones, film noir inspired",
+                "romantic": "warm romantic ambiance, rose and amber tones, soft candlelight, intimate framing",
+                "melancholic": "melancholic bittersweet tone, rain and mist, faded desaturated colors, solitary figures",
+                "uplifting": "bright uplifting feeling, sun rays breaking through, warm golden tones, upward angles"
+            }.get(request.mood.value, "")
+
             system_prompt = (
                 "당신은 뮤직비디오 비주얼 디렉터입니다. "
                 "각 씬에 대해 이미지 생성 AI가 사용할 영어 프롬프트를 만들어주세요.\n\n"
@@ -316,13 +348,16 @@ class MVPipeline:
                 "- 각 프롬프트는 영어로 1-2문장, 쉼표로 구분된 키워드 형태\n"
                 "- 절대 씬 번호나 설명 없이 프롬프트만 출력\n"
                 "- 정확히 씬 개수만큼 줄을 출력하세요 (한 줄에 하나의 프롬프트)\n"
-                "- 중요: 모든 프롬프트 끝에 반드시 'no text, no letters, no words, no writing, no watermark'를 포함하세요"
+                "- 중요: 모든 프롬프트 끝에 반드시 'no text, no letters, no words, no writing, no watermark'를 포함하세요\n\n"
+                f"[필수 비주얼 스타일]\n"
+                f"모든 씬에 다음 스타일을 강하게 적용하세요:\n"
+                f"- 아트 스타일: {style_guide}\n"
+                f"- 장르 비주얼: {genre_guide}\n"
+                f"- 분위기/톤: {mood_guide}\n"
+                f"각 프롬프트의 첫 부분에 스타일 키워드를 반드시 포함하세요."
             )
 
             user_prompt = (
-                f"장르: {request.genre.value}\n"
-                f"분위기: {request.mood.value}\n"
-                f"스타일: {request.style.value}\n"
                 f"컨셉: {request.concept or '자유'}\n"
                 f"총 씬 수: {len(project.scenes)}\n\n"
                 f"씬 정보:\n{scenes_text}\n\n"

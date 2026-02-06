@@ -229,8 +229,8 @@ class MultimodalPromptBuilder:
                 "text": "Using the above reference image(s), maintain character and style consistency in the generated image."
             })
 
-        # 메인 프롬프트
-        full_prompt = f"Generate a high-quality image: {style} style. {prompt}. Aspect ratio 16:9, cinematic, professional photography."
+        # 메인 프롬프트 (스타일 중복 방지 - 이미 프롬프트에 스타일 키워드가 포함됨)
+        full_prompt = f"Generate a high-quality image in {style} style. {prompt}. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts
