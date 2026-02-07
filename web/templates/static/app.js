@@ -2160,6 +2160,16 @@ class StorycutApp {
             return;
         }
 
+        // 이전 MV 상태 초기화
+        this.stopMVPolling();
+        const prevGrid = document.getElementById('mv-image-review-grid');
+        if (prevGrid) prevGrid.innerHTML = '';
+        const composeBtn = document.getElementById('mv-compose-btn');
+        if (composeBtn) {
+            composeBtn.disabled = false;
+            composeBtn.innerHTML = '<span class="btn-icon">🎬</span> 최종 뮤직비디오 생성';
+        }
+
         const btn = document.getElementById('mv-upload-btn');
         const originalText = btn.innerHTML;
         btn.disabled = true;
@@ -2589,9 +2599,11 @@ class StorycutApp {
             const data = await response.json();
             this.renderMVReviewGrid(data.scenes, projectId);
 
-            // 최종 합성 버튼 이벤트
+            // 최종 합성 버튼 초기화 (이전 세션에서 disabled 상태일 수 있음)
             const composeBtn = document.getElementById('mv-compose-btn');
             if (composeBtn) {
+                composeBtn.disabled = false;
+                composeBtn.innerHTML = '<span class="btn-icon">🎬</span> 최종 뮤직비디오 생성';
                 composeBtn.onclick = () => this.mvStartCompose(projectId);
             }
         } catch (error) {
@@ -2808,6 +2820,21 @@ class StorycutApp {
         this.mvAnalysis = null;
         this.mvRequestParams = null;
         this.stopMVPolling();
+
+        // 이전 MV 이미지 리뷰 그리드 초기화
+        const grid = document.getElementById('mv-image-review-grid');
+        if (grid) grid.innerHTML = '';
+
+        // 합성 버튼 초기화
+        const composeBtn = document.getElementById('mv-compose-btn');
+        if (composeBtn) {
+            composeBtn.disabled = false;
+            composeBtn.innerHTML = '<span class="btn-icon">🎬</span> 최종 뮤직비디오 생성';
+        }
+
+        // MV 진행 로그 초기화
+        const logContent = document.getElementById('mv-log-content');
+        if (logContent) logContent.innerHTML = '';
 
         document.getElementById('mv-form').reset();
         this.showSection('mv');
