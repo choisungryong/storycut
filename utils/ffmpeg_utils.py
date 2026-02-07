@@ -127,13 +127,14 @@ class FFmpegComposer:
             "-i", image_path,
             "-vf", full_filter,
             "-c:v", "libx264",
+            "-preset", "ultrafast",
             "-t", str(duration_sec),
             "-pix_fmt", "yuv420p",
             "-r", str(self.fps),
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=240)
 
         if result.returncode != 0:
             raise RuntimeError(f"Ken Burns effect failed: {result.stderr}")
@@ -625,8 +626,8 @@ class FFmpegComposer:
                     output_path
                 ]
 
-                # 재인코딩은 클립당 30초 + 최소 120초 (긴 영상 대응)
-                reencode_timeout = max(120, len(video_paths) * 30)
+                # 재인코딩은 클립당 45초 + 최소 180초 (Railway 등 저사양 서버 대응)
+                reencode_timeout = max(180, len(video_paths) * 45)
                 print(f"[FFmpeg] Re-encoding with ultrafast preset... (timeout={reencode_timeout}s)")
                 result2 = subprocess.run(cmd_reencode, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=reencode_timeout)
                 if result2.returncode != 0:
@@ -940,6 +941,7 @@ class FFmpegComposer:
             "-loop", "1",
             "-i", image_path,
             "-c:v", "libx264",
+            "-preset", "ultrafast",
             "-t", str(duration_sec),
             "-pix_fmt", "yuv420p",
             "-vf", f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
@@ -948,7 +950,7 @@ class FFmpegComposer:
             output_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=240)
 
         if result.returncode != 0:
             raise RuntimeError(f"Image to video conversion failed: {result.stderr}")

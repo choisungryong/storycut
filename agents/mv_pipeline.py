@@ -649,11 +649,19 @@ class MVPipeline:
 
             # 2. 클립들 이어붙이기
             concat_video = f"{project_dir}/media/video/concat.mp4"
-            self.ffmpeg_composer.concatenate_videos(
+            print(f"  Concatenating {len(video_clips)} clips (total ~{sum(s.duration_sec for s in completed_scenes):.0f}s)...")
+            project.current_step = f"영상 {len(video_clips)}개 이어붙이는 중..."
+            self._save_manifest(project, project_dir)
+
+            concat_result = self.ffmpeg_composer.concatenate_videos(
                 video_paths=video_clips,
                 output_path=concat_video
             )
 
+            if not concat_result or not os.path.exists(concat_video):
+                raise RuntimeError("Video concatenation failed - output file not created")
+
+            print(f"  Concatenation complete: {concat_video}")
             project.progress = 90
             project.current_step = "자막 처리 중..."
             self._save_manifest(project, project_dir)
