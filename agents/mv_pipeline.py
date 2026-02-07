@@ -15,7 +15,8 @@ from datetime import datetime
 
 from schemas.mv_models import (
     MVProject, MVScene, MVProjectStatus, MVSceneStatus,
-    MVGenre, MVMood, MVStyle, MusicAnalysis, MVProjectRequest
+    MVGenre, MVMood, MVStyle, MusicAnalysis, MVProjectRequest,
+    VisualBible
 )
 from agents.music_analyzer import MusicAnalyzer
 from agents.image_agent import ImageAgent
@@ -196,6 +197,146 @@ class MVPipeline:
 
         return project
 
+    # ================================================================
+    # Step 2.5: Visual Bible 생성 (Pass 1)
+    # ================================================================
+
+    def generate_visual_bible(self, project: MVProject) -> MVProject:
+        """
+        Pass 1: LLM으로 VisualBible JSON 생성
+
+        장르/분위기/스타일/가사/컨셉을 분석하여 전체 비주얼 가이드를 생성합니다.
+        """
+        import os as _os
+        api_key = _os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("  [Visual Bible] No API key, skipping")
+            return project
+
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=api_key)
+
+            # 가사 요약 (너무 길면 앞부분만)
+            lyrics_summary = ""
+            if project.lyrics:
+                lyrics_summary = project.lyrics[:500]
+            elif project.music_analysis and project.music_analysis.extracted_lyrics:
+                lyrics_summary = project.music_analysis.extracted_lyrics[:500]
+
+            system_prompt = (
+                "You are a music video visual director. Create a Visual Bible (JSON) that defines "
+                "the entire visual identity for this music video.\n\n"
+                "Return ONLY valid JSON with these fields:\n"
+                "- color_palette: array of 5 hex color codes that define the video's palette\n"
+                "- lighting_style: string describing the lighting approach\n"
+                "- recurring_motifs: array of 3-4 visual motifs that repeat throughout\n"
+                "- character_archetypes: array of character types appearing in the video\n"
+                "- atmosphere: string describing overall atmosphere in detail\n"
+                "- avoid_keywords: array of visual elements to AVOID for this genre/mood\n"
+                "- composition_notes: string with cinematography/framing guidance\n"
+                "- reference_artists: array of 2-3 visual artists or films for style reference\n\n"
+                "IMPORTANT: The Visual Bible must strongly reflect the genre, mood, and style choices."
+            )
+
+            user_prompt = (
+                f"Genre: {project.genre.value}\n"
+                f"Mood: {project.mood.value}\n"
+                f"Style: {project.style.value}\n"
+                f"Concept: {project.concept or 'free'}\n"
+                f"Lyrics excerpt: {lyrics_summary or '(instrumental)'}\n\n"
+                f"Create the Visual Bible JSON:"
+            )
+
+            print(f"  [Visual Bible] Generating with Gemini...")
+
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.7,
+                    response_mime_type="application/json",
+                )
+            )
+
+            result_text = response.text.strip()
+            # JSON 파싱
+            import json as _json
+            vb_data = _json.loads(result_text)
+            project.visual_bible = VisualBible(**vb_data)
+
+            print(f"  [Visual Bible] Generated successfully:")
+            print(f"    Colors: {project.visual_bible.color_palette}")
+            print(f"    Lighting: {project.visual_bible.lighting_style}")
+            print(f"    Motifs: {project.visual_bible.recurring_motifs}")
+            print(f"    Avoid: {project.visual_bible.avoid_keywords}")
+
+        except Exception as e:
+            print(f"  [Visual Bible] Generation failed (non-fatal): {e}")
+            # Non-fatal: 기존 파이프라인 동작 유지
+
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        self._save_manifest(project, project_dir)
+        return project
+
+    # ================================================================
+    # Step 2.6: 전용 스타일 앵커 생성 (Pass 2)
+    # ================================================================
+
+    def generate_style_anchor(self, project: MVProject) -> MVProject:
+        """
+        Pass 2: VisualBible 기반 전용 스타일 앵커 이미지 생성
+
+        scene_01 이미지 의존을 제거하고 독립적인 스타일 레퍼런스를 생성합니다.
+        """
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        anchor_dir = f"{project_dir}/media/images"
+        os.makedirs(anchor_dir, exist_ok=True)
+        anchor_path = f"{anchor_dir}/style_anchor.png"
+
+        # VisualBible 기반 앵커 프롬프트 구성
+        vb = project.visual_bible
+        if vb:
+            anchor_parts = [
+                vb.atmosphere if vb.atmosphere else "cinematic atmosphere",
+                f"color palette: {', '.join(vb.color_palette[:5])}" if vb.color_palette else "",
+                f"lighting: {vb.lighting_style}" if vb.lighting_style else "",
+                f"motifs: {', '.join(vb.recurring_motifs[:3])}" if vb.recurring_motifs else "",
+                f"inspired by {', '.join(vb.reference_artists[:2])}" if vb.reference_artists else "",
+            ]
+            anchor_prompt = ", ".join([p for p in anchor_parts if p])
+        else:
+            # VisualBible 없이 기본 앵커 생성
+            anchor_prompt = f"{project.style.value} style, {project.mood.value} mood, {project.genre.value} genre, establishing shot, cinematic"
+
+        anchor_prompt += ", no text, no letters, no words, no watermark, landscape scene, 16:9"
+
+        print(f"  [Style Anchor] Generating dedicated anchor image...")
+        print(f"    Prompt: {anchor_prompt[:100]}...")
+
+        try:
+            vb_dict = vb.model_dump() if vb else None
+            image_path, _ = self.image_agent.generate_image(
+                scene_id=0,
+                prompt=anchor_prompt,
+                style=project.style.value,
+                output_dir=anchor_path,
+                genre=project.genre.value,
+                mood=project.mood.value,
+                visual_bible=vb_dict,
+            )
+            project.style_anchor_path = image_path
+            print(f"  [Style Anchor] Created: {image_path}")
+        except Exception as e:
+            print(f"  [Style Anchor] Generation failed (non-fatal): {e}")
+            # Non-fatal: generate_images()가 scene_01 fallback 사용
+
+        self._save_manifest(project, project_dir)
+        return project
+
     def _create_manual_scenes(
         self,
         manual_scenes: List[Dict],
@@ -337,6 +478,27 @@ class MVPipeline:
                 "uplifting": "bright uplifting feeling, sun rays breaking through, warm golden tones, upward angles"
             }.get(request.mood.value, "")
 
+            # Visual Bible 컨텍스트 (있으면 포함)
+            vb_context = ""
+            if project.visual_bible:
+                vb = project.visual_bible
+                vb_parts = []
+                if vb.color_palette:
+                    vb_parts.append(f"Color palette: {', '.join(vb.color_palette)}")
+                if vb.lighting_style:
+                    vb_parts.append(f"Lighting: {vb.lighting_style}")
+                if vb.recurring_motifs:
+                    vb_parts.append(f"Recurring motifs: {', '.join(vb.recurring_motifs)}")
+                if vb.atmosphere:
+                    vb_parts.append(f"Atmosphere: {vb.atmosphere}")
+                if vb.avoid_keywords:
+                    vb_parts.append(f"AVOID these visuals: {', '.join(vb.avoid_keywords)}")
+                if vb.composition_notes:
+                    vb_parts.append(f"Composition guide: {vb.composition_notes}")
+                if vb.reference_artists:
+                    vb_parts.append(f"Reference artists: {', '.join(vb.reference_artists)}")
+                vb_context = "\n[VISUAL BIBLE - 반드시 반영]\n" + "\n".join(vb_parts) + "\n"
+
             system_prompt = (
                 "당신은 뮤직비디오 비주얼 디렉터입니다. "
                 "각 씬에 대해 이미지 생성 AI가 사용할 영어 프롬프트를 만들어주세요.\n\n"
@@ -349,12 +511,17 @@ class MVPipeline:
                 "- 절대 씬 번호나 설명 없이 프롬프트만 출력\n"
                 "- 정확히 씬 개수만큼 줄을 출력하세요 (한 줄에 하나의 프롬프트)\n"
                 "- 중요: 모든 프롬프트 끝에 반드시 'no text, no letters, no words, no writing, no watermark'를 포함하세요\n\n"
+                "- 고급: 각 프롬프트 끝에 '|' 구분자로 추가 지시를 포함하세요:\n"
+                "  형식: positive prompt | negative keywords | color mood | camera directive\n"
+                "  예: cinematic hero shot... | gore, blood | warm golden | low angle tracking\n"
+                "  negative/color/camera가 불필요하면 비워두되 구분자는 유지: prompt | | |\n\n"
                 f"[필수 비주얼 스타일]\n"
                 f"모든 씬에 다음 스타일을 강하게 적용하세요:\n"
                 f"- 아트 스타일: {style_guide}\n"
                 f"- 장르 비주얼: {genre_guide}\n"
                 f"- 분위기/톤: {mood_guide}\n"
                 f"각 프롬프트의 첫 부분에 스타일 키워드를 반드시 포함하세요."
+                f"{vb_context}"
             )
 
             user_prompt = (
@@ -386,8 +553,28 @@ class MVPipeline:
             elif len(lines) > len(project.scenes):
                 lines = lines[:len(project.scenes)]
 
-            print(f"  [Gemini] Generated {len(lines)} unique prompts")
-            return lines
+            # Pass 3: 구조화된 프롬프트 파싱 (positive | negative | color_mood | camera)
+            prompts = []
+            for i, line in enumerate(lines):
+                parts = [p.strip() for p in line.split('|')]
+                positive = parts[0] if len(parts) > 0 else line
+                negative = parts[1] if len(parts) > 1 and parts[1] else None
+                color_m = parts[2] if len(parts) > 2 and parts[2] else None
+                camera = parts[3] if len(parts) > 3 and parts[3] else None
+
+                prompts.append(positive)
+
+                # MVScene에 구조화된 데이터 저장
+                if i < len(project.scenes):
+                    if negative:
+                        project.scenes[i].negative_prompt = negative
+                    if color_m:
+                        project.scenes[i].color_mood = color_m
+                    if camera:
+                        project.scenes[i].camera_directive = camera
+
+            print(f"  [Gemini] Generated {len(prompts)} unique prompts (structured)")
+            return prompts
 
         except Exception as e:
             print(f"  [Gemini] Prompt generation failed: {e}, using template fallback")
@@ -507,8 +694,15 @@ class MVPipeline:
         total_scenes = len(project.scenes)
         project.current_step = "이미지 생성 중..."
 
-        # 스타일 앵커: 첫 번째 씬 이미지를 앵커로 사용하여 비주얼 일관성 유지
-        style_anchor_path = None
+        # v3.0: 전용 스타일 앵커 사용 (scene_01 의존 제거)
+        style_anchor_path = project.style_anchor_path
+        if style_anchor_path and not os.path.exists(style_anchor_path):
+            style_anchor_path = None
+        # fallback: 전용 앵커 없으면 첫 번째 씬 이미지를 앵커로 사용
+        fallback_anchor = style_anchor_path is None
+
+        # Visual Bible dict (이미지 생성에 전달)
+        vb_dict = project.visual_bible.model_dump() if project.visual_bible else None
 
         for i, scene in enumerate(project.scenes):
             print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
@@ -517,22 +711,27 @@ class MVPipeline:
             scene.status = MVSceneStatus.GENERATING
 
             try:
-                # 이미지 생성 (스타일 앵커 참조)
+                # Pass 4: 풀 컨텍스트 이미지 생성
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
                     prompt=scene.image_prompt,
                     style=project.style.value,
                     output_dir=image_dir,
                     style_anchor_path=style_anchor_path,
+                    genre=project.genre.value,
+                    mood=project.mood.value,
+                    negative_prompt=scene.negative_prompt,
+                    visual_bible=vb_dict,
+                    color_mood=scene.color_mood,
                 )
 
                 scene.image_path = image_path
                 scene.status = MVSceneStatus.COMPLETED
 
-                # 첫 번째 성공 이미지를 스타일 앵커로 설정
-                if style_anchor_path is None and image_path and os.path.exists(image_path):
+                # fallback: 전용 앵커 없으면 첫 번째 성공 이미지를 스타일 앵커로 설정
+                if fallback_anchor and style_anchor_path is None and image_path and os.path.exists(image_path):
                     style_anchor_path = image_path
-                    print(f"    [Anchor] Style anchor set: {os.path.basename(image_path)}")
+                    print(f"    [Anchor] Fallback style anchor set: {os.path.basename(image_path)}")
 
                 print(f"    Image saved: {image_path}")
 
@@ -819,12 +1018,17 @@ class MVPipeline:
 
         print(f"[MV Regenerate] Scene {scene_id} image regeneration...")
 
-        # 스타일 앵커: scene_01 이미지 사용 (첫 씬 재생성이 아닌 경우)
-        style_anchor_path = None
-        if scene_id > 1:
+        # v3.0: 전용 스타일 앵커 우선 사용, 없으면 scene_01 fallback
+        style_anchor_path = project.style_anchor_path
+        if style_anchor_path and not os.path.exists(style_anchor_path):
+            style_anchor_path = None
+        if not style_anchor_path and scene_id > 1:
             first_scene = project.scenes[0]
             if first_scene.image_path and os.path.exists(first_scene.image_path):
                 style_anchor_path = first_scene.image_path
+
+        # Visual Bible dict
+        vb_dict = project.visual_bible.model_dump() if project.visual_bible else None
 
         scene.status = MVSceneStatus.GENERATING
 
@@ -835,6 +1039,11 @@ class MVPipeline:
                 style=project.style.value,
                 output_dir=image_dir,
                 style_anchor_path=style_anchor_path,
+                genre=project.genre.value,
+                mood=project.mood.value,
+                negative_prompt=scene.negative_prompt,
+                visual_bible=vb_dict,
+                color_mood=scene.color_mood,
             )
             scene.image_path = image_path
             scene.video_path = None  # I2V 결과 초기화 (이미지 변경됨)

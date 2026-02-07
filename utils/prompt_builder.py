@@ -177,6 +177,30 @@ class MultimodalPromptBuilder:
         return parts
 
 
+    # 장르별 네거티브 프롬프트 (이미지 생성 시 회피할 요소)
+    GENRE_NEGATIVES = {
+        "fantasy": "modern buildings, cars, phones, realistic office, contemporary clothing",
+        "romance": "violence, weapons, gore, dark horror, monsters",
+        "action": "static, boring, peaceful meadow, soft pastel, calm",
+        "horror": "bright cheerful, rainbow, cute cartoon, happy, sunny",
+        "scifi": "medieval, horses, castles, nature only, rustic village",
+        "drama": "cartoon, exaggerated, slapstick, neon colors",
+        "comedy": "dark, grim, horror, blood, violence",
+        "abstract": "photorealistic, literal, mundane, ordinary",
+    }
+
+    # 무드별 색감 부스트 (이미지 톤/라이팅 강화)
+    MOOD_COLOR_BOOST = {
+        "epic": "golden hour lighting, warm amber highlights, dramatic shadows, grand scale",
+        "dreamy": "soft pastel haze, lavender and pink tones, ethereal glow, lens diffusion",
+        "energetic": "vivid neon accents, high saturation, speed lines feel, angular dynamic lighting",
+        "calm": "soft natural light, muted earth tones, gentle gradient sky, minimal contrast",
+        "dark": "deep blue-black shadows, desaturated, cold steel tones, film noir",
+        "romantic": "warm rose and amber tones, soft candlelight, golden bokeh, intimate warmth",
+        "melancholic": "faded desaturated colors, misty rain, cool blue undertones, muted highlights",
+        "uplifting": "bright sun rays, warm golden tones, upward light beams, vibrant greens",
+    }
+
     @staticmethod
     def build_simple_request(
         prompt: str,
@@ -184,6 +208,11 @@ class MultimodalPromptBuilder:
         style: str = "cinematic",
         style_anchor_path: Optional[str] = None,
         environment_anchor_path: Optional[str] = None,
+        genre: Optional[str] = None,
+        mood: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
+        visual_bible: Optional[dict] = None,
+        color_mood: Optional[str] = None,
     ) -> List[Dict]:
         """
         간단한 멀티모달 요청 구성 (단순 프롬프트 + 참조 이미지).
@@ -194,6 +223,11 @@ class MultimodalPromptBuilder:
             style: 스타일 문자열
             style_anchor_path: 스타일 앵커 이미지 경로
             environment_anchor_path: 환경 앵커 이미지 경로
+            genre: 장르 (네거티브 프롬프트 생성용)
+            mood: 분위기 (색감 부스트용)
+            negative_prompt: 씬별 네거티브 프롬프트
+            visual_bible: VisualBible dict (color_palette, lighting_style, motifs 등)
+            color_mood: 씬별 색감/무드 키워드
 
         Returns:
             Gemini API parts 리스트
@@ -257,8 +291,70 @@ class MultimodalPromptBuilder:
             },
         }
         directive = style_directives.get(style, {"positive": f"Generate a high-quality image in {style} style.", "negative": ""})
-        negative_part = f" {directive['negative']}" if directive['negative'] else ""
-        full_prompt = f"[MANDATORY STYLE]{negative_part} {directive['positive']} {prompt}. Aspect ratio 16:9."
+        style_negative = directive['negative']
+
+        # --- 장르 네거티브 (Pass 4) ---
+        genre_negative = ""
+        if genre:
+            genre_neg = MultimodalPromptBuilder.GENRE_NEGATIVES.get(genre, "")
+            if genre_neg:
+                genre_negative = f"AVOID: {genre_neg}."
+
+        # --- 무드 색감 부스트 (Pass 4) ---
+        mood_boost = ""
+        if mood:
+            boost = MultimodalPromptBuilder.MOOD_COLOR_BOOST.get(mood, "")
+            if boost:
+                mood_boost = f"Mood lighting: {boost}."
+
+        # --- 씬별 네거티브 프롬프트 (Pass 3) ---
+        scene_negative = ""
+        if negative_prompt:
+            scene_negative = f"DO NOT include: {negative_prompt}."
+
+        # --- Visual Bible 인리치먼트 (Pass 1) ---
+        vb_enrichment = ""
+        if visual_bible:
+            vb_parts = []
+            palette = visual_bible.get("color_palette", [])
+            if palette:
+                vb_parts.append(f"Color palette: {', '.join(palette[:5])}")
+            lighting = visual_bible.get("lighting_style", "")
+            if lighting:
+                vb_parts.append(f"Lighting: {lighting}")
+            motifs = visual_bible.get("recurring_motifs", [])
+            if motifs:
+                vb_parts.append(f"Include motifs: {', '.join(motifs[:4])}")
+            atmosphere = visual_bible.get("atmosphere", "")
+            if atmosphere:
+                vb_parts.append(f"Atmosphere: {atmosphere}")
+            comp_notes = visual_bible.get("composition_notes", "")
+            if comp_notes:
+                vb_parts.append(f"Composition: {comp_notes}")
+            ref_artists = visual_bible.get("reference_artists", [])
+            if ref_artists:
+                vb_parts.append(f"Inspired by: {', '.join(ref_artists[:3])}")
+            # avoid_keywords -> 네거티브에 병합
+            vb_avoid = visual_bible.get("avoid_keywords", [])
+            if vb_avoid:
+                scene_negative = f"{scene_negative} AVOID: {', '.join(vb_avoid)}.".strip()
+            if vb_parts:
+                vb_enrichment = "[VISUAL BIBLE] " + ". ".join(vb_parts) + "."
+
+        # --- 씬별 색감/무드 (Pass 3) ---
+        color_mood_text = ""
+        if color_mood:
+            color_mood_text = f"Scene color mood: {color_mood}."
+
+        # 네거티브 파트 통합
+        all_negatives = " ".join(filter(None, [style_negative, genre_negative, scene_negative])).strip()
+        negative_part = f" {all_negatives}" if all_negatives else ""
+
+        # 부스트 파트 통합
+        all_boosts = " ".join(filter(None, [mood_boost, vb_enrichment, color_mood_text])).strip()
+        boost_part = f" {all_boosts}" if all_boosts else ""
+
+        full_prompt = f"[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts

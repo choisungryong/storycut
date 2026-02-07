@@ -44,6 +44,18 @@ class MVStyle(str, Enum):
     ABSTRACT = "abstract"
 
 
+class VisualBible(BaseModel):
+    """뮤직비디오 비주얼 바이블 - LLM이 생성하는 전체 비주얼 가이드"""
+    color_palette: List[str] = Field(default_factory=list, description="주요 색상 5개 (hex)")
+    lighting_style: str = Field(default="", description="조명 스타일 (예: 'warm golden hour')")
+    recurring_motifs: List[str] = Field(default_factory=list, description="반복 모티프 (예: 'falling petals')")
+    character_archetypes: List[str] = Field(default_factory=list, description="캐릭터 아키타입")
+    atmosphere: str = Field(default="", description="전체 분위기 서술")
+    avoid_keywords: List[str] = Field(default_factory=list, description="회피할 비주얼 키워드")
+    composition_notes: str = Field(default="", description="구도 가이드")
+    reference_artists: List[str] = Field(default_factory=list, description="참고 아티스트/작품")
+
+
 class MVSceneStatus(str, Enum):
     """씬 상태"""
     PENDING = "pending"
@@ -131,6 +143,11 @@ class MVScene(BaseModel):
     transition: str = Field(default="crossfade", description="전환 효과 (cut, crossfade, fade)")
     camera_work: Optional[str] = Field(None, description="카메라 워크")
 
+    # Visual Bible 강화 프롬프트 (Pass 3에서 생성)
+    negative_prompt: Optional[str] = Field(None, description="네거티브 프롬프트")
+    color_mood: Optional[str] = Field(None, description="이 씬의 색감/무드 키워드")
+    camera_directive: Optional[str] = Field(None, description="카메라 연출 지시")
+
 
 # ============================================================
 # 프로젝트 관련
@@ -187,6 +204,10 @@ class MVProject(BaseModel):
     # 진행률
     progress: int = Field(default=0, description="진행률 (0-100)")
     current_step: Optional[str] = Field(None, description="현재 진행 단계")
+
+    # Visual Bible (Pass 1에서 생성)
+    visual_bible: Optional[VisualBible] = Field(None, description="비주얼 바이블")
+    style_anchor_path: Optional[str] = Field(None, description="전용 스타일 앵커 이미지 경로")
 
 
 class MVUploadResponse(BaseModel):

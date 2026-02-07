@@ -77,7 +77,11 @@ class ImageAgent:
         character_reference_paths: Optional[List[str]] = None,  # v2.0: 복수 참조 이미지
         style_anchor_path: Optional[str] = None,           # v2.1: 스타일 앵커
         environment_anchor_path: Optional[str] = None,     # v2.1: 환경 앵커
-        image_model: str = "standard"  # standard / premium
+        image_model: str = "standard",  # standard / premium
+        genre: Optional[str] = None,            # v3.0: Visual Bible
+        mood: Optional[str] = None,             # v3.0: Visual Bible
+        visual_bible: Optional[dict] = None,    # v3.0: Visual Bible
+        color_mood: Optional[str] = None,       # v3.0: Visual Bible
     ) -> tuple:
         """
         Generate an image with specific model strategies.
@@ -133,7 +137,12 @@ class ImageAgent:
                         character_reference_path=character_reference_path,
                         character_reference_paths=character_reference_paths,
                         style_anchor_path=style_anchor_path,
-                        environment_anchor_path=environment_anchor_path
+                        environment_anchor_path=environment_anchor_path,
+                        genre=genre,
+                        mood=mood,
+                        negative_prompt=negative_prompt,
+                        visual_bible=visual_bible,
+                        color_mood=color_mood,
                     )
                 except Exception as e:
                     error_msg = str(e)
@@ -153,7 +162,12 @@ class ImageAgent:
                                 character_reference_path=character_reference_path,
                                 character_reference_paths=character_reference_paths,
                                 style_anchor_path=style_anchor_path,
-                                environment_anchor_path=environment_anchor_path
+                                environment_anchor_path=environment_anchor_path,
+                                genre=genre,
+                                mood=mood,
+                                negative_prompt=negative_prompt,
+                                visual_bible=visual_bible,
+                                color_mood=color_mood,
                             )
                         except Exception as retry_e:
                             print(f"     [Error] Softened prompt retry failed: {retry_e}")
@@ -239,6 +253,11 @@ class ImageAgent:
         character_reference_paths: Optional[List[str]] = None,  # v2.0: 복수 참조 이미지
         style_anchor_path: Optional[str] = None,           # v2.1: 스타일 앵커
         environment_anchor_path: Optional[str] = None,     # v2.1: 환경 앵커
+        genre: Optional[str] = None,            # v3.0: Visual Bible
+        mood: Optional[str] = None,             # v3.0: Visual Bible
+        negative_prompt: Optional[str] = None,  # v3.0: Visual Bible
+        visual_bible: Optional[dict] = None,    # v3.0: Visual Bible
+        color_mood: Optional[str] = None,       # v3.0: Visual Bible
     ) -> tuple:
         """
         Call Google Gemini 2.5 Flash Image API for image generation.
@@ -279,12 +298,18 @@ class ImageAgent:
             all_reference_paths = [p for p in all_reference_paths if p and os.path.exists(p)]
 
             # v2.1: Use MultimodalPromptBuilder for consistent part ordering
+            # v3.0: Visual Bible enrichment (genre/mood/negative/visual_bible/color_mood)
             parts = MultimodalPromptBuilder.build_simple_request(
                 prompt=prompt,
                 character_reference_paths=all_reference_paths,
                 style=style,
                 style_anchor_path=style_anchor_path,
                 environment_anchor_path=environment_anchor_path,
+                genre=genre,
+                mood=mood,
+                negative_prompt=negative_prompt,
+                visual_bible=visual_bible,
+                color_mood=color_mood,
             )
 
             # Log what anchors are being used

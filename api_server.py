@@ -2382,6 +2382,12 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
             # Step 2: 씬 생성
             project_updated = pipeline.generate_scenes(project, request)
 
+            # Step 2.5: Visual Bible 생성 (Pass 1)
+            project_updated = pipeline.generate_visual_bible(project_updated)
+
+            # Step 2.6: 전용 스타일 앵커 생성 (Pass 2)
+            project_updated = pipeline.generate_style_anchor(project_updated)
+
             # Step 3: 이미지 생성 (IMAGES_READY에서 멈춤)
             project_updated = pipeline.generate_images(project_updated)
 
