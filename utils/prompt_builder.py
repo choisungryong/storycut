@@ -259,9 +259,17 @@ class MultimodalPromptBuilder:
         # 참조 지시문 (이미지가 있는 경우)
         has_images = any("inline_data" in p for p in parts)
         if has_images:
-            parts.append({
-                "text": "Using the above reference image(s), maintain character and style consistency in the generated image."
-            })
+            if character_reference_paths and any(p and os.path.exists(p) for p in character_reference_paths):
+                parts.append({"text": (
+                    "[CHARACTER LOCK] The character portrait(s) above are DEFINITIVE references. "
+                    "Maintain EXACT face shape, eye shape, nose, skin tone, hair color/length/style, "
+                    "body proportions, and clothing. "
+                    "Do NOT change ethnicity, age, or any facial features."
+                )})
+            else:
+                parts.append({
+                    "text": "Using the above reference image(s), maintain character and style consistency in the generated image."
+                })
 
         # 스타일별 강력한 이미지 생성 지시 (positive + negative)
         style_directives = {

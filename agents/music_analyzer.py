@@ -531,18 +531,18 @@ class MusicAnalyzer:
 
     @staticmethod
     def _text_similar(a: str, b: str) -> bool:
-        """두 텍스트가 유사한지 간단 비교"""
+        """두 텍스트가 유사한지 비교 (순서 기반)"""
         if a == b:
             return True
         # 한쪽이 다른쪽에 포함
         if a in b or b in a:
             return True
-        # 공통 문자 비율
-        common = set(a) & set(b)
-        if not common:
+        # 순서 기반 공통 접두사 길이 비교 (set 비교는 한글에서 오판 많음)
+        shorter = min(len(a), len(b))
+        if shorter == 0:
             return False
-        ratio = len(common) / max(len(set(a)), len(set(b)))
-        return ratio > 0.7
+        match_count = sum(1 for ca, cb in zip(a, b) if ca == cb)
+        return match_count / shorter > 0.6
 
     def _validate_timestamps(self, timed_lyrics: list) -> bool:
         """

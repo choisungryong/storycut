@@ -208,41 +208,6 @@ class ImageAgent:
         except Exception:
             return "A mysterious scene, cinematic lighting"
 
-    def _sanitize_prompt(self, original_prompt: str, error_msg: str) -> str:
-        """
-        Sanitize prompt using LLM to bypass content filters safely.
-        """
-        if not self.llm_client:
-            return "A peaceful abstract representation of the concept"
-
-        system_msg = """
-        You are a Prompt Engineer. The user's image prompt triggered a safety content filter.
-        Rewrite the prompt to completely remove any violent, sexual, or sensitive words while keeping the core artistic meaning.
-        Make it abstract and safe.
-        Output ONLY the sanitized prompt.
-        """
-        
-        user_msg = f"""
-        Original Prompt: {original_prompt}
-        Error: {error_msg}
-        
-        Sanitized Prompt:
-        """
-
-        try:
-            response = self.llm_client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": user_msg}
-                ],
-                temperature=0.7,
-                max_tokens=200
-            )
-            return response.choices[0].message.content.strip()
-        except Exception:
-            return "A mysterious and dramatic atmosphere, cinematic lighting"
-
     def _call_nanobana_api(
         self,
         prompt: str,
@@ -284,10 +249,13 @@ class ImageAgent:
 
             print(f"     Calling Gemini 2.5 Flash Image API...")
 
-            headers = {"Content-Type": "application/json"}
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.nanobanana_token,
+            }
 
-            # Google Gemini API endpoint (Nano Banana)
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={self.nanobanana_token}"
+            # Google Gemini API endpoint (API key in header, not URL)
+            api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
 
             # v2.0: 단일 참조를 복수 참조 리스트로 통합
             all_reference_paths = []

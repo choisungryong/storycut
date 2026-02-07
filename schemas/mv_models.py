@@ -44,6 +44,31 @@ class MVStyle(str, Enum):
     ABSTRACT = "abstract"
 
 
+class MVCharacter(BaseModel):
+    """MV 캐릭터 정의"""
+    role: str = Field(..., description="역할명 (예: 주인공, 상대역)")
+    description: str = Field(..., description="구체적 외형 -- 인종, 나이, 헤어, 얼굴, 체형")
+    outfit: str = Field(default="", description="의상")
+    appears_in: List[int] = Field(default_factory=list, description="등장 씬 ID 목록")
+    anchor_image_path: Optional[str] = Field(None, description="앵커 이미지 경로")
+
+
+class MVSceneBlocking(BaseModel):
+    """씬별 연출 지시"""
+    scene_id: int
+    shot_type: str = Field(default="medium", description="wide/medium/close-up/extreme-close-up")
+    narrative_beat: str = Field(default="", description="서사적 의미")
+    characters: List[str] = Field(default_factory=list, description="등장 캐릭터 역할명")
+    expression: Optional[str] = Field(None, description="표정/감정")
+    lighting: Optional[str] = Field(None, description="씬별 조명")
+
+
+class MVNarrativeArc(BaseModel):
+    """전체 서사 구조"""
+    acts: List[Dict[str, str]] = Field(default_factory=list,
+        description="[{'scenes': '1-4', 'description': '일상', 'tone': 'warm'}]")
+
+
 class VisualBible(BaseModel):
     """뮤직비디오 비주얼 바이블 - LLM이 생성하는 전체 비주얼 가이드"""
     color_palette: List[str] = Field(default_factory=list, description="주요 색상 5개 (hex)")
@@ -54,6 +79,11 @@ class VisualBible(BaseModel):
     avoid_keywords: List[str] = Field(default_factory=list, description="회피할 비주얼 키워드")
     composition_notes: str = Field(default="", description="구도 가이드")
     reference_artists: List[str] = Field(default_factory=list, description="참고 아티스트/작품")
+
+    # Director's Brief 확장
+    characters: List[MVCharacter] = Field(default_factory=list)
+    scene_blocking: List[MVSceneBlocking] = Field(default_factory=list)
+    narrative_arc: Optional[MVNarrativeArc] = Field(None)
 
 
 class MVSceneStatus(str, Enum):
@@ -147,6 +177,9 @@ class MVScene(BaseModel):
     negative_prompt: Optional[str] = Field(None, description="네거티브 프롬프트")
     color_mood: Optional[str] = Field(None, description="이 씬의 색감/무드 키워드")
     camera_directive: Optional[str] = Field(None, description="카메라 연출 지시")
+
+    # Director's Brief
+    characters_in_scene: List[str] = Field(default_factory=list, description="등장 캐릭터 역할명")
 
 
 # ============================================================

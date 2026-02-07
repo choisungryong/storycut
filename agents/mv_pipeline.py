@@ -16,7 +16,7 @@ from datetime import datetime
 from schemas.mv_models import (
     MVProject, MVScene, MVProjectStatus, MVSceneStatus,
     MVGenre, MVMood, MVStyle, MusicAnalysis, MVProjectRequest,
-    VisualBible
+    VisualBible, MVCharacter, MVSceneBlocking, MVNarrativeArc
 )
 from agents.music_analyzer import MusicAnalyzer
 from agents.image_agent import ImageAgent
@@ -226,19 +226,58 @@ class MVPipeline:
             elif project.music_analysis and project.music_analysis.extracted_lyrics:
                 lyrics_summary = project.music_analysis.extracted_lyrics[:500]
 
+            # 씬 타임라인 정보 (LLM이 appears_in/scene_blocking을 올바르게 생성하도록)
+            scene_timeline = ""
+            if project.scenes:
+                timeline_parts = []
+                for s in project.scenes:
+                    lyrics_preview = (s.lyrics_text or "")[:40].replace("\n", " ")
+                    timeline_parts.append(
+                        f"  Scene {s.scene_id}: {s.start_sec:.1f}s-{s.end_sec:.1f}s"
+                        + (f' lyrics: "{lyrics_preview}..."' if lyrics_preview else "")
+                    )
+                scene_timeline = "\n".join(timeline_parts)
+
+            total_scenes = len(project.scenes) if project.scenes else 8
+
             system_prompt = (
-                "You are a music video visual director. Create a Visual Bible (JSON) that defines "
-                "the entire visual identity for this music video.\n\n"
-                "Return ONLY valid JSON with these fields:\n"
-                "- color_palette: array of 5 hex color codes that define the video's palette\n"
-                "- lighting_style: string describing the lighting approach\n"
-                "- recurring_motifs: array of 3-4 visual motifs that repeat throughout\n"
-                "- character_archetypes: array of character types appearing in the video\n"
-                "- atmosphere: string describing overall atmosphere in detail\n"
-                "- avoid_keywords: array of visual elements to AVOID for this genre/mood\n"
-                "- composition_notes: string with cinematography/framing guidance\n"
-                "- reference_artists: array of 2-3 visual artists or films for style reference\n\n"
-                "IMPORTANT: The Visual Bible must strongly reflect the genre, mood, and style choices."
+                "You are a music video visual director. Create a Director's Brief (JSON) that defines "
+                "the entire visual identity AND character/scene direction for this music video.\n\n"
+                "Return ONLY valid JSON with these fields:\n\n"
+                "=== VISUAL IDENTITY ===\n"
+                "- color_palette: array of 5 hex color codes\n"
+                "- lighting_style: string describing lighting approach\n"
+                "- recurring_motifs: array of 3-4 visual motifs\n"
+                "- character_archetypes: array of character type names (brief)\n"
+                "- atmosphere: string describing overall atmosphere\n"
+                "- avoid_keywords: array of visual elements to AVOID\n"
+                "- composition_notes: string with cinematography guidance\n"
+                "- reference_artists: array of 2-3 reference artists/films\n\n"
+                "=== CHARACTERS (Director's Brief) ===\n"
+                "- characters: array of max 3 character objects, each with:\n"
+                "  - role: string (e.g. 'protagonist', 'love_interest', 'antagonist')\n"
+                "  - description: SPECIFIC appearance -- ethnicity, age range, hair color/length/style, "
+                "eye shape, face shape, skin tone, body type. Be CONCRETE (e.g. 'Korean woman in her mid-20s, "
+                "long straight black hair, almond eyes, fair skin, slender build')\n"
+                "  - outfit: clothing description\n"
+                f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
+                "=== SCENE BLOCKING ===\n"
+                f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
+                "  - scene_id: int (1-based)\n"
+                "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
+                "  - narrative_beat: what happens narratively\n"
+                "  - characters: array of role names appearing in this scene\n"
+                "  - expression: facial expression/emotion (or null)\n"
+                "  - lighting: scene-specific lighting (or null)\n\n"
+                "=== NARRATIVE ARC ===\n"
+                "- narrative_arc: object with:\n"
+                "  - acts: array of 3 act objects, each with 'scenes' (range like '1-4'), "
+                "'description', and 'tone'\n\n"
+                "CRITICAL RULES:\n"
+                "- ONLY the defined characters may appear. NEVER introduce unnamed people.\n"
+                "- NEVER change a character's ethnicity, age, or core features between scenes.\n"
+                "- Each character's 'appears_in' must match the scenes where they appear in scene_blocking.\n"
+                "- The Visual Bible must strongly reflect the genre, mood, and style choices."
             )
 
             user_prompt = (
@@ -246,9 +285,12 @@ class MVPipeline:
                 f"Mood: {project.mood.value}\n"
                 f"Style: {project.style.value}\n"
                 f"Concept: {project.concept or 'free'}\n"
-                f"Lyrics excerpt: {lyrics_summary or '(instrumental)'}\n\n"
-                f"Create the Visual Bible JSON:"
+                f"Total scenes: {total_scenes}\n"
+                f"Lyrics excerpt: {lyrics_summary or '(instrumental)'}\n"
             )
+            if scene_timeline:
+                user_prompt += f"\nScene timeline:\n{scene_timeline}\n"
+            user_prompt += "\nCreate the Director's Brief JSON:"
 
             print(f"  [Visual Bible] Generating with Gemini...")
 
@@ -266,12 +308,34 @@ class MVPipeline:
             # JSON 파싱
             import json as _json
             vb_data = _json.loads(result_text)
+
+            # Director's Brief 확장 필드 추출 및 변환
+            characters_data = vb_data.pop("characters", [])
+            scene_blocking_data = vb_data.pop("scene_blocking", [])
+            narrative_arc_data = vb_data.pop("narrative_arc", None)
+
+            mv_characters = [MVCharacter(**c) for c in characters_data] if characters_data else []
+            mv_blocking = [MVSceneBlocking(**b) for b in scene_blocking_data] if scene_blocking_data else []
+            mv_arc = MVNarrativeArc(**narrative_arc_data) if narrative_arc_data else None
+
+            vb_data["characters"] = mv_characters
+            vb_data["scene_blocking"] = mv_blocking
+            vb_data["narrative_arc"] = mv_arc
+
             project.visual_bible = VisualBible(**vb_data)
 
-            print(f"  [Visual Bible] Generated successfully:")
+            # MVScene.characters_in_scene 자동 채우기 (scene_blocking 기반)
+            for blocking in mv_blocking:
+                idx = blocking.scene_id - 1
+                if 0 <= idx < len(project.scenes):
+                    project.scenes[idx].characters_in_scene = blocking.characters
+
+            print(f"  [Director's Brief] Generated successfully:")
             print(f"    Colors: {project.visual_bible.color_palette}")
             print(f"    Lighting: {project.visual_bible.lighting_style}")
-            print(f"    Motifs: {project.visual_bible.recurring_motifs}")
+            print(f"    Characters: {[c.role for c in mv_characters]}")
+            print(f"    Scene Blocking: {len(mv_blocking)} scenes")
+            print(f"    Narrative Arc: {len(mv_arc.acts) if mv_arc else 0} acts")
             print(f"    Avoid: {project.visual_bible.avoid_keywords}")
 
         except Exception as e:
@@ -333,6 +397,69 @@ class MVPipeline:
         except Exception as e:
             print(f"  [Style Anchor] Generation failed (non-fatal): {e}")
             # Non-fatal: generate_images()가 scene_01 fallback 사용
+
+        self._save_manifest(project, project_dir)
+        return project
+
+    # ================================================================
+    # Step 2.7: 캐릭터 앵커 이미지 생성 (Pass 2.5)
+    # ================================================================
+
+    def generate_character_anchors(self, project: MVProject) -> MVProject:
+        """
+        Pass 2.5: VisualBible 캐릭터별 앵커 포트레이트 생성
+
+        각 캐릭터의 외형을 고정하기 위한 참조 이미지를 생성합니다.
+        Non-fatal: 개별 캐릭터 실패 시 건너뛰기.
+        """
+        if not project.visual_bible or not project.visual_bible.characters:
+            print("  [Character Anchors] No characters defined, skipping")
+            return project
+
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        char_dir = f"{project_dir}/media/characters"
+        os.makedirs(char_dir, exist_ok=True)
+
+        characters = project.visual_bible.characters
+        print(f"\n  [Character Anchors] Generating {len(characters)} character portrait(s)...")
+
+        # 스타일 컨텍스트
+        style_context = f"{project.style.value} style, {project.mood.value} mood"
+
+        for i, character in enumerate(characters):
+            import re as _re
+            safe_role = _re.sub(r'[^\w\-]', '_', character.role)[:20]
+            anchor_path = f"{char_dir}/{safe_role}.png"
+
+            print(f"    [Character {i+1}/{len(characters)}] Generating anchor: {character.role}")
+
+            portrait_prompt = (
+                f"Character portrait, upper body, face clearly visible, centered composition, "
+                f"{character.description}"
+            )
+            if character.outfit:
+                portrait_prompt += f", wearing {character.outfit}"
+            portrait_prompt += (
+                f", {style_context}, neutral background, studio lighting, "
+                f"no text, no letters, no words, no watermark"
+            )
+
+            try:
+                vb_dict = project.visual_bible.model_dump() if project.visual_bible else None
+                image_path, _ = self.image_agent.generate_image(
+                    scene_id=0,
+                    prompt=portrait_prompt,
+                    style=project.style.value,
+                    output_dir=anchor_path,
+                    genre=project.genre.value,
+                    mood=project.mood.value,
+                    visual_bible=vb_dict,
+                )
+                character.anchor_image_path = image_path
+                print(f"      Created: {image_path}")
+            except Exception as e:
+                print(f"      [WARNING] Character anchor failed (non-fatal): {e}")
+                # Non-fatal: 다음 캐릭터로 계속
 
         self._save_manifest(project, project_dir)
         return project
@@ -499,6 +626,48 @@ class MVPipeline:
                     vb_parts.append(f"Reference artists: {', '.join(vb.reference_artists)}")
                 vb_context = "\n[VISUAL BIBLE - 반드시 반영]\n" + "\n".join(vb_parts) + "\n"
 
+            # Director's Brief 컨텍스트: 캐릭터, 씬 블로킹, 서사 아크
+            directors_context = ""
+            if project.visual_bible:
+                vb = project.visual_bible
+                dc_parts = []
+
+                # 캐릭터 목록
+                if vb.characters:
+                    dc_parts.append("[CHARACTERS - 이 인물만 등장 가능]")
+                    for c in vb.characters:
+                        dc_parts.append(
+                            f"- {c.role}: {c.description}"
+                            + (f" | outfit: {c.outfit}" if c.outfit else "")
+                            + f" | appears in scenes: {c.appears_in}"
+                        )
+                    dc_parts.append("!! 위 캐릭터 외 이름 없는 인물을 절대 등장시키지 마세요.")
+
+                # 씬별 블로킹
+                if vb.scene_blocking:
+                    dc_parts.append("\n[SCENE BLOCKING - 씬별 연출]")
+                    for b in vb.scene_blocking:
+                        parts_str = f"Scene {b.scene_id}: shot={b.shot_type}"
+                        if b.characters:
+                            parts_str += f", characters={b.characters}"
+                        if b.expression:
+                            parts_str += f", expression={b.expression}"
+                        if b.lighting:
+                            parts_str += f", lighting={b.lighting}"
+                        dc_parts.append(f"- {parts_str}")
+
+                # 서사 아크
+                if vb.narrative_arc and vb.narrative_arc.acts:
+                    dc_parts.append("\n[NARRATIVE ARC]")
+                    for act in vb.narrative_arc.acts:
+                        dc_parts.append(
+                            f"- Scenes {act.get('scenes', '?')}: "
+                            f"{act.get('description', '')} (tone: {act.get('tone', '')})"
+                        )
+
+                if dc_parts:
+                    directors_context = "\n" + "\n".join(dc_parts) + "\n"
+
             system_prompt = (
                 "당신은 뮤직비디오 비주얼 디렉터입니다. "
                 "각 씬에 대해 이미지 생성 AI가 사용할 영어 프롬프트를 만들어주세요.\n\n"
@@ -511,6 +680,9 @@ class MVPipeline:
                 "- 절대 씬 번호나 설명 없이 프롬프트만 출력\n"
                 "- 정확히 씬 개수만큼 줄을 출력하세요 (한 줄에 하나의 프롬프트)\n"
                 "- 중요: 모든 프롬프트 끝에 반드시 'no text, no letters, no words, no writing, no watermark'를 포함하세요\n\n"
+                "- CHARACTERS 섹션의 인물만 프롬프트에 등장시키세요. 정의되지 않은 인물은 절대 추가 금지.\n"
+                "- SCENE BLOCKING의 shot_type, expression, lighting을 각 씬 프롬프트에 반드시 반영하세요.\n"
+                "- 캐릭터 외형(인종, 나이, 헤어 등)을 프롬프트에 구체적으로 포함하세요.\n\n"
                 "- 고급: 각 프롬프트 끝에 '|' 구분자로 추가 지시를 포함하세요:\n"
                 "  형식: positive prompt | negative keywords | color mood | camera directive\n"
                 "  예: cinematic hero shot... | gore, blood | warm golden | low angle tracking\n"
@@ -522,6 +694,7 @@ class MVPipeline:
                 f"- 분위기/톤: {mood_guide}\n"
                 f"각 프롬프트의 첫 부분에 스타일 키워드를 반드시 포함하세요."
                 f"{vb_context}"
+                f"{directors_context}"
             )
 
             user_prompt = (
@@ -666,6 +839,21 @@ class MVPipeline:
 
         return prompt
 
+    def _get_character_anchors_for_scene(self, project: MVProject, scene: MVScene) -> List[str]:
+        """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 3개)"""
+        if not project.visual_bible or not project.visual_bible.characters:
+            return []
+        char_map = {
+            c.role: c.anchor_image_path
+            for c in project.visual_bible.characters
+            if c.anchor_image_path and os.path.exists(c.anchor_image_path)
+        }
+        return [
+            char_map[r]
+            for r in (scene.characters_in_scene or [])[:3]
+            if r in char_map
+        ]
+
     # ================================================================
     # Step 3: 이미지 생성
     # ================================================================
@@ -711,6 +899,11 @@ class MVPipeline:
             scene.status = MVSceneStatus.GENERATING
 
             try:
+                # 캐릭터 앵커 이미지 조회
+                char_anchor_paths = self._get_character_anchors_for_scene(project, scene)
+                if char_anchor_paths:
+                    print(f"    [Characters] {len(char_anchor_paths)} anchor(s) for scene {scene.scene_id}")
+
                 # Pass 4: 풀 컨텍스트 이미지 생성
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
@@ -723,6 +916,7 @@ class MVPipeline:
                     negative_prompt=scene.negative_prompt,
                     visual_bible=vb_dict,
                     color_mood=scene.color_mood,
+                    character_reference_paths=char_anchor_paths or None,
                 )
 
                 scene.image_path = image_path
@@ -757,10 +951,22 @@ class MVPipeline:
             # 매니페스트 저장 (각 씬마다)
             self._save_manifest(project, project_dir)
 
+        # 성공한 이미지 수 확인
+        success_count = sum(1 for s in project.scenes if s.image_path and os.path.exists(s.image_path))
+        total_count = len(project.scenes)
+        print(f"[MV] Image generation complete: {success_count}/{total_count} succeeded")
+
+        if success_count == 0:
+            project.status = MVProjectStatus.FAILED
+            project.progress = 70
+            project.current_step = f"이미지 생성 전체 실패 ({total_count}개 씬)"
+            self._save_manifest(project, project_dir)
+            raise RuntimeError(f"All {total_count} image generations failed")
+
         # 이미지 생성 완료 → IMAGES_READY 상태로 전환 (리뷰 대기)
         project.status = MVProjectStatus.IMAGES_READY
         project.progress = 70
-        project.current_step = "이미지 생성 완료 - 리뷰 대기"
+        project.current_step = f"이미지 생성 완료 ({success_count}/{total_count}) - 리뷰 대기"
         self._save_manifest(project, project_dir)
 
         return project
@@ -973,6 +1179,11 @@ class MVPipeline:
         if on_progress:
             on_progress(project)
 
+        # Visual Bible + Style Anchor + Character Anchors
+        project = self.generate_visual_bible(project)
+        project = self.generate_style_anchor(project)
+        project = self.generate_character_anchors(project)
+
         # Step 3: 이미지 생성
         def _on_scene_image(scene, idx, total):
             if on_progress:
@@ -1032,6 +1243,9 @@ class MVPipeline:
 
         scene.status = MVSceneStatus.GENERATING
 
+        # 캐릭터 앵커 이미지 조회
+        char_anchor_paths = self._get_character_anchors_for_scene(project, scene)
+
         try:
             image_path, _ = self.image_agent.generate_image(
                 scene_id=scene.scene_id,
@@ -1044,6 +1258,7 @@ class MVPipeline:
                 negative_prompt=scene.negative_prompt,
                 visual_bible=vb_dict,
                 color_mood=scene.color_mood,
+                character_reference_paths=char_anchor_paths or None,
             )
             scene.image_path = image_path
             scene.video_path = None  # I2V 결과 초기화 (이미지 변경됨)

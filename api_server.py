@@ -62,7 +62,6 @@ print(f"DEBUG: GOOGLE_API_KEY: {mask_api_key(google_api_key)}")
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
@@ -102,6 +101,50 @@ app.add_middleware(
 
 # Optional: Add a broad CORS handler for non-credentialed requests if needed
 # But for now, let's stick to the specific list which is safer with allow_credentials=True
+
+# ============================================================
+# Security: Input Validation Helpers
+# ============================================================
+import re as _re
+import urllib.parse as _urlparse
+
+_SAFE_PROJECT_ID = _re.compile(r'^[a-zA-Z0-9_\-]+$')
+_SAFE_SIMPLE_ID = _re.compile(r'^[a-zA-Z0-9_\-\.]+$')
+
+def validate_project_id(project_id: str) -> str:
+    """project_id Path Traversal 방어"""
+    if not project_id or not _SAFE_PROJECT_ID.match(project_id) or '..' in project_id:
+        raise HTTPException(status_code=400, detail="Invalid project_id")
+    return project_id
+
+def validate_webhook_url(url: str) -> str:
+    """Webhook URL SSRF 방어 - 내부 네트워크 주소 차단"""
+    parsed = _urlparse.urlparse(url)
+    if parsed.scheme not in ("https", "http"):
+        raise HTTPException(status_code=400, detail="Webhook URL must use http(s)")
+    hostname = (parsed.hostname or "").lower()
+    # 내부 네트워크 / 메타데이터 차단
+    blocked = (
+        hostname in ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "metadata.google.internal")
+        or hostname.startswith("169.254.")
+        or hostname.startswith("10.")
+        or hostname.startswith("192.168.")
+        or hostname.startswith("172.16.") or hostname.startswith("172.17.")
+        or hostname.startswith("172.18.") or hostname.startswith("172.19.")
+        or hostname.startswith("172.2") or hostname.startswith("172.30.")
+        or hostname.startswith("172.31.")
+    )
+    if blocked:
+        raise HTTPException(status_code=400, detail="Webhook URL cannot point to internal network")
+    return url
+
+def load_manifest(project_id: str) -> dict:
+    """프로젝트 매니페스트 로딩 헬퍼 (404 자동 처리)"""
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    if not os.path.exists(manifest_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 # Global Exception Handler to ensure CORS headers on 500 errors
 from fastapi import Request
@@ -318,11 +361,21 @@ async def send_progress(project_id: str, step: str, progress: int, message: str,
         "timestamp": datetime.now().isoformat()
     }
 
-    # 히스토리 저장
+    # 히스토리 저장 (최대 100개 이벤트, 초과 시 오래된 것부터 제거)
     if project_id not in project_event_history:
         project_event_history[project_id] = []
     project_event_history[project_id].append(payload)
+    if len(project_event_history[project_id]) > 100:
+        project_event_history[project_id] = project_event_history[project_id][-50:]
     print(f"[DEBUG] History saved for {project_id}", flush=True)
+
+    # 완료/실패 시 5분 후 히스토리 정리 예약
+    if progress >= 100 or step == "error":
+        async def _cleanup_history(pid: str):
+            await asyncio.sleep(300)  # 5분
+            project_event_history.pop(pid, None)
+            active_connections.pop(pid, None)
+        asyncio.ensure_future(_cleanup_history(project_id))
 
     if project_id in active_connections:
         print(f"[DEBUG] Found active WS connection for {project_id}", flush=True)
@@ -408,6 +461,9 @@ class TrackedPipeline(StorycutPipeline):
     def __init__(self, tracker: ProgressTracker, webhook_url: Optional[str] = None):
         super().__init__()
         self.tracker = tracker
+        # SSRF 방어: webhook URL 검증
+        if webhook_url:
+            validate_webhook_url(webhook_url)
         self.webhook_url = webhook_url
 
     async def run_async(self, request: ProjectRequest):
@@ -1074,6 +1130,7 @@ async def get_image_generation_status(project_id: str):
 
     manifest.json을 읽어서 각 씬의 이미지 생성 상태 반환.
     """
+    validate_project_id(project_id)
     manifest_path = f"outputs/{project_id}/manifest.json"
 
     if not os.path.exists(manifest_path):
@@ -1148,7 +1205,7 @@ async def get_image_generation_status(project_id: str):
 async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[dict] = None):
     """
     특정 씬의 이미지를 재생성합니다.
-    
+
     Args:
         project_id: 프로젝트 ID
         scene_id: 씬 ID
@@ -1157,20 +1214,15 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     Returns:
         새로 생성된 이미지 URL
     """
+    validate_project_id(project_id)
     from starlette.concurrency import run_in_threadpool
     from agents.image_agent import ImageAgent
     import json
     
     print(f"\n[API] Regenerating image for scene {scene_id} in project {project_id}")
-    
-    # Manifest 로드
-    manifest_path = f"outputs/{project_id}/manifest.json"
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest_data = json.load(f)
-    
+
+    manifest_data = load_manifest(project_id)
+
     # 해당 씬 찾기
     scenes = manifest_data.get("scenes", [])
     target_scene = None
@@ -1178,10 +1230,10 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
         if scene.get("scene_id") == scene_id:
             target_scene = scene
             break
-    
+
     if not target_scene:
         raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
-    
+
     # 이미지 재생성
     image_agent = ImageAgent()
     if req is None:
@@ -1309,15 +1361,9 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
     import json
     
     print(f"\n[API] Converting image to video for scene {scene_id} in project {project_id}")
-    
-    # Manifest 로드
-    manifest_path = f"outputs/{project_id}/manifest.json"
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest_data = json.load(f)
-    
+
+    manifest_data = load_manifest(project_id)
+
     # 해당 씬 찾기
     scenes = manifest_data.get("scenes", [])
     target_scene = None
@@ -1397,15 +1443,9 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
     enable = req.get("enable", False)
     
     print(f"\n[API] Toggle hook video for scene {scene_id}: {enable}")
-    
-    # Manifest 로드
-    manifest_path = f"outputs/{project_id}/manifest.json"
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest_data = json.load(f)
-    
+
+    manifest_data = load_manifest(project_id)
+
     # 해당 씬 찾기
     scenes = manifest_data.get("scenes", [])
     found = False
@@ -1432,6 +1472,8 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
 @app.get("/api/sample-voice/{voice_id}")
 async def get_voice_sample(voice_id: str):
     """TTS 목소리 샘플 반환 (없으면 생성)"""
+    if not _SAFE_SIMPLE_ID.match(voice_id) or '..' in voice_id:
+        raise HTTPException(status_code=400, detail="Invalid voice_id")
     from agents.tts_agent import TTSAgent
 
     # 샘플 디렉토리
@@ -1487,13 +1529,8 @@ async def get_voice_sample(voice_id: str):
 @app.get("/api/download/{project_id}")
 async def download_video(project_id: str):
     """생성된 영상 다운로드"""
-    import re
-    
-    # [보안] Path Traversal 방어
-    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-]+$')
-    if not safe_pattern.match(project_id) or '..' in project_id:
-        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
-    
+    validate_project_id(project_id)
+
     # 가능한 경로들 시도
     possible_paths = [
         f"outputs/{project_id}/final_video_with_subtitles.mp4",  # 자막 적용된 버전 우선
@@ -1581,6 +1618,7 @@ async def login(req: LoginRequest):
 @app.get("/api/status/{project_id}")
 async def get_video_status(project_id: str):
     """영상 생성 진행 상태 조회"""
+    validate_project_id(project_id)
     manifest_path = f"outputs/{project_id}/manifest.json"
 
     print(f"[STATUS] Checking status for project: {project_id}", flush=True)
@@ -1635,6 +1673,7 @@ async def get_video_status(project_id: str):
 @app.get("/api/manifest/{project_id}")
 async def get_manifest(project_id: str):
     """Manifest 조회 (로컬 우선, R2 fallback)"""
+    validate_project_id(project_id)
     manifest_path = f"outputs/{project_id}/manifest.json"
 
     if os.path.exists(manifest_path):
@@ -1657,18 +1696,13 @@ async def get_manifest(project_id: str):
 @app.get("/api/stream/{project_id}")
 async def stream_video(project_id: str):
     """영상 스트리밍 (Inline Playback)"""
-    import re
-    
-    # [보안] Path Traversal 방어
-    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-]+$')
-    if not safe_pattern.match(project_id) or '..' in project_id:
-        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
-    
+    validate_project_id(project_id)
+
     possible_paths = [
         f"outputs/{project_id}/final_video_with_subtitles.mp4",
         f"outputs/{project_id}/final_video.mp4",
     ]
-    
+
     outputs_base = os.path.realpath("outputs")
     video_path = None
     
@@ -1692,25 +1726,15 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     R2 또는 로컬에서 에셋 파일 제공 (이미지, 오디오, 비디오)
     asset_type: image, audio, video
     """
-    import re
-    
-    # [보안] Path Traversal 방어
-    # 1. project_id, filename 검증 (영숫자, 하이픈, 언더스코어, 점만 허용)
-    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
-    
-    if not safe_pattern.match(project_id):
-        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
-    
-    if not safe_pattern.match(filename):
-        raise HTTPException(status_code=400, detail="잘못된 filename 형식")
-    
-    # 2. asset_type 화이트리스트 검증
+    validate_project_id(project_id)
+
+    # filename 검증
+    if not filename or not _SAFE_SIMPLE_ID.match(filename) or '..' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    # asset_type 화이트리스트 검증
     if asset_type not in ["image", "audio", "video"]:
-        raise HTTPException(status_code=400, detail="잘못된 asset_type")
-    
-    # 3. '..' 포함 여부 추가 확인 (이중 방어)
-    if '..' in project_id or '..' in filename:
-        raise HTTPException(status_code=400, detail="잘못된 경로")
+        raise HTTPException(status_code=400, detail="Invalid asset_type")
     
     # 4. 로컬 파일 경로 생성
     type_to_dir = {
@@ -1770,13 +1794,8 @@ async def get_video_from_r2(project_id: str):
     """
     R2에서 최종 비디오 제공 (Worker 대신 백엔드가 처리)
     """
-    import re
-    
-    # [보안] Path Traversal 방어
-    safe_pattern = re.compile(r'^[a-zA-Z0-9_\-]+$')
-    if not safe_pattern.match(project_id) or '..' in project_id:
-        raise HTTPException(status_code=400, detail="잘못된 project_id 형식")
-    
+    validate_project_id(project_id)
+
     # 1. 로컬 파일 먼저 확인
     possible_paths = [
         f"outputs/{project_id}/final_video_with_subtitles.mp4",
@@ -2014,14 +2033,8 @@ perfect for character reference, consistent lighting, sharp details
 @app.get("/api/projects/{project_id}/characters")
 async def get_project_characters(project_id: str):
     """프로젝트의 모든 캐릭터 조회"""
-    manifest_path = f"outputs/{project_id}/manifest.json"
-
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
-
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest_data = json.load(f)
-
+    validate_project_id(project_id)
+    manifest_data = load_manifest(project_id)
     character_sheet = manifest_data.get("character_sheet", {})
 
     return {
@@ -2057,21 +2070,14 @@ async def regenerate_scene(
     - 기존 에셋은 백업 후 교체
     - 완료 후 manifest 업데이트
     """
+    validate_project_id(project_id)
     from agents import SceneOrchestrator
     from schemas import SceneStatus
 
     if req is None:
         req = RegenerateSceneRequest()
 
-    manifest_path = f"outputs/{project_id}/manifest.json"
-
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
-
-    # Manifest 로드
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest_data = json.load(f)
-
+    manifest_data = load_manifest(project_id)
     scenes = manifest_data.get("scenes", [])
 
     # 해당 씬 찾기
@@ -2142,14 +2148,8 @@ async def regenerate_scene(
 @app.get("/api/projects/{project_id}/scenes")
 async def get_project_scenes(project_id: str):
     """프로젝트의 모든 씬 상태 조회"""
-    manifest_path = f"outputs/{project_id}/manifest.json"
-
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
-
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest_data = json.load(f)
-
+    validate_project_id(project_id)
+    manifest_data = load_manifest(project_id)
     scenes = manifest_data.get("scenes", [])
 
     return {
@@ -2175,16 +2175,10 @@ async def get_project_scenes(project_id: str):
 @app.post("/api/projects/{project_id}/recompose")
 async def recompose_video(project_id: str):
     """모든 씬을 다시 합성하여 최종 영상 생성"""
+    validate_project_id(project_id)
     from agents import ComposerAgent
 
-    manifest_path = f"outputs/{project_id}/manifest.json"
-
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
-
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest_data = json.load(f)
-
+    manifest_data = load_manifest(project_id)
     scenes = manifest_data.get("scenes", [])
 
     # 에셋 경로 수집
@@ -2312,8 +2306,13 @@ async def mv_upload_music(music_file: UploadFile = File(...)):
     import uuid
     import shutil
 
-    # 지원 포맷 확인
-    filename = music_file.filename or "unknown.mp3"
+    # 지원 포맷 확인 + 파일명 sanitize
+    raw_filename = music_file.filename or "unknown.mp3"
+    filename = os.path.basename(raw_filename)
+    filename = _re.sub(r'[^\w\-.]', '_', filename)
+    if not filename or filename.startswith('.'):
+        filename = "upload.mp3"
+
     ext = os.path.splitext(filename)[1].lower()
     supported = ['.mp3', '.wav', '.m4a', '.ogg', '.flac']
 
@@ -2323,6 +2322,11 @@ async def mv_upload_music(music_file: UploadFile = File(...)):
             detail=f"Unsupported format: {ext}. Supported: {supported}"
         )
 
+    # 파일 크기 제한 (50MB)
+    content = await music_file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+
     # 프로젝트 ID 생성
     project_id = f"mv_{uuid.uuid4().hex[:8]}"
     project_dir = f"outputs/{project_id}"
@@ -2331,7 +2335,7 @@ async def mv_upload_music(music_file: UploadFile = File(...)):
     # 파일 저장
     music_path = f"{project_dir}/music/{filename}"
     with open(music_path, "wb") as f:
-        shutil.copyfileobj(music_file.file, f)
+        f.write(content)
 
     print(f"[MV API] Music uploaded: {music_path}".encode('ascii', 'replace').decode())
 
@@ -2395,6 +2399,9 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
             # Step 2.6: 전용 스타일 앵커 생성 (Pass 2)
             project_updated = pipeline.generate_style_anchor(project_updated)
 
+            # Step 2.7: 캐릭터 앵커 생성 (Pass 2.5)
+            project_updated = pipeline.generate_character_anchors(project_updated)
+
             # Step 3: 이미지 생성 (IMAGES_READY에서 멈춤)
             project_updated = pipeline.generate_images(project_updated)
 
@@ -2434,6 +2441,7 @@ async def mv_status(project_id: str):
     """
     MV 생성 상태 조회
     """
+    validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
 
     pipeline = MVPipeline()
@@ -2457,6 +2465,7 @@ async def mv_result(project_id: str):
     """
     MV 결과 조회
     """
+    validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
 
     pipeline = MVPipeline()
@@ -2488,6 +2497,7 @@ async def mv_regenerate_scene(project_id: str, scene_id: int):
     """
     MV 씬 이미지 재생성
     """
+    validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
 
     pipeline = MVPipeline()
@@ -2518,6 +2528,7 @@ async def mv_scene_i2v(project_id: str, scene_id: int):
     """
     MV 씬 I2V (Veo 3.1 Image-to-Video) 변환
     """
+    validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
 
     pipeline = MVPipeline()
@@ -2541,6 +2552,7 @@ async def mv_compose(project_id: str):
     """
     이미지 리뷰 승인 후 최종 뮤직비디오 합성
     """
+    validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
     import threading
 
@@ -2616,6 +2628,7 @@ async def mv_stream(project_id: str):
     """
     MV 스트리밍
     """
+    validate_project_id(project_id)
     from fastapi.responses import FileResponse
     from agents.mv_pipeline import MVPipeline
 
@@ -2624,6 +2637,12 @@ async def mv_stream(project_id: str):
 
     if not project or not project.final_video_path:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    # 매니페스트 기반 경로 검증 (임의 파일 서빙 방지)
+    outputs_base = os.path.realpath("outputs")
+    resolved = os.path.realpath(project.final_video_path)
+    if not resolved.startswith(outputs_base):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if not os.path.exists(project.final_video_path):
         raise HTTPException(status_code=404, detail="Video file not found")
@@ -2640,6 +2659,7 @@ async def mv_download(project_id: str):
     """
     MV 다운로드
     """
+    validate_project_id(project_id)
     from fastapi.responses import FileResponse
     from agents.mv_pipeline import MVPipeline
 
@@ -2648,6 +2668,12 @@ async def mv_download(project_id: str):
 
     if not project or not project.final_video_path:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    # 매니페스트 기반 경로 검증 (임의 파일 서빙 방지)
+    outputs_base = os.path.realpath("outputs")
+    resolved = os.path.realpath(project.final_video_path)
+    if not resolved.startswith(outputs_base):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     return FileResponse(
         project.final_video_path,

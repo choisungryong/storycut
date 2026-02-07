@@ -202,7 +202,7 @@ class TTSAgent:
             "-y"
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
         if result.returncode != 0:
             raise RuntimeError(f"Failed to generate placeholder audio: {result.stderr}")

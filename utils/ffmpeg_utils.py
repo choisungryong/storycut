@@ -482,7 +482,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
         if result.returncode != 0:
             print(f"Audio ducking failed: {result.stderr[:500]}")
@@ -520,7 +520,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
         if result.returncode != 0:
             raise RuntimeError(f"Audio mix failed: {result.stderr}")
@@ -713,7 +713,7 @@ class FFmpegComposer:
         print(f"  Narration files: {len(narration_paths)}")
         print(f"  Music: {music_path if music_path else 'None'}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
 
         # 임시 파일 정리
         if os.path.exists(narration_concat):
@@ -756,7 +756,7 @@ class FFmpegComposer:
             output_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
         if os.path.exists(concat_file):
             os.remove(concat_file)
@@ -776,7 +776,7 @@ class FFmpegComposer:
             video_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
 
         if result.returncode == 0:
             return float(result.stdout.strip())
@@ -1052,7 +1052,7 @@ class FFmpegComposer:
             out_path
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
 
         if result.returncode != 0:
             print(f"[ERROR] Film look failed: {result.stderr[-500:]}")
@@ -1060,62 +1060,5 @@ class FFmpegComposer:
             self._copy_file(video_in, out_path)
         else:
             print(f"[SUCCESS] Film look applied: {out_path}")
-
-        return out_path
-
-    def apply_cinematic_lut(
-        self,
-        video_in: str,
-        out_path: str,
-        lut_path: Optional[str] = None,
-        lut_intensity: float = 1.0
-    ) -> str:
-        """
-        LUT (Look-Up Table) 기반 색보정 적용.
-
-        Args:
-            video_in: 입력 영상 경로
-            out_path: 출력 영상 경로
-            lut_path: .cube LUT 파일 경로 (None이면 기본 필름 룩 적용)
-            lut_intensity: LUT 적용 강도 (0.0 ~ 1.0)
-
-        Returns:
-            출력 영상 경로
-        """
-        if not lut_path or not os.path.exists(lut_path):
-            # LUT 파일이 없으면 기본 필름 룩 적용
-            return self.apply_film_look(video_in, out_path)
-
-        print(f"[FFmpeg] Applying LUT: {lut_path}")
-
-        # lut3d 필터 사용
-        # interp: 보간 방식 (trilinear, tetrahedral, etc.)
-        vf_filter = f"lut3d='{lut_path}':interp=trilinear"
-
-        # 강도 조절 (원본과 블렌딩)
-        if lut_intensity < 1.0:
-            # split -> [original][lut] -> blend
-            blend_expr = f"'A*(1-{lut_intensity})+B*{lut_intensity}'"
-            vf_filter = f"split[original][lut];[lut]lut3d='{lut_path}':interp=trilinear[lut_applied];[original][lut_applied]blend=all_expr={blend_expr}"
-
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-i", video_in,
-            "-vf", vf_filter,
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "copy",
-            out_path
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
-
-        if result.returncode != 0:
-            print(f"[ERROR] LUT application failed: {result.stderr[-500:]}")
-            self._copy_file(video_in, out_path)
-        else:
-            print(f"[SUCCESS] LUT applied: {out_path}")
 
         return out_path
