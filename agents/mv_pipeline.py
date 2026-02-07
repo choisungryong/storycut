@@ -406,11 +406,11 @@ class MVPipeline:
         # 스타일 프리픽스
         style_map = {
             MVStyle.CINEMATIC: "cinematic film still, dramatic lighting, high contrast",
-            MVStyle.ANIME: "anime style, vibrant colors, detailed illustration",
-            MVStyle.WEBTOON: "webtoon style, manhwa aesthetics, clean lines",
-            MVStyle.REALISTIC: "photorealistic, 4K, detailed",
-            MVStyle.ILLUSTRATION: "digital illustration, artistic",
-            MVStyle.ABSTRACT: "abstract art, surreal, artistic interpretation"
+            MVStyle.ANIME: "Japanese anime cel-shaded illustration, bold black outlines, NOT a photograph",
+            MVStyle.WEBTOON: "Korean manhwa webtoon digital art, clean sharp lines, NOT a photograph",
+            MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, NOT anime, NOT cartoon, NOT illustration",
+            MVStyle.ILLUSTRATION: "digital painting illustration, painterly brushstrokes, concept art quality",
+            MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike, non-representational"
         }
         style_prefix = style_map.get(request.style, "cinematic")
 

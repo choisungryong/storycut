@@ -200,12 +200,12 @@ class MultimodalPromptBuilder:
         """
         parts = []
 
-        # Style anchor
+        # Style anchor - composition/layout reference only, not style override
         if style_anchor_path and os.path.exists(style_anchor_path):
             image_part = MultimodalPromptBuilder._encode_image_part(style_anchor_path)
             if image_part:
                 parts.append(image_part)
-                parts.append({"text": "[STYLE ANCHOR] Match this visual style."})
+                parts.append({"text": "[REFERENCE] Use this image as a composition and quality reference. The art style MUST follow the text instructions below, NOT this reference image's rendering style."})
 
         # Environment anchor
         if environment_anchor_path and os.path.exists(environment_anchor_path):
@@ -229,17 +229,36 @@ class MultimodalPromptBuilder:
                 "text": "Using the above reference image(s), maintain character and style consistency in the generated image."
             })
 
-        # 스타일별 강력한 이미지 생성 지시
+        # 스타일별 강력한 이미지 생성 지시 (positive + negative)
         style_directives = {
-            "cinematic": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster.",
-            "anime": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art, NOT a photograph.",
-            "webtoon": "Generate a Korean webtoon (manhwa) style digital art with clean sharp lines, flat color blocks, and stylized character design. This MUST look like a webtoon panel, NOT a photograph.",
-            "realistic": "Generate a hyperrealistic photograph with DSLR quality, natural lighting, sharp focus, and real-world textures. This should be indistinguishable from a real photo.",
-            "illustration": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork, NOT a photograph.",
-            "abstract": "Generate an abstract expressionist artwork with surreal dreamlike imagery, bold geometric shapes, and non-representational color fields. This MUST be abstract art, NOT realistic.",
+            "cinematic": {
+                "positive": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster.",
+                "negative": ""
+            },
+            "anime": {
+                "positive": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art.",
+                "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
+            },
+            "webtoon": {
+                "positive": "Generate a Korean webtoon (manhwa) style digital art with clean sharp lines, flat color blocks, and stylized character design. This MUST look like a webtoon panel.",
+                "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
+            },
+            "realistic": {
+                "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting, sharp focus, real-world textures, photojournalistic quality. This MUST be indistinguishable from a real photograph.",
+                "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized."
+            },
+            "illustration": {
+                "positive": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork.",
+                "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic."
+            },
+            "abstract": {
+                "positive": "Generate an abstract expressionist artwork with surreal dreamlike imagery, bold geometric shapes, and non-representational color fields. This MUST be abstract art.",
+                "negative": "ABSOLUTELY NOT realistic, NOT photorealistic, NOT representational."
+            },
         }
-        style_directive = style_directives.get(style, f"Generate a high-quality image in {style} style.")
-        full_prompt = f"{style_directive} {prompt}. Aspect ratio 16:9."
+        directive = style_directives.get(style, {"positive": f"Generate a high-quality image in {style} style.", "negative": ""})
+        negative_part = f" {directive['negative']}" if directive['negative'] else ""
+        full_prompt = f"[MANDATORY STYLE]{negative_part} {directive['positive']} {prompt}. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts
