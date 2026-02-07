@@ -1728,6 +1728,13 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     if not resolved_path.startswith(outputs_base):
         raise HTTPException(status_code=403, detail="접근이 거부되었습니다.")
 
+    # MV 프로젝트: media/images/ 경로도 확인 (fallback)
+    if not os.path.exists(local_path) and asset_type == "image":
+        alt_path = f"outputs/{project_id}/media/images/{filename}"
+        alt_resolved = os.path.realpath(alt_path)
+        if alt_resolved.startswith(outputs_base) and os.path.exists(alt_path):
+            local_path = alt_path
+
     if os.path.exists(local_path):
         media_types = {
             "image": "image/png",
@@ -2551,6 +2558,41 @@ async def mv_compose(project_id: str):
             print(f"[MV Compose Thread] Starting composition for {project_id}")
             pipeline.compose_video(project)
             print(f"[MV Compose Thread] Composition complete: {project.status}")
+
+            # [Production] MV R2 업로드 (일반 파이프라인과 동일 패턴)
+            try:
+                from utils.storage import StorageManager
+                import json
+
+                storage = StorageManager()
+                backend_url = "https://web-production-bb6bf.up.railway.app"
+                project_dir = f"outputs/{project_id}"
+
+                # 1. 최종 비디오 업로드
+                if project.final_video_path and os.path.exists(project.final_video_path):
+                    r2_key = f"videos/{project_id}/final_video.mp4"
+                    if storage.upload_file(project.final_video_path, r2_key):
+                        print(f"[MV R2] Video uploaded: {r2_key}")
+
+                # 2. 씬 이미지 업로드 + 경로를 HTTP URL로 업데이트
+                for scene in project.scenes:
+                    if scene.image_path and os.path.exists(scene.image_path):
+                        img_filename = os.path.basename(scene.image_path)
+                        r2_key = f"images/{project_id}/{img_filename}"
+                        if storage.upload_file(scene.image_path, r2_key):
+                            scene.image_path = f"{backend_url}/api/asset/{project_id}/image/{img_filename}"
+
+                # 3. 매니페스트 저장 + R2 업로드
+                pipeline._save_manifest(project, project_dir)
+                manifest_path = f"{project_dir}/manifest.json"
+                manifest_r2_key = f"videos/{project_id}/manifest.json"
+                if storage.upload_file(manifest_path, manifest_r2_key):
+                    print(f"[MV R2] Manifest uploaded: {manifest_r2_key}")
+
+                print(f"[MV R2] All assets uploaded for {project_id}")
+            except Exception as e:
+                print(f"[MV R2] Upload error (non-fatal): {e}")
+
         except Exception as e:
             print(f"[MV Compose Thread] Error: {e}")
             import traceback
