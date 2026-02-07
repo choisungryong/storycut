@@ -797,10 +797,6 @@ class StorycutApp {
             await this.loadSceneList(data.project_id);
         }
 
-        // UI 전환
-        this.showSection('result');
-        this.setNavActive('nav-create');
-
         this.addLog('SUCCESS', '모든 정보 로드 완료!');
     }
 
@@ -1369,7 +1365,14 @@ class StorycutApp {
 
             card.style.cursor = 'pointer';
             card.onclick = () => {
-                this.showArchiveDetail(project.project_id, project.type || 'video');
+                // 클릭 피드백
+                card.style.opacity = '0.6';
+                card.style.pointerEvents = 'none';
+                this.showArchiveDetail(project.project_id, project.type || 'video')
+                    .finally(() => {
+                        card.style.opacity = '1';
+                        card.style.pointerEvents = 'auto';
+                    });
             };
 
             historyGrid.appendChild(card);
@@ -1378,11 +1381,13 @@ class StorycutApp {
 
     // ==================== 보관함 상세 보기 ====================
     async showArchiveDetail(projectId, type) {
+        console.log(`[Archive] showArchiveDetail: projectId=${projectId}, type=${type}`);
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/manifest/${projectId}`);
             if (!response.ok) throw new Error(`Manifest 로드 실패 (${response.status})`);
             const manifest = await response.json();
+            console.log(`[Archive] Manifest loaded: status=${manifest.status}, scenes=${(manifest.scenes||[]).length}`);
 
             const isMV = type === 'mv';
 
@@ -1422,7 +1427,7 @@ class StorycutApp {
 
             } else {
                 // 일반 영상: showResults 재사용 + _fromArchive 플래그
-                this.showResults({
+                await this.showResults({
                     project_id: projectId,
                     title: manifest.title,
                     status: manifest.status,
@@ -1445,76 +1450,95 @@ class StorycutApp {
 
     // ==================== 보관함 이미지 패널 ====================
     renderArchiveImagePanel(scenes, projectId, isMV) {
-        console.log(`[Archive] renderArchiveImagePanel: ${scenes.length} scenes, projectId=${projectId}, isMV=${isMV}`);
-        // 씬 관리 헤더/설명/재합성 버튼 숨기기
-        const sceneManagement = document.getElementById('scene-management');
-        if (!sceneManagement) {
-            console.error('[Archive] scene-management element not found!');
-            return;
-        }
-        // 확실히 보이게 설정
-        sceneManagement.style.display = 'block';
-
-        const header = sceneManagement.querySelector('h3');
-        const desc = sceneManagement.querySelector('.section-description');
-        const recomposeActions = sceneManagement.querySelector('.recompose-actions');
-        if (header) header.textContent = '🖼️ 씬 이미지';
-        if (desc) desc.style.display = 'none';
-        if (recomposeActions) recomposeActions.style.display = 'none';
-
-        const grid = document.getElementById('result-scene-grid');
-        if (!grid) return;
-        grid.innerHTML = '';
-
-        if (scenes.length === 0) {
-            grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#888;">씬 이미지가 없습니다.</p>';
-            return;
-        }
-
-        scenes.forEach((scene, idx) => {
-            const card = document.createElement('div');
-            card.className = 'result-scene-card archive-image-card';
-
-            let imagePath;
-            if (isMV) {
-                imagePath = scene.image_path || `outputs/${projectId}/media/images/scene_${String(idx + 1).padStart(2, '0')}.png`;
-            } else {
-                imagePath = scene.assets?.image_path || `outputs/${projectId}/media/images/scene_${String(scene.scene_id || idx + 1).padStart(2, '0')}.png`;
+        console.log(`[Archive] renderArchiveImagePanel called: ${scenes.length} scenes, projectId=${projectId}, isMV=${isMV}`);
+        try {
+            const sceneManagement = document.getElementById('scene-management');
+            if (!sceneManagement) {
+                console.error('[Archive] scene-management element not found!');
+                return;
             }
-            const imageUrl = this.resolveImageUrl(imagePath);
-            if (idx === 0) console.log(`[Archive] Scene 0: imagePath=${imagePath}, imageUrl=${imageUrl}`);
+            // 확실히 보이게 설정
+            sceneManagement.style.display = 'block';
+            sceneManagement.style.visibility = 'visible';
+            sceneManagement.style.opacity = '1';
 
-            // 텍스트: MV는 가사+타임스탬프, 일반은 내레이션
-            let textContent = '';
-            if (isMV) {
-                const startSec = scene.start_sec ?? scene.start_time;
-                const endSec = scene.end_sec ?? scene.end_time;
-                const timeBadge = startSec != null
-                    ? `<span class="scene-time-badge">${this._formatTime(startSec)} - ${this._formatTime(endSec)}</span>`
-                    : '';
-                const lyrics = scene.lyrics_text || scene.concept || '';
-                textContent = `${timeBadge}<div style="margin-top:4px;color:#ccc;font-size:0.85rem;">${lyrics}</div>`;
-            } else {
-                textContent = `<div style="color:#ccc;font-size:0.85rem;">${scene.narration || ''}</div>`;
+            const header = sceneManagement.querySelector('h3');
+            const desc = sceneManagement.querySelector('.section-description');
+            const recomposeActions = sceneManagement.querySelector('.recompose-actions');
+            if (header) header.textContent = isMV ? '🎵 MV 씬 이미지' : '🖼️ 씬 이미지';
+            if (desc) desc.style.display = 'none';
+            if (recomposeActions) recomposeActions.style.display = 'none';
+
+            const grid = document.getElementById('result-scene-grid');
+            if (!grid) {
+                console.error('[Archive] result-scene-grid element not found!');
+                return;
+            }
+            grid.innerHTML = '';
+
+            if (!scenes || scenes.length === 0) {
+                grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#888;padding:20px;">씬 이미지가 없습니다.</p>';
+                sceneManagement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
             }
 
-            const sceneLabel = isMV ? `Scene ${idx + 1}` : `Scene ${scene.scene_id || idx + 1}`;
+            scenes.forEach((scene, idx) => {
+                const card = document.createElement('div');
+                card.className = 'result-scene-card archive-image-card';
 
-            card.innerHTML = `
-                <div class="scene-card-header">
-                    <span class="scene-card-title">${sceneLabel}</span>
-                </div>
-                <div class="scene-card-image">
-                    <img src="${imageUrl}?t=${Date.now()}" alt="${sceneLabel}"
-                        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
-                        style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;display:block;">
-                    <div class="image-placeholder" style="display:none;">이미지 없음</div>
-                </div>
-                <div class="scene-card-narration">${textContent}</div>
-            `;
+                let imagePath;
+                if (isMV) {
+                    imagePath = scene.image_path || `outputs/${projectId}/media/images/scene_${String(idx + 1).padStart(2, '0')}.png`;
+                } else {
+                    imagePath = scene.assets?.image_path || `outputs/${projectId}/media/images/scene_${String(scene.scene_id || idx + 1).padStart(2, '0')}.png`;
+                }
+                const imageUrl = this.resolveImageUrl(imagePath);
 
-            grid.appendChild(card);
-        });
+                // 텍스트: MV는 가사+타임스탬프, 일반은 내레이션
+                let textContent = '';
+                if (isMV) {
+                    const startSec = scene.start_sec ?? scene.start_time;
+                    const endSec = scene.end_sec ?? scene.end_time;
+                    const timeBadge = startSec != null
+                        ? `<span class="scene-time-badge">${this._formatTime(startSec)} - ${this._formatTime(endSec)}</span>`
+                        : '';
+                    const lyrics = scene.lyrics_text || scene.concept || '';
+                    textContent = `${timeBadge}<div style="margin-top:4px;color:#ccc;font-size:0.85rem;">${lyrics}</div>`;
+                } else {
+                    textContent = `<div style="color:#ccc;font-size:0.85rem;">${scene.narration || ''}</div>`;
+                }
+
+                const sceneLabel = isMV ? `Scene ${idx + 1}` : `Scene ${scene.scene_id || idx + 1}`;
+
+                card.innerHTML = `
+                    <div class="scene-card-header">
+                        <span class="scene-card-title">${sceneLabel}</span>
+                    </div>
+                    <div class="scene-card-image">
+                        <img src="${imageUrl}?t=${Date.now()}" alt="${sceneLabel}"
+                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+                            style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;display:block;">
+                        <div class="image-placeholder" style="display:none;">이미지 없음</div>
+                    </div>
+                    <div class="scene-card-narration">${textContent}</div>
+                `;
+
+                grid.appendChild(card);
+            });
+
+            console.log(`[Archive] Rendered ${scenes.length} scene cards in grid`);
+            // 이미지 패널이 보이도록 스크롤
+            setTimeout(() => {
+                sceneManagement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+
+        } catch (err) {
+            console.error('[Archive] renderArchiveImagePanel error:', err);
+            const grid = document.getElementById('result-scene-grid');
+            if (grid) {
+                grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:#f66;padding:20px;">이미지 패널 렌더링 오류: ${err.message}</p>`;
+            }
+        }
     }
 
     _formatTime(seconds) {
