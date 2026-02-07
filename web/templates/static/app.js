@@ -1445,9 +1445,15 @@ class StorycutApp {
 
     // ==================== 보관함 이미지 패널 ====================
     renderArchiveImagePanel(scenes, projectId, isMV) {
+        console.log(`[Archive] renderArchiveImagePanel: ${scenes.length} scenes, projectId=${projectId}, isMV=${isMV}`);
         // 씬 관리 헤더/설명/재합성 버튼 숨기기
         const sceneManagement = document.getElementById('scene-management');
-        if (!sceneManagement) return;
+        if (!sceneManagement) {
+            console.error('[Archive] scene-management element not found!');
+            return;
+        }
+        // 확실히 보이게 설정
+        sceneManagement.style.display = 'block';
 
         const header = sceneManagement.querySelector('h3');
         const desc = sceneManagement.querySelector('.section-description');
@@ -1476,6 +1482,7 @@ class StorycutApp {
                 imagePath = scene.assets?.image_path || `outputs/${projectId}/media/images/scene_${String(scene.scene_id || idx + 1).padStart(2, '0')}.png`;
             }
             const imageUrl = this.resolveImageUrl(imagePath);
+            if (idx === 0) console.log(`[Archive] Scene 0: imagePath=${imagePath}, imageUrl=${imageUrl}`);
 
             // 텍스트: MV는 가사+타임스탬프, 일반은 내레이션
             let textContent = '';
