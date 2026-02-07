@@ -65,6 +65,31 @@
             border-bottom-color: #00adb5;
         }
 
+        .history-filter-tabs {
+            display: flex;
+            gap: 4px;
+            background: #1a1a2e;
+            padding: 3px;
+            border-radius: 8px;
+            border: 1px solid #393e46;
+        }
+        .history-filter-btn {
+            padding: 6px 16px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .history-filter-btn:hover { color: #ccc; }
+        .history-filter-btn.active {
+            background: #00adb5;
+            color: #fff;
+            font-weight: bold;
+        }
+
         .history-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -90,6 +115,7 @@
             background: #1a1a2e;
             object-fit: cover;
             display: block;
+            position: relative;
         }
 
         .history-info {
@@ -124,6 +150,49 @@
         .history-status.completed {
             background: #00adb5;
             color: #fff;
+        }
+
+        /* 타입 뱃지 (MV / Video) */
+        .history-type-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            z-index: 1;
+        }
+        .history-type-badge.mv {
+            background: #e91e63;
+            color: #fff;
+        }
+        .history-type-badge.video {
+            background: #00adb5;
+            color: #fff;
+        }
+
+        /* MV 보관함 카드 추가 정보 */
+        .history-mv-info {
+            color: #aaa;
+            font-size: 0.75rem;
+            margin: 0 0 6px 0;
+        }
+
+        /* 보관함 이미지 패널 타임스탬프 뱃지 */
+        .scene-time-badge {
+            font-size: 0.7rem;
+            color: #00adb5;
+            background: rgba(0, 173, 181, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 4px;
+        }
+
+        /* 보관함 모드 - 재생성 버튼 숨김 */
+        .archive-image-card .scene-card-actions {
+            display: none;
         }
 
         /* Additional styles for review and progress */
@@ -466,6 +535,76 @@
             0% { opacity: 1; }
             70% { opacity: 1; }
             100% { opacity: 0; }
+        }
+
+        /* MV 이미지 리뷰 카드 */
+        .mv-review-card {
+            background: #1a1a2e;
+            border: 1px solid #393e46;
+            border-radius: 8px;
+            padding: 12px;
+            transition: border-color 0.2s;
+            position: relative;
+        }
+        .mv-review-card:hover { border-color: #00adb5; }
+        .mv-review-card.regenerating { border-color: #f39c12; }
+        .mv-review-card .mv-review-img-wrap {
+            position: relative;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .mv-review-card img {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            border-radius: 6px;
+            display: block;
+        }
+        .mv-review-card .mv-review-info {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #ccc;
+        }
+        .mv-review-card .mv-review-lyrics {
+            color: #aaa;
+            font-size: 0.8rem;
+            margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .mv-review-card .mv-review-time {
+            color: #00adb5;
+            font-size: 0.75rem;
+        }
+        .mv-review-card .mv-review-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .mv-review-card .mv-review-actions button {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #393e46;
+            border-radius: 6px;
+            background: #16213e;
+            color: #eee;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: background 0.2s;
+        }
+        .mv-review-card .mv-review-actions button:hover { background: #1a1a40; border-color: #00adb5; }
+        .mv-review-card .mv-review-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .mv-review-card .i2v-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(39, 174, 96, 0.9);
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: bold;
         }
 
         /* 토스트 알림 */
@@ -1327,6 +1466,20 @@
                 </div>
             </div>
 
+            <!-- 뮤직비디오 이미지 리뷰 섹션 -->
+            <div id="mv-image-review-section" class="section hidden">
+                <h2>🎨 씬 이미지 확인</h2>
+                <p style="color: #999; margin-bottom: 1.5rem;">
+                    씬 이미지를 확인하고, 마음에 안 드는 씬은 재생성하세요. I2V로 영상 클립을 만들 수도 있습니다.
+                </p>
+                <div id="mv-image-review-grid" class="result-scene-grid"></div>
+                <div style="margin-top: 1.5rem; text-align: center;">
+                    <button id="mv-compose-btn" class="btn btn-primary" style="font-size: 1.1rem; padding: 14px 32px;">
+                        <span class="btn-icon">🎬</span> 최종 뮤직비디오 생성
+                    </button>
+                </div>
+            </div>
+
             <!-- 뮤직비디오 결과 섹션 -->
             <div id="mv-result-section" class="section hidden">
                 <h2 id="mv-result-header">🎉 뮤직비디오 완성!</h2>
@@ -1367,9 +1520,16 @@
             <div id="history-section" class="section hidden">
                 <h2>📺 내 비디오 보관함</h2>
                 <div class="history-container">
-                    <button id="refresh-history-btn" class="btn btn-secondary btn-small" style="margin-bottom: 20px;">
-                        🔄 목록 새로고침
-                    </button>
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+                        <div class="history-filter-tabs">
+                            <button class="history-filter-btn active" data-filter="all">전체</button>
+                            <button class="history-filter-btn" data-filter="video">📽️ 영상</button>
+                            <button class="history-filter-btn" data-filter="mv">🎵 MV</button>
+                        </div>
+                        <button id="refresh-history-btn" class="btn btn-secondary btn-small">
+                            🔄 새로고침
+                        </button>
+                    </div>
                     <div id="history-grid" class="history-grid">
                         <!-- JS로 카드 로드 -->
                     </div>

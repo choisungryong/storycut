@@ -707,18 +707,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
             del active_connections[project_id]
 
 
-@app.get("/api/manifest/{project_id}")
-async def get_manifest(project_id: str):
-    """프로젝트 Manifest 조회"""
-    manifest_path = Path(f"outputs/{project_id}/manifest.json")
-    if not manifest_path.exists():
-        raise HTTPException(status_code=404, detail="Manifest not found")
-    
-    try:
-        content = manifest_path.read_text(encoding="utf-8")
-        return json.loads(content)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read manifest: {str(e)}")
+## manifest 엔드포인트는 아래(line ~1646)에 통합 정의됨
 
 
 @app.post("/api/generate/story")
@@ -1645,14 +1634,24 @@ async def get_video_status(project_id: str):
 
 @app.get("/api/manifest/{project_id}")
 async def get_manifest(project_id: str):
-    """Manifest 조회"""
+    """Manifest 조회 (로컬 우선, R2 fallback)"""
     manifest_path = f"outputs/{project_id}/manifest.json"
 
-    if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return json.load(f)
 
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    # R2 fallback
+    try:
+        from utils.storage import StorageManager
+        storage = StorageManager()
+        raw = storage.get_object(f"{project_id}/manifest.json")
+        if raw:
+            return json.loads(raw.decode("utf-8"))
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
 
 
 @app.get("/api/stream/{project_id}")
@@ -1802,52 +1801,94 @@ async def get_video_from_r2(project_id: str):
 
 @app.get("/api/history")
 async def get_history_list():
-    """완료된 프로젝트 목록 조회 (R2 기반)"""
+    """완료된 프로젝트 목록 조회 (R2 + 로컬 병합)"""
     from utils.storage import StorageManager
-    
+
     storage = StorageManager()
-    
+    outputs_dir = "outputs"
+
     # R2에서 프로젝트 목록 가져오기
-    projects = storage.list_projects()
-    
-    # R2 사용 불가능하면 로컬 폴더 폴백
-    if not projects:
-        print("[API] R2 unavailable, falling back to local outputs folder")
-        outputs_dir = "outputs"
-        projects = []
+    r2_projects = storage.list_projects() or []
 
-        if not os.path.exists(outputs_dir):
-            return {"projects": []}
+    # R2 프로젝트에 type 필드 보강
+    seen_ids = set()
+    for p in r2_projects:
+        pid = p.get("project_id", "")
+        seen_ids.add(pid)
+        if "type" not in p:
+            p["type"] = "mv" if pid.startswith("mv_") else "video"
+        # MV인데 URL이 일반 경로면 수정
+        if p["type"] == "mv":
+            if p.get("video_url") and "/api/stream/" in p["video_url"] and "/api/mv/" not in p["video_url"]:
+                p["video_url"] = f"/api/mv/stream/{pid}"
+            if p.get("download_url") and "/api/download/" in p["download_url"] and "/api/mv/" not in p["download_url"]:
+                p["download_url"] = f"/api/mv/download/{pid}"
 
-        # 디렉토리 순회 (최신순 정렬)
+    # 로컬 폴더에서 R2에 없는 프로젝트 보충 (특히 MV)
+    local_projects = []
+    if os.path.exists(outputs_dir):
         try:
-            dirs = [d for d in os.listdir(outputs_dir) if os.path.isdir(os.path.join(outputs_dir, d))]
-            # 수정 시간 기준 내림차순 정렬
+            dirs = [d for d in os.listdir(outputs_dir) if os.path.isdir(os.path.join(outputs_dir, d)) and d not in seen_ids]
             dirs.sort(key=lambda x: os.path.getmtime(os.path.join(outputs_dir, x)), reverse=True)
 
             for pid in dirs:
                 manifest_path = os.path.join(outputs_dir, pid, "manifest.json")
-                if os.path.exists(manifest_path):
-                    try:
-                        with open(manifest_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                            # 필수 정보만 추출
-                            projects.append({
-                                "project_id": data.get("project_id"),
-                                "title": data.get("title", "제목 없음"),
+                if not os.path.exists(manifest_path):
+                    continue
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        is_mv = pid.startswith("mv_")
+                        is_completed = data.get("status") == "completed"
+
+                        if is_mv:
+                            mv_title = data.get("concept") or ""
+                            if not mv_title:
+                                music_path = data.get("music_analysis", {}).get("file_path", "")
+                                if music_path:
+                                    mv_title = os.path.splitext(os.path.basename(music_path))[0]
+                            if not mv_title:
+                                mv_title = f"MV {pid}"
+
+                            music_analysis = data.get("music_analysis", {})
+                            scenes = data.get("scenes", [])
+
+                            local_projects.append({
+                                "project_id": pid,
+                                "title": mv_title,
+                                "type": "mv",
                                 "status": data.get("status"),
                                 "created_at": data.get("created_at"),
                                 "thumbnail_url": f"/media/{pid}/thumbnail.png" if os.path.exists(os.path.join(outputs_dir, pid, "thumbnail.png")) else None,
-                                "video_url": f"/api/stream/{pid}" if data.get("status") == "completed" else None,
-                                "download_url": f"/api/download/{pid}" if data.get("status") == "completed" else None
+                                "video_url": f"/api/mv/stream/{pid}" if is_completed else None,
+                                "download_url": f"/api/mv/download/{pid}" if is_completed else None,
+                                "duration_sec": music_analysis.get("duration_sec"),
+                                "genre": music_analysis.get("genre"),
+                                "style": data.get("style"),
+                                "scene_count": len(scenes),
                             })
-                    except Exception:
-                        continue
+                        else:
+                            scenes = data.get("scenes", [])
+                            local_projects.append({
+                                "project_id": data.get("project_id", pid),
+                                "title": data.get("title", "제목 없음"),
+                                "type": "video",
+                                "status": data.get("status"),
+                                "created_at": data.get("created_at"),
+                                "thumbnail_url": f"/media/{pid}/thumbnail.png" if os.path.exists(os.path.join(outputs_dir, pid, "thumbnail.png")) else None,
+                                "video_url": f"/api/stream/{pid}" if is_completed else None,
+                                "download_url": f"/api/download/{pid}" if is_completed else None,
+                                "scene_count": len(scenes),
+                            })
+                except Exception:
+                    continue
         except Exception as e:
-            print(f"Error scanning history: {e}")
-            return {"projects": []}
+            print(f"Error scanning local history: {e}")
 
-    return {"projects": projects}
+    # R2 + 로컬 병합 후 시간순 정렬 (최신 먼저)
+    all_projects = r2_projects + local_projects
+    all_projects.sort(key=lambda p: p.get("created_at") or "", reverse=True)
+    return {"projects": all_projects}
 
 
 # ============================================================================
@@ -2285,7 +2326,7 @@ async def mv_upload_music(music_file: UploadFile = File(...)):
     with open(music_path, "wb") as f:
         shutil.copyfileobj(music_file.file, f)
 
-    print(f"[MV API] Music uploaded: {music_path}")
+    print(f"[MV API] Music uploaded: {music_path}".encode('ascii', 'replace').decode())
 
     # 분석
     try:
@@ -2341,13 +2382,11 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
             # Step 2: 씬 생성
             project_updated = pipeline.generate_scenes(project, request)
 
-            # Step 3: 이미지 생성
+            # Step 3: 이미지 생성 (IMAGES_READY에서 멈춤)
             project_updated = pipeline.generate_images(project_updated)
 
-            # Step 4: 영상 합성
-            project_updated = pipeline.compose_video(project_updated)
-
-            print(f"[MV Thread] Generation complete: {project_updated.status}")
+            # compose_video()는 사용자 리뷰 후 /api/mv/compose에서 별도 호출
+            print(f"[MV Thread] Images ready, waiting for user review: {project_updated.status}")
 
         except Exception as e:
             print(f"[MV Thread] Error: {e}")
@@ -2429,6 +2468,99 @@ async def mv_result(project_id: str):
         scenes=project.scenes,
         download_url=download_url
     )
+
+
+@app.post("/api/mv/scenes/{project_id}/{scene_id}/regenerate")
+async def mv_regenerate_scene(project_id: str, scene_id: int):
+    """
+    MV 씬 이미지 재생성
+    """
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if scene_id < 1 or scene_id > len(project.scenes):
+        raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
+
+    try:
+        scene = pipeline.regenerate_scene_image(project, scene_id)
+        image_url = None
+        if scene.image_path:
+            # outputs/mv_xxx/media/images/scene_01.png -> /media/mv_xxx/media/images/scene_01.png
+            if scene.image_path.startswith("outputs/"):
+                image_url = f"/media/{scene.image_path[len('outputs/'):]}"
+            else:
+                image_url = scene.image_path
+        return {"success": True, "image_path": scene.image_path, "image_url": image_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mv/scenes/{project_id}/{scene_id}/i2v")
+async def mv_scene_i2v(project_id: str, scene_id: int):
+    """
+    MV 씬 I2V (Veo 3.1 Image-to-Video) 변환
+    """
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if scene_id < 1 or scene_id > len(project.scenes):
+        raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
+
+    try:
+        scene = pipeline.generate_scene_i2v(project, scene_id)
+        return {"success": True, "video_path": scene.video_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mv/compose/{project_id}")
+async def mv_compose(project_id: str):
+    """
+    이미지 리뷰 승인 후 최종 뮤직비디오 합성
+    """
+    from agents.mv_pipeline import MVPipeline
+    import threading
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if project.status == MVProjectStatus.COMPOSING:
+        raise HTTPException(status_code=400, detail="Composition already in progress")
+
+    def run_compose():
+        try:
+            print(f"[MV Compose Thread] Starting composition for {project_id}")
+            pipeline.compose_video(project)
+            print(f"[MV Compose Thread] Composition complete: {project.status}")
+        except Exception as e:
+            print(f"[MV Compose Thread] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                project.status = MVProjectStatus.FAILED
+                project.error_message = str(e)[:500]
+                project_dir = f"outputs/{project_id}"
+                pipeline._save_manifest(project, project_dir)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=run_compose, daemon=True)
+    thread.start()
+
+    return {"status": "composing", "project_id": project_id}
 
 
 @app.get("/api/mv/stream/{project_id}")

@@ -58,6 +58,7 @@ class MVProjectStatus(str, Enum):
     ANALYZING = "analyzing"
     READY = "ready"
     GENERATING = "generating"
+    IMAGES_READY = "images_ready"  # 이미지 생성 완료, 리뷰 대기
     COMPOSING = "composing"
     COMPLETED = "completed"
     FAILED = "failed"

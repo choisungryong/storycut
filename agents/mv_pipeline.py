@@ -558,6 +558,12 @@ class MVPipeline:
             # 매니페스트 저장 (각 씬마다)
             self._save_manifest(project, project_dir)
 
+        # 이미지 생성 완료 → IMAGES_READY 상태로 전환 (리뷰 대기)
+        project.status = MVProjectStatus.IMAGES_READY
+        project.progress = 70
+        project.current_step = "이미지 생성 완료 - 리뷰 대기"
+        self._save_manifest(project, project_dir)
+
         return project
 
     # ================================================================
@@ -601,6 +607,12 @@ class MVPipeline:
                 clip_path = f"{project_dir}/media/video/scene_{scene.scene_id:02d}.mp4"
 
                 print(f"    [Scene {scene.scene_id}] image_path: {scene.image_path}")
+
+                # I2V로 생성된 비디오가 이미 있으면 그대로 사용
+                if scene.video_path and os.path.exists(scene.video_path):
+                    video_clips.append(scene.video_path)
+                    print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip (I2V pre-generated)")
+                    continue
 
                 # 이미지 파일 존재 확인
                 if not scene.image_path or not os.path.exists(scene.image_path):
@@ -771,18 +783,117 @@ class MVPipeline:
         if on_progress:
             on_progress(project)
 
-        # Step 4: 영상 합성
-        project = self.compose_video(project)
+        # Step 4: 이미지 리뷰 대기 (compose_video는 별도 호출)
+        # generate_images()에서 이미 IMAGES_READY로 설정됨
 
         elapsed = time.time() - start_time
         print(f"\n{'='*60}")
-        print(f"[MV Pipeline] Completed in {elapsed:.1f}s")
+        print(f"[MV Pipeline] Images ready in {elapsed:.1f}s")
         print(f"  Status: {project.status}")
-        if project.final_video_path:
-            print(f"  Output: {project.final_video_path}")
+        print(f"  Waiting for user review before composing...")
         print(f"{'='*60}\n")
 
         return project
+
+    # ================================================================
+    # Step 3.5: 씬 이미지 재생성 / I2V 변환
+    # ================================================================
+
+    def regenerate_scene_image(self, project: MVProject, scene_id: int) -> MVScene:
+        """
+        특정 씬의 이미지를 재생성
+
+        Args:
+            project: MVProject 객체
+            scene_id: 씬 ID (1-based)
+
+        Returns:
+            업데이트된 MVScene
+        """
+        if scene_id < 1 or scene_id > len(project.scenes):
+            raise ValueError(f"Invalid scene_id: {scene_id}")
+
+        scene = project.scenes[scene_id - 1]
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        image_dir = f"{project_dir}/media/images"
+
+        print(f"[MV Regenerate] Scene {scene_id} image regeneration...")
+
+        # 스타일 앵커: scene_01 이미지 사용 (첫 씬 재생성이 아닌 경우)
+        style_anchor_path = None
+        if scene_id > 1:
+            first_scene = project.scenes[0]
+            if first_scene.image_path and os.path.exists(first_scene.image_path):
+                style_anchor_path = first_scene.image_path
+
+        scene.status = MVSceneStatus.GENERATING
+
+        try:
+            image_path, _ = self.image_agent.generate_image(
+                scene_id=scene.scene_id,
+                prompt=scene.image_prompt,
+                style=project.style.value,
+                output_dir=image_dir,
+                style_anchor_path=style_anchor_path,
+            )
+            scene.image_path = image_path
+            scene.video_path = None  # I2V 결과 초기화 (이미지 변경됨)
+            scene.status = MVSceneStatus.COMPLETED
+            print(f"  Regenerated: {image_path}")
+        except Exception as e:
+            scene.status = MVSceneStatus.FAILED
+            print(f"  [ERROR] Regeneration failed: {e}")
+            raise
+
+        self._save_manifest(project, project_dir)
+        return scene
+
+    def generate_scene_i2v(self, project: MVProject, scene_id: int) -> MVScene:
+        """
+        특정 씬의 이미지를 Veo I2V로 비디오 변환
+
+        Args:
+            project: MVProject 객체
+            scene_id: 씬 ID (1-based)
+
+        Returns:
+            업데이트된 MVScene
+        """
+        if scene_id < 1 or scene_id > len(project.scenes):
+            raise ValueError(f"Invalid scene_id: {scene_id}")
+
+        scene = project.scenes[scene_id - 1]
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+
+        if not scene.image_path or not os.path.exists(scene.image_path):
+            raise ValueError(f"Scene {scene_id} has no image")
+
+        print(f"[MV I2V] Scene {scene_id} video generation...")
+
+        from agents.video_agent import VideoAgent
+        video_agent = VideoAgent()
+
+        video_dir = f"{project_dir}/media/video"
+        os.makedirs(video_dir, exist_ok=True)
+        video_path = f"{video_dir}/scene_{scene_id:02d}_i2v.mp4"
+
+        try:
+            result_path = video_agent._call_veo_api(
+                prompt=scene.image_prompt,
+                style=project.style.value,
+                mood=project.mood.value,
+                duration_sec=min(int(scene.duration_sec), 8),  # Veo max ~8s
+                output_path=video_path,
+                first_frame_image=scene.image_path
+            )
+            scene.video_path = result_path or video_path
+            print(f"  I2V complete: {scene.video_path}")
+        except Exception as e:
+            print(f"  [ERROR] I2V failed: {e}")
+            raise
+
+        self._save_manifest(project, project_dir)
+        return scene
 
     # ================================================================
     # 유틸리티
