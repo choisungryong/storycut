@@ -57,7 +57,8 @@ class FFmpegComposer:
         duration_sec: float,
         out_path: str,
         effect_type: str = "zoom_in",
-        zoom_range: Tuple[float, float] = (1.0, 1.1)  # Minimal zoom for calm vibe
+        zoom_range: Tuple[float, float] = (1.0, 1.1),  # Minimal zoom for calm vibe
+        hflip: bool = False
     ) -> str:
         """
         이미지에 Ken Burns (줌/팬) 효과를 적용하여 영상 클립 생성.
@@ -70,6 +71,7 @@ class FFmpegComposer:
             out_path: 출력 영상 경로
             effect_type: 효과 유형 (zoom_in, zoom_out, pan_left, pan_right, diagonal)
             zoom_range: 줌 범위 (최소, 최대)
+            hflip: 좌우 반전 여부 (파생 씬용)
 
         Returns:
             출력 영상 경로
@@ -109,15 +111,23 @@ class FFmpegComposer:
             ),
         }
 
+        # 파생 효과 해석: crop_left/crop_right는 크롭 위치 + 모션으로 매핑
+        scaled_w = self.width * 2
+        scaled_h = self.height * 2
+        crop_x = 0  # default: center
+        if effect_type == "crop_left":
+            crop_x = 0
+            effect_type = "pan_right"  # 왼쪽 영역에서 오른쪽으로 패닝
+        elif effect_type == "crop_right":
+            crop_x = scaled_w // 3
+            effect_type = "pan_left"  # 오른쪽 영역에서 왼쪽으로 패닝
+
         filter_str = effects.get(effect_type, effects["zoom_in"])
 
         # v2.2: Pre-scale image to correct aspect ratio (16:9) at larger size for zoom headroom
-        # 1. Scale to cover 2x target resolution while maintaining aspect ratio
-        # 2. Crop to exactly 2x target (gives zoom/pan headroom)
-        # 3. zoompan then outputs at final target resolution
-        scaled_w = self.width * 2
-        scaled_h = self.height * 2
-        prescale_filter = f"scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=increase,crop={scaled_w}:{scaled_h}"
+        prescale_filter = f"scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=increase,crop={scaled_w}:{scaled_h}:{crop_x}:0"
+        if hflip:
+            prescale_filter += ",hflip"
         full_filter = f"{prescale_filter},{filter_str}"
 
         cmd = [

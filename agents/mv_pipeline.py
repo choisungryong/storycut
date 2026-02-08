@@ -602,31 +602,75 @@ class MVPipeline:
         project: MVProject,
         request: MVProjectRequest
     ) -> List[MVScene]:
-        """자동 씬 분할 (음악 분석 기반)"""
+        """자동 씬 분할 (음악 분석 기반) + primary/derived 분류
+
+        첫 등장 segment_type = primary (신규 이미지 생성)
+        재등장 segment_type = derived (원본 이미지 재사용 + 변형 효과)
+        intro/outro는 항상 primary
+        """
         scenes = []
 
         if not project.music_analysis:
             raise ValueError("Music analysis required for auto scene creation")
 
+        # segment_type별 첫 등장 씬 ID 추적
+        primary_map = {}  # segment_type → first scene_id
+        # 파생 효과 로테이션 (같은 타입의 2번째, 3번째, ... 재등장 시 다른 효과)
+        derived_effects = ["hflip", "crop_left", "crop_right"]
+        derived_count_map = {}  # segment_type → 재등장 횟수
+
         # 음악 세그먼트 기반으로 씬 생성
-        for i, segment in enumerate(project.music_analysis.segments):
-            # 가사에서 해당 구간 텍스트 추출 (간단한 분할)
+        segments = project.music_analysis.segments
+        for i, segment in enumerate(segments):
             lyrics_text = self._extract_lyrics_for_segment(
                 request.lyrics,
                 i,
-                len(project.music_analysis.segments)
+                len(segments)
             )
 
-            scene = MVScene(
-                scene_id=i + 1,
-                start_sec=segment.start_sec,
-                end_sec=segment.end_sec,
-                duration_sec=segment.duration_sec,
-                visual_description=f"{segment.segment_type} section",
-                lyrics_text=lyrics_text,
-                image_prompt=""
-            )
+            seg_type = segment.segment_type
+            # intro, outro는 항상 primary
+            always_primary = seg_type in ("intro", "outro")
+
+            if always_primary or seg_type not in primary_map:
+                # Primary 씬: 신규 이미지 생성
+                scene = MVScene(
+                    scene_id=i + 1,
+                    start_sec=segment.start_sec,
+                    end_sec=segment.end_sec,
+                    duration_sec=segment.duration_sec,
+                    visual_description=f"{seg_type} section",
+                    lyrics_text=lyrics_text,
+                    image_prompt="",
+                    is_derived=False,
+                )
+                if not always_primary:
+                    primary_map[seg_type] = i + 1  # scene_id
+            else:
+                # Derived 씬: 원본 이미지 재사용
+                source_id = primary_map[seg_type]
+                count = derived_count_map.get(seg_type, 0)
+                effect = derived_effects[count % len(derived_effects)]
+                derived_count_map[seg_type] = count + 1
+
+                scene = MVScene(
+                    scene_id=i + 1,
+                    start_sec=segment.start_sec,
+                    end_sec=segment.end_sec,
+                    duration_sec=segment.duration_sec,
+                    visual_description=f"{seg_type} section (derived from scene {source_id})",
+                    lyrics_text=lyrics_text,
+                    image_prompt="",
+                    is_derived=True,
+                    source_scene_id=source_id,
+                    derived_effect=effect,
+                )
+
             scenes.append(scene)
+
+        primary_count = sum(1 for s in scenes if not s.is_derived)
+        derived_count = sum(1 for s in scenes if s.is_derived)
+        print(f"  Scene split: {primary_count} primary + {derived_count} derived = {len(scenes)} total")
 
         return scenes
 
@@ -1030,8 +1074,13 @@ class MVPipeline:
         # Visual Bible dict (이미지 생성에 전달)
         vb_dict = project.visual_bible.model_dump() if project.visual_bible else None
 
-        for i, scene in enumerate(project.scenes):
-            print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
+        # 1차: primary 씬만 이미지 생성
+        primary_scenes = [s for s in project.scenes if not s.is_derived]
+        derived_scenes = [s for s in project.scenes if s.is_derived]
+        print(f"  Generating {len(primary_scenes)} primary images (skipping {len(derived_scenes)} derived)")
+
+        for i, scene in enumerate(primary_scenes):
+            print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image (primary)...")
             if style_anchor_path:
                 print(f"    [Anchor] Using style anchor: {os.path.basename(style_anchor_path)}")
             scene.status = MVSceneStatus.GENERATING
@@ -1067,9 +1116,9 @@ class MVPipeline:
 
                 print(f"    Image saved: {image_path}")
 
-                # 진행률 업데이트
-                progress_per_scene = 50 / total_scenes  # 20% → 70%
-                project.progress = int(20 + (i + 1) * progress_per_scene)
+                # 진행률 업데이트 (primary 기준)
+                progress_per_scene = 50 / total_scenes
+                project.progress = int(20 + (i + 1) * progress_per_scene * (total_scenes / len(primary_scenes)))
 
             except Exception as e:
                 scene.status = MVSceneStatus.FAILED
@@ -1088,6 +1137,19 @@ class MVPipeline:
 
             # 매니페스트 저장 (각 씬마다)
             self._save_manifest(project, project_dir)
+
+        # 2차: derived 씬에 원본 이미지 경로 할당
+        scene_map = {s.scene_id: s for s in project.scenes}
+        for scene in derived_scenes:
+            source = scene_map.get(scene.source_scene_id)
+            if source and source.image_path and os.path.exists(source.image_path):
+                scene.image_path = source.image_path  # 원본 이미지 공유
+                scene.status = MVSceneStatus.COMPLETED
+                print(f"  [Scene {scene.scene_id}] Derived from scene {source.scene_id} ({scene.derived_effect})")
+            else:
+                print(f"  [Scene {scene.scene_id}] Derived source {scene.source_scene_id} has no image, skipping")
+                scene.status = MVSceneStatus.FAILED
+        self._save_manifest(project, project_dir)
 
         # 성공한 이미지 수 확인
         success_count = sum(1 for s in project.scenes if s.image_path and os.path.exists(s.image_path))
@@ -1149,7 +1211,7 @@ class MVPipeline:
             for i, scene in enumerate(completed_scenes):
                 clip_path = f"{project_dir}/media/video/scene_{scene.scene_id:02d}.mp4"
 
-                print(f"    [Scene {scene.scene_id}] image_path: {scene.image_path}")
+                print(f"    [Scene {scene.scene_id}] image_path: {scene.image_path} {'(derived)' if scene.is_derived else ''}")
 
                 # I2V로 생성된 비디오가 이미 있으면 그대로 사용
                 if scene.video_path and os.path.exists(scene.video_path):
@@ -1162,14 +1224,25 @@ class MVPipeline:
                     print(f"    [SKIP] Image not found: {scene.image_path}")
                     continue
 
-                # Ken Burns 효과로 이미지 → 비디오
-                effect = effect_types[i % len(effect_types)]
+                # Ken Burns 효과 결정
+                use_hflip = False
+                if scene.is_derived and scene.derived_effect:
+                    # 파생 씬: 파생 효과 사용 (hflip, crop_left, crop_right)
+                    if scene.derived_effect == "hflip":
+                        effect = effect_types[i % len(effect_types)]
+                        use_hflip = True
+                    else:
+                        effect = scene.derived_effect  # crop_left, crop_right
+                else:
+                    effect = effect_types[i % len(effect_types)]
+
                 try:
                     self.ffmpeg_composer.ken_burns_clip(
                         image_path=scene.image_path,
                         out_path=clip_path,
                         duration_sec=scene.duration_sec,
-                        effect_type=effect
+                        effect_type=effect,
+                        hflip=use_hflip
                     )
                     scene.video_path = clip_path
                     video_clips.append(clip_path)

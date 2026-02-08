@@ -179,6 +179,11 @@ class MVScene(BaseModel):
     lyrics_text: Optional[str] = Field(None, description="해당 구간 가사")
     lyrics_modified: bool = Field(default=False, description="사용자가 가사를 수정했는지 여부")
 
+    # 이미지 파생 (비용/일관성 최적화)
+    is_derived: bool = Field(default=False, description="파생 씬 여부 (기존 이미지 재사용)")
+    source_scene_id: Optional[int] = Field(None, description="파생 원본 씬 ID")
+    derived_effect: Optional[str] = Field(None, description="파생 효과 (hflip, crop_left, crop_right)")
+
     # 상태
     status: MVSceneStatus = Field(default=MVSceneStatus.PENDING)
 
