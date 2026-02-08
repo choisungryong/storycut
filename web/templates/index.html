@@ -65,6 +65,17 @@
             border-bottom-color: #00adb5;
         }
 
+        .retention-notice {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            font-size: 0.82rem;
+            color: #ffc107;
+            line-height: 1.5;
+        }
+
         .history-filter-tabs {
             display: flex;
             gap: 4px;
@@ -193,6 +204,52 @@
         /* 보관함 모드 - 재생성 버튼 숨김 */
         .archive-image-card .scene-card-actions {
             display: none;
+        }
+
+        /* 내레이션 인라인 편집 */
+        .narration-edit-area {
+            width: 100%;
+            min-height: 60px;
+            background: #1a1a2e;
+            color: #fff;
+            border: 1px solid #00adb5;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 0.85rem;
+            resize: vertical;
+            font-family: inherit;
+        }
+        .narration-edit-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .narration-edit-actions button {
+            padding: 4px 12px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .btn-narration-save {
+            background: #00adb5;
+            color: #fff;
+        }
+        .btn-narration-cancel {
+            background: #393e46;
+            color: #ccc;
+        }
+        .btn-edit-narration {
+            background: none;
+            border: none;
+            color: #00adb5;
+            cursor: pointer;
+            font-size: 0.8rem;
+            padding: 2px 6px;
+            margin-left: 4px;
+        }
+        .btn-edit-narration:hover {
+            text-decoration: underline;
         }
 
         /* Additional styles for review and progress */
@@ -1520,6 +1577,10 @@
             <div id="history-section" class="section hidden">
                 <h2>📺 내 비디오 보관함</h2>
                 <div class="history-container">
+                    <div class="retention-notice">
+                        📋 보관 정책: 이미지는 다음 날 새벽 3시에 자동 삭제됩니다.
+                        최종 영상은 3일 후 삭제됩니다. 필요한 영상은 미리 다운로드해 주세요.
+                    </div>
                     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
                         <div class="history-filter-tabs">
                             <button class="history-filter-btn active" data-filter="all">전체</button>

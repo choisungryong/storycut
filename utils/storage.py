@@ -147,3 +147,30 @@ class StorageManager:
         except Exception as e:
             print(f"[StorageManager] Error listing projects: {e}")
             return []
+
+    def delete_file(self, r2_path: str) -> bool:
+        """R2에서 단일 파일 삭제"""
+        if not self.s3_client:
+            return False
+        try:
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=r2_path)
+            return True
+        except Exception as e:
+            print(f"[StorageManager] Delete failed: {e}")
+            return False
+
+    def delete_old_projects(self, cutoff_date) -> int:
+        """cutoff_date 이전 프로젝트의 R2 파일 일괄 삭제"""
+        if not self.s3_client:
+            return 0
+        deleted = 0
+        try:
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix='videos/'):
+                for obj in page.get('Contents', []):
+                    if obj['LastModified'].date() <= cutoff_date:
+                        self.s3_client.delete_object(Bucket=self.bucket_name, Key=obj['Key'])
+                        deleted += 1
+        except Exception as e:
+            print(f"[StorageManager] Bulk delete error: {e}")
+        return deleted

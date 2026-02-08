@@ -2172,23 +2172,87 @@ async def get_project_scenes(project_id: str):
     }
 
 
-@app.post("/api/projects/{project_id}/recompose")
-async def recompose_video(project_id: str):
-    """모든 씬을 다시 합성하여 최종 영상 생성"""
-    validate_project_id(project_id)
-    from agents import ComposerAgent
+class UpdateNarrationRequest(BaseModel):
+    narration: str
 
+@app.put("/api/projects/{project_id}/scenes/{scene_id}/narration")
+async def update_scene_narration(project_id: str, scene_id: int, req: UpdateNarrationRequest):
+    """씬 내레이션 텍스트 수정 + SRT 자막 재생성"""
+    validate_project_id(project_id)
     manifest_data = load_manifest(project_id)
     scenes = manifest_data.get("scenes", [])
 
-    # 에셋 경로 수집
+    # 해당 씬 찾기
+    target = None
+    for s in scenes:
+        if s.get("scene_id") == scene_id:
+            target = s
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+
+    # 1) 내레이션 텍스트 업데이트
+    target["narration"] = req.narration
+
+    # 2) 해당 씬의 SRT 재생성
+    from utils.ffmpeg_utils import FFmpegComposer
+    composer = FFmpegComposer()
+    srt_path = f"outputs/{project_id}/media/subtitles/scene_{scene_id:02d}.srt"
+    duration_sec = target.get("tts_duration_sec") or target.get("duration_sec", 5)
+    composer.generate_srt_from_scenes(
+        [{"narration": req.narration, "duration_sec": duration_sec}],
+        srt_path
+    )
+    target.setdefault("assets", {})["subtitle_srt_path"] = srt_path
+
+    # 3) 수정됨 플래그 (재합성 시 씬 비디오 재렌더링 필요)
+    target["_narration_modified"] = True
+
+    # 4) 매니페스트 저장
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest_data, f, ensure_ascii=False, indent=2)
+
+    return {"success": True, "scene_id": scene_id, "narration": req.narration}
+
+
+@app.post("/api/projects/{project_id}/recompose")
+async def recompose_video(project_id: str):
+    """모든 씬을 다시 합성하여 최종 영상 생성 (내레이션 수정된 씬은 자막 재렌더링)"""
+    validate_project_id(project_id)
+    from agents import ComposerAgent
+    from utils.ffmpeg_utils import FFmpegComposer
+
+    manifest_data = load_manifest(project_id)
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    scenes = manifest_data.get("scenes", [])
+
+    ffmpeg = FFmpegComposer()
+    render_dir = f"outputs/{project_id}/media/rendered"
+    os.makedirs(render_dir, exist_ok=True)
+
+    # 에셋 경로 수집 (수정된 씬은 재렌더링)
     video_clips = []
     narration_clips = []
 
     for scene in scenes:
         assets = scene.get("assets", {})
-        if assets.get("video_path"):
+
+        if scene.get("_narration_modified"):
+            # 내레이션 수정된 씬: 이미지부터 재렌더링 (Ken Burns + 자막 burn-in)
+            print(f"[RECOMPOSE] Scene {scene.get('scene_id')} narration modified - re-rendering with new subtitles")
+            rendered = ffmpeg.render_scene(
+                scene,
+                {"ffmpeg_kenburns": True, "subtitle_burn_in": True},
+                render_dir
+            )
+            video_clips.append(rendered)
+            # 재렌더링된 비디오 경로를 assets에 업데이트
+            assets["video_path"] = rendered
+            scene.pop("_narration_modified", None)
+        elif assets.get("video_path"):
             video_clips.append(assets["video_path"])
+
         if assets.get("narration_path"):
             narration_clips.append(assets["narration_path"])
 
@@ -2203,7 +2267,7 @@ async def recompose_video(project_id: str):
         final_video = composer.compose_video(
             video_clips=video_clips,
             narration_clips=narration_clips,
-            music_path=None,  # 기존 BGM 사용 또는 None
+            music_path=None,
             output_path=output_path
         )
 
@@ -2218,11 +2282,11 @@ async def recompose_video(project_id: str):
             from utils.storage import StorageManager
             storage = StorageManager()
             r2_key = f"videos/{project_id}/final_video.mp4"
-            
+
             if storage.upload_file(final_video, r2_key):
                 backend_url = "https://web-production-bb6bf.up.railway.app"
                 public_url = f"{backend_url}/api/video/{project_id}"
-                
+
                 manifest_data["outputs"]["video_url"] = public_url
                 print(f"[RECOMPOSE] R2 Upload Success: {public_url}")
             else:
@@ -2681,6 +2745,13 @@ async def mv_download(project_id: str):
         filename=f"storycut_mv_{project_id}.mp4",
         headers={"Content-Disposition": f"attachment; filename=storycut_mv_{project_id}.mp4"}
     )
+
+
+@app.on_event("startup")
+async def on_startup():
+    from utils.cleanup import start_cleanup_scheduler
+    start_cleanup_scheduler()
+    print("[STARTUP] Cleanup scheduler registered (daily 03:00)")
 
 
 if __name__ == "__main__":
