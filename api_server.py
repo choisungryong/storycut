@@ -2744,6 +2744,55 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
     return {"success": True, "scene_id": scene_id, "lyrics": req.lyrics}
 
 
+@app.post("/api/mv/{project_id}/upload-music")
+async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile = File(...)):
+    """기존 MV 프로젝트에 음악 파일 재업로드 (리컴포즈용)"""
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 파일명 sanitize
+    raw_filename = music_file.filename or "music.mp3"
+    filename = os.path.basename(raw_filename)
+    filename = _re.sub(r'[^\w\-.]', '_', filename)
+    if not filename or filename.startswith('.'):
+        filename = "music.mp3"
+
+    content = await music_file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+
+    # 로컬 저장
+    project_dir = f"outputs/{project_id}"
+    music_dir = f"{project_dir}/music"
+    os.makedirs(music_dir, exist_ok=True)
+    music_path = f"{music_dir}/{filename}"
+    with open(music_path, "wb") as f:
+        f.write(content)
+
+    # 매니페스트 업데이트
+    project.music_file_path = music_path
+    pipeline._save_manifest(project, project_dir)
+
+    # R2에도 업로드
+    try:
+        from utils.storage import StorageManager
+        storage = StorageManager()
+        r2_key = f"music/{project_id}/{filename}"
+        storage.upload_file(music_path, r2_key)
+        # 매니페스트도 R2 동기화
+        manifest_file = f"{project_dir}/manifest.json"
+        storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
+    except Exception as e:
+        print(f"[MV Music Upload] R2 error (non-fatal): {e}")
+
+    return {"success": True, "music_path": music_path, "filename": filename}
+
+
 @app.get("/api/mv/{project_id}/debug")
 async def mv_debug(project_id: str):
     """MV 프로젝트 디버그 정보 (R2 에셋 존재 여부 확인)"""

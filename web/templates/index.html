@@ -1659,6 +1659,12 @@
                             <span class="btn-icon">📥</span>
                             뮤직비디오 다운로드
                         </a>
+                        <label id="mv-music-upload-btn" class="btn btn-secondary" style="display:none;">
+                            <span class="btn-icon">🎵</span>
+                            음악 파일 재업로드
+                            <input type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" style="display:none;"
+                                   onchange="app.mvUploadMusicForRecompose(this.files[0])">
+                        </label>
                         <button id="mv-recompose-btn" class="btn btn-secondary" style="display:none;"
                                 onclick="app.mvRecompose()">
                             <span class="btn-icon">🔄</span>
@@ -1716,7 +1722,7 @@
         </footer>
     </div>
 
-    <script src="/static/app.js?v=20260208e"></script>
+    <script src="/static/app.js?v=20260208f"></script>
 </body>
 
 </html>

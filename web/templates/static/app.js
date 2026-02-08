@@ -1493,11 +1493,13 @@ class StorycutApp {
                     this.showMVResult(resultData);
                     this.setNavActive('nav-history');
 
-                    // 실패한 프로젝트: 헤더 변경 + 리컴포즈 버튼 바로 표시
+                    // 실패한 프로젝트: 헤더 변경 + 음악 업로드/리컴포즈 버튼 표시
                     if (manifest.status === 'failed') {
-                        document.getElementById('mv-result-header').textContent = '⚠️ 영상 합성 실패 - 재합성으로 복구 가능';
+                        document.getElementById('mv-result-header').textContent = '⚠️ 영상 합성 실패 - 음악 재업로드 후 재합성으로 복구';
                         const recomposeBtn = document.getElementById('mv-recompose-btn');
                         if (recomposeBtn) recomposeBtn.style.display = 'inline-flex';
+                        const musicBtn = document.getElementById('mv-music-upload-btn');
+                        if (musicBtn) musicBtn.style.display = 'inline-flex';
                         // 비디오 플레이어 숨김
                         const videoContainer = document.getElementById('mv-result-video-container');
                         if (videoContainer) videoContainer.style.display = 'none';
@@ -3106,6 +3108,42 @@ class StorycutApp {
     }
 
     // ── MV 리컴포즈 ──
+
+    async mvUploadMusicForRecompose(file) {
+        if (!file) return;
+        const projectId = this._currentMVResultProjectId;
+        if (!projectId) {
+            this.showToast('프로젝트 ID를 찾을 수 없습니다', 'error');
+            return;
+        }
+
+        const musicBtn = document.getElementById('mv-music-upload-btn');
+        if (musicBtn) musicBtn.style.opacity = '0.5';
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const formData = new FormData();
+            formData.append('music_file', file);
+
+            const response = await fetch(`${baseUrl}/api/mv/${projectId}/upload-music`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Upload failed');
+            }
+
+            this.showToast(`음악 파일 업로드 완료: ${file.name}`, 'success');
+            if (musicBtn) musicBtn.style.display = 'none';
+        } catch (error) {
+            console.error('Music upload failed:', error);
+            this.showToast(`음악 업로드 실패: ${error.message}`, 'error');
+        } finally {
+            if (musicBtn) musicBtn.style.opacity = '1';
+        }
+    }
 
     async mvRecompose() {
         const projectId = this._currentMVResultProjectId;
