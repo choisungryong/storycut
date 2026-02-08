@@ -67,3 +67,11 @@ outputs/
 debug_env.py
 test_*.py
 nul
+
+# Claude Code
+.claude/
+**/CLAUDE.md
+
+# Generated media (images, etc.)
+media/images/
+media/videos/
