@@ -2720,15 +2720,17 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
     scene = project.scenes[scene_id - 1]
     scene.lyrics_text = req.lyrics
 
-    # 2) SRT 재생성
+    # 2) timed_lyrics 비우기 (수정된 가사가 리컴포즈 시 반영되도록)
+    #    timed_lyrics가 있으면 scene.lyrics_text보다 우선 사용되므로 비워야 함
+    if project.music_analysis and project.music_analysis.timed_lyrics:
+        project.music_analysis.timed_lyrics = []
+
+    # 3) SRT 재생성 (scene.lyrics_text 기반)
     project_dir = f"outputs/{project_id}"
     srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
     os.makedirs(os.path.dirname(srt_path), exist_ok=True)
 
-    timed_lyrics = None
-    if project.music_analysis and project.music_analysis.timed_lyrics:
-        timed_lyrics = project.music_analysis.timed_lyrics
-    pipeline._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=timed_lyrics)
+    pipeline._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=None)
 
     # 3) 매니페스트 저장 (로컬 + R2)
     pipeline._save_manifest(project, project_dir)
