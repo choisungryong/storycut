@@ -2954,6 +2954,13 @@ async def mv_recompose(project_id: str):
                 print(f"[MV Recompose] WARNING: No music file available")
 
             print(f"[MV Recompose] Music file: {project.music_file_path}, exists={os.path.exists(project.music_file_path) if project.music_file_path else False}")
+
+            # Clear timed_lyrics so compose uses scene.lyrics_text for SRT
+            # Old manifests in R2 may still have original Gemini timed_lyrics
+            if project.music_analysis and project.music_analysis.timed_lyrics:
+                print(f"[MV Recompose] Clearing timed_lyrics ({len(project.music_analysis.timed_lyrics)} entries) to use edited scene lyrics")
+                project.music_analysis.timed_lyrics = []
+
             pipeline.compose_video(project)
             print(f"[MV Recompose Thread] Recompose complete: {project.status}")
 
