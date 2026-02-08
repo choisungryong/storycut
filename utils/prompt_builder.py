@@ -177,17 +177,32 @@ class MultimodalPromptBuilder:
         return parts
 
 
-    # 장르별 네거티브 프롬프트 (이미지 생성 시 회피할 요소)
-    GENRE_NEGATIVES = {
-        "fantasy": "modern buildings, cars, phones, realistic office, contemporary clothing",
-        "romance": "violence, weapons, gore, dark horror, monsters",
-        "action": "static, boring, peaceful meadow, soft pastel, calm",
-        "horror": "bright cheerful, rainbow, cute cartoon, happy, sunny",
-        "scifi": "medieval, horses, castles, nature only, rustic village",
-        "drama": "cartoon, exaggerated, slapstick, neon colors",
-        "comedy": "dark, grim, horror, blood, violence",
-        "abstract": "photorealistic, literal, mundane, ordinary",
+    # 장르별 네거티브 프롬프트 (이미지 생성 시 회피할 요소) — fallback
+    _GENRE_NEGATIVES_FALLBACK = {
+        "fantasy": "modern buildings, cars, phones, realistic office, contemporary clothing, neon signage",
+        "romance": "violence, weapons, gore, dark horror, monsters, cold sterile, harsh daylight, military",
+        "action": "static, boring, peaceful, soft pastel, calm, gentle, slow, still, dreamy",
+        "horror": "bright cheerful, rainbow, cute cartoon, happy, sunny, pastel, warm cozy, clean daylight",
+        "scifi": "medieval, horses, castles, nature only, rustic village, historical, ancient, wooden, cute cartoon",
+        "drama": "cartoon, exaggerated, slapstick, neon colors, silly, fantastical, bright cheerful, magic spells",
+        "comedy": "dark, grim, horror, blood, violence, depressing, muted, bleak, melancholic",
+        "abstract": "photorealistic, literal, mundane, ordinary, documentary, plain, conventional, real brands",
+        "hoyoverse": "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands",
     }
+    GENRE_NEGATIVES = _GENRE_NEGATIVES_FALLBACK  # 하위 호환 alias
+
+    @staticmethod
+    def _get_genre_negatives(genre: str) -> str:
+        """GenreProfile에서 장르 네거티브 조회, 없으면 fallback dict 사용."""
+        try:
+            from config import load_genre_profiles
+            profiles = load_genre_profiles()
+            negative = profiles.get(genre, {}).get("prompt_lexicon", {}).get("negative", "")
+            if negative:
+                return negative
+        except Exception:
+            pass
+        return MultimodalPromptBuilder._GENRE_NEGATIVES_FALLBACK.get(genre, "")
 
     # 무드별 색감 부스트 (이미지 톤/라이팅 강화)
     MOOD_COLOR_BOOST = {
@@ -304,7 +319,7 @@ class MultimodalPromptBuilder:
         # --- 장르 네거티브 (Pass 4) ---
         genre_negative = ""
         if genre:
-            genre_neg = MultimodalPromptBuilder.GENRE_NEGATIVES.get(genre, "")
+            genre_neg = MultimodalPromptBuilder._get_genre_negatives(genre)
             if genre_neg:
                 genre_negative = f"AVOID: {genre_neg}."
 

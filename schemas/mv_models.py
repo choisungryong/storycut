@@ -20,6 +20,7 @@ class MVGenre(str, Enum):
     DRAMA = "drama"
     COMEDY = "comedy"
     ABSTRACT = "abstract"
+    HOYOVERSE = "hoyoverse"
 
 
 class MVMood(str, Enum):
@@ -42,6 +43,21 @@ class MVStyle(str, Enum):
     REALISTIC = "realistic"
     ILLUSTRATION = "illustration"
     ABSTRACT = "abstract"
+
+
+class GenreProfile(BaseModel):
+    """장르별 비주얼 프로필 (genre_profiles.yaml에서 로드)"""
+    palette_base: List[str] = Field(default_factory=list)
+    palette_mode: str = Field(default="guide")
+    lighting: str = Field(default="")
+    motif_library: List[str] = Field(default_factory=list)
+    avoid_keywords: List[str] = Field(default_factory=list)
+    atmosphere: str = Field(default="")
+    composition_guide: str = Field(default="")
+    shot_bias: Dict[str, float] = Field(default_factory=dict)
+    arc_tone_sequence: List[str] = Field(default_factory=list)
+    prompt_lexicon: Dict[str, str] = Field(default_factory=lambda: {"positive": "", "negative": ""})
+    reference_artists: List[str] = Field(default_factory=list)
 
 
 class MVCharacter(BaseModel):

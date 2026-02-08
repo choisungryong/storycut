@@ -1,0 +1,341 @@
+# ============================================================
+# GenreProfile - Visual Bible Genre Presets
+# ============================================================
+# 각 장르별 비주얼 프리셋. Visual Bible 생성 시 기본 팔레트/조명/모티프 등을
+# 확정하고, LLM은 캐릭터/씬블로킹/서사 아크만 생성.
+#
+# palette_mode:
+#   "guide" - LLM이 팔레트를 조정 가능 (GenreProfile은 fallback)
+#   "lock"  - GenreProfile 팔레트 강제 (LLM 결과 무시)
+#
+# Palette design principle:
+#   dark base (#0b1220 계열) + genre-specific accent colors
+#   → MV 영상에서 조명/포인트 컬러가 더 돋보임
+# ============================================================
+
+genre_profiles:
+
+  fantasy:
+    palette_base: ["#0b1026", "#1f3a8a", "#14b8a6", "#fbbf24", "#c084fc"]
+    palette_mode: "guide"
+    lighting: "moonlit blues with magical rim-light; warm gold for hope; volumetric fog and god rays"
+    motif_library:
+      - ancient runes and glowing sigils
+      - glowing artifact (orb/lantern)
+      - floating dust and sparks
+      - castle silhouette against sky
+      - constellations and star maps
+      - enchanted forest canopy
+    avoid_keywords:
+      - modern city
+      - guns
+      - cars
+      - neon signage
+      - real-world brands
+      - gore
+      - smartphones
+    atmosphere: "awe-inspiring wonder, a world where magic breathes in every corner, ancient and timeless"
+    composition_guide: "sweeping vistas establishing scale, dramatic low angles on architecture, magical light as compositional guide, foreground framing with natural elements"
+    shot_bias:
+      wide: 0.45
+      medium: 0.40
+      close-up: 0.15
+    arc_tone_sequence:
+      - "act1: calling/omen + vow (mysterious, destined)"
+      - "act2: trial/temptation + sacrifice (epic, perilous)"
+      - "act3: confrontation + restoration (triumphant, cathartic)"
+    prompt_lexicon:
+      positive: "magical fantasy world, enchanted forests, glowing runes, ethereal creatures, mythical landscapes, epic scale, moonlit atmosphere, volumetric fog"
+      negative: "modern buildings, cars, phones, realistic office, contemporary clothing, mundane, suburban, neon signage"
+    reference_artists:
+      - Peter Jackson
+      - Hayao Miyazaki
+      - Roger Dean
+
+  romance:
+    palette_base: ["#0b1220", "#0ea5e9", "#f472b6", "#fbbf24", "#f8fafc"]
+    palette_mode: "guide"
+    lighting: "soft backlight with warm diffusion; warm window light for memories; cool blue nights for longing; rain reflections on glass"
+    motif_library:
+      - rain on glass with city lights
+      - shared earbuds between two people
+      - hands almost touching
+      - neon reflections on wet streets
+      - photobooth strip memories
+      - warm sunset silhouettes
+    avoid_keywords:
+      - gore
+      - weapons
+      - crowds
+      - harsh daylight
+      - military
+      - monsters
+    atmosphere: "tender and intimate, warmth that envelops, bittersweet longing mixed with hope, night-time confessions"
+    composition_guide: "intimate close-ups emphasizing emotion, shallow depth of field, soft focus backgrounds, over-the-shoulder shots for connection, rain-window framing"
+    shot_bias:
+      wide: 0.25
+      medium: 0.50
+      close-up: 0.25
+    arc_tone_sequence:
+      - "act1: longing + inciting memory (melancholic)"
+      - "act2: connection/flashbacks + fracture (warm, bittersweet)"
+      - "act3: choice + catharsis/resolve (hopeful)"
+    prompt_lexicon:
+      positive: "intimate romantic scenes, warm golden hour lighting, soft bokeh, couples in tender moments, emotional depth, rosy hues, rain reflections, night city warmth"
+      negative: "violence, weapons, gore, dark horror, monsters, cold sterile, harsh daylight, military"
+    reference_artists:
+      - Wong Kar-wai
+      - Sofia Coppola
+      - Makoto Shinkai
+
+  action:
+    palette_base: ["#0b1220", "#ef4444", "#f97316", "#fbbf24", "#94a3b8"]
+    palette_mode: "guide"
+    lighting: "high-contrast hard rim light; fast-moving practical lights; sparks and smoke; night city or industrial environments"
+    motif_library:
+      - running footsteps on wet ground
+      - shattered glass fragments
+      - sparks and debris flying
+      - speed lines and motion blur
+      - explosive backlight silhouettes
+      - billowing smoke trails
+    avoid_keywords:
+      - slow dreamy
+      - pastel soft
+      - wedding
+      - cute chibi
+      - calm
+      - gentle
+    atmosphere: "adrenaline-pumping intensity, raw kinetic energy, every frame bursting with momentum"
+    composition_guide: "dynamic diagonal compositions, low angle power shots, speed lines implied through blur, extreme foreshortening, dutch angles for chaos"
+    shot_bias:
+      wide: 0.55
+      medium: 0.35
+      close-up: 0.10
+    arc_tone_sequence:
+      - "act1: threat revealed + chase begins (urgent)"
+      - "act2: escalation + setback + regroup (intense)"
+      - "act3: final confrontation + victory escape (explosive, victorious)"
+    prompt_lexicon:
+      positive: "high-energy action scenes, dynamic motion blur, explosive effects, intense close-ups, dramatic rim lighting, powerful composition, sparks and debris"
+      negative: "static, boring, peaceful, soft pastel, calm, gentle, slow, still, dreamy"
+    reference_artists:
+      - George Miller
+      - Michael Bay
+      - Yuen Woo-ping
+
+  horror:
+    palette_base: ["#05060a", "#111827", "#334155", "#7f1d1d", "#cbd5e1"]
+    palette_mode: "lock"
+    lighting: "low-key narrow light sources (flashlight beam/door crack); heavy shadows; fog; unsettling greenish color casts; fluorescent flicker"
+    motif_library:
+      - door slightly ajar
+      - long corridor vanishing point
+      - silhouette behind curtain
+      - static noise and glitch
+      - flickering light source
+      - fog and mist creeping
+    avoid_keywords:
+      - bright cheerful
+      - cute comedy
+      - glam fashion
+      - clean daylight
+      - rainbow
+      - pastel colors
+    atmosphere: "dread and unease permeating every frame, claustrophobic tension, the uncanny valley of almost-normal"
+    composition_guide: "dutch angles for disorientation, negative space creating unease, deep shadows hiding threats, distorted perspectives, narrow depth of field"
+    shot_bias:
+      wide: 0.35
+      medium: 0.40
+      close-up: 0.25
+    arc_tone_sequence:
+      - "act1: unease + first sign (dread, suspense)"
+      - "act2: haunting escalates + isolation (claustrophobic)"
+      - "act3: reveal + escape or tragic twist (shocking, chilling)"
+    prompt_lexicon:
+      positive: "dark horror atmosphere, unsettling shadows, eerie fog, distorted perspectives, muted desaturated colors, dread, narrow light sources"
+      negative: "bright cheerful, rainbow, cute cartoon, happy, sunny, pastel, warm cozy, clean daylight"
+    reference_artists:
+      - David Lynch
+      - Ari Aster
+      - Junji Ito
+
+  scifi:
+    palette_base: ["#05060a", "#0ea5e9", "#22c55e", "#a855f7", "#e2e8f0"]
+    palette_mode: "guide"
+    lighting: "clean hard light with neon accents; holographic glow; reflective chrome materials; sterile interiors; volumetric laser beams"
+    motif_library:
+      - holographic displays and UI
+      - data streams and particles
+      - space window view of stars
+      - circuit patterns on surfaces
+      - robotic silhouettes
+      - neon city reflections in wet streets
+    avoid_keywords:
+      - medieval castle
+      - ancient scroll
+      - rustic village
+      - cute cartoon
+      - horses
+      - wooden structures
+    atmosphere: "vast and futuristic, the cold beauty of technology, humanity at the edge of the unknown"
+    composition_guide: "symmetrical framing for technology, leading lines from architecture, reflections in glass and chrome, layered depth with foreground tech elements"
+    shot_bias:
+      wide: 0.40
+      medium: 0.45
+      close-up: 0.15
+    arc_tone_sequence:
+      - "act1: anomaly discovered + mission set (curious, sleek)"
+      - "act2: system conflict + revelation (tense, cerebral)"
+      - "act3: breakthrough + new horizon (awe, hopeful)"
+    prompt_lexicon:
+      positive: "futuristic sci-fi environment, neon holographics, cyberpunk city, advanced technology, chrome surfaces, volumetric lighting, data streams"
+      negative: "medieval, horses, castles, nature only, rustic village, historical, ancient, wooden, cute cartoon"
+    reference_artists:
+      - Ridley Scott
+      - Denis Villeneuve
+      - Syd Mead
+
+  drama:
+    palette_base: ["#0b1220", "#64748b", "#94a3b8", "#fbbf24", "#f8fafc"]
+    palette_mode: "guide"
+    lighting: "naturalistic soft window light; muted contrast; gentle shadows; subtle golden hour; warm practicals in cold environments"
+    motif_library:
+      - empty chair at a table
+      - family photo on shelf
+      - hospital corridor light
+      - bus stop at night
+      - steam from coffee cup
+      - rain-streaked glass
+    avoid_keywords:
+      - magic spells
+      - monsters
+      - superhero suits
+      - neon cyberpunk
+      - slapstick
+      - fantastical creatures
+    atmosphere: "emotionally heavy and grounded, raw human truth, silence that speaks louder than words"
+    composition_guide: "faces filling the frame for emotion, negative space reflecting isolation, natural framing through doorways and windows, slow deliberate pacing feel"
+    shot_bias:
+      wide: 0.20
+      medium: 0.45
+      close-up: 0.35
+    arc_tone_sequence:
+      - "act1: ordinary pain + inciting rupture (quiet, heavy)"
+      - "act2: conflict + truth surfaces (raw, intimate)"
+      - "act3: acceptance + change (bittersweet, resolved)"
+    prompt_lexicon:
+      positive: "dramatic emotional scenes, naturalistic lighting, expressive faces, strong contrast, grounded realism, raw emotion, muted tones"
+      negative: "cartoon, exaggerated, slapstick, neon colors, silly, fantastical, bright cheerful, magic spells"
+    reference_artists:
+      - Park Chan-wook
+      - Denis Villeneuve
+      - Roger Deakins
+
+  comedy:
+    palette_base: ["#ffffff", "#38bdf8", "#f472b6", "#fbbf24", "#22c55e"]
+    palette_mode: "guide"
+    lighting: "bright and clean even exposure; playful color pops; fast comedic timing cuts; warm inviting fill light"
+    motif_library:
+      - exaggerated reaction faces
+      - awkward props and situations
+      - comic signage and text
+      - split-screen gags
+      - over-the-top visual cues
+      - confetti and streamers
+    avoid_keywords:
+      - gore
+      - horror shadows
+      - grim war
+      - hyper-real tears
+      - melancholic rain
+      - depressing
+    atmosphere: "lighthearted and fun, infectious energy, a world painted in joy and absurdity"
+    composition_guide: "centered subjects for comedic timing, wide shots for physical comedy, quick cuts implied through varied compositions, bright backgrounds"
+    shot_bias:
+      wide: 0.30
+      medium: 0.50
+      close-up: 0.20
+    arc_tone_sequence:
+      - "act1: setup + comedic problem (light, quirky)"
+      - "act2: escalating misunderstandings (chaotic, playful)"
+      - "act3: punchline payoff + happy reset (uplifting)"
+    prompt_lexicon:
+      positive: "bright cheerful scenes, exaggerated expressions, warm vivid colors, playful compositions, energetic, fun, comedic timing"
+      negative: "dark, grim, horror, blood, violence, depressing, muted, bleak, melancholic"
+    reference_artists:
+      - Wes Anderson
+      - Edgar Wright
+      - Bong Joon-ho
+
+  abstract:
+    palette_base: ["#05060a", "#0ea5e9", "#c084fc", "#f472b6", "#f8fafc"]
+    palette_mode: "guide"
+    lighting: "surreal non-physical light sources; gradients and glow fog; silhouette-driven compositions; light as material and subject"
+    motif_library:
+      - fractals and recursive patterns
+      - liquid light and ink in water
+      - floating geometry shapes
+      - symbolic silhouettes
+      - chromatic aberration effects
+      - color field transitions
+    avoid_keywords:
+      - literal storyline text
+      - real brands
+      - crowds
+      - documentary realism
+      - explicit violence
+      - mundane ordinary
+    atmosphere: "transcendent and otherworldly, meaning emerging from pure form and color, hypnotic and meditative"
+    composition_guide: "rule-breaking compositions, non-traditional perspective, color as primary structural element, negative space as subject"
+    shot_bias:
+      wide: 0.50
+      medium: 0.35
+      close-up: 0.15
+    arc_tone_sequence:
+      - "act1: theme introduced via symbols (mysterious)"
+      - "act2: transformation/contrast (hypnotic)"
+      - "act3: resolution into a final motif (transcendent)"
+    prompt_lexicon:
+      positive: "surreal abstract visuals, impossible geometry, color explosions, dreamscape, non-representational, artistic, ink in water, liquid light"
+      negative: "photorealistic, literal, mundane, ordinary, documentary, plain, conventional, real brands"
+    reference_artists:
+      - Wassily Kandinsky
+      - James Turrell
+      - Refik Anadol
+
+  hoyoverse:
+    palette_base: ["#0c1029", "#00c8ff", "#ffb347", "#c084fc", "#ff6b9d"]
+    palette_mode: "guide"
+    lighting: "anime cel-shaded rim lighting with dramatic god rays; elemental glow effects (teal/amber/violet); soft bloom on characters; volumetric light shafts through clouds"
+    motif_library:
+      - elemental burst effects (wind/fire/ice/electro)
+      - floating crystals and particles
+      - ornate fantasy weapons with glow
+      - flowing fabric and hair in wind
+      - constellation patterns and star UI
+      - sakura petals or elemental particles
+    avoid_keywords:
+      - photorealistic skin textures
+      - gore and blood
+      - mundane everyday objects
+      - flat even lighting
+      - low-budget 3D render
+      - western cartoon style
+    atmosphere: "epic yet beautiful, wonder mixed with power fantasy, every frame is a wallpaper-worthy composition, ethereal grandeur"
+    composition_guide: "dynamic character poses front-center with sweeping backgrounds, camera low angles for heroic shots, depth layering with foreground particles and background vistas, rule of thirds with character at power point"
+    shot_bias:
+      wide: 0.30
+      medium: 0.45
+      close-up: 0.25
+    arc_tone_sequence:
+      - "act1: serene world + destiny revealed (wonder, yearning)"
+      - "act2: battle/journey + bonds forged (epic, emotional)"
+      - "act3: climactic burst + transcendence (triumphant, bittersweet)"
+    prompt_lexicon:
+      positive: "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, HoYoverse Genshin Impact quality, vibrant saturated colors"
+      negative: "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands"
+    reference_artists:
+      - HoYoverse (Genshin Impact)
+      - HoYoverse (Honkai Star Rail)
+      - Ilya Kuvshinov

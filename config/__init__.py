@@ -166,3 +166,26 @@ def get_default_style_tokens() -> Dict[str, Any]:
         "composition": ["rule of thirds", "wide angle", "close-up", "establishing shot"],
         "quality": ["high quality", "detailed", "4k", "professional"],
     }
+
+
+def load_genre_profiles() -> Dict[str, Any]:
+    """
+    장르별 비주얼 프로필 로드.
+
+    Returns:
+        장르 프로필 딕셔너리 (없으면 빈 dict → 기존 full-LLM 동작)
+    """
+    config_path = CONFIG_DIR / "genre_profiles.yaml"
+
+    if not os.path.exists(config_path):
+        return get_default_genre_profiles()
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    return config.get("genre_profiles", get_default_genre_profiles())
+
+
+def get_default_genre_profiles() -> Dict[str, Any]:
+    """기본 장르 프로필 반환 (빈 dict → YAML 없으면 기존 동작 유지)."""
+    return {}

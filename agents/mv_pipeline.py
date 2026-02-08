@@ -39,6 +39,14 @@ class MVPipeline:
         self.music_analyzer = MusicAnalyzer()
         self.image_agent = ImageAgent()
         self.ffmpeg_composer = FFmpegComposer()
+        self._genre_profiles = None  # lazy cache
+
+    @property
+    def genre_profiles(self) -> Dict[str, Any]:
+        if self._genre_profiles is None:
+            from config import load_genre_profiles
+            self._genre_profiles = load_genre_profiles()
+        return self._genre_profiles
 
     # ================================================================
     # Step 1: 음악 업로드 & 분석
@@ -203,9 +211,11 @@ class MVPipeline:
 
     def generate_visual_bible(self, project: MVProject) -> MVProject:
         """
-        Pass 1: LLM으로 VisualBible JSON 생성
+        Pass 1: 2단 생성 — GenreProfile 기반 + LLM 콘텐츠만
 
-        장르/분위기/스타일/가사/컨셉을 분석하여 전체 비주얼 가이드를 생성합니다.
+        1단계: GenreProfile 로드 → 팔레트/조명/모티프/금지키워드 확정
+        2단계: LLM에게 characters + scene_blocking + narrative_arc 만 요청
+        3단계: 병합 — GenreProfile 필드 → VisualBible 기본값, LLM 결과 레이어링
         """
         import os as _os
         api_key = _os.getenv("GOOGLE_API_KEY")
@@ -218,6 +228,16 @@ class MVPipeline:
             from google.genai import types
 
             client = genai.Client(api_key=api_key)
+
+            # ── 1단계: GenreProfile 로드 ──
+            gp = self.genre_profiles.get(project.genre.value, {})
+            has_genre_profile = bool(gp)
+
+            if has_genre_profile:
+                print(f"  [Visual Bible] GenreProfile loaded: {project.genre.value}")
+                print(f"    Palette mode: {gp.get('palette_mode', 'guide')}")
+            else:
+                print(f"  [Visual Bible] No GenreProfile for '{project.genre.value}', using full-LLM mode")
 
             # 가사 요약 (너무 길면 앞부분만)
             lyrics_summary = ""
@@ -240,45 +260,95 @@ class MVPipeline:
 
             total_scenes = len(project.scenes) if project.scenes else 8
 
-            system_prompt = (
-                "You are a music video visual director. Create a Director's Brief (JSON) that defines "
-                "the entire visual identity AND character/scene direction for this music video.\n\n"
-                "Return ONLY valid JSON with these fields:\n\n"
-                "=== VISUAL IDENTITY ===\n"
-                "- color_palette: array of 5 hex color codes\n"
-                "- lighting_style: string describing lighting approach\n"
-                "- recurring_motifs: array of 3-4 visual motifs\n"
-                "- character_archetypes: array of character type names (brief)\n"
-                "- atmosphere: string describing overall atmosphere\n"
-                "- avoid_keywords: array of visual elements to AVOID\n"
-                "- composition_notes: string with cinematography guidance\n"
-                "- reference_artists: array of 2-3 reference artists/films\n\n"
-                "=== CHARACTERS (Director's Brief) ===\n"
-                "- characters: array of max 3 character objects, each with:\n"
-                "  - role: string (e.g. 'protagonist', 'love_interest', 'antagonist')\n"
-                "  - description: SPECIFIC appearance -- ethnicity, age range, hair color/length/style, "
-                "eye shape, face shape, skin tone, body type. Be CONCRETE (e.g. 'Korean woman in her mid-20s, "
-                "long straight black hair, almond eyes, fair skin, slender build')\n"
-                "  - outfit: clothing description\n"
-                f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
-                "=== SCENE BLOCKING ===\n"
-                f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
-                "  - scene_id: int (1-based)\n"
-                "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
-                "  - narrative_beat: what happens narratively\n"
-                "  - characters: array of role names appearing in this scene\n"
-                "  - expression: facial expression/emotion (or null)\n"
-                "  - lighting: scene-specific lighting (or null)\n\n"
-                "=== NARRATIVE ARC ===\n"
-                "- narrative_arc: object with:\n"
-                "  - acts: array of 3 act objects, each with 'scenes' (range like '1-4'), "
-                "'description', and 'tone'\n\n"
-                "CRITICAL RULES:\n"
-                "- ONLY the defined characters may appear. NEVER introduce unnamed people.\n"
-                "- NEVER change a character's ethnicity, age, or core features between scenes.\n"
-                "- Each character's 'appears_in' must match the scenes where they appear in scene_blocking.\n"
-                "- The Visual Bible must strongly reflect the genre, mood, and style choices."
-            )
+            # ── 2단계: LLM 시스템 프롬프트 (narrow/full 분기) ──
+            if has_genre_profile:
+                # Narrow mode: GenreProfile이 비주얼 아이덴티티를 확정, LLM은 콘텐츠만
+                gp_context = (
+                    f"\n[GENRE PROFILE - PRE-DEFINED, DO NOT OVERRIDE]\n"
+                    f"Palette: {', '.join(gp.get('palette_base', []))}\n"
+                    f"Lighting: {gp.get('lighting', '')}\n"
+                    f"Motifs: {', '.join(gp.get('motif_library', []))}\n"
+                    f"Atmosphere: {gp.get('atmosphere', '')}\n"
+                    f"Composition: {gp.get('composition_guide', '')}\n"
+                    f"Avoid: {', '.join(gp.get('avoid_keywords', []))}\n"
+                    f"Reference: {', '.join(gp.get('reference_artists', []))}\n"
+                )
+
+                system_prompt = (
+                    "You are a music video visual director. A GenreProfile has already defined the "
+                    "visual identity (palette, lighting, motifs, atmosphere). Your job is to create "
+                    "ONLY the characters, scene blocking, and narrative arc.\n\n"
+                    "Return ONLY valid JSON with these fields:\n\n"
+                    "=== CHARACTERS (Director's Brief) ===\n"
+                    "- characters: array of max 3 character objects, each with:\n"
+                    "  - role: string (e.g. 'protagonist', 'love_interest', 'antagonist')\n"
+                    "  - description: SPECIFIC appearance -- ethnicity, age range, hair color/length/style, "
+                    "eye shape, face shape, skin tone, body type. Be CONCRETE (e.g. 'Korean woman in her mid-20s, "
+                    "long straight black hair, almond eyes, fair skin, slender build')\n"
+                    "  - outfit: clothing description\n"
+                    f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
+                    "=== SCENE BLOCKING ===\n"
+                    f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
+                    "  - scene_id: int (1-based)\n"
+                    "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
+                    "  - narrative_beat: what happens narratively\n"
+                    "  - characters: array of role names appearing in this scene\n"
+                    "  - expression: facial expression/emotion (or null)\n"
+                    "  - lighting: scene-specific lighting (or null)\n\n"
+                    "=== NARRATIVE ARC ===\n"
+                    "- narrative_arc: object with:\n"
+                    "  - acts: array of 3 act objects, each with 'scenes' (range like '1-4'), "
+                    "'description', and 'tone'\n\n"
+                    "CRITICAL RULES:\n"
+                    "- ONLY the defined characters may appear. NEVER introduce unnamed people.\n"
+                    "- NEVER change a character's ethnicity, age, or core features between scenes.\n"
+                    "- Each character's 'appears_in' must match the scenes where they appear in scene_blocking.\n"
+                    "- The characters and blocking must strongly reflect the genre, mood, and style choices.\n"
+                    "- Do NOT include color_palette, lighting_style, recurring_motifs, atmosphere, "
+                    "avoid_keywords, composition_notes, or reference_artists in your JSON -- those are pre-defined."
+                    f"{gp_context}"
+                )
+            else:
+                # Full mode: 기존 동작 (LLM이 모든 것 생성)
+                system_prompt = (
+                    "You are a music video visual director. Create a Director's Brief (JSON) that defines "
+                    "the entire visual identity AND character/scene direction for this music video.\n\n"
+                    "Return ONLY valid JSON with these fields:\n\n"
+                    "=== VISUAL IDENTITY ===\n"
+                    "- color_palette: array of 5 hex color codes\n"
+                    "- lighting_style: string describing lighting approach\n"
+                    "- recurring_motifs: array of 3-4 visual motifs\n"
+                    "- character_archetypes: array of character type names (brief)\n"
+                    "- atmosphere: string describing overall atmosphere\n"
+                    "- avoid_keywords: array of visual elements to AVOID\n"
+                    "- composition_notes: string with cinematography guidance\n"
+                    "- reference_artists: array of 2-3 reference artists/films\n\n"
+                    "=== CHARACTERS (Director's Brief) ===\n"
+                    "- characters: array of max 3 character objects, each with:\n"
+                    "  - role: string (e.g. 'protagonist', 'love_interest', 'antagonist')\n"
+                    "  - description: SPECIFIC appearance -- ethnicity, age range, hair color/length/style, "
+                    "eye shape, face shape, skin tone, body type. Be CONCRETE (e.g. 'Korean woman in her mid-20s, "
+                    "long straight black hair, almond eyes, fair skin, slender build')\n"
+                    "  - outfit: clothing description\n"
+                    f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
+                    "=== SCENE BLOCKING ===\n"
+                    f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
+                    "  - scene_id: int (1-based)\n"
+                    "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
+                    "  - narrative_beat: what happens narratively\n"
+                    "  - characters: array of role names appearing in this scene\n"
+                    "  - expression: facial expression/emotion (or null)\n"
+                    "  - lighting: scene-specific lighting (or null)\n\n"
+                    "=== NARRATIVE ARC ===\n"
+                    "- narrative_arc: object with:\n"
+                    "  - acts: array of 3 act objects, each with 'scenes' (range like '1-4'), "
+                    "'description', and 'tone'\n\n"
+                    "CRITICAL RULES:\n"
+                    "- ONLY the defined characters may appear. NEVER introduce unnamed people.\n"
+                    "- NEVER change a character's ethnicity, age, or core features between scenes.\n"
+                    "- Each character's 'appears_in' must match the scenes where they appear in scene_blocking.\n"
+                    "- The Visual Bible must strongly reflect the genre, mood, and style choices."
+                )
 
             user_prompt = (
                 f"Genre: {project.genre.value}\n"
@@ -317,6 +387,32 @@ class MVPipeline:
             mv_characters = [MVCharacter(**c) for c in characters_data] if characters_data else []
             mv_blocking = [MVSceneBlocking(**b) for b in scene_blocking_data] if scene_blocking_data else []
             mv_arc = MVNarrativeArc(**narrative_arc_data) if narrative_arc_data else None
+
+            # ── 3단계: GenreProfile + LLM 결과 병합 ──
+            if has_genre_profile:
+                palette_mode = gp.get("palette_mode", "guide")
+                llm_palette = vb_data.get("color_palette", [])
+
+                if palette_mode == "lock":
+                    # Lock: GenreProfile 팔레트 강제
+                    vb_data["color_palette"] = gp.get("palette_base", [])
+                elif palette_mode == "guide" and llm_palette:
+                    # Guide + LLM이 팔레트를 반환 → LLM 채택
+                    vb_data["color_palette"] = llm_palette
+                else:
+                    # Guide + LLM이 팔레트를 반환하지 않음 → GenreProfile fallback
+                    vb_data["color_palette"] = gp.get("palette_base", [])
+
+                # GenreProfile 필드를 기본값으로 설정 (LLM이 반환하지 않은 필드)
+                vb_data.setdefault("lighting_style", gp.get("lighting", ""))
+                vb_data.setdefault("recurring_motifs", gp.get("motif_library", []))
+                vb_data.setdefault("atmosphere", gp.get("atmosphere", ""))
+                vb_data.setdefault("avoid_keywords", gp.get("avoid_keywords", []))
+                vb_data.setdefault("composition_notes", gp.get("composition_guide", ""))
+                vb_data.setdefault("reference_artists", gp.get("reference_artists", []))
+                vb_data.setdefault("character_archetypes", [])
+
+                print(f"    Palette mode: {palette_mode}, final palette: {vb_data.get('color_palette', [])}")
 
             vb_data["characters"] = mv_characters
             vb_data["scene_blocking"] = mv_blocking
@@ -583,16 +679,21 @@ class MVPipeline:
                 "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational"
             }.get(request.style.value, "cinematic film still, dramatic lighting")
 
-            genre_guide = {
-                "fantasy": "magical fantasy world, enchanted forests, glowing runes, ethereal creatures, mythical landscapes",
-                "romance": "intimate romantic scenes, warm golden hour lighting, soft bokeh, couples in tender moments",
-                "action": "high-energy action scenes, dynamic motion blur, explosive effects, intense close-ups",
-                "horror": "dark horror atmosphere, unsettling shadows, eerie fog, distorted perspectives, muted desaturated colors",
-                "scifi": "futuristic sci-fi environment, neon holographics, cyberpunk city, advanced technology, chrome surfaces",
-                "drama": "dramatic emotional scenes, theatrical lighting, expressive faces, strong contrast",
-                "comedy": "bright cheerful scenes, exaggerated expressions, warm vivid colors, playful compositions",
-                "abstract": "surreal abstract visuals, impossible geometry, color explosions, dreamscape"
-            }.get(request.genre.value, "")
+            gp = self.genre_profiles.get(request.genre.value, {})
+            genre_guide = gp.get("prompt_lexicon", {}).get("positive", "")
+            if not genre_guide:
+                # Fallback for unknown genres without GenreProfile
+                genre_guide = {
+                    "fantasy": "magical fantasy world, enchanted forests, glowing runes, ethereal creatures, mythical landscapes, moonlit atmosphere",
+                    "romance": "intimate romantic scenes, warm golden hour lighting, soft bokeh, couples in tender moments, rain reflections, night city warmth",
+                    "action": "high-energy action scenes, dynamic motion blur, explosive effects, intense close-ups, sparks and debris",
+                    "horror": "dark horror atmosphere, unsettling shadows, eerie fog, distorted perspectives, muted desaturated colors, narrow light sources",
+                    "scifi": "futuristic sci-fi environment, neon holographics, cyberpunk city, advanced technology, chrome surfaces, data streams",
+                    "drama": "dramatic emotional scenes, naturalistic lighting, expressive faces, strong contrast, muted tones",
+                    "comedy": "bright cheerful scenes, exaggerated expressions, warm vivid colors, playful compositions, comedic timing",
+                    "abstract": "surreal abstract visuals, impossible geometry, color explosions, dreamscape, ink in water",
+                    "hoyoverse": "anime game cinematic, cel-shaded illustration, dramatic lighting, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky"
+                }.get(request.genre.value, "")
 
             mood_guide = {
                 "epic": "grand epic scale, sweeping wide shots, majestic skylines, golden hour, heroic poses",
@@ -668,6 +769,22 @@ class MVPipeline:
                 if dc_parts:
                     directors_context = "\n" + "\n".join(dc_parts) + "\n"
 
+            # GenreProfile 컨텍스트 (씬 프롬프트 생성에 활용)
+            genre_profile_context = ""
+            if gp:
+                gp_parts = []
+                if gp.get("composition_guide"):
+                    gp_parts.append(f"Composition: {gp['composition_guide']}")
+                if gp.get("lighting"):
+                    gp_parts.append(f"Lighting: {gp['lighting']}")
+                if gp.get("shot_bias"):
+                    bias_str = ", ".join(f"{k}: {v:.0%}" for k, v in gp["shot_bias"].items())
+                    gp_parts.append(f"Shot distribution hint: {bias_str}")
+                if gp.get("arc_tone_sequence"):
+                    gp_parts.append(f"Arc tone sequence: {' -> '.join(gp['arc_tone_sequence'])}")
+                if gp_parts:
+                    genre_profile_context = "\n[GENRE PROFILE]\n" + "\n".join(gp_parts) + "\n"
+
             system_prompt = (
                 "당신은 뮤직비디오 비주얼 디렉터입니다. "
                 "각 씬에 대해 이미지 생성 AI가 사용할 영어 프롬프트를 만들어주세요.\n\n"
@@ -693,6 +810,7 @@ class MVPipeline:
                 f"- 장르 비주얼: {genre_guide}\n"
                 f"- 분위기/톤: {mood_guide}\n"
                 f"각 프롬프트의 첫 부분에 스타일 키워드를 반드시 포함하세요."
+                f"{genre_profile_context}"
                 f"{vb_context}"
                 f"{directors_context}"
             )
@@ -774,18 +892,22 @@ class MVPipeline:
         }
         style_prefix = style_map.get(request.style, "cinematic")
 
-        # 장르 키워드
-        genre_map = {
-            MVGenre.FANTASY: "fantasy world, magical, epic",
-            MVGenre.ROMANCE: "romantic atmosphere, emotional",
-            MVGenre.ACTION: "dynamic action, intense",
-            MVGenre.HORROR: "dark, horror atmosphere, eerie",
-            MVGenre.SCIFI: "futuristic, sci-fi, technology",
-            MVGenre.DRAMA: "dramatic, emotional depth",
-            MVGenre.COMEDY: "bright, cheerful, fun",
-            MVGenre.ABSTRACT: "abstract, artistic, surreal"
-        }
-        genre_keywords = genre_map.get(request.genre, "")
+        # 장르 키워드 (GenreProfile 우선, fallback 유지)
+        gp = self.genre_profiles.get(request.genre.value, {})
+        genre_keywords = gp.get("prompt_lexicon", {}).get("positive", "")
+        if not genre_keywords:
+            genre_map = {
+                MVGenre.FANTASY: "fantasy world, magical, epic, moonlit",
+                MVGenre.ROMANCE: "romantic atmosphere, emotional, warm",
+                MVGenre.ACTION: "dynamic action, intense, explosive",
+                MVGenre.HORROR: "dark, horror atmosphere, eerie, dread",
+                MVGenre.SCIFI: "futuristic, sci-fi, technology, neon",
+                MVGenre.DRAMA: "dramatic, emotional depth, grounded",
+                MVGenre.COMEDY: "bright, cheerful, fun, playful",
+                MVGenre.ABSTRACT: "abstract, artistic, surreal, dreamscape",
+                MVGenre.HOYOVERSE: "anime game cinematic, cel-shaded, elemental effects, epic"
+            }
+            genre_keywords = genre_map.get(request.genre, "")
 
         # 분위기 키워드
         mood_map = {
