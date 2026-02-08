@@ -2687,6 +2687,114 @@ async def mv_compose(project_id: str):
     return {"status": "composing", "project_id": project_id}
 
 
+class UpdateLyricsRequest(BaseModel):
+    lyrics: str
+
+@app.put("/api/mv/{project_id}/scenes/{scene_id}/lyrics")
+async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyricsRequest):
+    """MV 씬 가사 텍스트 수정 + SRT 자막 재생성"""
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if scene_id < 1 or scene_id > len(project.scenes):
+        raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
+
+    # 1) 가사 텍스트 업데이트
+    scene = project.scenes[scene_id - 1]
+    scene.lyrics_text = req.lyrics
+
+    # 2) SRT 재생성
+    project_dir = f"outputs/{project_id}"
+    srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
+    os.makedirs(os.path.dirname(srt_path), exist_ok=True)
+
+    timed_lyrics = None
+    if project.music_analysis and project.music_analysis.timed_lyrics:
+        timed_lyrics = project.music_analysis.timed_lyrics
+    pipeline._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=timed_lyrics)
+
+    # 3) 매니페스트 저장
+    pipeline._save_manifest(project, project_dir)
+
+    return {"success": True, "scene_id": scene_id, "lyrics": req.lyrics}
+
+
+@app.post("/api/mv/{project_id}/recompose")
+async def mv_recompose(project_id: str):
+    """MV 리컴포즈 - 가사/이미지 수정 후 최종 영상 재합성"""
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+    import threading
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if project.status == MVProjectStatus.COMPOSING:
+        raise HTTPException(status_code=400, detail="Composition already in progress")
+
+    def run_recompose():
+        try:
+            print(f"[MV Recompose Thread] Starting recompose for {project_id}")
+            pipeline.compose_video(project)
+            print(f"[MV Recompose Thread] Recompose complete: {project.status}")
+
+            # R2 업로드 (기존 compose 로직 재사용)
+            try:
+                from utils.storage import StorageManager
+
+                storage = StorageManager()
+                backend_url = "https://web-production-bb6bf.up.railway.app"
+                project_dir = f"outputs/{project_id}"
+
+                if project.final_video_path and os.path.exists(project.final_video_path):
+                    r2_key = f"videos/{project_id}/final_video.mp4"
+                    if storage.upload_file(project.final_video_path, r2_key):
+                        print(f"[MV R2] Video uploaded: {r2_key}")
+
+                for scene in project.scenes:
+                    if scene.image_path and os.path.exists(scene.image_path):
+                        img_filename = os.path.basename(scene.image_path)
+                        r2_key = f"images/{project_id}/{img_filename}"
+                        if storage.upload_file(scene.image_path, r2_key):
+                            scene.image_path = f"{backend_url}/api/asset/{project_id}/image/{img_filename}"
+
+                pipeline._save_manifest(project, project_dir)
+                manifest_path = f"{project_dir}/manifest.json"
+                manifest_r2_key = f"videos/{project_id}/manifest.json"
+                if storage.upload_file(manifest_path, manifest_r2_key):
+                    print(f"[MV R2] Manifest uploaded: {manifest_r2_key}")
+
+                print(f"[MV R2] All assets uploaded for {project_id}")
+            except Exception as e:
+                print(f"[MV R2] Upload error (non-fatal): {e}")
+
+        except Exception as e:
+            print(f"[MV Recompose Thread] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                project.status = MVProjectStatus.FAILED
+                project.error_message = str(e)[:500]
+                project_dir = f"outputs/{project_id}"
+                pipeline._save_manifest(project, project_dir)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=run_recompose, daemon=True)
+    thread.start()
+
+    return {"status": "composing", "project_id": project_id}
+
+
 @app.get("/api/mv/stream/{project_id}")
 async def mv_stream(project_id: str):
     """

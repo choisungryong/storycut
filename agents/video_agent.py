@@ -363,6 +363,7 @@ class VideoAgent:
             response = operation.result
             
             # Check for generated_videos attribute (Veo specific)
+            video_uri = None
             if hasattr(response, 'generated_videos') and response.generated_videos:
                 video = response.generated_videos[0]
                 if hasattr(video, 'video') and hasattr(video.video, 'uri'):

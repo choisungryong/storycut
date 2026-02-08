@@ -1478,38 +1478,30 @@ class StorycutApp {
             const isMV = type === 'mv';
 
             if (isMV) {
-                // MV 프로젝트: result-section 직접 구성
-                this.showSection('result');
-                this.setNavActive('nav-create');
-
-                const headerText = document.getElementById('result-header-text');
-                const videoContainer = document.getElementById('result-video-container');
-                const downloadBtn = document.getElementById('download-btn');
-
-                const mvTitle = manifest.concept || this._extractMusicTitle(manifest.music_analysis?.file_path) || `MV ${projectId}`;
-                document.getElementById('result-project-id').textContent = projectId;
-                document.getElementById('result-title').textContent = mvTitle;
-
+                // MV 프로젝트: mv-result-section으로 이동 (편집 가능)
                 if (manifest.status === 'completed') {
-                    headerText.textContent = "🎵 뮤직비디오 보관함";
-                    videoContainer.innerHTML = '<video id="result-video" controls style="width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></video>';
-                    document.getElementById('result-video').src = `${baseUrl}/api/mv/stream/${projectId}`;
-                    downloadBtn.style.display = 'inline-flex';
-                    downloadBtn.href = `${baseUrl}/api/mv/download/${projectId}`;
-                    downloadBtn.download = `storycut_mv_${projectId}.mp4`;
-                } else if (manifest.status === 'processing') {
-                    headerText.textContent = "⏳ MV 생성 중...";
-                    videoContainer.innerHTML = '<div style="text-align:center;padding:40px;background:rgba(255,255,255,0.05);border-radius:8px;"><span style="font-size:48px;display:block;margin-bottom:20px;">🎬</span><h3>아직 영상이 만들어지고 있습니다.</h3></div>';
-                    downloadBtn.style.display = 'none';
+                    const resultData = {
+                        project_id: projectId,
+                        duration_sec: manifest.music_analysis?.duration_sec || 0,
+                        scenes: manifest.scenes || [],
+                        video_url: `${baseUrl}/api/mv/stream/${projectId}`,
+                        download_url: `${baseUrl}/api/mv/download/${projectId}`
+                    };
+                    this.showMVResult(resultData);
+                    this.setNavActive('nav-history');
+                } else if (manifest.status === 'processing' || manifest.status === 'composing' || manifest.status === 'generating') {
+                    this.showSection('result');
+                    this.setNavActive('nav-history');
+                    document.getElementById('result-header-text').textContent = "MV 생성 중...";
+                    document.getElementById('result-video-container').innerHTML = '<div style="text-align:center;padding:40px;background:rgba(255,255,255,0.05);border-radius:8px;"><span style="font-size:48px;display:block;margin-bottom:20px;">🎬</span><h3>아직 영상이 만들어지고 있습니다.</h3></div>';
+                    document.getElementById('download-btn').style.display = 'none';
                 } else {
-                    headerText.textContent = "❌ MV 생성 실패";
-                    videoContainer.innerHTML = `<div style="text-align:center;padding:40px;background:rgba(255,50,50,0.1);border-radius:8px;"><span style="font-size:48px;display:block;margin-bottom:20px;">⚠️</span><h3>생성 도중 오류가 발생했습니다.</h3><p>${manifest.error_message || '알 수 없는 오류'}</p></div>`;
-                    downloadBtn.style.display = 'none';
+                    this.showSection('result');
+                    this.setNavActive('nav-history');
+                    document.getElementById('result-header-text').textContent = "MV 생성 실패";
+                    document.getElementById('result-video-container').innerHTML = `<div style="text-align:center;padding:40px;background:rgba(255,50,50,0.1);border-radius:8px;"><span style="font-size:48px;display:block;margin-bottom:20px;">⚠️</span><h3>생성 도중 오류가 발생했습니다.</h3><p>${manifest.error_message || '알 수 없는 오류'}</p></div>`;
+                    document.getElementById('download-btn').style.display = 'none';
                 }
-
-                // 이미지 패널 렌더링
-                const scenes = manifest.scenes || [];
-                this.renderArchiveImagePanel(scenes, projectId, true);
 
             } else {
                 // 일반 영상: showResults 재사용 + _fromArchive 플래그
@@ -2569,6 +2561,7 @@ class StorycutApp {
 
     showMVResult(data) {
         this.showSection('mv-result');
+        this._currentMVResultProjectId = data.project_id;
 
         document.getElementById('mv-result-project-id').textContent = data.project_id;
 
@@ -2587,8 +2580,12 @@ class StorycutApp {
         downloadBtn.href = `${baseUrl}/api/mv/download/${data.project_id}`;
         downloadBtn.download = `musicvideo_${data.project_id}.mp4`;
 
+        // 리컴포즈 버튼 초기 숨김
+        const recomposeBtn = document.getElementById('mv-recompose-btn');
+        if (recomposeBtn) recomposeBtn.style.display = 'none';
+
         // 씬 그리드
-        this.renderMVResultSceneGrid(data.scenes || []);
+        this.renderMVResultSceneGrid(data.scenes || [], data.project_id);
     }
 
     renderMVSceneGrid(scenes) {
@@ -2625,28 +2622,53 @@ class StorycutApp {
         });
     }
 
-    renderMVResultSceneGrid(scenes) {
+    renderMVResultSceneGrid(scenes, projectId) {
         const grid = document.getElementById('mv-result-scene-grid');
         grid.innerHTML = '';
 
         scenes.forEach(scene => {
             const card = document.createElement('div');
-            card.className = 'scene-card';
+            card.className = 'mv-result-card';
+            card.setAttribute('data-scene-id', scene.scene_id);
 
             const imageUrl = scene.image_path ? this.resolveImageUrl(scene.image_path) : '';
+            const startTime = scene.start_sec != null ? this._formatTime(scene.start_sec) : '';
+            const endTime = scene.end_sec != null ? this._formatTime(scene.end_sec) : '';
+            const timeBadge = startTime ? `${startTime} - ${endTime}` : '';
+            const lyrics = scene.lyrics_text || '';
+            const pid = projectId || this._currentMVResultProjectId || '';
 
             card.innerHTML = `
-                ${imageUrl ? `<img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
-                    loading="eager"
-                    onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.src.split('?')[0]+'?retry='+Date.now();}else{this.style.display='none';this.nextElementSibling.style.display='flex';}">
-                    <div class="scene-placeholder" style="display:none;">📷</div>` : '<div class="scene-placeholder">📷</div>'}
-                <div class="scene-info">
-                    <span class="scene-narration">Scene ${scene.scene_id}</span>
-                    <span class="scene-visual">${scene.lyrics_text || ''}</span>
+                <div class="mv-result-img-wrap">
+                    ${imageUrl
+                        ? `<img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
+                            onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.src.split('?')[0]+'?retry='+Date.now();}">`
+                        : '<div style="width:100%;height:100%;background:#2a2d35;display:flex;align-items:center;justify-content:center;color:#666;font-size:2rem;">📷</div>'}
+                </div>
+                <div class="mv-result-info">
+                    <span style="font-weight:bold;">Scene ${scene.scene_id}</span>
+                    <span class="mv-result-time">${timeBadge}</span>
+                </div>
+                <div class="mv-result-lyrics" data-scene-id="${scene.scene_id}" data-project-id="${pid}">
+                    <span class="lyrics-text">${lyrics}</span>
+                    <button class="btn-edit-lyrics" title="가사 편집">✏️</button>
+                </div>
+                <div class="mv-result-actions">
+                    <button class="mv-result-regen-btn" onclick="app.mvResultRegenerateScene('${pid}', ${scene.scene_id})">
+                        🔄 재생성
+                    </button>
                 </div>
             `;
 
             grid.appendChild(card);
+        });
+
+        // 가사 편집 버튼 이벤트 리스너
+        grid.querySelectorAll('.btn-edit-lyrics').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const lyricsDiv = e.target.closest('.mv-result-lyrics');
+                this.mvStartLyricsEdit(lyricsDiv);
+            });
         });
     }
 
@@ -2930,6 +2952,244 @@ class StorycutApp {
                 btn.innerHTML = '<span class="btn-icon">🎬</span> 최종 뮤직비디오 생성';
             }
         }
+    }
+
+    // ── MV 결과 화면: 가사 편집 ──
+
+    mvStartLyricsEdit(lyricsDiv) {
+        const sceneId = parseInt(lyricsDiv.dataset.sceneId);
+        const projectId = lyricsDiv.dataset.projectId;
+        const textSpan = lyricsDiv.querySelector('.lyrics-text');
+        const editBtn = lyricsDiv.querySelector('.btn-edit-lyrics');
+        const currentText = textSpan.textContent;
+
+        // 이미 편집 중이면 무시
+        if (lyricsDiv.querySelector('.lyrics-edit-area')) return;
+
+        textSpan.style.display = 'none';
+        editBtn.style.display = 'none';
+
+        const editHTML = `
+            <div style="flex:1;">
+                <textarea class="lyrics-edit-area">${currentText}</textarea>
+                <div class="lyrics-edit-actions">
+                    <button class="btn-lyrics-save">저장</button>
+                    <button class="btn-lyrics-cancel">취소</button>
+                </div>
+            </div>
+        `;
+        lyricsDiv.insertAdjacentHTML('beforeend', editHTML);
+        lyricsDiv.querySelector('.lyrics-edit-area').focus();
+
+        // 저장
+        lyricsDiv.querySelector('.btn-lyrics-save').onclick = async () => {
+            const newText = lyricsDiv.querySelector('.lyrics-edit-area').value.trim();
+            if (!newText) return;
+            await this.mvSaveLyrics(projectId, sceneId, newText, lyricsDiv);
+        };
+
+        // 취소
+        lyricsDiv.querySelector('.btn-lyrics-cancel').onclick = () => {
+            lyricsDiv.querySelector('.lyrics-edit-area').parentElement.remove();
+            textSpan.style.display = '';
+            editBtn.style.display = '';
+        };
+    }
+
+    async mvSaveLyrics(projectId, sceneId, newText, lyricsDiv) {
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(
+                `${baseUrl}/api/mv/${projectId}/scenes/${sceneId}/lyrics`,
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lyrics: newText })
+                }
+            );
+            if (!response.ok) throw new Error('저장 실패');
+
+            // UI 업데이트
+            const textSpan = lyricsDiv.querySelector('.lyrics-text');
+            textSpan.textContent = newText;
+            textSpan.style.display = '';
+            lyricsDiv.querySelector('.btn-edit-lyrics').style.display = '';
+            const editWrapper = lyricsDiv.querySelector('.lyrics-edit-area');
+            if (editWrapper) editWrapper.parentElement.remove();
+
+            // 리컴포즈 버튼 표시
+            const recomposeBtn = document.getElementById('mv-recompose-btn');
+            if (recomposeBtn) recomposeBtn.style.display = 'inline-flex';
+
+            this.showToast(`Scene ${sceneId} 가사 수정 완료! 영상 반영은 '영상 재합성'을 누르세요.`, 'success');
+        } catch (err) {
+            this.showToast(`가사 저장 실패: ${err.message}`, 'error');
+        }
+    }
+
+    // ── MV 결과 화면: 이미지 재생성 ──
+
+    async mvResultRegenerateScene(projectId, sceneId) {
+        const regenKey = `mvr_${projectId}_${sceneId}`;
+        if (this._regeneratingScenes.has(regenKey)) {
+            this.showToast('이미 재생성 중입니다', 'warning');
+            return;
+        }
+
+        const card = document.querySelector(`.mv-result-card[data-scene-id="${sceneId}"]`);
+        if (!card) return;
+
+        this._regeneratingScenes.add(regenKey);
+
+        // 로딩 오버레이
+        const imgWrap = card.querySelector('.mv-result-img-wrap');
+        const overlay = document.createElement('div');
+        overlay.className = 'regen-overlay';
+        overlay.innerHTML = '<div class="regen-spinner"></div><span class="regen-text">이미지 재생성 중...</span>';
+        imgWrap.appendChild(overlay);
+
+        // 버튼 비활성화
+        const btn = card.querySelector('.mv-result-regen-btn');
+        if (btn) btn.disabled = true;
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/api/mv/scenes/${projectId}/${sceneId}/regenerate`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Regeneration failed');
+            }
+
+            const result = await response.json();
+
+            // 이미지 업데이트
+            const img = imgWrap.querySelector('img');
+            if (img && result.image_url) {
+                const imageUrl = `${this.getApiBaseUrl()}${result.image_url}`;
+                img.src = `${imageUrl}?t=${Date.now()}`;
+            }
+
+            // 오버레이 성공 표시
+            overlay.className = 'regen-overlay success';
+            overlay.innerHTML = '<span class="regen-text">완료</span>';
+            setTimeout(() => overlay.remove(), 1500);
+
+            // 리컴포즈 버튼 표시
+            const recomposeBtn = document.getElementById('mv-recompose-btn');
+            if (recomposeBtn) recomposeBtn.style.display = 'inline-flex';
+
+            this.showToast(`Scene ${sceneId} 이미지 재생성 완료`, 'success');
+        } catch (error) {
+            console.error('MV result regeneration failed:', error);
+            overlay.remove();
+            this.showToast(`재생성 실패: ${error.message}`, 'error');
+        } finally {
+            this._regeneratingScenes.delete(regenKey);
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    // ── MV 리컴포즈 ──
+
+    async mvRecompose() {
+        const projectId = this._currentMVResultProjectId;
+        if (!projectId) {
+            this.showToast('프로젝트 ID를 찾을 수 없습니다', 'error');
+            return;
+        }
+
+        const recomposeBtn = document.getElementById('mv-recompose-btn');
+        if (recomposeBtn) {
+            recomposeBtn.disabled = true;
+            recomposeBtn.innerHTML = '<span class="btn-icon">⏳</span> 재합성 중...';
+        }
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/api/mv/${projectId}/recompose`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Recompose failed');
+            }
+
+            this.showToast('영상 재합성을 시작했습니다. 완료까지 잠시 기다려주세요...', 'info');
+
+            // 폴링으로 완료 대기
+            this._pollMVRecompose(projectId);
+
+        } catch (error) {
+            console.error('MV recompose failed:', error);
+            this.showToast(`재합성 실패: ${error.message}`, 'error');
+            if (recomposeBtn) {
+                recomposeBtn.disabled = false;
+                recomposeBtn.innerHTML = '<span class="btn-icon">🔄</span> 영상 재합성 (수정 반영)';
+            }
+        }
+    }
+
+    async _pollMVRecompose(projectId) {
+        const baseUrl = this.getApiBaseUrl();
+        const recomposeBtn = document.getElementById('mv-recompose-btn');
+        const maxAttempts = 120; // 최대 4분 (2초 간격)
+        let attempts = 0;
+
+        const poll = async () => {
+            attempts++;
+            try {
+                const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
+                if (!response.ok) throw new Error('Status check failed');
+
+                const data = await response.json();
+
+                if (data.status === 'completed' || data.status === 'COMPLETED') {
+                    // 비디오 플레이어 갱신
+                    const video = document.getElementById('mv-result-video');
+                    if (video) {
+                        video.src = `${baseUrl}/api/mv/stream/${projectId}?t=${Date.now()}`;
+                    }
+                    // 다운로드 링크 갱신
+                    const downloadBtn = document.getElementById('mv-download-btn');
+                    if (downloadBtn) {
+                        downloadBtn.href = `${baseUrl}/api/mv/download/${projectId}?t=${Date.now()}`;
+                    }
+                    // 리컴포즈 버튼 숨기기
+                    if (recomposeBtn) {
+                        recomposeBtn.style.display = 'none';
+                        recomposeBtn.disabled = false;
+                        recomposeBtn.innerHTML = '<span class="btn-icon">🔄</span> 영상 재합성 (수정 반영)';
+                    }
+                    this.showToast('영상 재합성 완료!', 'success');
+                    return;
+                }
+
+                if (data.status === 'failed' || data.status === 'FAILED') {
+                    throw new Error(data.error_message || '재합성 실패');
+                }
+
+                // 아직 진행 중 - 계속 폴링
+                if (attempts < maxAttempts) {
+                    setTimeout(poll, 2000);
+                } else {
+                    throw new Error('재합성 시간 초과');
+                }
+
+            } catch (error) {
+                console.error('MV recompose poll error:', error);
+                this.showToast(`재합성 실패: ${error.message}`, 'error');
+                if (recomposeBtn) {
+                    recomposeBtn.disabled = false;
+                    recomposeBtn.innerHTML = '<span class="btn-icon">🔄</span> 영상 재합성 (수정 반영)';
+                }
+            }
+        };
+
+        setTimeout(poll, 2000); // 2초 후 첫 폴링
     }
 
     resetMVUI() {
