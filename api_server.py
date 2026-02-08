@@ -2662,7 +2662,14 @@ async def mv_compose(project_id: str):
                         if storage.upload_file(scene.image_path, r2_key):
                             scene.image_path = f"{backend_url}/api/asset/{project_id}/image/{img_filename}"
 
-                # 3. 매니페스트 저장 + R2 업로드
+                # 3. 음악 파일 업로드 (리컴포즈 시 복원용)
+                if project.music_file_path and os.path.exists(project.music_file_path):
+                    music_filename = os.path.basename(project.music_file_path)
+                    r2_key = f"music/{project_id}/{music_filename}"
+                    if storage.upload_file(project.music_file_path, r2_key):
+                        print(f"[MV R2] Music uploaded: {r2_key}")
+
+                # 4. 매니페스트 저장 + R2 업로드
                 pipeline._save_manifest(project, project_dir)
                 manifest_path = f"{project_dir}/manifest.json"
                 manifest_r2_key = f"videos/{project_id}/manifest.json"
@@ -2756,52 +2763,70 @@ async def mv_recompose(project_id: str):
     def run_recompose():
         try:
             print(f"[MV Recompose Thread] Starting recompose for {project_id}")
+            from utils.storage import StorageManager
+            storage = StorageManager()
+
             project_dir = f"outputs/{project_id}"
             os.makedirs(f"{project_dir}/media/images", exist_ok=True)
             os.makedirs(f"{project_dir}/media/video", exist_ok=True)
             os.makedirs(f"{project_dir}/media/subtitles", exist_ok=True)
 
-            # R2에서 씬 이미지 복원 (HTTP URL → 로컬 파일)
-            import requests as http_requests
+            # R2에서 씬 이미지 복원
+            restored = 0
             for scene in project.scenes:
-                if scene.image_path and scene.image_path.startswith("http"):
-                    local_img = f"{project_dir}/media/images/scene_{scene.scene_id:02d}.png"
-                    if not os.path.exists(local_img):
-                        try:
-                            resp = http_requests.get(scene.image_path, timeout=30)
-                            if resp.status_code == 200:
-                                with open(local_img, "wb") as f:
-                                    f.write(resp.content)
-                                print(f"[MV Recompose] Restored image: scene_{scene.scene_id:02d}.png")
-                        except Exception as dl_err:
-                            print(f"[MV Recompose] Image download failed: {dl_err}")
+                local_img = f"{project_dir}/media/images/scene_{scene.scene_id:02d}.png"
+
+                if os.path.exists(local_img):
                     scene.image_path = local_img
+                    restored += 1
+                    continue
+
+                # R2에서 직접 다운로드
+                img_filename = f"scene_{scene.scene_id:02d}.png"
+                r2_data = storage.get_object(f"images/{project_id}/{img_filename}")
+                if r2_data:
+                    with open(local_img, "wb") as f:
+                        f.write(r2_data)
+                    scene.image_path = local_img
+                    restored += 1
+                    print(f"[MV Recompose] Restored from R2: {img_filename}")
+                elif scene.image_path and scene.image_path.startswith("http"):
+                    # R2 직접 실패 시 HTTP fallback
+                    try:
+                        import requests as http_req
+                        resp = http_req.get(scene.image_path, timeout=30)
+                        if resp.status_code == 200:
+                            with open(local_img, "wb") as f:
+                                f.write(resp.content)
+                            scene.image_path = local_img
+                            restored += 1
+                            print(f"[MV Recompose] Restored via HTTP: {img_filename}")
+                    except Exception as dl_err:
+                        print(f"[MV Recompose] HTTP download also failed: {dl_err}")
+                else:
+                    print(f"[MV Recompose] Cannot restore scene {scene.scene_id} image")
+
+            print(f"[MV Recompose] Images restored: {restored}/{len(project.scenes)}")
 
             # R2에서 음악 파일 복원
             if project.music_file_path and not os.path.exists(project.music_file_path):
-                try:
-                    from utils.storage import StorageManager as SM
-                    sm = SM()
-                    music_filename = os.path.basename(project.music_file_path)
-                    # R2 키: music/{project_id}/{filename} 또는 uploads/ 등
-                    for r2_key in [f"music/{project_id}/{music_filename}", f"uploads/{project_id}/{music_filename}"]:
-                        data = sm.get_object(r2_key)
-                        if data:
-                            os.makedirs(os.path.dirname(project.music_file_path), exist_ok=True)
-                            with open(project.music_file_path, "wb") as f:
-                                f.write(data)
-                            print(f"[MV Recompose] Restored music from R2: {r2_key}")
-                            break
-                    if not os.path.exists(project.music_file_path):
-                        # uploads/ 디렉토리에서 원본 경로 시도
-                        local_music = f"{project_dir}/music.mp3"
-                        for ext in [".mp3", ".wav", ".m4a", ".ogg"]:
-                            candidate = f"{project_dir}/music{ext}"
-                            if os.path.exists(candidate):
-                                project.music_file_path = candidate
-                                break
-                except Exception as music_err:
-                    print(f"[MV Recompose] Music restore failed: {music_err}")
+                music_filename = os.path.basename(project.music_file_path)
+                music_restored = False
+                for r2_key in [
+                    f"music/{project_id}/{music_filename}",
+                    f"uploads/{project_id}/{music_filename}",
+                    f"videos/{project_id}/{music_filename}",
+                ]:
+                    data = storage.get_object(r2_key)
+                    if data:
+                        os.makedirs(os.path.dirname(project.music_file_path) or ".", exist_ok=True)
+                        with open(project.music_file_path, "wb") as f:
+                            f.write(data)
+                        print(f"[MV Recompose] Restored music from R2: {r2_key}")
+                        music_restored = True
+                        break
+                if not music_restored:
+                    print(f"[MV Recompose] WARNING: Music file not found in R2")
 
             pipeline.compose_video(project)
             print(f"[MV Recompose Thread] Recompose complete: {project.status}")

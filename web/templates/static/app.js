@@ -1478,17 +1478,30 @@ class StorycutApp {
             const isMV = type === 'mv';
 
             if (isMV) {
-                // MV 프로젝트: mv-result-section으로 이동 (편집 가능)
-                if (manifest.status === 'completed') {
+                // MV 프로젝트: 씬 이미지가 있으면 편집 가능한 결과 화면으로
+                const scenes = manifest.scenes || [];
+                const hasImages = scenes.some(s => s.image_path);
+
+                if (manifest.status === 'completed' || (hasImages && manifest.status === 'failed')) {
                     const resultData = {
                         project_id: projectId,
                         duration_sec: manifest.music_analysis?.duration_sec || 0,
-                        scenes: manifest.scenes || [],
+                        scenes: scenes,
                         video_url: `${baseUrl}/api/mv/stream/${projectId}`,
                         download_url: `${baseUrl}/api/mv/download/${projectId}`
                     };
                     this.showMVResult(resultData);
                     this.setNavActive('nav-history');
+
+                    // 실패한 프로젝트: 헤더 변경 + 리컴포즈 버튼 바로 표시
+                    if (manifest.status === 'failed') {
+                        document.getElementById('mv-result-header').textContent = '⚠️ 영상 합성 실패 - 재합성으로 복구 가능';
+                        const recomposeBtn = document.getElementById('mv-recompose-btn');
+                        if (recomposeBtn) recomposeBtn.style.display = 'inline-flex';
+                        // 비디오 플레이어 숨김
+                        const videoContainer = document.getElementById('mv-result-video-container');
+                        if (videoContainer) videoContainer.style.display = 'none';
+                    }
                 } else if (manifest.status === 'processing' || manifest.status === 'composing' || manifest.status === 'generating') {
                     this.showSection('result');
                     this.setNavActive('nav-history');
