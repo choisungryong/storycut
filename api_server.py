@@ -2917,10 +2917,23 @@ async def mv_recompose(project_id: str):
                 exists = os.path.exists(scene.image_path) if scene.image_path else False
                 print(f"[MV Recompose] Scene {scene.scene_id}: status={scene.status}, image={scene.image_path}, exists={exists}")
 
-            # R2에서 음악 파일 복원
-            if project.music_file_path and not os.path.exists(project.music_file_path):
+            # 음악 파일 복원
+            music_found = project.music_file_path and os.path.exists(project.music_file_path)
+
+            # 1) 로컬 music 디렉토리에서 아무 음악 파일 탐색
+            if not music_found:
+                music_dir = f"{project_dir}/music"
+                if os.path.exists(music_dir):
+                    for fn in os.listdir(music_dir):
+                        if fn.lower().endswith(('.mp3', '.wav', '.m4a', '.ogg', '.flac')):
+                            project.music_file_path = f"{music_dir}/{fn}"
+                            music_found = True
+                            print(f"[MV Recompose] Found local music: {fn}")
+                            break
+
+            # 2) R2에서 복원
+            if not music_found and project.music_file_path:
                 music_filename = os.path.basename(project.music_file_path)
-                music_restored = False
                 for r2_key in [
                     f"music/{project_id}/{music_filename}",
                     f"uploads/{project_id}/{music_filename}",
@@ -2932,10 +2945,11 @@ async def mv_recompose(project_id: str):
                         with open(project.music_file_path, "wb") as f:
                             f.write(data)
                         print(f"[MV Recompose] Restored music from R2: {r2_key}")
-                        music_restored = True
+                        music_found = True
                         break
-                if not music_restored:
-                    print(f"[MV Recompose] WARNING: Music file not found in R2, trying without audio")
+
+            if not music_found:
+                print(f"[MV Recompose] WARNING: No music file available")
 
             print(f"[MV Recompose] Music file: {project.music_file_path}, exists={os.path.exists(project.music_file_path) if project.music_file_path else False}")
             pipeline.compose_video(project)
