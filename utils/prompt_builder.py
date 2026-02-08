@@ -312,6 +312,10 @@ class MultimodalPromptBuilder:
                 "positive": "Generate an abstract expressionist artwork with surreal dreamlike imagery, bold geometric shapes, and non-representational color fields. This MUST be abstract art.",
                 "negative": "ABSOLUTELY NOT realistic, NOT photorealistic, NOT representational."
             },
+            "hoyoverse": {
+                "positive": "Generate an anime game cinematic illustration in HoYoverse style (Genshin Impact / Honkai Star Rail quality). Cel-shaded with dramatic lighting, character action poses, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky backgrounds, vibrant saturated colors.",
+                "negative": "ABSOLUTELY NOT photorealistic, NOT western cartoon, NOT flat lighting, NOT mundane everyday, NOT low-budget 3D, NOT chibi deformed."
+            },
         }
         directive = style_directives.get(style, {"positive": f"Generate a high-quality image in {style} style.", "negative": ""})
         style_negative = directive['negative']

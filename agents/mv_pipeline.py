@@ -244,15 +244,19 @@ class MVPipeline:
 
             client = genai.Client(api_key=api_key)
 
-            # ── 1단계: GenreProfile 로드 ──
+            # ── 1단계: GenreProfile 로드 (장르 우선, 스타일 fallback) ──
             gp = self.genre_profiles.get(project.genre.value, {})
+            if not gp and project.style:
+                # 스타일에 GenreProfile이 있을 수 있음 (예: hoyoverse)
+                gp = self.genre_profiles.get(project.style.value, {})
             has_genre_profile = bool(gp)
 
             if has_genre_profile:
-                print(f"  [Visual Bible] GenreProfile loaded: {project.genre.value}")
+                profile_key = project.genre.value if self.genre_profiles.get(project.genre.value) else project.style.value
+                print(f"  [Visual Bible] GenreProfile loaded: {profile_key}")
                 print(f"    Palette mode: {gp.get('palette_mode', 'guide')}")
             else:
-                print(f"  [Visual Bible] No GenreProfile for '{project.genre.value}', using full-LLM mode")
+                print(f"  [Visual Bible] No GenreProfile for genre='{project.genre.value}' or style='{project.style.value}', using full-LLM mode")
 
             # 가사 요약 (너무 길면 앞부분만)
             lyrics_summary = ""
@@ -736,10 +740,13 @@ class MVPipeline:
                 "webtoon": "Korean webtoon digital art style, clean sharp lines, flat color blocks, manhwa character design, vertical scroll composition",
                 "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures",
                 "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, artstation trending",
-                "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational"
+                "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational",
+                "hoyoverse": "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, HoYoverse quality, vibrant saturated colors"
             }.get(request.style.value, "cinematic film still, dramatic lighting")
 
             gp = self.genre_profiles.get(request.genre.value, {})
+            if not gp:
+                gp = self.genre_profiles.get(request.style.value, {})
             genre_guide = gp.get("prompt_lexicon", {}).get("positive", "")
             if not genre_guide:
                 # Fallback for unknown genres without GenreProfile
@@ -752,7 +759,6 @@ class MVPipeline:
                     "drama": "dramatic emotional scenes, naturalistic lighting, expressive faces, strong contrast, muted tones",
                     "comedy": "bright cheerful scenes, exaggerated expressions, warm vivid colors, playful compositions, comedic timing",
                     "abstract": "surreal abstract visuals, impossible geometry, color explosions, dreamscape, ink in water",
-                    "hoyoverse": "anime game cinematic, cel-shaded illustration, dramatic lighting, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky"
                 }.get(request.genre.value, "")
 
             mood_guide = {
@@ -952,8 +958,10 @@ class MVPipeline:
         }
         style_prefix = style_map.get(request.style, "cinematic")
 
-        # 장르 키워드 (GenreProfile 우선, fallback 유지)
+        # 장르 키워드 (GenreProfile 우선, 스타일 fallback)
         gp = self.genre_profiles.get(request.genre.value, {})
+        if not gp:
+            gp = self.genre_profiles.get(request.style.value, {})
         genre_keywords = gp.get("prompt_lexicon", {}).get("positive", "")
         if not genre_keywords:
             genre_map = {
@@ -965,7 +973,6 @@ class MVPipeline:
                 MVGenre.DRAMA: "dramatic, emotional depth, grounded",
                 MVGenre.COMEDY: "bright, cheerful, fun, playful",
                 MVGenre.ABSTRACT: "abstract, artistic, surreal, dreamscape",
-                MVGenre.HOYOVERSE: "anime game cinematic, cel-shaded, elemental effects, epic"
             }
             genre_keywords = genre_map.get(request.genre, "")
 

@@ -20,7 +20,6 @@ class MVGenre(str, Enum):
     DRAMA = "drama"
     COMEDY = "comedy"
     ABSTRACT = "abstract"
-    HOYOVERSE = "hoyoverse"
 
 
 class MVMood(str, Enum):
@@ -43,6 +42,7 @@ class MVStyle(str, Enum):
     REALISTIC = "realistic"
     ILLUSTRATION = "illustration"
     ABSTRACT = "abstract"
+    HOYOVERSE = "hoyoverse"
 
 
 class GenreProfile(BaseModel):
