@@ -1589,22 +1589,30 @@ class MVPipeline:
         os.replace(temp_path, manifest_path)
 
     def load_project(self, project_id: str) -> Optional[MVProject]:
-        """프로젝트 로드"""
+        """프로젝트 로드 (로컬 우선, R2 fallback)"""
         manifest_path = f"{self.output_base_dir}/{project_id}/manifest.json"
 
         print(f"[MV Pipeline] Loading project: {project_id}")
-        print(f"[MV Pipeline] Manifest path: {manifest_path}")
-        print(f"[MV Pipeline] CWD: {os.getcwd()}")
-        print(f"[MV Pipeline] outputs/ exists: {os.path.exists('outputs')}")
-        print(f"[MV Pipeline] project_dir exists: {os.path.exists(f'{self.output_base_dir}/{project_id}')}")
         print(f"[MV Pipeline] manifest exists: {os.path.exists(manifest_path)}")
 
         if not os.path.exists(manifest_path):
-            # 디렉토리 내용 출력
-            if os.path.exists('outputs'):
-                dirs = os.listdir('outputs')
-                print(f"[MV Pipeline] outputs/ contents: {dirs[:10]}")  # 처음 10개만
-            return None
+            # R2 fallback: 매니페스트 다운로드하여 로컬 복원
+            try:
+                from utils.storage import StorageManager
+                storage = StorageManager()
+                raw = storage.get_object(f"videos/{project_id}/manifest.json")
+                if raw:
+                    project_dir = f"{self.output_base_dir}/{project_id}"
+                    os.makedirs(project_dir, exist_ok=True)
+                    with open(manifest_path, 'w', encoding='utf-8') as f:
+                        f.write(raw.decode('utf-8'))
+                    print(f"[MV Pipeline] Manifest restored from R2: {manifest_path}")
+                else:
+                    print(f"[MV Pipeline] Project not found locally or in R2: {project_id}")
+                    return None
+            except Exception as e:
+                print(f"[MV Pipeline] R2 fallback failed: {e}")
+                return None
 
         with open(manifest_path, 'r', encoding='utf-8') as f:
             data = json.load(f)

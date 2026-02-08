@@ -2723,8 +2723,16 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
         timed_lyrics = project.music_analysis.timed_lyrics
     pipeline._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=timed_lyrics)
 
-    # 3) 매니페스트 저장
+    # 3) 매니페스트 저장 (로컬 + R2)
     pipeline._save_manifest(project, project_dir)
+    try:
+        from utils.storage import StorageManager
+        storage = StorageManager()
+        manifest_file = f"{project_dir}/manifest.json"
+        if os.path.exists(manifest_file):
+            storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
+    except Exception as e:
+        print(f"[MV Lyrics] R2 manifest upload error (non-fatal): {e}")
 
     return {"success": True, "scene_id": scene_id, "lyrics": req.lyrics}
 
