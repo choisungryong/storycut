@@ -177,6 +177,7 @@ class MVScene(BaseModel):
 
     # 가사 연동
     lyrics_text: Optional[str] = Field(None, description="해당 구간 가사")
+    lyrics_modified: bool = Field(default=False, description="사용자가 가사를 수정했는지 여부")
 
     # 상태
     status: MVSceneStatus = Field(default=MVSceneStatus.PENDING)

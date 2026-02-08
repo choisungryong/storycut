@@ -2363,12 +2363,13 @@ from schemas.mv_models import (
 )
 
 @app.post("/api/mv/upload", response_model=MVUploadResponse)
-async def mv_upload_music(music_file: UploadFile = File(...)):
+async def mv_upload_music(music_file: UploadFile = File(...), lyrics: str = Form("")):
     """
     Step 1: 음악 파일 업로드 및 분석
 
     - 지원 포맷: mp3, wav, m4a, ogg, flac
     - 최대 길이: 10분
+    - lyrics: 사용자 가사 (있으면 Gemini 추출 대신 타이밍만 싱크)
     """
     from agents.mv_pipeline import MVPipeline
     import uuid
@@ -2410,7 +2411,10 @@ async def mv_upload_music(music_file: UploadFile = File(...)):
     # 분석
     try:
         pipeline = MVPipeline()
-        project = pipeline.upload_and_analyze(music_path, project_id)
+        user_lyrics = lyrics.strip() if lyrics else None
+        if user_lyrics:
+            print(f"[MV API] User provided lyrics: {len(user_lyrics)} chars")
+        project = pipeline.upload_and_analyze(music_path, project_id, user_lyrics=user_lyrics)
 
         if project.status == MVProjectStatus.FAILED:
             raise HTTPException(status_code=500, detail=project.error_message)
@@ -2716,21 +2720,21 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
     if scene_id < 1 or scene_id > len(project.scenes):
         raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
 
-    # 1) 가사 텍스트 업데이트
+    # 1) 가사 텍스트 업데이트 + lyrics_modified 플래그 설정
     scene = project.scenes[scene_id - 1]
     scene.lyrics_text = req.lyrics
+    scene.lyrics_modified = True
 
-    # 2) timed_lyrics 비우기 (수정된 가사가 리컴포즈 시 반영되도록)
-    #    timed_lyrics가 있으면 scene.lyrics_text보다 우선 사용되므로 비워야 함
+    # 2) SRT 재생성 (하이브리드: 수정된 씬은 균등 분배, 나머지는 timed_lyrics 유지)
+    timed_lyrics = None
     if project.music_analysis and project.music_analysis.timed_lyrics:
-        project.music_analysis.timed_lyrics = []
+        timed_lyrics = project.music_analysis.timed_lyrics
 
-    # 3) SRT 재생성 (scene.lyrics_text 기반)
     project_dir = f"outputs/{project_id}"
     srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
     os.makedirs(os.path.dirname(srt_path), exist_ok=True)
 
-    pipeline._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=None)
+    pipeline._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=timed_lyrics)
 
     # 3) 매니페스트 저장 (로컬 + R2)
     pipeline._save_manifest(project, project_dir)
@@ -2955,11 +2959,10 @@ async def mv_recompose(project_id: str):
 
             print(f"[MV Recompose] Music file: {project.music_file_path}, exists={os.path.exists(project.music_file_path) if project.music_file_path else False}")
 
-            # Clear timed_lyrics so compose uses scene.lyrics_text for SRT
-            # Old manifests in R2 may still have original Gemini timed_lyrics
-            if project.music_analysis and project.music_analysis.timed_lyrics:
-                print(f"[MV Recompose] Clearing timed_lyrics ({len(project.music_analysis.timed_lyrics)} entries) to use edited scene lyrics")
-                project.music_analysis.timed_lyrics = []
+            # 하이브리드 SRT: lyrics_modified=True인 씬만 균등 분배, 나머지는 timed_lyrics 유지
+            modified_count = sum(1 for s in project.scenes if getattr(s, 'lyrics_modified', False))
+            if modified_count > 0:
+                print(f"[MV Recompose] {modified_count} scene(s) have modified lyrics - hybrid SRT will be used")
 
             pipeline.compose_video(project)
             print(f"[MV Recompose Thread] Recompose complete: {project.status}")

@@ -55,7 +55,8 @@ class MVPipeline:
     def upload_and_analyze(
         self,
         music_file_path: str,
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
+        user_lyrics: Optional[str] = None
     ) -> MVProject:
         """
         음악 파일 업로드 및 분석
@@ -63,6 +64,7 @@ class MVPipeline:
         Args:
             music_file_path: 업로드된 음악 파일 경로
             project_id: 프로젝트 ID (없으면 자동 생성)
+            user_lyrics: 사용자가 직접 입력한 가사 (있으면 Gemini 추출 대신 타이밍만 싱크)
 
         Returns:
             MVProject 객체
@@ -106,15 +108,24 @@ class MVPipeline:
             print(f"\n[Step 1] Analyzing music...")
             analysis_result = self.music_analyzer.analyze(stored_music_path)
 
-            # Gemini로 가사 자동 추출 (타임스탬프 포함)
-            print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
-            extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
-            if extracted_lyrics:
-                analysis_result["extracted_lyrics"] = extracted_lyrics
-                # 타임스탬프 가사 저장
-                timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
-                if timed_lyrics:
-                    analysis_result["timed_lyrics"] = timed_lyrics
+            # 가사 처리: 사용자 가사 있으면 타이밍만 싱크, 없으면 Gemini 추출
+            if user_lyrics and user_lyrics.strip():
+                print(f"\n[Step 1.5] Syncing user lyrics with music timing...")
+                synced_lyrics = self.music_analyzer.sync_user_lyrics_with_gemini(stored_music_path, user_lyrics.strip())
+                if synced_lyrics:
+                    analysis_result["extracted_lyrics"] = synced_lyrics
+                    timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
+                    if timed_lyrics:
+                        analysis_result["timed_lyrics"] = timed_lyrics
+                extracted_lyrics = synced_lyrics
+            else:
+                print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
+                extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
+                if extracted_lyrics:
+                    analysis_result["extracted_lyrics"] = extracted_lyrics
+                    timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
+                    if timed_lyrics:
+                        analysis_result["timed_lyrics"] = timed_lyrics
 
             project.music_analysis = MusicAnalysis(**analysis_result)
             project.status = MVProjectStatus.READY
@@ -1207,8 +1218,9 @@ class MVPipeline:
 
             # 3. 가사 자막 생성 및 burn-in (가사가 있는 경우)
             video_with_subtitles = concat_video
-            print(f"  [Lyrics Check] project.lyrics = '{(project.lyrics or '')[:50]}...' (truthy={bool(project.lyrics)})")
-            if project.lyrics:
+            has_lyrics = bool(project.lyrics) or any(s.lyrics_text for s in project.scenes)
+            print(f"  [Lyrics Check] project.lyrics = '{(project.lyrics or '')[:50]}...' (truthy={bool(project.lyrics)}), scene lyrics={any(s.lyrics_text for s in project.scenes)}")
+            if has_lyrics:
                 print(f"  Adding lyrics subtitles...")
                 srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
                 os.makedirs(os.path.dirname(srt_path), exist_ok=True)
@@ -1452,68 +1464,125 @@ class MVPipeline:
         timed_lyrics: Optional[list] = None
     ):
         """
-        가사 SRT 자막 파일 생성
+        가사 SRT 자막 파일 생성 (하이브리드 방식)
 
-        타임스탬프 가사가 있으면 실제 타이밍 사용, 없으면 씬 기반 균등 분할
+        - 수정 안 한 씬: timed_lyrics의 해당 시간대 엔트리 그대로 사용 (정밀 싱크)
+        - 수정한 씬 (lyrics_modified=True): lyrics_text를 씬 구간 내 균등 분배
+        - timed_lyrics 없으면: 전체 씬 기반 균등 분할 (기존 fallback)
         """
         srt_lines = []
 
-        if timed_lyrics and len(timed_lyrics) > 0:
-            # 타임스탬프 기반 SRT 생성 (정확한 싱크)
-            print(f"    Using timed lyrics ({len(timed_lyrics)} entries)")
+        # 수정된 씬이 있는지 확인
+        modified_scenes = {s.scene_id for s in scenes if getattr(s, 'lyrics_modified', False)}
 
+        if timed_lyrics and len(timed_lyrics) > 0:
             # 전처리: 비단조 타임스탬프 감지 및 보간
             timed_lyrics = self._fix_broken_timestamps(timed_lyrics, scenes)
 
-            srt_idx = 0
-            for i, entry in enumerate(timed_lyrics):
-                text = entry.get("text", "").strip()
-                if not text:
-                    continue
+            if not modified_scenes:
+                # 수정된 씬 없음 → 기존 timed_lyrics 그대로 사용
+                print(f"    Using timed lyrics ({len(timed_lyrics)} entries, no modifications)")
+                srt_lines = self._srt_from_timed_lyrics(timed_lyrics)
+            else:
+                # 하이브리드: 수정 안 한 씬은 timed_lyrics, 수정한 씬은 균등 분배
+                print(f"    Hybrid SRT: {len(modified_scenes)} modified scene(s), {len(timed_lyrics)} timed entries")
+                all_entries = []
 
-                start_sec = float(entry.get("t", 0))
-                # 다음 가사 시작 0.3초 전까지 또는 최대 5초 표시
-                if i + 1 < len(timed_lyrics):
-                    next_start = float(timed_lyrics[i + 1].get("t", start_sec + 4))
-                    end_sec = min(next_start - 0.3, start_sec + 5)  # 겹침 방지 0.3초 gap
-                else:
-                    end_sec = start_sec + 4
-                # 최소 1초는 표시
-                end_sec = max(end_sec, start_sec + 1.0)
+                for scene in scenes:
+                    if scene.scene_id in modified_scenes:
+                        # 수정된 씬: lyrics_text를 씬 구간 내 균등 분배
+                        scene_entries = self._lyrics_text_to_timed_entries(scene)
+                        if scene_entries:
+                            print(f"      Scene {scene.scene_id}: using edited lyrics ({len(scene_entries)} lines, {scene.start_sec:.1f}s~{scene.end_sec:.1f}s)")
+                        all_entries.extend(scene_entries)
+                    else:
+                        # 수정 안 한 씬: timed_lyrics에서 해당 시간대 엔트리 사용
+                        scene_entries = [
+                            e for e in timed_lyrics
+                            if scene.start_sec <= float(e.get("t", 0)) < scene.end_sec
+                        ]
+                        all_entries.extend(scene_entries)
 
-                srt_idx += 1
-                start_tc = self._sec_to_srt_timecode(start_sec)
-                end_tc = self._sec_to_srt_timecode(end_sec)
-
-                srt_lines.append(str(srt_idx))
-                srt_lines.append(f"{start_tc} --> {end_tc}")
-                srt_lines.append(text)
-                srt_lines.append("")
+                # 시간순 정렬 후 SRT 생성
+                all_entries.sort(key=lambda e: float(e.get("t", 0)))
+                srt_lines = self._srt_from_timed_lyrics(all_entries)
         else:
-            # fallback: 씬 기반 균등 분할
+            # fallback: 씬 기반 균등 분할 (timed_lyrics 없음)
             print(f"    Using scene-based lyrics (no timestamps)")
             idx = 0
             for scene in scenes:
                 if not scene.lyrics_text:
                     continue
 
-                lyrics = scene.lyrics_text.strip()
-                idx += 1
+                # 씬 내 줄 단위 분배
+                entries = self._lyrics_text_to_timed_entries(scene)
+                for entry in entries:
+                    idx += 1
+                    start_tc = self._sec_to_srt_timecode(float(entry["t"]))
+                    end_sec = float(entry.get("end", float(entry["t"]) + 4))
+                    end_tc = self._sec_to_srt_timecode(end_sec)
 
-                start_tc = self._sec_to_srt_timecode(scene.start_sec)
-                end_tc = self._sec_to_srt_timecode(scene.end_sec)
-
-                srt_lines.append(str(idx))
-                srt_lines.append(f"{start_tc} --> {end_tc}")
-                srt_lines.append(lyrics)
-                srt_lines.append("")
+                    srt_lines.append(str(idx))
+                    srt_lines.append(f"{start_tc} --> {end_tc}")
+                    srt_lines.append(entry["text"])
+                    srt_lines.append("")
 
         # 파일 저장
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(srt_lines))
 
         entry_count = len([l for l in srt_lines if l.startswith("00:") or l.startswith("01:") or l.startswith("02:")])
-        print(f"    SRT generated: {output_path}")
+        print(f"    SRT generated: {output_path} ({entry_count} entries)")
+
+    def _srt_from_timed_lyrics(self, timed_lyrics: list) -> list:
+        """timed_lyrics 배열을 SRT 라인으로 변환"""
+        srt_lines = []
+        srt_idx = 0
+        for i, entry in enumerate(timed_lyrics):
+            text = entry.get("text", "").strip()
+            if not text:
+                continue
+
+            start_sec = float(entry.get("t", 0))
+            if i + 1 < len(timed_lyrics):
+                next_start = float(timed_lyrics[i + 1].get("t", start_sec + 4))
+                end_sec = min(next_start - 0.3, start_sec + 5)
+            else:
+                end_sec = start_sec + 4
+            end_sec = max(end_sec, start_sec + 1.0)
+
+            srt_idx += 1
+            start_tc = self._sec_to_srt_timecode(start_sec)
+            end_tc = self._sec_to_srt_timecode(end_sec)
+
+            srt_lines.append(str(srt_idx))
+            srt_lines.append(f"{start_tc} --> {end_tc}")
+            srt_lines.append(text)
+            srt_lines.append("")
+        return srt_lines
+
+    def _lyrics_text_to_timed_entries(self, scene) -> list:
+        """씬의 lyrics_text를 씬 구간 내 균등 분배하여 timed_lyrics 엔트리로 변환"""
+        if not scene.lyrics_text:
+            return []
+
+        lines = [l.strip() for l in scene.lyrics_text.strip().split('\n') if l.strip()]
+        if not lines:
+            return []
+
+        duration = scene.end_sec - scene.start_sec
+        if len(lines) == 1:
+            interval = duration
+        else:
+            interval = duration / len(lines)
+
+        entries = []
+        for i, line in enumerate(lines):
+            t = scene.start_sec + (i * interval)
+            end = t + min(interval - 0.3, 5.0)
+            end = max(end, t + 1.0)
+            entries.append({"t": round(t, 2), "text": line, "end": round(end, 2)})
+        return entries
 
     def _fix_broken_timestamps(self, timed_lyrics: list, scenes: List[MVScene]) -> list:
         """

@@ -195,6 +195,97 @@ class MusicAnalyzer:
 
         return segments
 
+    def sync_user_lyrics_with_gemini(self, audio_path: str, user_lyrics: str) -> Optional[str]:
+        """
+        사용자가 제공한 가사를 음악에 맞춰 타이밍만 생성
+
+        Gemini에게 음악 + 가사 텍스트를 주고, 각 줄의 시작 시간만 맞춰달라고 요청.
+        가사 텍스트는 사용자 원본을 그대로 사용하므로 추출 오류가 없음.
+
+        Args:
+            audio_path: 음악 파일 경로
+            user_lyrics: 사용자가 입력한 가사 텍스트
+
+        Returns:
+            사용자 가사 텍스트 (timed_lyrics는 self._last_timed_lyrics에 저장)
+        """
+        print(f"[MusicAnalyzer] Syncing user lyrics with music timing...")
+
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("  [Gemini] GOOGLE_API_KEY not set, skipping timing sync")
+            self._last_timed_lyrics = None
+            return user_lyrics
+
+        try:
+            from google import genai
+            from google.genai import types
+            import shutil
+            import tempfile
+            import json
+
+            client = genai.Client(api_key=api_key)
+
+            # non-ASCII 파일명 대응
+            ext = Path(audio_path).suffix
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, f"gemini_sync_upload{ext}")
+            shutil.copy2(audio_path, temp_path)
+
+            try:
+                audio_file = client.files.upload(file=temp_path)
+                print(f"  [Gemini] File uploaded: {audio_file.name}")
+            finally:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+            prompt_text = (
+                "아래 가사가 이 음악에서 불리는 정확한 타이밍을 맞춰주세요.\n\n"
+                "== 가사 ==\n"
+                f"{user_lyrics}\n"
+                "== 끝 ==\n\n"
+                "규칙:\n"
+                "1. 위 가사 텍스트를 그대로 사용하세요 (수정/추가/삭제 금지)\n"
+                "2. t = 해당 가사가 보컬로 불리기 시작하는 정확한 시간(초)\n"
+                "3. t는 반드시 단조 증가 (이전 값보다 항상 커야 함)\n"
+                "4. 음악을 잘 들으면서 실제 보컬 시작 지점에 맞춰주세요\n"
+                "5. 간주/인스트루멘탈 구간의 가사는 해당 구간 이후에 배치\n"
+                "6. 한 줄이 30자를 초과하면 적절히 분할\n\n"
+                "출력: JSON 배열만\n"
+                '[{"t": 5.2, "text": "가사 첫줄"}, {"t": 8.7, "text": "가사 둘째줄"}, ...]'
+            )
+
+            print(f"  [Gemini] Syncing timing for {len(user_lyrics.splitlines())} lines...")
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[audio_file, prompt_text],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                )
+            )
+
+            result = self._parse_gemini_response(response.text, "user-sync")
+            if result and self._validate_timestamps(result):
+                self._last_timed_lyrics = result
+                plain = "\n".join(e["text"] for e in result if e.get("text"))
+                print(f"  [Gemini] Sync complete: {len(result)} entries, {len(plain)} chars")
+                print(f"  [Gemini] Time range: {result[0]['t']}s ~ {result[-1]['t']}s")
+                return plain
+            else:
+                print(f"  [Gemini] Timing sync failed or invalid, using lyrics without timing")
+                self._last_timed_lyrics = None
+                return user_lyrics
+
+        except Exception as e:
+            print(f"  [Gemini] Lyrics sync failed: {e}")
+            import traceback
+            traceback.print_exc()
+            self._last_timed_lyrics = None
+            return user_lyrics
+
     def extract_lyrics_with_gemini(self, audio_path: str) -> Optional[str]:
         """
         가사 추출 (타임스탬프 포함)
