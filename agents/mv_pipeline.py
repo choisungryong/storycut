@@ -625,11 +625,13 @@ class MVPipeline:
 
         # 음악 세그먼트 기반으로 씬 생성
         segments = project.music_analysis.segments
+        segment_types = [seg.segment_type for seg in segments]
         for i, segment in enumerate(segments):
             lyrics_text = self._extract_lyrics_for_segment(
                 request.lyrics,
                 i,
-                len(segments)
+                len(segments),
+                segment_types=segment_types,
             )
 
             seg_type = segment.segment_type
@@ -678,13 +680,24 @@ class MVPipeline:
 
         return scenes
 
+    # 보컬이 있는 세그먼트 타입 (가사 할당 대상)
+    _VOCAL_SEGMENT_TYPES = {
+        "verse", "chorus", "pre_chorus", "pre-chorus",
+        "post_chorus", "post-chorus", "hook", "rap", "refrain",
+    }
+
     def _extract_lyrics_for_segment(
         self,
         lyrics: Optional[str],
         segment_index: int,
-        total_segments: int
+        total_segments: int,
+        segment_types: Optional[List[str]] = None,
     ) -> str:
-        """가사에서 해당 구간 텍스트 추출 (간단한 균등 분할)"""
+        """가사에서 해당 구간 텍스트 추출 (보컬 세그먼트만 할당)
+
+        intro, bridge, outro, instrumental 등 비보컬 구간에는 가사를 할당하지 않고,
+        보컬 세그먼트(verse, chorus 등)에만 균등 분배합니다.
+        """
         if not lyrics:
             return ""
 
@@ -693,10 +706,33 @@ class MVPipeline:
         if not lines:
             return ""
 
-        # 균등 분할
-        lines_per_segment = max(1, len(lines) // total_segments)
-        start_idx = segment_index * lines_per_segment
+        # segment_types가 있으면 보컬 세그먼트만 가사 할당
+        if segment_types:
+            vocal_indices = [
+                i for i, t in enumerate(segment_types)
+                if t.lower() in self._VOCAL_SEGMENT_TYPES
+            ]
+            # 보컬 세그먼트가 하나도 없으면 전체를 보컬로 간주 (fallback)
+            if not vocal_indices:
+                vocal_indices = list(range(total_segments))
+
+            if segment_index not in vocal_indices:
+                return ""  # 비보컬 세그먼트 → 가사 없음
+
+            vocal_pos = vocal_indices.index(segment_index)
+            num_vocal = len(vocal_indices)
+        else:
+            vocal_pos = segment_index
+            num_vocal = total_segments
+
+        # 보컬 세그먼트 수 기준으로 균등 분할
+        lines_per_segment = max(1, len(lines) // num_vocal)
+        start_idx = vocal_pos * lines_per_segment
         end_idx = min(start_idx + lines_per_segment, len(lines))
+
+        # 마지막 보컬 세그먼트는 남은 가사 전부 할당
+        if vocal_pos == num_vocal - 1:
+            end_idx = len(lines)
 
         return '\n'.join(lines[start_idx:end_idx])
 
@@ -1620,31 +1656,36 @@ class MVPipeline:
         print(f"    SRT generated: {output_path} ({entry_count} entries)")
 
     def _srt_from_timed_lyrics(self, timed_lyrics: list) -> list:
-        """timed_lyrics 배열을 SRT 라인으로 변환"""
-        srt_lines = []
-        srt_idx = 0
-        for i, entry in enumerate(timed_lyrics):
+        """timed_lyrics 배열을 SRT 라인으로 변환
+
+        end_sec 계산 시 다음 '표시될' 엔트리의 타임스탬프를 사용.
+        (빈 텍스트/섹션 마커는 건너뛰어 gap이 생기지 않도록)
+        """
+        # 1차: 표시할 엔트리만 필터링
+        displayed = []
+        for entry in timed_lyrics:
             text = entry.get("text", "").strip()
             if not text:
                 continue
-            # 섹션 마커 필터링 ([Chorus], [Verse 1] 등)
             if _SECTION_MARKER_RE.match(text):
                 continue
+            displayed.append(entry)
 
+        # 2차: 필터링된 목록에서 SRT 생성 (end_sec = 다음 표시 엔트리 기준)
+        srt_lines = []
+        for i, entry in enumerate(displayed):
+            text = entry["text"].strip()
             start_sec = float(entry.get("t", 0))
-            if i + 1 < len(timed_lyrics):
-                next_start = float(timed_lyrics[i + 1].get("t", start_sec + 4))
+
+            if i + 1 < len(displayed):
+                next_start = float(displayed[i + 1].get("t", start_sec + 4))
                 end_sec = min(next_start - 0.3, start_sec + 5)
             else:
                 end_sec = start_sec + 4
             end_sec = max(end_sec, start_sec + 1.0)
 
-            srt_idx += 1
-            start_tc = self._sec_to_srt_timecode(start_sec)
-            end_tc = self._sec_to_srt_timecode(end_sec)
-
-            srt_lines.append(str(srt_idx))
-            srt_lines.append(f"{start_tc} --> {end_tc}")
+            srt_lines.append(str(i + 1))
+            srt_lines.append(f"{self._sec_to_srt_timecode(start_sec)} --> {self._sec_to_srt_timecode(end_sec)}")
             srt_lines.append(text)
             srt_lines.append("")
         return srt_lines
@@ -1675,52 +1716,63 @@ class MVPipeline:
 
     def _fix_broken_timestamps(self, timed_lyrics: list, scenes: List[MVScene]) -> list:
         """
-        Gemini가 반환한 타임스탬프 중 비단조(뒤로 가는) 값을 감지하여 보간.
+        Gemini가 반환한 타임스탬프 중 비단조(뒤로 가는) 값만 선별 보간.
 
-        예: [1.2, 5.0, ..., 57.4, 1.0, 1.0, 1.0, ...]
-        → 57.4 이후 1.0들은 깨진 것이므로 균등 보간으로 대체
+        기존 문제: 첫 번째 비단조 지점 이후를 전부 보간 → 정상 타임스탬프까지 덮어씀.
+        개선: 실제로 깨진 엔트리(연속 비단조 구간)만 찾아 앞뒤 유효값 사이에서 보간.
+        정상 타임스탬프는 절대 변경하지 않음.
         """
         if not timed_lyrics or len(timed_lyrics) < 2:
             return timed_lyrics
 
-        # 마지막 유효 타임스탬프 인덱스 찾기
-        last_valid_idx = 0
-        last_valid_t = float(timed_lyrics[0].get("t", 0))
+        n = len(timed_lyrics)
+        timestamps = [float(e.get("t", 0)) for e in timed_lyrics]
+        total_duration = max(s.end_sec for s in scenes) if scenes else timestamps[-1] + 30
 
-        for i in range(1, len(timed_lyrics)):
-            t = float(timed_lyrics[i].get("t", 0))
-            if t > last_valid_t:
-                last_valid_idx = i
-                last_valid_t = t
+        # 비단조 엔트리 마킹 (이전 최댓값보다 작거나 같은 것)
+        needs_fix = [False] * n
+        running_max = timestamps[0]
+        for i in range(1, n):
+            if timestamps[i] <= running_max:
+                needs_fix[i] = True
             else:
-                # 이 지점부터 타임스탬프가 깨짐
-                break
-        else:
-            # 모든 타임스탬프가 단조 증가 → 문제 없음
+                running_max = timestamps[i]
+
+        fix_count = sum(needs_fix)
+        if fix_count == 0:
             return timed_lyrics
 
-        broken_start = last_valid_idx + 1
-        broken_count = len(timed_lyrics) - broken_start
+        print(f"    [WARNING] {fix_count} non-monotonic timestamp(s) detected out of {n}")
 
-        if broken_count <= 0:
-            return timed_lyrics
+        # 연속된 깨진 구간(run)별로 앞뒤 유효값 사이에서 보간
+        i = 0
+        while i < n:
+            if needs_fix[i]:
+                run_start = i
+                while i < n and needs_fix[i]:
+                    i += 1
+                run_end = i  # exclusive
 
-        print(f"    [WARNING] Broken timestamps detected from entry {broken_start + 1}/{len(timed_lyrics)}")
-        print(f"    [FIX] Interpolating {broken_count} entries after {last_valid_t:.1f}s")
+                # 앞쪽 유효 타임스탬프
+                prev_t = timestamps[run_start - 1] if run_start > 0 else 0
+                # 뒤쪽 유효 타임스탬프
+                next_t = timestamps[run_end] if run_end < n else total_duration
 
-        # 총 음악 길이 구하기
-        total_duration = max(s.end_sec for s in scenes) if scenes else last_valid_t + broken_count * 3
-        remaining_duration = total_duration - last_valid_t
+                # next_t가 prev_t보다 작으면 (뒤쪽도 깨졌을 때) 안전 마진 추가
+                if next_t <= prev_t:
+                    next_t = prev_t + (run_end - run_start + 1) * 2.0
 
-        # 남은 시간을 깨진 엔트리들에 균등 분배
-        interval = remaining_duration / (broken_count + 1)
+                count = run_end - run_start
+                interval = (next_t - prev_t) / (count + 1)
 
-        for i in range(broken_count):
-            idx = broken_start + i
-            interpolated_t = round(last_valid_t + interval * (i + 1), 1)
-            timed_lyrics[idx]["t"] = interpolated_t
+                for k in range(count):
+                    new_t = round(prev_t + interval * (k + 1), 2)
+                    timestamps[run_start + k] = new_t
+                    timed_lyrics[run_start + k]["t"] = new_t
 
-        print(f"    [FIX] Interpolated range: {timed_lyrics[broken_start]['t']}s ~ {timed_lyrics[-1]['t']}s")
+                print(f"    [FIX] Entries {run_start+1}-{run_end}: interpolated {prev_t:.1f}s ~ {next_t:.1f}s")
+            else:
+                i += 1
 
         return timed_lyrics
 
