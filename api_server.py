@@ -1680,11 +1680,15 @@ async def get_manifest(project_id: str):
         with open(manifest_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    # R2 fallback
+    # R2 fallback (videos/{project_id}/manifest.json 경로로 저장됨)
     try:
         from utils.storage import StorageManager
         storage = StorageManager()
-        raw = storage.get_object(f"{project_id}/manifest.json")
+        # 먼저 videos/ 경로 시도 (표준 업로드 경로)
+        raw = storage.get_object(f"videos/{project_id}/manifest.json")
+        if not raw:
+            # 레거시 경로 시도
+            raw = storage.get_object(f"{project_id}/manifest.json")
         if raw:
             return json.loads(raw.decode("utf-8"))
     except Exception:
