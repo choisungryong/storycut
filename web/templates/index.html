@@ -664,6 +664,11 @@
             font-weight: bold;
         }
 
+        /* MV 결과 씬 그리드 (더 넓은 카드) */
+        #mv-result-scene-grid {
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        }
+
         /* MV 결과 씬 카드 (가사 편집/재생성 지원) */
         .mv-result-card {
             background: #16213e;
@@ -1711,7 +1716,7 @@
         </footer>
     </div>
 
-    <script src="/static/app.js?v=20260208c"></script>
+    <script src="/static/app.js?v=20260208d"></script>
 </body>
 
 </html>

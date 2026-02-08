@@ -2809,62 +2809,71 @@ async def mv_recompose(project_id: str):
 
 @app.get("/api/mv/stream/{project_id}")
 async def mv_stream(project_id: str):
-    """
-    MV 스트리밍
-    """
+    """MV 스트리밍 (로컬 우선, R2 fallback)"""
     validate_project_id(project_id)
-    from fastapi.responses import FileResponse
-    from agents.mv_pipeline import MVPipeline
+    from fastapi.responses import FileResponse, Response
 
-    pipeline = MVPipeline()
-    project = pipeline.load_project(project_id)
-
-    if not project or not project.final_video_path:
-        raise HTTPException(status_code=404, detail="Video not found")
-
-    # 매니페스트 기반 경로 검증 (임의 파일 서빙 방지)
+    # 1. 로컬 파일 확인
+    possible_paths = [
+        f"outputs/{project_id}/final_mv.mp4",
+        f"outputs/{project_id}/final_video.mp4",
+    ]
     outputs_base = os.path.realpath("outputs")
-    resolved = os.path.realpath(project.final_video_path)
-    if not resolved.startswith(outputs_base):
-        raise HTTPException(status_code=403, detail="Access denied")
 
-    if not os.path.exists(project.final_video_path):
-        raise HTTPException(status_code=404, detail="Video file not found")
+    for path in possible_paths:
+        resolved = os.path.realpath(path)
+        if resolved.startswith(outputs_base) and os.path.exists(path):
+            return FileResponse(path, media_type="video/mp4", filename=f"mv_{project_id}.mp4")
 
-    return FileResponse(
-        project.final_video_path,
-        media_type="video/mp4",
-        filename=f"mv_{project_id}.mp4"
-    )
+    # 2. R2 fallback
+    try:
+        from utils.storage import StorageManager
+        storage = StorageManager()
+        data = storage.get_object(f"videos/{project_id}/final_video.mp4")
+        if data:
+            return Response(content=data, media_type="video/mp4")
+    except Exception as e:
+        print(f"[MV Stream] R2 fallback error: {e}")
+
+    raise HTTPException(status_code=404, detail="Video not found")
 
 
 @app.get("/api/mv/download/{project_id}")
 async def mv_download(project_id: str):
-    """
-    MV 다운로드
-    """
+    """MV 다운로드 (로컬 우선, R2 fallback)"""
     validate_project_id(project_id)
-    from fastapi.responses import FileResponse
-    from agents.mv_pipeline import MVPipeline
+    from fastapi.responses import FileResponse, Response
 
-    pipeline = MVPipeline()
-    project = pipeline.load_project(project_id)
-
-    if not project or not project.final_video_path:
-        raise HTTPException(status_code=404, detail="Video not found")
-
-    # 매니페스트 기반 경로 검증 (임의 파일 서빙 방지)
+    # 1. 로컬 파일 확인
+    possible_paths = [
+        f"outputs/{project_id}/final_mv.mp4",
+        f"outputs/{project_id}/final_video.mp4",
+    ]
     outputs_base = os.path.realpath("outputs")
-    resolved = os.path.realpath(project.final_video_path)
-    if not resolved.startswith(outputs_base):
-        raise HTTPException(status_code=403, detail="Access denied")
 
-    return FileResponse(
-        project.final_video_path,
-        media_type="video/mp4",
-        filename=f"storycut_mv_{project_id}.mp4",
-        headers={"Content-Disposition": f"attachment; filename=storycut_mv_{project_id}.mp4"}
-    )
+    for path in possible_paths:
+        resolved = os.path.realpath(path)
+        if resolved.startswith(outputs_base) and os.path.exists(path):
+            return FileResponse(
+                path, media_type="video/mp4",
+                filename=f"storycut_mv_{project_id}.mp4",
+                headers={"Content-Disposition": f"attachment; filename=storycut_mv_{project_id}.mp4"}
+            )
+
+    # 2. R2 fallback
+    try:
+        from utils.storage import StorageManager
+        storage = StorageManager()
+        data = storage.get_object(f"videos/{project_id}/final_video.mp4")
+        if data:
+            return Response(
+                content=data, media_type="video/mp4",
+                headers={"Content-Disposition": f"attachment; filename=storycut_mv_{project_id}.mp4"}
+            )
+    except Exception as e:
+        print(f"[MV Download] R2 fallback error: {e}")
+
+    raise HTTPException(status_code=404, detail="Video not found")
 
 
 @app.on_event("startup")
