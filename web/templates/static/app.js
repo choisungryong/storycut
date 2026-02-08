@@ -103,6 +103,12 @@ class StorycutApp {
             this.setNavActive('nav-history');
         });
 
+        // 보관함 새로고침 버튼
+        const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+        if (refreshHistoryBtn) {
+            refreshHistoryBtn.addEventListener('click', () => this.loadHistory());
+        }
+
         // 영상 재합성 버튼
         const recomposeBtn = document.getElementById('recompose-btn');
         if (recomposeBtn) {
@@ -1092,8 +1098,9 @@ class StorycutApp {
                     <div class="image-placeholder" style="display:none;">이미지 생성 대기</div>
                 </div>
 
-                <div class="scene-card-narration">
-                    ${scene.narration || '내레이션 없음'}
+                <div class="scene-card-narration" data-scene-id="${scene.scene_id}" data-project-id="${projectId}">
+                    <span class="narration-text">${scene.narration || '내레이션 없음'}</span>
+                    <button class="btn-edit-narration" title="내레이션 수정">수정</button>
                 </div>
 
                 ${errorMsg}
@@ -1117,6 +1124,85 @@ class StorycutApp {
                 this.regenerateScene(projectId, sceneId);
             });
         });
+
+        // 내레이션 편집 버튼 이벤트 리스너
+        grid.querySelectorAll('.btn-edit-narration').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const narrationDiv = e.target.closest('.scene-card-narration');
+                this.startNarrationEdit(narrationDiv);
+            });
+        });
+    }
+
+    startNarrationEdit(narrationDiv) {
+        const sceneId = parseInt(narrationDiv.dataset.sceneId);
+        const projectId = narrationDiv.dataset.projectId;
+        const textSpan = narrationDiv.querySelector('.narration-text');
+        const editBtn = narrationDiv.querySelector('.btn-edit-narration');
+        const currentText = textSpan.textContent;
+
+        // 이미 편집 중이면 무시
+        if (narrationDiv.querySelector('.narration-edit-area')) return;
+
+        // 텍스트 -> textarea로 교체
+        textSpan.style.display = 'none';
+        editBtn.style.display = 'none';
+
+        const editHTML = `
+            <textarea class="narration-edit-area">${currentText}</textarea>
+            <div class="narration-edit-actions">
+                <button class="btn-narration-save">저장</button>
+                <button class="btn-narration-cancel">취소</button>
+            </div>
+        `;
+        narrationDiv.insertAdjacentHTML('beforeend', editHTML);
+        narrationDiv.querySelector('.narration-edit-area').focus();
+
+        // 저장
+        narrationDiv.querySelector('.btn-narration-save').onclick = async () => {
+            const newText = narrationDiv.querySelector('.narration-edit-area').value.trim();
+            if (!newText) return;
+            await this.saveNarration(projectId, sceneId, newText, narrationDiv);
+        };
+
+        // 취소
+        narrationDiv.querySelector('.btn-narration-cancel').onclick = () => {
+            narrationDiv.querySelector('.narration-edit-area').remove();
+            narrationDiv.querySelector('.narration-edit-actions').remove();
+            textSpan.style.display = '';
+            editBtn.style.display = '';
+        };
+    }
+
+    async saveNarration(projectId, sceneId, newText, narrationDiv) {
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(
+                `${baseUrl}/api/projects/${projectId}/scenes/${sceneId}/narration`,
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ narration: newText })
+                }
+            );
+            if (!response.ok) throw new Error('저장 실패');
+
+            // UI 업데이트
+            const textSpan = narrationDiv.querySelector('.narration-text');
+            textSpan.textContent = newText;
+            textSpan.style.display = '';
+            narrationDiv.querySelector('.btn-edit-narration').style.display = '';
+            narrationDiv.querySelector('.narration-edit-area').remove();
+            narrationDiv.querySelector('.narration-edit-actions').remove();
+
+            // 재합성 버튼 표시
+            const recomposeBtn = document.getElementById('recompose-btn');
+            if (recomposeBtn) recomposeBtn.style.display = 'inline-flex';
+
+            this.showToast(`Scene ${sceneId} 내레이션 수정 완료! 영상 반영은 '영상 재합성'을 누르세요.`, 'success');
+        } catch (err) {
+            this.showToast(`내레이션 저장 실패: ${err.message}`, 'error');
+        }
     }
 
     async regenerateScene(projectId, sceneId) {
