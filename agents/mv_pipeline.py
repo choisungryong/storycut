@@ -7,11 +7,15 @@ Phase 1: 기본 MV 생성
 
 import os
 import json
+import re
 import uuid
 import time
 from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
 from datetime import datetime
+
+# 섹션 마커 패턴: [Chorus], [Verse 1], [Pre-Chorus], [Intro] 등
+_SECTION_MARKER_RE = re.compile(r'^\[.*?\]$')
 
 from schemas.mv_models import (
     MVProject, MVScene, MVProjectStatus, MVSceneStatus,
@@ -636,7 +640,8 @@ class MVPipeline:
         if not lyrics:
             return ""
 
-        lines = [l.strip() for l in lyrics.strip().split('\n') if l.strip()]
+        lines = [l.strip() for l in lyrics.strip().split('\n')
+                 if l.strip() and not _SECTION_MARKER_RE.match(l.strip())]
         if not lines:
             return ""
 
@@ -1542,6 +1547,9 @@ class MVPipeline:
             text = entry.get("text", "").strip()
             if not text:
                 continue
+            # 섹션 마커 필터링 ([Chorus], [Verse 1] 등)
+            if _SECTION_MARKER_RE.match(text):
+                continue
 
             start_sec = float(entry.get("t", 0))
             if i + 1 < len(timed_lyrics):
@@ -1566,7 +1574,8 @@ class MVPipeline:
         if not scene.lyrics_text:
             return []
 
-        lines = [l.strip() for l in scene.lyrics_text.strip().split('\n') if l.strip()]
+        lines = [l.strip() for l in scene.lyrics_text.strip().split('\n')
+                 if l.strip() and not _SECTION_MARKER_RE.match(l.strip())]
         if not lines:
             return []
 

@@ -241,10 +241,16 @@ class MusicAnalyzer:
                 except OSError:
                     pass
 
+            # 섹션 마커 제거 ([Chorus], [Verse 1], [Pre-Chorus] 등)
+            import re as _re_local
+            cleaned_lyrics = _re_local.sub(r'^\[.*?\]\s*$', '', user_lyrics, flags=_re_local.MULTILINE).strip()
+            # 빈 줄 정리
+            cleaned_lyrics = _re_local.sub(r'\n{3,}', '\n\n', cleaned_lyrics)
+
             prompt_text = (
                 "아래 가사가 이 음악에서 불리는 정확한 타이밍을 맞춰주세요.\n\n"
                 "== 가사 ==\n"
-                f"{user_lyrics}\n"
+                f"{cleaned_lyrics}\n"
                 "== 끝 ==\n\n"
                 "규칙:\n"
                 "1. 위 가사 텍스트를 그대로 사용하세요 (수정/추가/삭제 금지)\n"
@@ -252,7 +258,8 @@ class MusicAnalyzer:
                 "3. t는 반드시 단조 증가 (이전 값보다 항상 커야 함)\n"
                 "4. 음악을 잘 들으면서 실제 보컬 시작 지점에 맞춰주세요\n"
                 "5. 간주/인스트루멘탈 구간의 가사는 해당 구간 이후에 배치\n"
-                "6. 한 줄이 30자를 초과하면 적절히 분할\n\n"
+                "6. [Chorus], [Verse], [Bridge] 같은 섹션 마커는 절대 포함하지 마세요\n"
+                "7. 한 줄이 30자를 초과하면 적절히 분할\n\n"
                 "출력: JSON 배열만\n"
                 '[{"t": 5.2, "text": "가사 첫줄"}, {"t": 8.7, "text": "가사 둘째줄"}, ...]'
             )
