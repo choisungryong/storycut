@@ -2744,6 +2744,61 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
     return {"success": True, "scene_id": scene_id, "lyrics": req.lyrics}
 
 
+@app.get("/api/mv/{project_id}/debug")
+async def mv_debug(project_id: str):
+    """MV 프로젝트 디버그 정보 (R2 에셋 존재 여부 확인)"""
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+    from utils.storage import StorageManager
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+    storage = StorageManager()
+
+    if not project:
+        return {"error": "Project not found"}
+
+    info = {
+        "project_id": project_id,
+        "status": str(project.status),
+        "scene_count": len(project.scenes),
+        "music_file_path": project.music_file_path,
+        "music_exists_local": os.path.exists(project.music_file_path) if project.music_file_path else False,
+        "final_video_path": project.final_video_path,
+        "scenes": [],
+        "r2_checks": {}
+    }
+
+    # 씬별 상태
+    for s in project.scenes:
+        local_exists = os.path.exists(s.image_path) if s.image_path else False
+        info["scenes"].append({
+            "scene_id": s.scene_id,
+            "status": str(s.status),
+            "image_path": s.image_path,
+            "image_exists_local": local_exists,
+            "is_http": bool(s.image_path and s.image_path.startswith("http")),
+        })
+
+    # R2 에셋 확인
+    for key_name, r2_key in [
+        ("manifest", f"videos/{project_id}/manifest.json"),
+        ("image_01", f"images/{project_id}/scene_01.png"),
+        ("image_02", f"images/{project_id}/scene_02.png"),
+    ]:
+        data = storage.get_object(r2_key)
+        info["r2_checks"][key_name] = {"key": r2_key, "exists": data is not None, "size": len(data) if data else 0}
+
+    if project.music_file_path:
+        music_fn = os.path.basename(project.music_file_path)
+        for prefix in ["music", "uploads", "videos"]:
+            r2_key = f"{prefix}/{project_id}/{music_fn}"
+            data = storage.get_object(r2_key)
+            info["r2_checks"][f"music_{prefix}"] = {"key": r2_key, "exists": data is not None, "size": len(data) if data else 0}
+
+    return info
+
+
 @app.post("/api/mv/{project_id}/recompose")
 async def mv_recompose(project_id: str):
     """MV 리컴포즈 - 가사/이미지 수정 후 최종 영상 재합성"""
@@ -2808,6 +2863,11 @@ async def mv_recompose(project_id: str):
 
             print(f"[MV Recompose] Images restored: {restored}/{len(project.scenes)}")
 
+            # 복원 결과 로그
+            for scene in project.scenes:
+                exists = os.path.exists(scene.image_path) if scene.image_path else False
+                print(f"[MV Recompose] Scene {scene.scene_id}: status={scene.status}, image={scene.image_path}, exists={exists}")
+
             # R2에서 음악 파일 복원
             if project.music_file_path and not os.path.exists(project.music_file_path):
                 music_filename = os.path.basename(project.music_file_path)
@@ -2826,8 +2886,9 @@ async def mv_recompose(project_id: str):
                         music_restored = True
                         break
                 if not music_restored:
-                    print(f"[MV Recompose] WARNING: Music file not found in R2")
+                    print(f"[MV Recompose] WARNING: Music file not found in R2, trying without audio")
 
+            print(f"[MV Recompose] Music file: {project.music_file_path}, exists={os.path.exists(project.music_file_path) if project.music_file_path else False}")
             pipeline.compose_video(project)
             print(f"[MV Recompose Thread] Recompose complete: {project.status}")
 
