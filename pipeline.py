@@ -139,8 +139,12 @@ class StorycutPipeline:
         # 4. 첫 문장에서 제목 추출
         first_line = paragraphs[0].split('\n')[0][:30]
 
+        total_duration = sum(s["duration_sec"] for s in scenes)
+
         story_data = {
             "title": first_line,
+            "genre": request.genre or "emotional",
+            "total_duration_sec": total_duration,
             "scenes": scenes,
             "global_style": {
                 "art_style": request.style_preset or "cinematic, high contrast",

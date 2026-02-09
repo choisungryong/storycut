@@ -326,8 +326,7 @@ JSON 형식으로 출력:
         character_sheet = story_data.get("character_sheet", {})
 
         print(f"Total scenes: {total_scenes}")
-        print(f"Target duration: {story_data['total_duration_sec']} seconds")
-        print(f"Target duration: {story_data['total_duration_sec']} seconds")
+        print(f"Target duration: {story_data.get('total_duration_sec', 60)} seconds")
         print(f"Context carry-over: {'ON' if self.feature_flags.context_carry_over else 'OFF'}")
         
         # 프로젝트 베이스 디렉토리 설정 (final_video.mp4 경로 기반)
@@ -629,9 +628,9 @@ JSON 형식으로 출력:
         # 배경 음악 선택
         print(f"{'─'*60}")
         music_path = self.music_agent.select_music(
-            genre=story_data["genre"],
+            genre=story_data.get("genre", "emotional"),
             mood=story_data.get("mood", "neutral"),
-            duration_sec=story_data["total_duration_sec"]
+            duration_sec=story_data.get("total_duration_sec", 60)
         )
         print(f"{'─'*60}\n")
 
