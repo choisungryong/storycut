@@ -210,6 +210,17 @@ class MVScene(BaseModel):
 # 프로젝트 관련
 # ============================================================
 
+class MVCharacterSetup(str, Enum):
+    """캐릭터 구성"""
+    MALE_FEMALE = "male_female"        # 남녀 커플
+    FEMALE_FEMALE = "female_female"    # 여여 커플
+    MALE_MALE = "male_male"           # 남남 커플
+    SOLO_MALE = "solo_male"           # 솔로 남성
+    SOLO_FEMALE = "solo_female"       # 솔로 여성
+    GROUP = "group"                   # 그룹 (3인 이상)
+    AUTO = "auto"                     # AI 자동 결정
+
+
 class MVProjectRequest(BaseModel):
     """MV 생성 요청"""
     project_id: Optional[str] = Field(None, description="프로젝트 ID (없으면 자동 생성)")
@@ -217,6 +228,9 @@ class MVProjectRequest(BaseModel):
     # 가사 & 컨셉
     lyrics: Optional[str] = Field(None, description="가사 텍스트")
     concept: Optional[str] = Field(None, description="비주얼 컨셉 설명")
+
+    # 캐릭터 설정
+    character_setup: MVCharacterSetup = Field(default=MVCharacterSetup.AUTO, description="캐릭터 구성")
 
     # 스타일 설정
     genre: MVGenre = Field(default=MVGenre.FANTASY)
@@ -242,6 +256,7 @@ class MVProject(BaseModel):
     # 입력 정보
     lyrics: Optional[str] = Field(None)
     concept: Optional[str] = Field(None)
+    character_setup: MVCharacterSetup = Field(default=MVCharacterSetup.AUTO)
     genre: MVGenre = Field(default=MVGenre.FANTASY)
     mood: MVMood = Field(default=MVMood.EPIC)
     style: MVStyle = Field(default=MVStyle.CINEMATIC)

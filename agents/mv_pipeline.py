@@ -179,6 +179,7 @@ class MVPipeline:
         project.lyrics = request.lyrics
         print(f"  Lyrics received: {'YES (' + str(len(request.lyrics)) + ' chars)' if request.lyrics else 'EMPTY'}")
         project.concept = request.concept
+        project.character_setup = request.character_setup
         project.genre = request.genre
         project.mood = request.mood
         project.style = request.style
@@ -441,6 +442,19 @@ class MVPipeline:
                     "- The Visual Bible must strongly reflect the genre, mood, and style choices."
                 )
 
+            # 캐릭터 구성 지시 생성
+            char_setup = getattr(project, 'character_setup', None)
+            char_setup_val = char_setup.value if hasattr(char_setup, 'value') else str(char_setup or 'auto')
+            _CHAR_SETUP_INSTRUCTIONS = {
+                "male_female": "MANDATORY: Characters must be a MALE-FEMALE romantic couple. The lead must be male, the love interest must be female.",
+                "female_female": "MANDATORY: Characters must be a FEMALE-FEMALE romantic couple. Both leads must be women.",
+                "male_male": "MANDATORY: Characters must be a MALE-MALE romantic couple. Both leads must be men.",
+                "solo_male": "MANDATORY: Only ONE male character. No romantic partner. Solo story.",
+                "solo_female": "MANDATORY: Only ONE female character. No romantic partner. Solo story.",
+                "group": "MANDATORY: Create a GROUP of 3+ characters (mixed genders allowed).",
+            }
+            char_instruction = _CHAR_SETUP_INSTRUCTIONS.get(char_setup_val, "")
+
             user_prompt = (
                 f"Genre: {project.genre.value}\n"
                 f"Mood: {project.mood.value}\n"
@@ -449,6 +463,8 @@ class MVPipeline:
                 f"Total scenes: {total_scenes}\n"
                 f"Lyrics excerpt: {lyrics_summary or '(instrumental)'}\n"
             )
+            if char_instruction:
+                user_prompt += f"\n*** CHARACTER SETUP (NON-NEGOTIABLE) ***\n{char_instruction}\n"
             if scene_timeline:
                 user_prompt += f"\nScene timeline:\n{scene_timeline}\n"
             user_prompt += "\nCreate the Director's Brief JSON:"

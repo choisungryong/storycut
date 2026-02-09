@@ -2436,7 +2436,7 @@ from schemas.mv_models import (
 )
 
 @app.post("/api/mv/upload", response_model=MVUploadResponse)
-async def mv_upload_music(music_file: UploadFile = File(...), lyrics: str = Form("")):
+async def mv_upload_music(music_file: UploadFile = File(...), lyrics: str = Form(""), character_setup: str = Form("auto")):
     """
     Step 1: 음악 파일 업로드 및 분석
 
