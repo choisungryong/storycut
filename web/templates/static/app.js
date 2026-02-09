@@ -2114,7 +2114,7 @@ class StorycutApp {
             return;
         }
 
-        const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        const card = document.querySelector(`.image-card[data-scene-id="${sceneId}"]`);
         if (!card) {
             console.error(`[regenerateImage] Card not found for scene ${sceneId}`);
             this.showToast('씬 카드를 찾을 수 없습니다.', 'error');
@@ -2249,7 +2249,7 @@ class StorycutApp {
     }
 
     async convertToVideo(projectId, sceneId) {
-        const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        const card = document.querySelector(`.image-card[data-scene-id="${sceneId}"]`);
         if (!card) {
             alert(`I2V 실패: Scene ${sceneId} 카드를 찾을 수 없습니다`);
             return;
@@ -2291,7 +2291,8 @@ class StorycutApp {
     }
 
     async toggleHookVideo(projectId, sceneId) {
-        const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        const card = document.querySelector(`.image-card[data-scene-id="${sceneId}"]`);
+        if (!card) return;
         const btn = card.querySelector('.btn-hook');
         const isHook = card.classList.contains('hook-video');
 
