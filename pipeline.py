@@ -77,6 +77,198 @@ class StorycutPipeline:
         print(f"\n[STEP 1] Generating story for topic: {request.topic}")
         return self._generate_story(request)
 
+    def generate_story_from_script(self, script_text: str, request: ProjectRequest) -> Dict[str, Any]:
+        """
+        사용자 스크립트 텍스트를 씬 분할하고 Gemini로 이미지 프롬프트를 생성.
+
+        기존 generate_story_only()와 동일한 story_data 포맷을 반환하여
+        리뷰 화면 및 영상 파이프라인을 그대로 재활용할 수 있음.
+
+        Args:
+            script_text: 전체 내레이션 스크립트 (빈 줄로 씬 구분)
+            request: ProjectRequest (genre, mood, style 등)
+
+        Returns:
+            story_data dict (기존 StoryAgent 출력과 동일 형식)
+        """
+        import re
+
+        print(f"\n[SCRIPT MODE] Generating story_data from user script...")
+
+        # 1. 스크립트를 빈 줄 기준으로 씬 분할
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', script_text.strip()) if p.strip()]
+
+        # 너무 짧은 단락은 이전 단락에 합치기 (최소 20자)
+        merged = []
+        for p in paragraphs:
+            if merged and len(p) < 20:
+                merged[-1] = merged[-1] + '\n' + p
+            else:
+                merged.append(p)
+        paragraphs = merged
+
+        if not paragraphs:
+            raise ValueError("Script is empty after parsing")
+
+        print(f"[SCRIPT MODE] Split into {len(paragraphs)} scenes")
+
+        # 2. Gemini로 씬별 이미지 프롬프트 생성
+        scene_prompts = self._generate_image_prompts_for_script(
+            paragraphs, request.genre, request.mood, request.style_preset
+        )
+
+        # 3. story_data 구성 (기존 StoryAgent 출력 포맷과 호환)
+        scenes = []
+        for idx, (narration, prompt_data) in enumerate(zip(paragraphs, scene_prompts), start=1):
+            # TTS 길이 추정: 한국어 약 4자/초, 영어 약 12자/초
+            char_count = len(narration)
+            estimated_duration = max(5, min(15, char_count / 4))
+
+            scene = {
+                "scene_id": idx,
+                "narration": narration,
+                "visual_description": prompt_data.get("visual_description", ""),
+                "image_prompt": prompt_data.get("image_prompt", ""),
+                "prompt": prompt_data.get("image_prompt", ""),
+                "mood": prompt_data.get("mood", request.mood or "dramatic"),
+                "duration_sec": round(estimated_duration),
+                "camera_work": prompt_data.get("camera_work", "slow_zoom_in"),
+            }
+            scenes.append(scene)
+
+        # 4. 첫 문장에서 제목 추출
+        first_line = paragraphs[0].split('\n')[0][:30]
+
+        story_data = {
+            "title": first_line,
+            "scenes": scenes,
+            "global_style": {
+                "art_style": request.style_preset or "cinematic, high contrast",
+                "color_palette": "natural tones",
+                "lighting": "cinematic lighting",
+            },
+        }
+
+        print(f"[SCRIPT MODE] Generated story_data with {len(scenes)} scenes")
+        return story_data
+
+    def _generate_image_prompts_for_script(
+        self,
+        paragraphs: List[str],
+        genre: str,
+        mood: str,
+        style: str
+    ) -> List[Dict[str, str]]:
+        """
+        Gemini를 사용하여 스크립트 단락별 이미지 프롬프트를 생성.
+
+        Args:
+            paragraphs: 씬별 내레이션 텍스트 리스트
+            genre: 장르
+            mood: 분위기
+            style: 아트 스타일
+
+        Returns:
+            각 씬의 image_prompt, visual_description, mood, camera_work dict 리스트
+        """
+        import os
+
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            # Gemini 없으면 기본 프롬프트로 폴백
+            print("[SCRIPT MODE] No GOOGLE_API_KEY, using fallback prompts")
+            return [
+                {
+                    "image_prompt": f"{style} scene depicting: {p[:80]}",
+                    "visual_description": p[:100],
+                    "mood": mood,
+                    "camera_work": "slow_zoom_in"
+                }
+                for p in paragraphs
+            ]
+
+        # 씬 목록 텍스트 구성
+        scenes_text = ""
+        for i, p in enumerate(paragraphs, 1):
+            scenes_text += f"\n--- Scene {i} ---\n{p}\n"
+
+        prompt = f"""You are a professional storyboard artist creating image prompts for a video.
+
+FULL SCRIPT CONTEXT:
+{scenes_text}
+
+STYLE: {style}
+GENRE: {genre}
+MOOD: {mood}
+
+TASK: For each scene above, generate an image generation prompt in ENGLISH.
+
+RULES:
+- Each image prompt must be a detailed, vivid description for AI image generation
+- Consider the FULL script context for visual continuity between scenes
+- Translate metaphorical/abstract narration into concrete, realistic visual scenes
+  (e.g., "마음이 무거웠다" → "A person sitting alone on a park bench at dusk, head bowed")
+- Include specific details: lighting, composition, color palette, subject actions
+- Match the {style} art style consistently across all scenes
+- Camera work should vary: slow_zoom_in, slow_zoom_out, pan_left, pan_right, static
+
+OUTPUT FORMAT (JSON array, one object per scene):
+[
+  {{
+    "image_prompt": "English image generation prompt, detailed and vivid, 2-3 sentences",
+    "visual_description": "Brief Korean description of the visual (1 sentence)",
+    "mood": "scene-specific mood keyword",
+    "camera_work": "one of: slow_zoom_in, slow_zoom_out, pan_left, pan_right, static"
+  }},
+  ...
+]
+
+IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return ONLY the JSON array."""
+
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=api_key)
+
+            print(f"[SCRIPT MODE] Calling Gemini for {len(paragraphs)} scene prompts...")
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7,
+                    response_mime_type="application/json"
+                )
+            )
+
+            import json
+            result = json.loads(response.text.strip())
+
+            # 결과 수가 씬 수와 다르면 보정
+            while len(result) < len(paragraphs):
+                result.append({
+                    "image_prompt": f"{style} scene, {mood} atmosphere",
+                    "visual_description": "장면",
+                    "mood": mood,
+                    "camera_work": "slow_zoom_in"
+                })
+
+            print(f"[SCRIPT MODE] Generated {len(result)} image prompts")
+            return result[:len(paragraphs)]
+
+        except Exception as e:
+            print(f"[SCRIPT MODE] Gemini failed: {e}, using fallback prompts")
+            return [
+                {
+                    "image_prompt": f"{style} scene depicting: {p[:80]}",
+                    "visual_description": p[:100],
+                    "mood": mood,
+                    "camera_work": "slow_zoom_in"
+                }
+                for p in paragraphs
+            ]
+
     def generate_video_from_story(self, story_data: Dict[str, Any], request: ProjectRequest, project_id: str = None) -> Manifest:
         """Step 2~5: 확정된 스토리로 영상 생성"""
         start_time = time.time()

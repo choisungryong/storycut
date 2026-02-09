@@ -19,6 +19,9 @@ class StorycutApp {
         // Regeneration tracking (prevent double-click)
         this._regeneratingScenes = new Set();
 
+        // Input mode: 'ai' or 'script'
+        this._inputMode = 'ai';
+
         this.init();
     }
 
@@ -52,8 +55,20 @@ class StorycutApp {
         const form = document.getElementById('generate-form');
         form.addEventListener('submit', (e) => {
             e.preventDefault();
-            this.startStoryGeneration();
+            if (this._inputMode === 'script') {
+                this.startScriptGeneration();
+            } else {
+                this.startStoryGeneration();
+            }
         });
+
+        // 입력 모드 토글
+        const modeAiBtn = document.getElementById('mode-ai-story');
+        const modeScriptBtn = document.getElementById('mode-direct-script');
+        if (modeAiBtn && modeScriptBtn) {
+            modeAiBtn.addEventListener('click', () => this._setInputMode('ai'));
+            modeScriptBtn.addEventListener('click', () => this._setInputMode('script'));
+        }
 
         // 2단계: 영상 생성 시작 (리뷰 후 확정)
         const startBtn = document.getElementById('start-video-generation-btn');
@@ -291,6 +306,150 @@ class StorycutApp {
 
         } catch (error) {
             console.error('스토리 생성 실패:', error);
+            alert(`오류 발생: ${error.message}`);
+            this.showSection('input');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalBtnText;
+        }
+    }
+
+    // ===== 입력 모드 토글 =====
+    _setInputMode(mode) {
+        this._inputMode = mode;
+        const aiBtn = document.getElementById('mode-ai-story');
+        const scriptBtn = document.getElementById('mode-direct-script');
+        const aiInputs = document.getElementById('ai-story-inputs');
+        const scriptInputs = document.getElementById('direct-script-inputs');
+        const submitBtn = document.getElementById('generate-story-btn');
+
+        if (mode === 'script') {
+            aiBtn.style.background = 'rgba(255,255,255,0.05)';
+            aiBtn.style.color = 'rgba(255,255,255,0.5)';
+            scriptBtn.style.background = 'rgba(139,92,246,0.3)';
+            scriptBtn.style.color = '#c4b5fd';
+            if (aiInputs) aiInputs.style.display = 'none';
+            if (scriptInputs) scriptInputs.style.display = '';
+            if (submitBtn) submitBtn.innerHTML = '<span class="btn-icon">📋</span> 씬 분할 + 프롬프트 생성 (1단계)';
+        } else {
+            aiBtn.style.background = 'rgba(139,92,246,0.3)';
+            aiBtn.style.color = '#c4b5fd';
+            scriptBtn.style.background = 'rgba(255,255,255,0.05)';
+            scriptBtn.style.color = 'rgba(255,255,255,0.5)';
+            if (aiInputs) aiInputs.style.display = '';
+            if (scriptInputs) scriptInputs.style.display = 'none';
+            if (submitBtn) submitBtn.innerHTML = '<span class="btn-icon">📝</span> 스토리 생성 (1단계)';
+        }
+    }
+
+    // ===== 스크립트 직접 입력 → 씬 분할 + 이미지 프롬프트 생성 =====
+    async startScriptGeneration() {
+        const scriptText = document.getElementById('direct-script')?.value?.trim();
+        if (!scriptText) {
+            this.showToast('스크립트를 입력해주세요.', 'error');
+            return;
+        }
+
+        const formData = new FormData(document.getElementById('generate-form'));
+        const btn = document.getElementById('generate-story-btn');
+        const originalBtnText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> 씬 분할 중...';
+
+        const requestData = {
+            script: scriptText,
+            genre: formData.get('genre'),
+            mood: formData.get('mood'),
+            style: formData.get('style'),
+            voice: formData.get('voice'),
+            duration: parseInt(formData.get('duration')),
+            platform: formData.get('platform'),
+            hook_scene1_video: document.getElementById('hook_scene1_video')?.checked || false,
+            ffmpeg_kenburns: document.getElementById('ffmpeg_kenburns')?.checked || true,
+            ffmpeg_audio_ducking: document.getElementById('ffmpeg_audio_ducking')?.checked || false,
+            subtitle_burn_in: document.getElementById('subtitle_burn_in')?.checked || true,
+            context_carry_over: document.getElementById('context_carry_over')?.checked || true,
+            optimization_pack: document.getElementById('optimization_pack')?.checked || true,
+        };
+
+        this.currentRequestParams = requestData;
+
+        try {
+            this.showSection('progress');
+            this.updateStepStatus('story', '스크립트를 분석하고 있습니다...');
+            document.getElementById('status-message').textContent = '스크립트를 씬으로 분할하고 이미지 프롬프트를 생성합니다...';
+            document.getElementById('progress-percentage').textContent = '10%';
+            document.getElementById('progress-bar').style.width = '10%';
+
+            const scriptMessages = [
+                { pct: 15, msg: '스크립트를 분석하고 있습니다...' },
+                { pct: 30, msg: '장면을 분할하고 있습니다...' },
+                { pct: 50, msg: 'AI가 이미지 프롬프트를 생성하고 있습니다...' },
+                { pct: 65, msg: '비주얼 일관성을 확인하고 있습니다...' },
+                { pct: 78, msg: '거의 완료되었습니다...' },
+            ];
+            let msgIndex = 0;
+            const progressInterval = setInterval(() => {
+                if (msgIndex < scriptMessages.length) {
+                    const { pct, msg } = scriptMessages[msgIndex];
+                    this.updateProgress(pct, msg);
+                    msgIndex++;
+                }
+            }, 3000);
+
+            const workerUrl = this.getWorkerUrl();
+            const railwayUrl = this.getApiBaseUrl();
+            let response;
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 120000);
+                response = await fetch(`${workerUrl}/api/generate/from-script`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+            } catch (workerError) {
+                console.warn('[Script] Worker 실패, Railway 폴백:', workerError.message);
+                this.updateProgress(40, 'Worker 타임아웃 - 백엔드로 재시도 중...');
+                response = await fetch(`${railwayUrl}/api/generate/from-script`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+            }
+
+            clearInterval(progressInterval);
+
+            if (!response.ok) {
+                let errorMsg = '스크립트 처리 실패';
+                try {
+                    const error = await response.json();
+                    errorMsg = error.detail || error.error || errorMsg;
+                } catch (e) {}
+                throw new Error(errorMsg);
+            }
+
+            this.updateProgress(90, '씬 분할 완료! 결과를 불러오는 중...');
+            const result = await response.json();
+
+            if (result.story_data) {
+                this.updateProgress(100, '스크립트 분석이 완료되었습니다!');
+                this.currentStoryData = result.story_data;
+                this.currentRequestParams = requestData;
+
+                await new Promise(r => setTimeout(r, 500));
+                this.renderStoryReview(this.currentStoryData);
+                this.showSection('review');
+                this.setNavActive('nav-create');
+            } else {
+                throw new Error('잘못된 응답 형식');
+            }
+
+        } catch (error) {
+            console.error('스크립트 처리 실패:', error);
             alert(`오류 발생: ${error.message}`);
             this.showSection('input');
         } finally {

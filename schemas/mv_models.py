@@ -78,6 +78,7 @@ class MVSceneBlocking(BaseModel):
     expression: Optional[str] = Field(None, description="표정/감정")
     lighting: Optional[str] = Field(None, description="씬별 조명")
     action_pose: Optional[str] = Field(None, description="캐릭터 동작/포즈 (은유적 가사→현실적 동작으로 해석)")
+    visual_continuity: Optional[str] = Field(None, description="이전 씬과의 시각적 연결 방식 (same_location_time_change/same_character_state_change/cause_and_effect/motif_callback/contrast_cut/establishing)")
 
 
 class MVNarrativeArc(BaseModel):

@@ -324,6 +324,27 @@ class GenerateRequest(BaseModel):
     webhook_url: Optional[str] = None
 
 
+class ScriptRequest(BaseModel):
+    """스크립트 직접 입력으로 영상 생성 요청"""
+    script: str              # 전체 내레이션 스크립트 텍스트
+    genre: str = "emotional"
+    mood: str = "dramatic"
+    style: str = "cinematic, high contrast"
+    voice: str = "uyVNoMrnUku1dZyVEXwD"
+    duration: int = 60
+    platform: str = "youtube_long"
+
+    # Feature Flags
+    hook_scene1_video: bool = False
+    ffmpeg_kenburns: bool = True
+    ffmpeg_audio_ducking: bool = False
+    subtitle_burn_in: bool = True
+    context_carry_over: bool = True
+    optimization_pack: bool = True
+
+    project_id: Optional[str] = None
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -825,6 +846,58 @@ async def generate_story(req: GenerateRequest):
         }
     except Exception as e:
         print(f"Story generation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/generate/from-script")
+async def generate_from_script(req: ScriptRequest):
+    """스크립트 직접 입력 → 씬 분할 + 이미지 프롬프트 생성"""
+    import uuid
+
+    project_id = req.project_id or str(uuid.uuid4())[:8]
+
+    feature_flags = FeatureFlags(
+        hook_scene1_video=req.hook_scene1_video,
+        ffmpeg_kenburns=req.ffmpeg_kenburns,
+        ffmpeg_audio_ducking=req.ffmpeg_audio_ducking,
+        subtitle_burn_in=req.subtitle_burn_in,
+        context_carry_over=req.context_carry_over,
+        optimization_pack=req.optimization_pack,
+    )
+
+    platform = TargetPlatform.YOUTUBE_SHORTS if req.platform == "youtube_shorts" else TargetPlatform.YOUTUBE_LONG
+
+    project_request = ProjectRequest(
+        topic=None,
+        genre=req.genre,
+        mood=req.mood,
+        style_preset=req.style,
+        duration_target_sec=req.duration,
+        target_platform=platform,
+        voice_id=req.voice,
+        voice_over=True,
+        bgm=True,
+        subtitles=req.subtitle_burn_in,
+        feature_flags=feature_flags,
+    )
+
+    tracker = ProgressTracker(project_id)
+    pipeline = TrackedPipeline(tracker)
+
+    try:
+        from starlette.concurrency import run_in_threadpool
+        story_data = await run_in_threadpool(
+            pipeline.generate_story_from_script, req.script, project_request
+        )
+        return {
+            "story_data": story_data,
+            "request_params": project_request.dict(),
+            "project_id": project_id
+        }
+    except Exception as e:
+        print(f"Script generation failed: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

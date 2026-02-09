@@ -297,6 +297,11 @@ class MVPipeline:
                     "You are a music video visual director. A GenreProfile has already defined the "
                     "visual identity (palette, lighting, motifs, atmosphere). Your job is to create "
                     "ONLY the characters, scene blocking, and narrative arc.\n\n"
+                    "=== YOUR CORE MISSION ===\n"
+                    "Read the FULL lyrics first. Understand the STORY the song is telling.\n"
+                    "Then design a visual narrative so that a viewer watching ONLY the images (no audio) "
+                    "can understand the story. Every scene image must serve a PURPOSE in the narrative.\n"
+                    "Do NOT randomly assign pretty images. Ask yourself: 'Why does this scene NEED this image?'\n\n"
                     "Return ONLY valid JSON with these fields:\n\n"
                     "=== CHARACTERS (Director's Brief) ===\n"
                     "- characters: array of max 3 character objects, each with:\n"
@@ -310,14 +315,28 @@ class MVPipeline:
                     f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
                     "  - scene_id: int (1-based)\n"
                     "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
-                    "  - narrative_beat: what happens narratively\n"
+                    "  - narrative_beat: WHY this scene exists in the story. What story information does the "
+                    "viewer learn from this image? (e.g. 'Establish protagonist alone in empty apartment — "
+                    "viewer learns she lives alone after breakup')\n"
+                    "  - visual_continuity: how this scene visually connects to the PREVIOUS scene. Use one of:\n"
+                    "    'same_location_time_change' / 'same_character_state_change' / 'cause_and_effect' / "
+                    "'motif_callback' / 'contrast_cut' / 'establishing' (first scene only)\n"
                     "  - characters: array of role names appearing in this scene\n"
                     "  - expression: facial expression/emotion (or null)\n"
                     "  - lighting: scene-specific lighting (or null)\n"
                     "  - action_pose: REQUIRED string describing what the character is PHYSICALLY DOING "
                     "(e.g. 'leaning against wall with arms crossed', 'running through rain', "
                     "'sitting at piano playing keys', 'dancing with arms raised')\n\n"
-                    "=== ACTION_POSE RULES (CRITICAL) ===\n"
+                    "=== VISUAL CONTINUITY RULES (CRITICAL — NO RANDOM IMAGE LISTING) ===\n"
+                    "Adjacent scenes MUST be visually connected. Methods:\n"
+                    "- same_location_time_change: Same place shown at different time (day→night, sunny→rainy)\n"
+                    "- same_character_state_change: Same person's emotional/physical change (smiling→crying)\n"
+                    "- cause_and_effect: Action in scene N leads to result in scene N+1\n"
+                    "- motif_callback: A prop/color/symbol from earlier reappears in transformed form\n"
+                    "- contrast_cut: Deliberate visual contrast to highlight emotional shift\n"
+                    "BAD example: city→flower field→space→ocean (random unrelated backgrounds)\n"
+                    "GOOD example: empty room→picks up photo→flashback: walking together→same street alone\n\n"
+                    "=== ACTION_POSE RULES ===\n"
                     "Lyrics are often METAPHORICAL. You MUST interpret them as realistic human actions:\n"
                     "- 'spitting fire' -> 'rapping intensely into microphone, leaning forward aggressively'\n"
                     "- 'flying high' -> 'standing on rooftop with arms spread wide, wind in hair'\n"
@@ -325,8 +344,6 @@ class MVPipeline:
                     "- 'burning up' -> 'dancing passionately, sweat glistening, dynamic mid-motion pose'\n"
                     "- 'drowning' -> 'curled up on floor in dark room, overwhelmed posture'\n"
                     "NEVER depict metaphors literally (no actual fire-breathing, no literal flying, no supernatural).\n"
-                    "Read the FULL lyrics context to understand the emotional arc, then assign a unique, "
-                    "physically grounded action/pose for EVERY scene. Avoid repetitive standing poses.\n"
                     "Vary poses: sitting, walking, running, dancing, leaning, crouching, reaching, turning away, etc.\n\n"
                     "=== NARRATIVE ARC ===\n"
                     "- narrative_arc: object with:\n"
@@ -346,11 +363,16 @@ class MVPipeline:
                 system_prompt = (
                     "You are a music video visual director. Create a Director's Brief (JSON) that defines "
                     "the entire visual identity AND character/scene direction for this music video.\n\n"
+                    "=== YOUR CORE MISSION ===\n"
+                    "Read the FULL lyrics first. Understand the STORY the song is telling.\n"
+                    "Then design a visual narrative so that a viewer watching ONLY the images (no audio) "
+                    "can understand the story. Every scene image must serve a PURPOSE in the narrative.\n"
+                    "Do NOT randomly assign pretty images. Ask: 'Why does this scene NEED this image?'\n\n"
                     "Return ONLY valid JSON with these fields:\n\n"
                     "=== VISUAL IDENTITY ===\n"
                     "- color_palette: array of 5 hex color codes\n"
                     "- lighting_style: string describing lighting approach\n"
-                    "- recurring_motifs: array of 3-4 visual motifs\n"
+                    "- recurring_motifs: array of 3-4 visual motifs (reuse these across scenes for continuity)\n"
                     "- character_archetypes: array of character type names (brief)\n"
                     "- atmosphere: string describing overall atmosphere\n"
                     "- avoid_keywords: array of visual elements to AVOID\n"
@@ -368,14 +390,28 @@ class MVPipeline:
                     f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
                     "  - scene_id: int (1-based)\n"
                     "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
-                    "  - narrative_beat: what happens narratively\n"
+                    "  - narrative_beat: WHY this scene exists in the story. What story information does the "
+                    "viewer learn from this image? (e.g. 'Establish protagonist alone in empty apartment — "
+                    "viewer learns she lives alone after breakup')\n"
+                    "  - visual_continuity: how this scene visually connects to the PREVIOUS scene. Use one of:\n"
+                    "    'same_location_time_change' / 'same_character_state_change' / 'cause_and_effect' / "
+                    "'motif_callback' / 'contrast_cut' / 'establishing' (first scene only)\n"
                     "  - characters: array of role names appearing in this scene\n"
                     "  - expression: facial expression/emotion (or null)\n"
                     "  - lighting: scene-specific lighting (or null)\n"
                     "  - action_pose: REQUIRED string describing what the character is PHYSICALLY DOING "
                     "(e.g. 'leaning against wall with arms crossed', 'running through rain', "
                     "'sitting at piano playing keys', 'dancing with arms raised')\n\n"
-                    "=== ACTION_POSE RULES (CRITICAL) ===\n"
+                    "=== VISUAL CONTINUITY RULES (CRITICAL — NO RANDOM IMAGE LISTING) ===\n"
+                    "Adjacent scenes MUST be visually connected. Methods:\n"
+                    "- same_location_time_change: Same place shown at different time (day→night, sunny→rainy)\n"
+                    "- same_character_state_change: Same person's emotional/physical change (smiling→crying)\n"
+                    "- cause_and_effect: Action in scene N leads to result in scene N+1\n"
+                    "- motif_callback: A prop/color/symbol from earlier reappears in transformed form\n"
+                    "- contrast_cut: Deliberate visual contrast to highlight emotional shift\n"
+                    "BAD example: city→flower field→space→ocean (random unrelated backgrounds)\n"
+                    "GOOD example: empty room→picks up photo→flashback: walking together→same street alone\n\n"
+                    "=== ACTION_POSE RULES ===\n"
                     "Lyrics are often METAPHORICAL. You MUST interpret them as realistic human actions:\n"
                     "- 'spitting fire' -> 'rapping intensely into microphone, leaning forward aggressively'\n"
                     "- 'flying high' -> 'standing on rooftop with arms spread wide, wind in hair'\n"
@@ -383,8 +419,6 @@ class MVPipeline:
                     "- 'burning up' -> 'dancing passionately, sweat glistening, dynamic mid-motion pose'\n"
                     "- 'drowning' -> 'curled up on floor in dark room, overwhelmed posture'\n"
                     "NEVER depict metaphors literally (no actual fire-breathing, no literal flying, no supernatural).\n"
-                    "Read the FULL lyrics context to understand the emotional arc, then assign a unique, "
-                    "physically grounded action/pose for EVERY scene. Avoid repetitive standing poses.\n"
                     "Vary poses: sitting, walking, running, dancing, leaning, crouching, reaching, turning away, etc.\n\n"
                     "=== NARRATIVE ARC ===\n"
                     "- narrative_arc: object with:\n"
@@ -634,24 +668,15 @@ class MVPipeline:
         project: MVProject,
         request: MVProjectRequest
     ) -> List[MVScene]:
-        """자동 씬 분할 (음악 분석 기반) + primary/derived 분류
+        """자동 씬 분할 (음악 분석 기반)
 
-        첫 등장 segment_type = primary (신규 이미지 생성)
-        재등장 segment_type = derived (원본 이미지 재사용 + 변형 효과)
-        intro/outro는 항상 primary
+        모든 씬이 고유 이미지를 생성합니다.
         """
         scenes = []
 
         if not project.music_analysis:
             raise ValueError("Music analysis required for auto scene creation")
 
-        # segment_type별 첫 등장 씬 ID 추적
-        primary_map = {}  # segment_type → first scene_id
-        # 파생 효과 로테이션 (같은 타입의 2번째, 3번째, ... 재등장 시 다른 효과)
-        derived_effects = ["hflip", "crop_left", "crop_right"]
-        derived_count_map = {}  # segment_type → 재등장 횟수
-
-        # 음악 세그먼트 기반으로 씬 생성
         segments = project.music_analysis.segments
         segment_types = [seg.segment_type for seg in segments]
         for i, segment in enumerate(segments):
@@ -662,49 +687,18 @@ class MVPipeline:
                 segment_types=segment_types,
             )
 
-            seg_type = segment.segment_type
-            # intro, outro는 항상 primary
-            always_primary = seg_type in ("intro", "outro")
-
-            if always_primary or seg_type not in primary_map:
-                # Primary 씬: 신규 이미지 생성
-                scene = MVScene(
-                    scene_id=i + 1,
-                    start_sec=segment.start_sec,
-                    end_sec=segment.end_sec,
-                    duration_sec=segment.duration_sec,
-                    visual_description=f"{seg_type} section",
-                    lyrics_text=lyrics_text,
-                    image_prompt="",
-                    is_derived=False,
-                )
-                if not always_primary:
-                    primary_map[seg_type] = i + 1  # scene_id
-            else:
-                # Derived 씬: 원본 이미지 재사용
-                source_id = primary_map[seg_type]
-                count = derived_count_map.get(seg_type, 0)
-                effect = derived_effects[count % len(derived_effects)]
-                derived_count_map[seg_type] = count + 1
-
-                scene = MVScene(
-                    scene_id=i + 1,
-                    start_sec=segment.start_sec,
-                    end_sec=segment.end_sec,
-                    duration_sec=segment.duration_sec,
-                    visual_description=f"{seg_type} section (derived from scene {source_id})",
-                    lyrics_text=lyrics_text,
-                    image_prompt="",
-                    is_derived=True,
-                    source_scene_id=source_id,
-                    derived_effect=effect,
-                )
-
+            scene = MVScene(
+                scene_id=i + 1,
+                start_sec=segment.start_sec,
+                end_sec=segment.end_sec,
+                duration_sec=segment.duration_sec,
+                visual_description=f"{segment.segment_type} section",
+                lyrics_text=lyrics_text,
+                image_prompt="",
+            )
             scenes.append(scene)
 
-        primary_count = sum(1 for s in scenes if not s.is_derived)
-        derived_count = sum(1 for s in scenes if s.is_derived)
-        print(f"  Scene split: {primary_count} primary + {derived_count} derived = {len(scenes)} total")
+        print(f"  Scene split: {len(scenes)} scenes (all unique images)")
 
         return scenes
 
@@ -876,9 +870,13 @@ class MVPipeline:
 
                 # 씬별 블로킹
                 if vb.scene_blocking:
-                    dc_parts.append("\n[SCENE BLOCKING - 씬별 연출]")
+                    dc_parts.append("\n[SCENE BLOCKING - 씬별 연출 (이 장면이 이야기에서 왜 필요한지 반영)]")
                     for b in vb.scene_blocking:
                         parts_str = f"Scene {b.scene_id}: shot={b.shot_type}"
+                        if getattr(b, 'narrative_beat', None):
+                            parts_str += f", STORY_ROLE={b.narrative_beat}"
+                        if getattr(b, 'visual_continuity', None):
+                            parts_str += f", CONTINUITY={b.visual_continuity}"
                         if b.characters:
                             parts_str += f", characters={b.characters}"
                         if b.expression:
@@ -918,30 +916,50 @@ class MVPipeline:
                     genre_profile_context = "\n[GENRE PROFILE]\n" + "\n".join(gp_parts) + "\n"
 
             system_prompt = (
-                "당신은 뮤직비디오 비주얼 디렉터입니다. "
-                "각 씬에 대해 이미지 생성 AI가 사용할 영어 프롬프트를 만들어주세요.\n\n"
-                "규칙:\n"
-                "- 각 씬마다 완전히 다른 구체적인 장면을 묘사하세요\n"
-                "- 가사의 감정과 의미를 시각적으로 표현하세요\n"
-                "- 인물, 배경, 조명, 색감, 구도를 구체적으로 지정하세요\n"
-                "- 노래의 흐름에 따라 시각적 스토리가 진행되도록 하세요\n"
-                "- 각 프롬프트는 영어로 1-2문장, 쉼표로 구분된 키워드 형태\n"
-                "- 절대 씬 번호나 설명 없이 프롬프트만 출력\n"
-                "- 정확히 씬 개수만큼 줄을 출력하세요 (한 줄에 하나의 프롬프트)\n"
-                "- 중요: 모든 프롬프트 끝에 반드시 'no text, no letters, no words, no writing, no watermark'를 포함하세요\n\n"
-                "- CHARACTERS 섹션의 인물만 프롬프트에 등장시키세요. 정의되지 않은 인물은 절대 추가 금지.\n"
-                "- SCENE BLOCKING의 shot_type, expression, lighting, ACTION을 각 씬 프롬프트에 반드시 반영하세요.\n"
-                "- 캐릭터 외형(인종, 나이, 헤어 등)을 프롬프트에 구체적으로 포함하세요.\n"
-                "- 중요: ACTION 필드의 동작/포즈를 프롬프트에 반드시 포함하세요. "
-                "캐릭터가 단순히 서있는 모습이 아니라, 구체적인 신체 동작을 하고 있어야 합니다.\n"
+                "당신은 뮤직비디오 감독(Visual Director)입니다.\n"
+                "당신의 임무는 가사 전체를 하나의 '시각적 이야기'로 만드는 것입니다.\n"
+                "시청자가 이미지만 순서대로 봐도 '아, 이런 이야기구나'를 이해할 수 있어야 합니다.\n\n"
+
+                "=== 핵심 원칙: 서사적 개연성 ===\n"
+                "1. 먼저 가사 전체를 읽고 '이 노래가 말하는 이야기'를 파악하세요.\n"
+                "2. 그 이야기를 시각적으로 전달하기 위해 '꼭 필요한 장면'이 무엇인지 판단하세요.\n"
+                "3. 각 씬의 이미지는 이야기 속에서 '역할'이 있어야 합니다:\n"
+                "   - 도입부: 주인공과 세계관을 소개하는 설정 샷 (누구인지, 어디인지)\n"
+                "   - 전개부: 사건/감정의 변화를 보여주는 장면 (무슨 일이 일어나는지)\n"
+                "   - 클라이맥스: 감정의 정점을 시각적으로 폭발시키는 장면\n"
+                "   - 마무리: 결말 또는 여운을 남기는 장면\n\n"
+
+                "=== 씬 간 연결 규칙 (나열 금지) ===\n"
+                "- 연속된 씬은 시각적으로 연결되어야 합니다. 방법:\n"
+                "  a) 같은 장소를 다른 시간대에 보여주기 (낮→밤, 맑음→비)\n"
+                "  b) 같은 인물의 상태 변화 (웃는 얼굴→눈물, 함께→혼자)\n"
+                "  c) 인과관계가 있는 행동 (편지를 쓰는 손→우체통에 넣기→상대방이 읽기)\n"
+                "  d) 시각적 모티프 반복 (특정 소품, 색상, 장소가 변형되며 반복)\n"
+                "- 절대 금지: 씬마다 아무 관계 없는 랜덤 이미지를 나열하는 것\n"
+                "- 예시 (나쁜 예): 도시 야경 → 꽃밭 → 우주 → 바다 (관계 없는 배경 나열)\n"
+                "- 예시 (좋은 예): 빈 방에 혼자 앉아있음 → 사진을 꺼내 바라봄 → "
+                "회상: 둘이 같이 걷던 거리 → 같은 거리를 혼자 걸음 (인과관계+장소 반복)\n\n"
+
+                "=== 캐릭터/동작 규칙 ===\n"
+                "- CHARACTERS 섹션의 인물만 등장. 정의되지 않은 인물 절대 추가 금지.\n"
+                "- 캐릭터 외형(인종, 나이, 헤어, 체형)을 프롬프트에 구체적으로 포함하세요.\n"
+                "- SCENE BLOCKING의 shot_type, expression, lighting, ACTION을 반드시 반영하세요.\n"
+                "- ACTION 필드의 동작/포즈를 프롬프트에 반드시 포함. 단순 서있기 금지.\n"
                 "  예시: 'walking down rainy street', 'sitting on bench looking up at sky', "
                 "'dancing mid-spin with flowing dress', 'leaning on railing gazing at city lights'\n"
                 "- 가사의 은유적 표현을 절대 문자 그대로 묘사하지 마세요. "
                 "현실적이고 자연스러운 인간 동작으로 변환하세요.\n\n"
+
+                "=== 출력 형식 ===\n"
+                "- 정확히 씬 개수만큼 줄을 출력 (한 줄에 하나의 프롬프트)\n"
+                "- 각 프롬프트는 영어로 1-2문장, 쉼표로 구분된 키워드 형태\n"
+                "- 절대 씬 번호나 설명 없이 프롬프트만 출력\n"
+                "- 모든 프롬프트 끝에 반드시 'no text, no letters, no words, no writing, no watermark' 포함\n"
                 "- 고급: 각 프롬프트 끝에 '|' 구분자로 추가 지시를 포함하세요:\n"
                 "  형식: positive prompt | negative keywords | color mood | camera directive\n"
                 "  예: cinematic hero shot... | gore, blood | warm golden | low angle tracking\n"
                 "  negative/color/camera가 불필요하면 비워두되 구분자는 유지: prompt | | |\n\n"
+
                 f"[필수 비주얼 스타일]\n"
                 f"모든 씬에 다음 스타일을 강하게 적용하세요:\n"
                 f"- 아트 스타일: {style_guide}\n"
@@ -956,6 +974,9 @@ class MVPipeline:
             user_prompt = (
                 f"컨셉: {request.concept or '자유'}\n"
                 f"총 씬 수: {len(project.scenes)}\n\n"
+                f"[중요] 먼저 아래 가사 전체를 읽고 '이 노래의 이야기'를 파악한 뒤,\n"
+                f"각 씬이 그 이야기의 어느 부분을 담당하는지 정한 후 프롬프트를 작성하세요.\n"
+                f"시청자가 이미지 순서만 봐도 이야기를 따라갈 수 있어야 합니다.\n\n"
                 f"씬 정보:\n{scenes_text}\n\n"
                 f"위 {len(project.scenes)}개 씬에 대해 각각 이미지 생성 프롬프트를 한 줄씩 출력하세요."
             )
@@ -1153,13 +1174,11 @@ class MVPipeline:
         # Visual Bible dict (이미지 생성에 전달)
         vb_dict = project.visual_bible.model_dump() if project.visual_bible else None
 
-        # 1차: primary 씬만 이미지 생성
-        primary_scenes = [s for s in project.scenes if not s.is_derived]
-        derived_scenes = [s for s in project.scenes if s.is_derived]
-        print(f"  Generating {len(primary_scenes)} primary images (skipping {len(derived_scenes)} derived)")
+        # 모든 씬에 고유 이미지 생성
+        print(f"  Generating {total_scenes} unique images")
 
-        for i, scene in enumerate(primary_scenes):
-            print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image (primary)...")
+        for i, scene in enumerate(project.scenes):
+            print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
             if style_anchor_path:
                 print(f"    [Anchor] Using style anchor: {os.path.basename(style_anchor_path)}")
             scene.status = MVSceneStatus.GENERATING
@@ -1195,9 +1214,9 @@ class MVPipeline:
 
                 print(f"    Image saved: {image_path}")
 
-                # 진행률 업데이트 (primary 기준)
+                # 진행률 업데이트
                 progress_per_scene = 50 / total_scenes
-                project.progress = int(20 + (i + 1) * progress_per_scene * (total_scenes / len(primary_scenes)))
+                project.progress = int(20 + (i + 1) * progress_per_scene)
 
             except Exception as e:
                 scene.status = MVSceneStatus.FAILED
@@ -1217,17 +1236,6 @@ class MVPipeline:
             # 매니페스트 저장 (각 씬마다)
             self._save_manifest(project, project_dir)
 
-        # 2차: derived 씬에 원본 이미지 경로 할당
-        scene_map = {s.scene_id: s for s in project.scenes}
-        for scene in derived_scenes:
-            source = scene_map.get(scene.source_scene_id)
-            if source and source.image_path and os.path.exists(source.image_path):
-                scene.image_path = source.image_path  # 원본 이미지 공유
-                scene.status = MVSceneStatus.COMPLETED
-                print(f"  [Scene {scene.scene_id}] Derived from scene {source.scene_id} ({scene.derived_effect})")
-            else:
-                print(f"  [Scene {scene.scene_id}] Derived source {scene.source_scene_id} has no image, skipping")
-                scene.status = MVSceneStatus.FAILED
         self._save_manifest(project, project_dir)
 
         # 성공한 이미지 수 확인
@@ -1290,7 +1298,7 @@ class MVPipeline:
             for i, scene in enumerate(completed_scenes):
                 clip_path = f"{project_dir}/media/video/scene_{scene.scene_id:02d}.mp4"
 
-                print(f"    [Scene {scene.scene_id}] image_path: {scene.image_path} {'(derived)' if scene.is_derived else ''}")
+                print(f"    [Scene {scene.scene_id}] image_path: {scene.image_path}")
 
                 # I2V로 생성된 비디오가 이미 있으면 그대로 사용
                 if scene.video_path and os.path.exists(scene.video_path):
@@ -1304,16 +1312,7 @@ class MVPipeline:
                     continue
 
                 # Ken Burns 효과 결정
-                use_hflip = False
-                if scene.is_derived and scene.derived_effect:
-                    # 파생 씬: 파생 효과 사용 (hflip, crop_left, crop_right)
-                    if scene.derived_effect == "hflip":
-                        effect = effect_types[i % len(effect_types)]
-                        use_hflip = True
-                    else:
-                        effect = scene.derived_effect  # crop_left, crop_right
-                else:
-                    effect = effect_types[i % len(effect_types)]
+                effect = effect_types[i % len(effect_types)]
 
                 try:
                     self.ffmpeg_composer.ken_burns_clip(
@@ -1321,7 +1320,6 @@ class MVPipeline:
                         out_path=clip_path,
                         duration_sec=scene.duration_sec,
                         effect_type=effect,
-                        hflip=use_hflip
                     )
                     scene.video_path = clip_path
                     video_clips.append(clip_path)

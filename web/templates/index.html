@@ -957,8 +957,22 @@
                 <h2>🎬 새 영상 만들기</h2>
 
                 <form id="generate-form" class="form">
-                    <!-- 주제 -->
+                    <!-- 입력 모드 토글 -->
                     <div class="form-group">
+                        <div id="mode-toggle" style="display:flex; gap:0; border:1px solid rgba(255,255,255,0.15); border-radius:8px; overflow:hidden; margin-bottom:4px;">
+                            <button type="button" id="mode-ai-story" class="mode-toggle-btn active"
+                                style="flex:1; padding:10px 16px; border:none; cursor:pointer; font-size:14px; font-weight:600; transition:all 0.2s; background:rgba(139,92,246,0.3); color:#c4b5fd;">
+                                AI 스토리 생성
+                            </button>
+                            <button type="button" id="mode-direct-script" class="mode-toggle-btn"
+                                style="flex:1; padding:10px 16px; border:none; cursor:pointer; font-size:14px; font-weight:600; transition:all 0.2s; background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.5);">
+                                스크립트 직접 입력
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- AI 스토리 모드: 주제 입력 -->
+                    <div id="ai-story-inputs" class="form-group">
                         <label for="topic">
                             <span class="label-icon">💡</span>
                             주제 / 아이디어
@@ -966,6 +980,18 @@
                         <input type="text" id="topic" name="topic" placeholder="예: 오래된 폐병원에서 발견된 미스터리한 일기장"
                             class="input" />
                         <small class="helper-text">주제를 비워두면 AI가 자동으로 생성합니다</small>
+                    </div>
+
+                    <!-- 스크립트 직접 입력 모드 -->
+                    <div id="direct-script-inputs" class="form-group" style="display:none;">
+                        <label for="direct-script">
+                            <span class="label-icon">📋</span>
+                            내레이션 스크립트
+                        </label>
+                        <textarea id="direct-script" rows="12"
+                            placeholder="내레이션 스크립트를 붙여넣으세요.&#10;&#10;빈 줄로 장면을 구분합니다.&#10;&#10;예시:&#10;망하는 장사 속에서 살아남는 장사.&#10;빵일이의 장사연구소입니다.&#10;&#10;지난 영상에서 소개한 가게가&#10;큰 반응을 얻었습니다."
+                            class="input" style="resize:vertical; min-height:200px; font-size:14px; line-height:1.6;"></textarea>
+                        <small class="helper-text">빈 줄로 장면(씬)을 구분합니다. AI가 각 장면에 맞는 이미지를 자동 생성합니다.</small>
                     </div>
 
                     <!-- 장르 -->

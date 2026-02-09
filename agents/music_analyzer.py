@@ -148,14 +148,14 @@ class MusicAnalyzer:
     def _create_basic_segments(
         self,
         duration_sec: float,
-        target_segment_duration: float = 8.0
+        target_segment_duration: float = 12.0
     ) -> List[dict]:
         """
         기본 균등 구간 분할
 
         Args:
             duration_sec: 전체 길이
-            target_segment_duration: 목표 구간 길이 (기본 8초)
+            target_segment_duration: 목표 구간 길이 (기본 12초)
 
         Returns:
             구간 목록
