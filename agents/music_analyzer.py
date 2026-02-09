@@ -197,23 +197,24 @@ class MusicAnalyzer:
 
     def sync_user_lyrics_with_gemini(self, audio_path: str, user_lyrics: str) -> Optional[str]:
         """
-        사용자가 제공한 가사를 음악에 맞춰 타이밍만 생성
+        사용자 가사를 참조하여 음악에서 가사+타이밍 추출 (v2 - 참조 기반 추출)
 
-        Gemini에게 음악 + 가사 텍스트를 주고, 각 줄의 시작 시간만 맞춰달라고 요청.
-        가사 텍스트는 사용자 원본을 그대로 사용하므로 추출 오류가 없음.
+        기존 방식: "가사에 타이밍만 붙여줘" -> Gemini가 타이밍 추측 실패 잦음
+        새 방식: "음악을 듣고 가사를 추출하되, 참조 가사를 기준으로 텍스트 매칭"
+        -> Gemini가 실제 보컬 구간을 감지하므로 타이밍이 훨씬 정확
 
         Args:
             audio_path: 음악 파일 경로
-            user_lyrics: 사용자가 입력한 가사 텍스트
+            user_lyrics: 사용자가 입력한 가사 텍스트 (참조용)
 
         Returns:
-            사용자 가사 텍스트 (timed_lyrics는 self._last_timed_lyrics에 저장)
+            가사 텍스트 (timed_lyrics는 self._last_timed_lyrics에 저장)
         """
-        print(f"[MusicAnalyzer] Syncing user lyrics with music timing...")
+        print(f"[MusicAnalyzer] Extracting lyrics with reference (v2)...")
 
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("  [Gemini] GOOGLE_API_KEY not set, skipping timing sync")
+            print("  [Gemini] GOOGLE_API_KEY not set, skipping")
             self._last_timed_lyrics = None
             return user_lyrics
 
@@ -222,67 +223,37 @@ class MusicAnalyzer:
             from google.genai import types
             import shutil
             import tempfile
-            import json
+            import re as _re_local
 
             client = genai.Client(api_key=api_key)
 
-            # non-ASCII 파일명 대응
-            ext = Path(audio_path).suffix
-            temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, f"gemini_sync_upload{ext}")
-            shutil.copy2(audio_path, temp_path)
-
-            try:
-                audio_file = client.files.upload(file=temp_path)
-                print(f"  [Gemini] File uploaded: {audio_file.name}")
-            finally:
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    pass
-
-            # 섹션 마커 제거 ([Chorus], [Verse 1], [Pre-Chorus] 등)
-            import re as _re_local
+            # 섹션 마커 제거 ([Chorus], [Verse 1] 등)
             cleaned_lyrics = _re_local.sub(r'^\[.*?\]\s*$', '', user_lyrics, flags=_re_local.MULTILINE).strip()
-            # 빈 줄 정리
             cleaned_lyrics = _re_local.sub(r'\n{3,}', '\n\n', cleaned_lyrics)
 
-            prompt_text = (
-                "아래 가사가 이 음악에서 불리는 정확한 타이밍을 맞춰주세요.\n\n"
-                "== 가사 ==\n"
-                f"{cleaned_lyrics}\n"
-                "== 끝 ==\n\n"
-                "규칙:\n"
-                "1. 위 가사 텍스트를 그대로 사용하세요 (수정/추가/삭제 금지)\n"
-                "2. t = 해당 가사가 보컬로 불리기 시작하는 정확한 시간(초)\n"
-                "3. t는 반드시 단조 증가 (이전 값보다 항상 커야 함)\n"
-                "4. 음악을 잘 들으면서 실제 보컬 시작 지점에 맞춰주세요\n"
-                "5. 간주/인스트루멘탈 구간의 가사는 해당 구간 이후에 배치\n"
-                "6. [Chorus], [Verse], [Bridge] 같은 섹션 마커는 절대 포함하지 마세요\n"
-                "7. 한 줄이 30자를 초과하면 적절히 분할\n\n"
-                "출력: JSON 배열만\n"
-                '[{"t": 5.2, "text": "가사 첫줄"}, {"t": 8.7, "text": "가사 둘째줄"}, ...]'
-            )
+            # 오디오 길이 확인
+            duration = self._get_audio_duration(audio_path)
+            print(f"  [Gemini] Audio duration: {duration:.1f}s")
 
-            print(f"  [Gemini] Syncing timing for {len(user_lyrics.splitlines())} lines...")
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[audio_file, prompt_text],
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    response_mime_type="application/json",
-                )
-            )
+            if duration <= 90:
+                result = self._sync_single_pass(client, audio_path, cleaned_lyrics)
+            else:
+                result = self._sync_chunked(client, audio_path, cleaned_lyrics, duration)
 
-            result = self._parse_gemini_response(response.text, "user-sync")
             if result and self._validate_timestamps(result):
                 self._last_timed_lyrics = result
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
                 print(f"  [Gemini] Sync complete: {len(result)} entries, {len(plain)} chars")
                 print(f"  [Gemini] Time range: {result[0]['t']}s ~ {result[-1]['t']}s")
                 return plain
+            elif result:
+                # 검증 실패해도 결과가 있으면 보간으로 살려서 사용
+                print(f"  [Gemini] Timestamps imperfect, using with interpolation fix")
+                self._last_timed_lyrics = result
+                plain = "\n".join(e["text"] for e in result if e.get("text"))
+                return plain
             else:
-                print(f"  [Gemini] Timing sync failed or invalid, using lyrics without timing")
+                print(f"  [Gemini] Extraction failed, using lyrics without timing")
                 self._last_timed_lyrics = None
                 return user_lyrics
 
@@ -292,6 +263,177 @@ class MusicAnalyzer:
             traceback.print_exc()
             self._last_timed_lyrics = None
             return user_lyrics
+
+    def _sync_single_pass(self, client, audio_path: str, ref_lyrics: str) -> Optional[list]:
+        """참조 가사 기반 단일 패스 추출 (90초 이하)"""
+        from google.genai import types
+        import shutil
+        import tempfile
+
+        ext = Path(audio_path).suffix
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, f"gemini_refsync_upload{ext}")
+        shutil.copy2(audio_path, temp_path)
+
+        try:
+            audio_file = client.files.upload(file=temp_path)
+            print(f"  [Gemini] File uploaded: {audio_file.name}")
+        finally:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+        prompt_text = (
+            "이 음악을 처음부터 끝까지 주의 깊게 들으면서 가사를 타임스탬프와 함께 추출하세요.\n\n"
+            "아래는 참조용 가사입니다. 텍스트는 이것을 기준으로 매칭하세요:\n"
+            "== 참조 가사 ==\n"
+            f"{ref_lyrics}\n"
+            "== 끝 ==\n\n"
+            "작업 방법:\n"
+            "1. 음악을 듣고 보컬이 시작되는 정확한 시간을 감지하세요\n"
+            "2. 들리는 가사를 위 참조 가사에서 찾아 매칭하세요\n"
+            "3. 참조 가사에 있는 텍스트를 그대로 사용하세요 (임의 수정 금지)\n"
+            "4. 보컬이 없는 구간(간주/인트로/아웃트로)은 건너뛰세요\n\n"
+            "출력 규칙:\n"
+            "- t = 해당 가사가 보컬로 불리기 시작하는 정확한 시간(초)\n"
+            "- t는 반드시 단조 증가 (이전 값보다 항상 커야 함)\n"
+            "- 후렴구가 반복되면 매번 새로운 t를 부여하세요\n"
+            "- [Chorus], [Verse] 같은 섹션 마커는 포함하지 마세요\n"
+            "- 한 줄이 30자를 초과하면 적절히 분할하세요\n\n"
+            "출력: JSON 배열만\n"
+            '[{"t": 5.2, "text": "가사 첫줄"}, {"t": 8.7, "text": "가사 둘째줄"}, ...]'
+        )
+
+        print(f"  [Gemini] Extracting with reference lyrics (single pass)...")
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[audio_file, prompt_text],
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                response_mime_type="application/json",
+            )
+        )
+
+        return self._parse_gemini_response(response.text, "ref-sync")
+
+    def _sync_chunked(self, client, audio_path: str, ref_lyrics: str, total_duration: float) -> Optional[list]:
+        """참조 가사 기반 청크 분할 추출 (90초 초과)"""
+        from google.genai import types
+        import subprocess
+        import shutil
+        import tempfile
+
+        # 가사를 대략적으로 분할 (청크에 해당하는 가사 범위 힌트)
+        lyrics_lines = [l.strip() for l in ref_lyrics.split('\n') if l.strip()]
+        total_lines = len(lyrics_lines)
+
+        chunk_duration = 60
+        overlap = 5
+        chunks = []
+        start = 0
+        while start < total_duration:
+            end = min(start + chunk_duration, total_duration)
+            chunks.append((start, end))
+            start = end - overlap
+            if end >= total_duration:
+                break
+
+        print(f"  [Gemini] Chunked ref-sync: {len(chunks)} chunks for {total_duration:.0f}s audio")
+
+        all_entries = []
+        ext = Path(audio_path).suffix
+        temp_dir = tempfile.gettempdir()
+
+        for i, (chunk_start, chunk_end) in enumerate(chunks):
+            chunk_path = os.path.join(temp_dir, f"gemini_refsync_chunk_{i}{ext}")
+
+            try:
+                # ffmpeg로 청크 추출
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-ss", str(chunk_start),
+                    "-t", str(chunk_end - chunk_start),
+                    "-i", audio_path,
+                    "-acodec", "copy",
+                    chunk_path
+                ]
+                subprocess.run(
+                    cmd, capture_output=True, timeout=30,
+                    encoding='utf-8', errors='replace'
+                )
+
+                if not os.path.exists(chunk_path):
+                    print(f"  [Gemini] Chunk {i+1} extraction failed")
+                    continue
+
+                upload_path = os.path.join(temp_dir, f"gemini_refsync_upload_{i}{ext}")
+                shutil.copy2(chunk_path, upload_path)
+
+                try:
+                    audio_file = client.files.upload(file=upload_path)
+                except Exception as upload_err:
+                    print(f"  [Gemini] Chunk {i+1} upload failed: {upload_err}")
+                    continue
+                finally:
+                    try:
+                        os.remove(upload_path)
+                    except OSError:
+                        pass
+
+                # 이 청크에 해당하는 참조 가사 범위 추정
+                ratio_start = chunk_start / total_duration
+                ratio_end = chunk_end / total_duration
+                line_start = int(ratio_start * total_lines)
+                line_end = min(int(ratio_end * total_lines) + 3, total_lines)  # 여유분
+                chunk_ref = "\n".join(lyrics_lines[line_start:line_end])
+
+                prompt_text = (
+                    f"이 오디오 클립은 전체 노래의 {chunk_start:.0f}초~{chunk_end:.0f}초 구간입니다.\n"
+                    "이 클립을 듣고 가사를 타임스탬프와 함께 추출하세요.\n\n"
+                    "참조용 가사 (이 구간에 해당하는 부분):\n"
+                    f"== 참조 ==\n{chunk_ref}\n== 끝 ==\n\n"
+                    "규칙:\n"
+                    "1. t = 이 클립 내에서 해당 가사가 시작되는 시간(초) (0부터 시작)\n"
+                    "2. t는 반드시 단조 증가\n"
+                    "3. 참조 가사의 텍스트를 그대로 사용하세요\n"
+                    "4. 보컬이 있는 구간만 기록\n"
+                    "5. 한 줄 최대 30자\n\n"
+                    "출력: JSON 배열만\n"
+                    '[{"t": 0.0, "text": "가사"}, {"t": 3.5, "text": "가사"}, ...]'
+                )
+
+                print(f"  [Gemini] Chunk {i+1}/{len(chunks)} ({chunk_start:.0f}s~{chunk_end:.0f}s)...")
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[audio_file, prompt_text],
+                    config=types.GenerateContentConfig(
+                        temperature=0.0,
+                        response_mime_type="application/json",
+                    )
+                )
+
+                chunk_entries = self._parse_gemini_response(response.text, f"ref-chunk{i+1}")
+                if chunk_entries:
+                    for entry in chunk_entries:
+                        entry["t"] = round(entry["t"] + chunk_start, 1)
+                    print(f"    -> {len(chunk_entries)} entries ({chunk_entries[0]['t']}s ~ {chunk_entries[-1]['t']}s)")
+                    all_entries.extend(chunk_entries)
+
+            finally:
+                try:
+                    os.remove(chunk_path)
+                except OSError:
+                    pass
+
+        if not all_entries:
+            print(f"  [Gemini] No lyrics from any chunk")
+            return None
+
+        all_entries.sort(key=lambda e: e["t"])
+        merged = self._deduplicate_entries(all_entries)
+        print(f"  [Gemini] Merged: {len(merged)} entries, range: {merged[0]['t']}s ~ {merged[-1]['t']}s")
+        return merged
 
     def extract_lyrics_with_gemini(self, audio_path: str) -> Optional[str]:
         """
