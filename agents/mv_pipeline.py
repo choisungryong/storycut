@@ -322,7 +322,12 @@ class MVPipeline:
                     "    'same_location_time_change' / 'same_character_state_change' / 'cause_and_effect' / "
                     "'motif_callback' / 'contrast_cut' / 'establishing' (first scene only)\n"
                     "  - characters: array of role names appearing in this scene\n"
-                    "  - expression: facial expression/emotion (or null)\n"
+                    "  - expression: REQUIRED string - the character's facial expression matching the lyrics emotion "
+                    "(e.g. 'tearful with trembling lips', 'bright joyful smile with sparkling eyes', "
+                    "'clenched jaw with furious glare', 'gentle melancholic gaze', 'wide-eyed shock', "
+                    "'peaceful closed-eye serenity', 'bitter smirk holding back tears')\n"
+                    "    IMPORTANT: Expression MUST change scene-by-scene following the song's emotional arc. "
+                    "A sad verse needs grief, a powerful chorus needs intensity, a calm bridge needs peace.\n"
                     "  - lighting: scene-specific lighting (or null)\n"
                     "  - action_pose: REQUIRED string describing what the character is PHYSICALLY DOING "
                     "(e.g. 'leaning against wall with arms crossed', 'running through rain', "
@@ -397,7 +402,12 @@ class MVPipeline:
                     "    'same_location_time_change' / 'same_character_state_change' / 'cause_and_effect' / "
                     "'motif_callback' / 'contrast_cut' / 'establishing' (first scene only)\n"
                     "  - characters: array of role names appearing in this scene\n"
-                    "  - expression: facial expression/emotion (or null)\n"
+                    "  - expression: REQUIRED string - the character's facial expression matching the lyrics emotion "
+                    "(e.g. 'tearful with trembling lips', 'bright joyful smile with sparkling eyes', "
+                    "'clenched jaw with furious glare', 'gentle melancholic gaze', 'wide-eyed shock', "
+                    "'peaceful closed-eye serenity', 'bitter smirk holding back tears')\n"
+                    "    IMPORTANT: Expression MUST change scene-by-scene following the song's emotional arc. "
+                    "A sad verse needs grief, a powerful chorus needs intensity, a calm bridge needs peace.\n"
                     "  - lighting: scene-specific lighting (or null)\n"
                     "  - action_pose: REQUIRED string describing what the character is PHYSICALLY DOING "
                     "(e.g. 'leaning against wall with arms crossed', 'running through rain', "
@@ -880,7 +890,7 @@ class MVPipeline:
                         if b.characters:
                             parts_str += f", characters={b.characters}"
                         if b.expression:
-                            parts_str += f", expression={b.expression}"
+                            parts_str += f", EXPRESSION={b.expression}"
                         if b.action_pose:
                             parts_str += f", ACTION={b.action_pose}"
                         if b.lighting:
@@ -944,6 +954,10 @@ class MVPipeline:
                 "- CHARACTERS 섹션의 인물만 등장. 정의되지 않은 인물 절대 추가 금지.\n"
                 "- 캐릭터 외형(인종, 나이, 헤어, 체형)을 프롬프트에 구체적으로 포함하세요.\n"
                 "- SCENE BLOCKING의 shot_type, expression, lighting, ACTION을 반드시 반영하세요.\n"
+                "- EXPRESSION 필드의 표정을 프롬프트 앞부분에 강하게 포함. 무표정 금지.\n"
+                "  표정은 가사의 감정을 직접 반영해야 합니다. 슬픈 가사=슬픈 표정, 격한 가사=격한 표정.\n"
+                "  예시: 'tearful eyes looking down', 'joyful bright smile', 'fierce determined expression', "
+                "'peaceful serene face with closed eyes', 'anguished screaming expression'\n"
                 "- ACTION 필드의 동작/포즈를 프롬프트에 반드시 포함. 단순 서있기 금지.\n"
                 "  예시: 'walking down rainy street', 'sitting on bench looking up at sky', "
                 "'dancing mid-spin with flowing dress', 'leaning on railing gazing at city lights'\n"
@@ -1658,8 +1672,9 @@ class MVPipeline:
                         ]
                         all_entries.extend(scene_entries)
 
-                # 시간순 정렬 후 SRT 생성
+                # 시간순 정렬 후 중복 제거 + SRT 생성
                 all_entries.sort(key=lambda e: float(e.get("t", 0)))
+                all_entries = self._deduplicate_merged_entries(all_entries)
                 srt_lines = self._srt_from_timed_lyrics(all_entries)
         else:
             # fallback: 씬 기반 균등 분할 (timed_lyrics 없음)
@@ -1689,6 +1704,26 @@ class MVPipeline:
         entry_count = len([l for l in srt_lines if l.startswith("00:") or l.startswith("01:") or l.startswith("02:")])
         print(f"    SRT generated: {output_path} ({entry_count} entries)")
 
+    @staticmethod
+    def _deduplicate_merged_entries(entries: list) -> list:
+        """하이브리드 SRT 병합 후 최종 중복 제거 (시간순 정렬된 상태 전제)"""
+        if len(entries) <= 1:
+            return entries
+        result = [entries[0]]
+        for entry in entries[1:]:
+            prev = result[-1]
+            time_diff = abs(float(entry.get("t", 0)) - float(prev.get("t", 0)))
+            t_a = prev.get("text", "").strip()
+            t_b = entry.get("text", "").strip()
+            # 3초 이내 + 텍스트 동일/포함 관계면 중복
+            if time_diff < 3.0 and (t_a == t_b or t_a in t_b or t_b in t_a):
+                continue
+            # 0.5초 미만이면 무조건 중복
+            if time_diff < 0.5:
+                continue
+            result.append(entry)
+        return result
+
     def _srt_from_timed_lyrics(self, timed_lyrics: list) -> list:
         """timed_lyrics 배열을 SRT 라인으로 변환
 
@@ -1713,7 +1748,7 @@ class MVPipeline:
 
             if i + 1 < len(displayed):
                 next_start = float(displayed[i + 1].get("t", start_sec + 4))
-                end_sec = min(next_start - 0.3, start_sec + 5)
+                end_sec = min(next_start - 0.05, start_sec + 5)
             else:
                 end_sec = start_sec + 4
             end_sec = max(end_sec, start_sec + 1.0)

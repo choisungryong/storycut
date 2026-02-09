@@ -747,7 +747,7 @@ class MusicAnalyzer:
     def _deduplicate_entries(self, entries: list) -> list:
         """
         오버랩 구간에서 발생하는 중복 가사 제거
-        - 시간차 1.5초 이내 + 텍스트 유사도 높은 엔트리 병합
+        - 시간차 3초 이내 + 텍스트 유사도 높은 엔트리 병합
         """
         if len(entries) <= 1:
             return entries
@@ -757,12 +757,12 @@ class MusicAnalyzer:
             prev = merged[-1]
             time_diff = abs(entry["t"] - prev["t"])
 
-            # 시간차 1.5초 이내이고 텍스트가 비슷하면 중복으로 간주
-            if time_diff < 1.5 and self._text_similar(prev["text"], entry["text"]):
+            # 시간차 3초 이내이고 텍스트가 비슷하면 중복으로 간주
+            if time_diff < 3.0 and self._text_similar(prev["text"], entry["text"]):
                 # 더 나중 시간의 것을 유지 (오버랩 뒤쪽이 더 정확)
                 continue
-            # 시간차 0.3초 미만이면 동일 엔트리로 간주
-            elif time_diff < 0.3:
+            # 시간차 0.5초 미만이면 동일 엔트리로 간주
+            elif time_diff < 0.5:
                 continue
             else:
                 merged.append(entry)
