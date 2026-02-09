@@ -236,6 +236,62 @@ class VideoAgent:
         print(f"     Video saved: {video_path} (method: {generation_method})")
         return video_path
 
+    def generate_from_image(
+        self,
+        image_path: str,
+        prompt: str = "",
+        duration_sec: int = 5,
+        output_dir: str = "media/video",
+        scene_id: int = 1,
+        motion_prompt: str = "camera slowly pans across the scene"
+    ) -> str:
+        """
+        Convert a static image to video using Veo I2V.
+        Falls back to Ken Burns if Veo fails.
+
+        Args:
+            image_path: Path to the source image
+            prompt: Scene description (used for movement prompt building)
+            duration_sec: Video duration in seconds
+            output_dir: Output directory
+            scene_id: Scene ID for filename
+            motion_prompt: Camera/motion prompt for I2V
+
+        Returns:
+            Path to generated video file
+        """
+        print(f"  [I2V] Converting image to video: scene {scene_id}")
+        print(f"     Image: {image_path}")
+        print(f"     Motion: {motion_prompt}")
+
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = f"{output_dir}/scene_{scene_id:02d}_i2v.mp4"
+
+        # Veo I2V 시도
+        try:
+            enforced_duration = self._enforce_clip_length(min(duration_sec, 10), has_characters=True)
+            video_path = self._generate_high_quality_video(
+                prompt=motion_prompt or prompt,
+                style="cinematic",
+                mood="neutral",
+                duration_sec=enforced_duration,
+                output_path=output_path,
+                first_frame_image=image_path
+            )
+            print(f"     [I2V] Veo I2V success: {video_path}")
+            return video_path
+        except Exception as e:
+            print(f"     [I2V] Veo failed: {e}, falling back to Ken Burns")
+
+        # Fallback: Ken Burns on existing image
+        return self._apply_kenburns_effect(
+            image_path=image_path,
+            duration_sec=duration_sec,
+            output_path=output_path,
+            scene_id=scene_id,
+            camera_work="Zoom In"
+        )
+
     def _generate_high_quality_video(
         self,
         prompt: str,

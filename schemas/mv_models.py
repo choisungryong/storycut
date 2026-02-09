@@ -252,6 +252,9 @@ class MVProjectRequest(BaseModel):
     mood: MVMood = Field(default=MVMood.EPIC)
     style: MVStyle = Field(default=MVStyle.CINEMATIC)
 
+    # 옵션
+    subtitle_enabled: bool = Field(default=True, description="가사 자막 burn-in 여부")
+
     # 수동 씬 분할 (Phase 1)
     manual_scenes: Optional[List[Dict[str, Any]]] = Field(
         None,
@@ -276,6 +279,9 @@ class MVProject(BaseModel):
     genre: MVGenre = Field(default=MVGenre.FANTASY)
     mood: MVMood = Field(default=MVMood.EPIC)
     style: MVStyle = Field(default=MVStyle.CINEMATIC)
+
+    # 옵션
+    subtitle_enabled: bool = Field(default=True, description="가사 자막 burn-in 여부")
 
     # 씬 목록
     scenes: List[MVScene] = Field(default_factory=list)

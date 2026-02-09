@@ -1435,6 +1435,7 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
     
     print(f"\n[API] Converting image to video for scene {scene_id} in project {project_id}")
 
+    manifest_path = f"outputs/{project_id}/manifest.json"
     manifest_data = load_manifest(project_id)
 
     # 해당 씬 찾기

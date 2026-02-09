@@ -184,6 +184,7 @@ class MVPipeline:
         project.genre = request.genre
         project.mood = request.mood
         project.style = request.style
+        project.subtitle_enabled = request.subtitle_enabled
         project.status = MVProjectStatus.GENERATING
         project.current_step = "씬 구성 중..."
 
@@ -1491,11 +1492,12 @@ class MVPipeline:
             project.current_step = "자막 처리 중..."
             self._save_manifest(project, project_dir)
 
-            # 3. 가사 자막 생성 및 burn-in (가사가 있는 경우)
+            # 3. 가사 자막 생성 및 burn-in (가사가 있고 자막 옵션이 켜진 경우)
             video_with_subtitles = concat_video
             has_lyrics = bool(project.lyrics) or any(s.lyrics_text for s in project.scenes)
-            print(f"  [Lyrics Check] project.lyrics = '{(project.lyrics or '')[:50]}...' (truthy={bool(project.lyrics)}), scene lyrics={any(s.lyrics_text for s in project.scenes)}")
-            if has_lyrics:
+            subtitle_on = getattr(project, 'subtitle_enabled', True)
+            print(f"  [Lyrics Check] project.lyrics = '{(project.lyrics or '')[:50]}...' (truthy={bool(project.lyrics)}), scene lyrics={any(s.lyrics_text for s in project.scenes)}, subtitle_enabled={subtitle_on}")
+            if has_lyrics and subtitle_on:
                 print(f"  Adding lyrics subtitles...")
                 srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
                 os.makedirs(os.path.dirname(srt_path), exist_ok=True)

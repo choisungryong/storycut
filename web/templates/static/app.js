@@ -2250,7 +2250,15 @@ class StorycutApp {
 
     async convertToVideo(projectId, sceneId) {
         const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
+        if (!card) {
+            alert(`I2V 실패: Scene ${sceneId} 카드를 찾을 수 없습니다`);
+            return;
+        }
         const btn = card.querySelector('.btn-i2v');
+        if (!btn) {
+            alert(`I2V 실패: 버튼을 찾을 수 없습니다`);
+            return;
+        }
         btn.textContent = '⏳...';
         btn.disabled = true;
 
@@ -2508,7 +2516,8 @@ class StorycutApp {
                 character_ethnicity: document.getElementById('mv-character-ethnicity').value,
                 genre: document.getElementById('mv-genre').value,
                 mood: document.getElementById('mv-mood').value,
-                style: document.getElementById('mv-style').value
+                style: document.getElementById('mv-style').value,
+                subtitle_enabled: document.getElementById('mv-subtitle-enabled')?.checked !== false
             };
 
             // 분석 결과 저장 (나중에 필요할 수 있으므로)
@@ -2606,6 +2615,7 @@ class StorycutApp {
                     genre: this.mvRequestParams?.genre || 'fantasy',
                     mood: this.mvRequestParams?.mood || 'epic',
                     style: this.mvRequestParams?.style || 'cinematic',
+                    subtitle_enabled: this.mvRequestParams?.subtitle_enabled !== false,
                     scene_descriptions: sceneDescriptions
                 })
             });
