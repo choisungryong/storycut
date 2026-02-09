@@ -492,7 +492,7 @@ class MVPipeline:
             print(f"  [Visual Bible] Generating with Gemini...")
 
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -725,13 +725,19 @@ class MVPipeline:
 
         segments = project.music_analysis.segments
         segment_types = [seg.segment_type for seg in segments]
+        timed_lyrics = project.music_analysis.timed_lyrics  # STT/Gemini 타임스탬프
+
         for i, segment in enumerate(segments):
-            lyrics_text = self._extract_lyrics_for_segment(
-                request.lyrics,
-                i,
-                len(segments),
-                segment_types=segment_types,
-            )
+            # timed_lyrics가 있으면 시간 기반 배정, 없으면 균등 분배
+            if timed_lyrics:
+                lyrics_text = self._extract_lyrics_by_time(
+                    timed_lyrics, segment.start_sec, segment.end_sec
+                )
+            else:
+                lyrics_text = self._extract_lyrics_for_segment(
+                    request.lyrics, i, len(segments),
+                    segment_types=segment_types,
+                )
 
             scene = MVScene(
                 scene_id=i + 1,
@@ -744,9 +750,23 @@ class MVPipeline:
             )
             scenes.append(scene)
 
-        print(f"  Scene split: {len(scenes)} scenes (all unique images)")
+        method = "timed_lyrics" if timed_lyrics else "proportional"
+        print(f"  Scene split: {len(scenes)} scenes (lyrics: {method})")
 
         return scenes
+
+    @staticmethod
+    def _extract_lyrics_by_time(timed_lyrics: list, start_sec: float, end_sec: float) -> str:
+        """timed_lyrics에서 해당 시간대에 불리는 가사 추출 (이미지+자막 타이밍 일치)"""
+        lines = []
+        for entry in timed_lyrics:
+            t = float(entry.get("t", 0))
+            text = entry.get("text", "").strip()
+            if not text:
+                continue
+            if start_sec <= t < end_sec:
+                lines.append(text)
+        return "\n".join(lines)
 
     # 보컬이 있는 세그먼트 타입 (가사 할당 대상)
     _VOCAL_SEGMENT_TYPES = {
@@ -1034,7 +1054,7 @@ class MVPipeline:
             print(f"  [Gemini] Generating {len(project.scenes)} scene prompts...")
 
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,

@@ -195,22 +195,261 @@ class MusicAnalyzer:
 
         return segments
 
+    # ================================================================
+    # Google Cloud Speech-to-Text (Chirp 3) - word-level timestamps
+    # ================================================================
+
+    def transcribe_with_google_stt(self, audio_path: str, language: str = "ko-KR") -> Optional[list]:
+        """
+        Google Cloud Speech-to-Text V1 API로 단어 단위 타임스탬프 추출
+
+        Returns:
+            [{"t": float, "text": str}, ...] 단어별 타임스탬프, 실패 시 None
+        """
+        import requests as _requests
+        import base64
+        import subprocess
+        import time as _time
+
+        api_key = os.getenv("GOOGLE_STT_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("  [STT] No API key (GOOGLE_STT_API_KEY or GOOGLE_API_KEY)")
+            return None
+
+        print(f"  [STT] Preparing audio for Google Cloud Speech-to-Text...")
+
+        # FLAC mono 16kHz로 변환 (STT 최적 포맷)
+        import tempfile
+        flac_path = os.path.join(tempfile.gettempdir(), "stt_input.flac")
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-i", audio_path, "-ar", "16000", "-ac", "1", flac_path],
+                capture_output=True, timeout=60, encoding="utf-8", errors="replace"
+            )
+            if proc.returncode != 0:
+                print(f"  [STT] FFmpeg conversion failed: {proc.stderr[:200]}")
+                return None
+        except Exception as e:
+            print(f"  [STT] FFmpeg error: {e}")
+            return None
+
+        # 파일 읽기 + base64 인코딩
+        with open(flac_path, "rb") as f:
+            audio_content = f.read()
+        try:
+            os.remove(flac_path)
+        except OSError:
+            pass
+
+        file_mb = len(audio_content) / (1024 * 1024)
+        print(f"  [STT] FLAC size: {file_mb:.1f}MB")
+
+        if file_mb > 10:
+            print(f"  [STT] File too large for inline content ({file_mb:.1f}MB > 10MB)")
+            return None
+
+        audio_b64 = base64.b64encode(audio_content).decode()
+
+        # longrunningrecognize 비동기 호출
+        url = f"https://speech.googleapis.com/v1/speech:longrunningrecognize?key={api_key}"
+        payload = {
+            "config": {
+                "encoding": "FLAC",
+                "sampleRateHertz": 16000,
+                "languageCode": language,
+                "enableWordTimeOffsets": True,
+                "model": "latest_long",
+                "useEnhanced": True,
+            },
+            "audio": {"content": audio_b64}
+        }
+
+        print(f"  [STT] Calling Google Cloud Speech-to-Text (longrunningrecognize)...")
+        try:
+            resp = _requests.post(url, json=payload, timeout=30)
+        except Exception as e:
+            print(f"  [STT] Request failed: {e}")
+            return None
+
+        if resp.status_code != 200:
+            error_text = resp.text[:300]
+            print(f"  [STT] API error {resp.status_code}: {error_text}")
+            if "PERMISSION_DENIED" in error_text or "API key" in error_text:
+                print(f"  [STT] Hint: API key may not have Speech-to-Text API enabled.")
+                print(f"  [STT] Enable it at: https://console.cloud.google.com/apis/library/speech.googleapis.com")
+            return None
+
+        operation = resp.json()
+        operation_name = operation.get("name")
+        if not operation_name:
+            print(f"  [STT] No operation name in response")
+            return None
+
+        # 결과 폴링 (최대 3분)
+        poll_url = f"https://speech.googleapis.com/v1/operations/{operation_name}?key={api_key}"
+        print(f"  [STT] Waiting for transcription result...")
+        for attempt in range(90):
+            _time.sleep(2)
+            try:
+                poll_resp = _requests.get(poll_url, timeout=15)
+                if poll_resp.status_code != 200:
+                    continue
+                result = poll_resp.json()
+                if result.get("done"):
+                    break
+            except Exception:
+                continue
+        else:
+            print("  [STT] Timeout (3min) waiting for transcription")
+            return None
+
+        if "error" in result:
+            print(f"  [STT] Error: {result['error'].get('message', result['error'])}")
+            return None
+
+        # 단어 단위 타임스탬프 파싱
+        response_data = result.get("response", {})
+        results = response_data.get("results", [])
+
+        words = []
+        for r in results:
+            alt = r.get("alternatives", [{}])[0]
+            for w in alt.get("words", []):
+                start_time = w.get("startTime", "0s")
+                t = float(start_time.rstrip("s"))
+                words.append({"t": round(t, 2), "text": w.get("word", "")})
+
+        if words:
+            print(f"  [STT] Transcribed: {len(words)} words, {words[0]['t']}s ~ {words[-1]['t']}s")
+        else:
+            print(f"  [STT] No words detected")
+            return None
+
+        return words
+
+    def _align_stt_with_lyrics(self, stt_words: list, user_lyrics: str) -> list:
+        """
+        STT 단어 타임스탬프와 사용자 가사를 정렬하여 줄 단위 timed_lyrics 생성
+
+        방식: STT 텍스트를 연결 → 사용자 가사 각 줄의 위치를 찾아 타임스탬프 매핑
+        """
+        import re as _re
+
+        # 1. STT 단어들을 연결하면서 각 문자의 타임스탬프 기록
+        char_timestamps = []  # [(char, timestamp), ...]
+        for word in stt_words:
+            for ch in word["text"]:
+                char_timestamps.append((ch, word["t"]))
+
+        # 공백 제거한 STT 전체 텍스트
+        stt_full = "".join(ch for ch, _ in char_timestamps)
+        stt_full_lower = stt_full.lower()
+
+        # 2. 사용자 가사 줄별 처리
+        lines = [l.strip() for l in user_lyrics.strip().split('\n') if l.strip()]
+        lines = [l for l in lines if not _re.match(r'^\[.*?\]$', l)]  # 섹션 마커 제거
+
+        result = []
+        search_start = 0  # 순차 검색 위치
+
+        for line in lines:
+            # 공백/특수문자 제거하여 검색용 텍스트 생성
+            clean_line = _re.sub(r'[\s\-.,!?~]+', '', line).lower()
+            if not clean_line:
+                continue
+
+            # STT 텍스트에서 위치 찾기 (순차 전진)
+            pos = stt_full_lower.find(clean_line, search_start)
+
+            if pos == -1 and search_start > 0:
+                # 못 찾으면 처음부터 다시 (반복 가사 등)
+                pos = stt_full_lower.find(clean_line, 0)
+
+            if pos == -1:
+                # 부분 매칭 시도 (앞 절반만)
+                half = clean_line[:len(clean_line) // 2]
+                if len(half) >= 3:
+                    pos = stt_full_lower.find(half, search_start)
+                    if pos == -1:
+                        pos = stt_full_lower.find(half, 0)
+
+            if pos >= 0 and pos < len(char_timestamps):
+                t = char_timestamps[pos][1]
+                result.append({"t": t, "text": line})
+                search_start = pos + len(clean_line)
+            else:
+                # 매칭 실패 → 이전 타임스탬프에서 보간
+                if result:
+                    result.append({"t": round(result[-1]["t"] + 3.0, 2), "text": line})
+                else:
+                    result.append({"t": 0.0, "text": line})
+
+        if result:
+            print(f"  [STT Align] Matched {len(result)} lyrics lines, {result[0]['t']}s ~ {result[-1]['t']}s")
+
+        return result
+
+    def _stt_words_to_timed_lyrics(self, stt_words: list) -> list:
+        """
+        STT 단어를 문장 단위 timed_lyrics로 그룹화 (사용자 가사 없을 때)
+        1초 이상 gap이 있으면 새 문장으로 분리
+        """
+        if not stt_words:
+            return []
+
+        sentences = []
+        current_words = [stt_words[0]]
+
+        for i in range(1, len(stt_words)):
+            gap = stt_words[i]["t"] - stt_words[i - 1]["t"]
+            if gap > 1.0:
+                text = " ".join(w["text"] for w in current_words)
+                sentences.append({"t": current_words[0]["t"], "text": text})
+                current_words = [stt_words[i]]
+            else:
+                current_words.append(stt_words[i])
+
+        if current_words:
+            text = " ".join(w["text"] for w in current_words)
+            sentences.append({"t": current_words[0]["t"], "text": text})
+
+        return sentences
+
+    # ================================================================
+    # Main lyrics sync: STT first, Gemini fallback
+    # ================================================================
+
     def sync_user_lyrics_with_gemini(self, audio_path: str, user_lyrics: str) -> Optional[str]:
         """
-        사용자 가사를 참조하여 음악에서 가사+타이밍 추출 (v2 - 참조 기반 추출)
+        사용자 가사를 음악과 타이밍 싱크 (v3 - Google STT + Gemini fallback)
 
-        기존 방식: "가사에 타이밍만 붙여줘" -> Gemini가 타이밍 추측 실패 잦음
-        새 방식: "음악을 듣고 가사를 추출하되, 참조 가사를 기준으로 텍스트 매칭"
-        -> Gemini가 실제 보컬 구간을 감지하므로 타이밍이 훨씬 정확
+        1차: Google Cloud STT로 단어 단위 타임스탬프 → 사용자 가사와 정렬
+        2차 (fallback): Gemini로 참조 기반 추출
 
         Args:
             audio_path: 음악 파일 경로
-            user_lyrics: 사용자가 입력한 가사 텍스트 (참조용)
+            user_lyrics: 사용자가 입력한 가사 텍스트
 
         Returns:
             가사 텍스트 (timed_lyrics는 self._last_timed_lyrics에 저장)
         """
-        print(f"[MusicAnalyzer] Extracting lyrics with reference (v2)...")
+        print(f"[MusicAnalyzer] Syncing lyrics with music timing (v3)...")
+
+        # === 1차: Google Cloud STT ===
+        stt_words = self.transcribe_with_google_stt(audio_path)
+        if stt_words and len(stt_words) >= 5:
+            print(f"  [STT] Success! Aligning {len(stt_words)} words with user lyrics...")
+            result = self._align_stt_with_lyrics(stt_words, user_lyrics)
+            if result and len(result) >= 3:
+                self._last_timed_lyrics = result
+                plain = "\n".join(e["text"] for e in result if e.get("text"))
+                print(f"  [STT] Alignment complete: {len(result)} entries")
+                return plain
+            else:
+                print(f"  [STT] Alignment produced too few results, falling back to Gemini")
+
+        # === 2차: Gemini fallback ===
+        print(f"  [Fallback] Using Gemini for lyrics sync...")
 
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
@@ -247,7 +486,6 @@ class MusicAnalyzer:
                 print(f"  [Gemini] Time range: {result[0]['t']}s ~ {result[-1]['t']}s")
                 return plain
             elif result:
-                # 검증 실패해도 결과가 있으면 보간으로 살려서 사용
                 print(f"  [Gemini] Timestamps imperfect, using with interpolation fix")
                 self._last_timed_lyrics = result
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
@@ -439,8 +677,9 @@ class MusicAnalyzer:
         """
         가사 추출 (타임스탬프 포함)
 
-        1순위: Gemini 2.5 Flash (향상된 오디오 이해력)
-        2순위: Whisper 하이브리드 (Gemini 타임스탬프가 깨진 경우)
+        1순위: Google Cloud STT (word-level 타임스탬프)
+        2순위: Gemini 2.5 Flash
+        3순위: Whisper 하이브리드
 
         Args:
             audio_path: 음악 파일 경로
@@ -449,6 +688,16 @@ class MusicAnalyzer:
             추출된 가사 텍스트 (실패 시 None)
         """
         print(f"[MusicAnalyzer] Extracting lyrics...")
+
+        # Step 0: Google Cloud STT 우선 시도
+        stt_words = self.transcribe_with_google_stt(audio_path)
+        if stt_words and len(stt_words) >= 5:
+            result = self._stt_words_to_timed_lyrics(stt_words)
+            if result and len(result) >= 3:
+                self._last_timed_lyrics = result
+                plain = "\n".join(e["text"] for e in result if e.get("text"))
+                print(f"  [STT] Extracted: {len(result)} lines, {len(plain)} chars")
+                return plain
 
         # Step 1: Gemini 2.5 Flash로 시도
         gemini_result = self._extract_with_gemini_25(audio_path)
