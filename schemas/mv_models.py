@@ -77,6 +77,7 @@ class MVSceneBlocking(BaseModel):
     characters: List[str] = Field(default_factory=list, description="등장 캐릭터 역할명")
     expression: Optional[str] = Field(None, description="표정/감정")
     lighting: Optional[str] = Field(None, description="씬별 조명")
+    action_pose: Optional[str] = Field(None, description="캐릭터 동작/포즈 (은유적 가사→현실적 동작으로 해석)")
 
 
 class MVNarrativeArc(BaseModel):
