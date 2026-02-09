@@ -1009,6 +1009,9 @@ class MVPipeline:
                 "=== 캐릭터/동작 규칙 ===\n"
                 "- CHARACTERS 섹션의 인물만 등장. 정의되지 않은 인물 절대 추가 금지.\n"
                 "- 캐릭터 외형(인종, 나이, 헤어, 체형)을 프롬프트에 구체적으로 포함하세요.\n"
+                "- *** ETHNICITY IS MANDATORY IN EVERY PROMPT ***: Every prompt MUST explicitly state "
+                "the character's ethnicity/race (e.g. 'Korean man', 'Korean woman'). "
+                "NEVER omit ethnicity. If you skip it, the image model will generate random races.\n"
                 "- SCENE BLOCKING의 shot_type, expression, lighting, ACTION을 반드시 반영하세요.\n"
                 "- EXPRESSION 필드의 표정을 프롬프트 앞부분에 강하게 포함. 무표정 금지.\n"
                 "  표정은 가사의 감정을 직접 반영해야 합니다. 슬픈 가사=슬픈 표정, 격한 가사=격한 표정.\n"
@@ -1041,9 +1044,28 @@ class MVPipeline:
                 f"{directors_context}"
             )
 
+            # 인종 지시 (user_prompt에도 강제)
+            _eth_val = getattr(request, 'character_ethnicity', None)
+            _eth_str = _eth_val.value if hasattr(_eth_val, 'value') else str(_eth_val or 'auto')
+            _ETH_PROMPT = {
+                "korean": "MANDATORY: ALL characters must be described as 'Korean' in EVERY prompt. Write 'Korean man/woman' explicitly.",
+                "japanese": "MANDATORY: ALL characters must be described as 'Japanese' in EVERY prompt.",
+                "chinese": "MANDATORY: ALL characters must be described as 'Chinese' in EVERY prompt.",
+                "southeast_asian": "MANDATORY: ALL characters must be described as 'Southeast Asian' in EVERY prompt.",
+                "european": "MANDATORY: ALL characters must be described as 'European/Caucasian' in EVERY prompt.",
+                "black": "MANDATORY: ALL characters must be described as 'Black/African' in EVERY prompt.",
+                "hispanic": "MANDATORY: ALL characters must be described as 'Hispanic/Latino' in EVERY prompt.",
+                "mixed": "MANDATORY: Each character's specific ethnicity must be stated in EVERY prompt.",
+            }
+            eth_prompt_line = _ETH_PROMPT.get(_eth_str, "")
+
             user_prompt = (
                 f"컨셉: {request.concept or '자유'}\n"
                 f"총 씬 수: {len(project.scenes)}\n\n"
+            )
+            if eth_prompt_line:
+                user_prompt += f"*** {eth_prompt_line} ***\n\n"
+            user_prompt += (
                 f"[중요] 먼저 아래 가사 전체를 읽고 '이 노래의 이야기'를 파악한 뒤,\n"
                 f"각 씬이 그 이야기의 어느 부분을 담당하는지 정한 후 프롬프트를 작성하세요.\n"
                 f"시청자가 이미지 순서만 봐도 이야기를 따라갈 수 있어야 합니다.\n\n"
@@ -1244,6 +1266,16 @@ class MVPipeline:
         # Visual Bible dict (이미지 생성에 전달)
         vb_dict = project.visual_bible.model_dump() if project.visual_bible else None
 
+        # 인종 키워드 (프롬프트에 없으면 자동 주입)
+        _eth = getattr(project, 'character_ethnicity', None)
+        _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
+        _ETH_KW = {
+            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+            "southeast_asian": "Southeast Asian", "european": "European",
+            "black": "Black", "hispanic": "Hispanic",
+        }
+        ethnicity_keyword = _ETH_KW.get(_eth_v, "")
+
         # 모든 씬에 고유 이미지 생성
         print(f"  Generating {total_scenes} unique images")
 
@@ -1272,10 +1304,15 @@ class MVPipeline:
                 if char_anchor_paths:
                     print(f"    [Characters] {len(char_anchor_paths)} anchor(s) for scene {scene.scene_id}")
 
+                # 인종 키워드 자동 주입 (프롬프트에 없으면 앞에 추가)
+                final_prompt = scene.image_prompt
+                if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
+                    final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
+
                 # Pass 4: 풀 컨텍스트 이미지 생성
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
-                    prompt=scene.image_prompt,
+                    prompt=final_prompt,
                     style=project.style.value,
                     output_dir=image_dir,
                     style_anchor_path=style_anchor_path,
@@ -1618,10 +1655,23 @@ class MVPipeline:
         # 캐릭터 앵커 이미지 조회
         char_anchor_paths = self._get_character_anchors_for_scene(project, scene)
 
+        # 인종 키워드 자동 주입
+        _eth = getattr(project, 'character_ethnicity', None)
+        _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
+        _ETH_KW = {
+            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+            "southeast_asian": "Southeast Asian", "european": "European",
+            "black": "Black", "hispanic": "Hispanic",
+        }
+        ethnicity_keyword = _ETH_KW.get(_eth_v, "")
+        final_prompt = scene.image_prompt
+        if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
+            final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
+
         try:
             image_path, _ = self.image_agent.generate_image(
                 scene_id=scene.scene_id,
-                prompt=scene.image_prompt,
+                prompt=final_prompt,
                 style=project.style.value,
                 output_dir=image_dir,
                 style_anchor_path=style_anchor_path,
