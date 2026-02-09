@@ -397,29 +397,15 @@ class StorycutApp {
                 }
             }, 3000);
 
-            const workerUrl = this.getWorkerUrl();
             const railwayUrl = this.getApiBaseUrl();
             let response;
 
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 120000);
-                response = await fetch(`${workerUrl}/api/generate/from-script`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestData),
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-            } catch (workerError) {
-                console.warn('[Script] Worker 실패, Railway 폴백:', workerError.message);
-                this.updateProgress(40, 'Worker 타임아웃 - 백엔드로 재시도 중...');
-                response = await fetch(`${railwayUrl}/api/generate/from-script`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestData)
-                });
-            }
+            // from-script는 Railway에만 존재 (Worker에 없음)
+            response = await fetch(`${railwayUrl}/api/generate/from-script`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
 
             clearInterval(progressInterval);
 
