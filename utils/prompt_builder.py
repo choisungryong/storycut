@@ -373,15 +373,18 @@ class MultimodalPromptBuilder:
         if color_mood:
             color_mood_text = f"Scene color mood: {color_mood}."
 
+        # 해부학적 오류 방지 (글로벌)
+        anatomy_negative = "NEVER: extra limbs, extra arms, extra legs, extra fingers, missing fingers, deformed hands, fused fingers, mutated body parts, bad anatomy, wrong proportions, three arms, three legs, six fingers."
+
         # 네거티브 파트 통합
-        all_negatives = " ".join(filter(None, [style_negative, genre_negative, scene_negative])).strip()
+        all_negatives = " ".join(filter(None, [style_negative, genre_negative, scene_negative, anatomy_negative])).strip()
         negative_part = f" {all_negatives}" if all_negatives else ""
 
         # 부스트 파트 통합
         all_boosts = " ".join(filter(None, [mood_boost, vb_enrichment, color_mood_text])).strip()
         boost_part = f" {all_boosts}" if all_boosts else ""
 
-        full_prompt = f"[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Aspect ratio 16:9."
+        full_prompt = f"[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Anatomically correct human body with proper proportions. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts
