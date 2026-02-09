@@ -221,6 +221,19 @@ class MVCharacterSetup(str, Enum):
     AUTO = "auto"                     # AI 자동 결정
 
 
+class MVCharacterEthnicity(str, Enum):
+    """캐릭터 인종/외형"""
+    AUTO = "auto"              # AI 자동 결정
+    KOREAN = "korean"          # 한국인
+    JAPANESE = "japanese"      # 일본인
+    CHINESE = "chinese"        # 중국인
+    SOUTHEAST_ASIAN = "southeast_asian"  # 동남아시아인
+    EUROPEAN = "european"      # 유럽/백인
+    BLACK = "black"            # 흑인
+    HISPANIC = "hispanic"      # 히스패닉/라틴
+    MIXED = "mixed"            # 다인종 조합
+
+
 class MVProjectRequest(BaseModel):
     """MV 생성 요청"""
     project_id: Optional[str] = Field(None, description="프로젝트 ID (없으면 자동 생성)")
@@ -231,6 +244,7 @@ class MVProjectRequest(BaseModel):
 
     # 캐릭터 설정
     character_setup: MVCharacterSetup = Field(default=MVCharacterSetup.AUTO, description="캐릭터 구성")
+    character_ethnicity: MVCharacterEthnicity = Field(default=MVCharacterEthnicity.AUTO, description="캐릭터 인종/외형")
 
     # 스타일 설정
     genre: MVGenre = Field(default=MVGenre.FANTASY)
@@ -257,6 +271,7 @@ class MVProject(BaseModel):
     lyrics: Optional[str] = Field(None)
     concept: Optional[str] = Field(None)
     character_setup: MVCharacterSetup = Field(default=MVCharacterSetup.AUTO)
+    character_ethnicity: MVCharacterEthnicity = Field(default=MVCharacterEthnicity.AUTO)
     genre: MVGenre = Field(default=MVGenre.FANTASY)
     mood: MVMood = Field(default=MVMood.EPIC)
     style: MVStyle = Field(default=MVStyle.CINEMATIC)

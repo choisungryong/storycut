@@ -2464,6 +2464,7 @@ class StorycutApp {
             formData.append('lyrics', document.getElementById('mv-lyrics').value || '');
             formData.append('concept', document.getElementById('mv-concept').value || '');
             formData.append('character_setup', document.getElementById('mv-character-setup').value);
+            formData.append('character_ethnicity', document.getElementById('mv-character-ethnicity').value);
             formData.append('genre', document.getElementById('mv-genre').value);
             formData.append('mood', document.getElementById('mv-mood').value);
             formData.append('style', document.getElementById('mv-style').value);
@@ -2498,6 +2499,7 @@ class StorycutApp {
                 lyrics: lyricsInput.value || '',
                 concept: document.getElementById('mv-concept').value || '',
                 character_setup: document.getElementById('mv-character-setup').value,
+                character_ethnicity: document.getElementById('mv-character-ethnicity').value,
                 genre: document.getElementById('mv-genre').value,
                 mood: document.getElementById('mv-mood').value,
                 style: document.getElementById('mv-style').value
@@ -2594,6 +2596,7 @@ class StorycutApp {
                     lyrics: this.mvRequestParams?.lyrics || '',
                     concept: this.mvRequestParams?.concept || '',
                     character_setup: this.mvRequestParams?.character_setup || 'auto',
+                    character_ethnicity: this.mvRequestParams?.character_ethnicity || 'auto',
                     genre: this.mvRequestParams?.genre || 'fantasy',
                     mood: this.mvRequestParams?.mood || 'epic',
                     style: this.mvRequestParams?.style || 'cinematic',

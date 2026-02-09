@@ -180,6 +180,7 @@ class MVPipeline:
         print(f"  Lyrics received: {'YES (' + str(len(request.lyrics)) + ' chars)' if request.lyrics else 'EMPTY'}")
         project.concept = request.concept
         project.character_setup = request.character_setup
+        project.character_ethnicity = request.character_ethnicity
         project.genre = request.genre
         project.mood = request.mood
         project.style = request.style
@@ -455,6 +456,21 @@ class MVPipeline:
             }
             char_instruction = _CHAR_SETUP_INSTRUCTIONS.get(char_setup_val, "")
 
+            # 캐릭터 인종/외형 지시 생성
+            char_ethnicity = getattr(project, 'character_ethnicity', None)
+            char_eth_val = char_ethnicity.value if hasattr(char_ethnicity, 'value') else str(char_ethnicity or 'auto')
+            _ETHNICITY_INSTRUCTIONS = {
+                "korean": "All characters MUST be Korean. Describe them with Korean facial features, skin tone, and names.",
+                "japanese": "All characters MUST be Japanese. Describe them with Japanese facial features, skin tone, and names.",
+                "chinese": "All characters MUST be Chinese. Describe them with Chinese facial features, skin tone, and names.",
+                "southeast_asian": "All characters MUST be Southeast Asian. Describe them with Southeast Asian facial features and skin tone.",
+                "european": "All characters MUST be European/Caucasian. Describe them with European facial features, light skin, and Western names.",
+                "black": "All characters MUST be Black/African. Describe them with African facial features, dark skin tone, and appropriate names.",
+                "hispanic": "All characters MUST be Hispanic/Latino. Describe them with Latin American features and Spanish names.",
+                "mixed": "Characters should be a MIX of different ethnicities. Make each character a different race for diversity.",
+            }
+            eth_instruction = _ETHNICITY_INSTRUCTIONS.get(char_eth_val, "")
+
             user_prompt = (
                 f"Genre: {project.genre.value}\n"
                 f"Mood: {project.mood.value}\n"
@@ -463,8 +479,12 @@ class MVPipeline:
                 f"Total scenes: {total_scenes}\n"
                 f"Lyrics excerpt: {lyrics_summary or '(instrumental)'}\n"
             )
-            if char_instruction:
-                user_prompt += f"\n*** CHARACTER SETUP (NON-NEGOTIABLE) ***\n{char_instruction}\n"
+            if char_instruction or eth_instruction:
+                user_prompt += "\n*** CHARACTER SETUP (NON-NEGOTIABLE) ***\n"
+                if char_instruction:
+                    user_prompt += f"{char_instruction}\n"
+                if eth_instruction:
+                    user_prompt += f"{eth_instruction}\n"
             if scene_timeline:
                 user_prompt += f"\nScene timeline:\n{scene_timeline}\n"
             user_prompt += "\nCreate the Director's Brief JSON:"
