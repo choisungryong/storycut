@@ -203,6 +203,11 @@ export default {
       return handleGenerateStoryAsync(request, env, ctx, corsHeaders);
     }
 
+    // Script → Scene split + prompt generation (proxy to Railway)
+    if (url.pathname === '/api/generate/from-script' && request.method === 'POST') {
+      return handleProxyToBackend(request, url, env, corsHeaders);
+    }
+
     if (url.pathname.startsWith('/api/video/')) {
       return handleVideoDownload(url, env, corsHeaders);
     }
