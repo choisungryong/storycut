@@ -1248,6 +1248,19 @@ class MVPipeline:
         print(f"  Generating {total_scenes} unique images")
 
         for i, scene in enumerate(project.scenes):
+            # 취소 체크
+            cancel_path = os.path.join(project_dir, ".cancel")
+            if os.path.exists(cancel_path):
+                try:
+                    os.remove(cancel_path)
+                except OSError:
+                    pass
+                print(f"\n  [CANCELLED] Generation stopped at scene {i+1}/{total_scenes}")
+                project.status = MVProjectStatus.CANCELLED
+                project.current_step = f"이미지 생성 중단됨 ({i}/{total_scenes})"
+                self._save_manifest(project, project_dir)
+                return project
+
             print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
             if style_anchor_path:
                 print(f"    [Anchor] Using style anchor: {os.path.basename(style_anchor_path)}")

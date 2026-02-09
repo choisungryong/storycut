@@ -122,6 +122,7 @@ class MVProjectStatus(str, Enum):
     COMPOSING = "composing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 # ============================================================

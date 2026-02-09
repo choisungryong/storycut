@@ -2534,18 +2534,31 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
     def run_mv_generation():
         try:
             print(f"[MV Thread] Starting generation for {request.project_id}")
+            cancel_path = f"outputs/{request.project_id}/.cancel"
 
             # Step 2: 씬 생성
             project_updated = pipeline.generate_scenes(project, request)
 
+            if os.path.exists(cancel_path):
+                print(f"[MV Thread] Cancelled before visual bible")
+                return
+
             # Step 2.5: Visual Bible 생성 (Pass 1)
             project_updated = pipeline.generate_visual_bible(project_updated)
+
+            if os.path.exists(cancel_path):
+                print(f"[MV Thread] Cancelled before style anchor")
+                return
 
             # Step 2.6: 전용 스타일 앵커 생성 (Pass 2)
             project_updated = pipeline.generate_style_anchor(project_updated)
 
             # Step 2.7: 캐릭터 앵커 생성 (Pass 2.5)
             project_updated = pipeline.generate_character_anchors(project_updated)
+
+            if os.path.exists(cancel_path):
+                print(f"[MV Thread] Cancelled before image generation")
+                return
 
             # Step 3: 이미지 생성 (IMAGES_READY에서 멈춤)
             project_updated = pipeline.generate_images(project_updated)
@@ -2579,6 +2592,22 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
         estimated_time_sec=estimated_time,
         message="뮤직비디오 생성이 시작되었습니다"
     )
+
+
+@app.post("/api/mv/cancel/{project_id}")
+async def mv_cancel(project_id: str):
+    """MV 생성 중단"""
+    validate_project_id(project_id)
+    project_dir = f"outputs/{project_id}"
+    if not os.path.exists(project_dir):
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    cancel_path = os.path.join(project_dir, ".cancel")
+    with open(cancel_path, "w") as f:
+        f.write("cancelled")
+
+    print(f"[MV] Cancel requested for {project_id}")
+    return {"status": "cancel_requested", "project_id": project_id}
 
 
 @app.get("/api/mv/status/{project_id}", response_model=MVStatusResponse)

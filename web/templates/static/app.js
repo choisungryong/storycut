@@ -2432,6 +2432,11 @@ class StorycutApp {
         document.getElementById('mv-clear-log-btn')?.addEventListener('click', () => {
             document.getElementById('mv-log-content').innerHTML = '';
         });
+
+        // MV 생성 중단
+        document.getElementById('mv-cancel-btn')?.addEventListener('click', () => {
+            this.cancelMVGeneration();
+        });
     }
 
     async uploadAndAnalyzeMusic() {
@@ -2678,6 +2683,16 @@ class StorycutApp {
                     this.stopMVPolling();
                     alert(`뮤직비디오 생성 실패: ${data.error_message || '알 수 없는 오류'}`);
 
+                } else if (data.status === 'cancelled') {
+                    this.mvAddLog('WARNING', '생성이 중단되었습니다.');
+                    this.updateMVProgress(0, '중단됨');
+                    this.stopMVPolling();
+                    const cancelBtn = document.getElementById('mv-cancel-btn');
+                    if (cancelBtn) {
+                        cancelBtn.disabled = false;
+                        cancelBtn.textContent = '생성 중단';
+                    }
+
                 } else {
                     // 진행 중
                     const progress = data.progress || 10;
@@ -2718,6 +2733,27 @@ class StorycutApp {
         if (this.mvPollingInterval) {
             clearInterval(this.mvPollingInterval);
             this.mvPollingInterval = null;
+        }
+    }
+
+    async cancelMVGeneration() {
+        if (!this.mvProjectId) return;
+
+        const cancelBtn = document.getElementById('mv-cancel-btn');
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+            cancelBtn.textContent = '중단 요청 중...';
+        }
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const resp = await fetch(`${baseUrl}/api/mv/cancel/${this.mvProjectId}`, { method: 'POST' });
+            if (resp.ok) {
+                this.mvAddLog('WARNING', '생성 중단을 요청했습니다. 현재 씬 완료 후 중단됩니다.');
+                this.updateMVProgress(0, '중단 요청됨...');
+            }
+        } catch (e) {
+            console.error('Cancel failed:', e);
         }
     }
 

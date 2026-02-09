@@ -233,29 +233,57 @@ class MusicAnalyzer:
             print(f"  [STT] FFmpeg error: {e}")
             return None
 
-        # 파일 읽기 + base64 인코딩
-        with open(flac_path, "rb") as f:
-            audio_content = f.read()
-        try:
-            os.remove(flac_path)
-        except OSError:
-            pass
-
-        file_mb = len(audio_content) / (1024 * 1024)
+        # 파일 크기 체크 + 필요 시 OGG_OPUS로 재인코딩
+        flac_size = os.path.getsize(flac_path)
+        file_mb = flac_size / (1024 * 1024)
         print(f"  [STT] FLAC size: {file_mb:.1f}MB")
 
+        encoding = "FLAC"
+        audio_path_final = flac_path
+
+        if file_mb > 9:
+            # FLAC이 너무 크면 OGG_OPUS로 재인코딩 (10~20x 압축)
+            ogg_path = os.path.join(tempfile.gettempdir(), "stt_input.ogg")
+            try:
+                proc2 = subprocess.run(
+                    ["ffmpeg", "-y", "-i", flac_path, "-ar", "16000", "-ac", "1",
+                     "-c:a", "libopus", "-b:a", "32k", ogg_path],
+                    capture_output=True, timeout=60, encoding="utf-8", errors="replace"
+                )
+                if proc2.returncode == 0:
+                    ogg_mb = os.path.getsize(ogg_path) / (1024 * 1024)
+                    print(f"  [STT] Re-encoded as OGG_OPUS: {ogg_mb:.1f}MB (from {file_mb:.1f}MB FLAC)")
+                    encoding = "OGG_OPUS"
+                    audio_path_final = ogg_path
+                else:
+                    print(f"  [STT] OGG_OPUS re-encode failed, trying with FLAC anyway")
+            except Exception as e:
+                print(f"  [STT] OGG re-encode error: {e}")
+
+        # 파일 읽기 + base64 인코딩
+        with open(audio_path_final, "rb") as f:
+            audio_content = f.read()
+        # 임시 파일 정리
+        for tmp in [flac_path, os.path.join(tempfile.gettempdir(), "stt_input.ogg")]:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+        file_mb = len(audio_content) / (1024 * 1024)
         if file_mb > 10:
-            print(f"  [STT] File too large for inline content ({file_mb:.1f}MB > 10MB)")
+            print(f"  [STT] File still too large ({file_mb:.1f}MB > 10MB)")
             return None
 
         audio_b64 = base64.b64encode(audio_content).decode()
 
         # longrunningrecognize 비동기 호출
+        sample_rate = 16000 if encoding == "FLAC" else 48000
         url = f"https://speech.googleapis.com/v1/speech:longrunningrecognize?key={api_key}"
         payload = {
             "config": {
-                "encoding": "FLAC",
-                "sampleRateHertz": 16000,
+                "encoding": encoding,
+                "sampleRateHertz": sample_rate,
                 "languageCode": language,
                 "enableWordTimeOffsets": True,
                 "model": "latest_long",
