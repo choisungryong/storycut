@@ -310,6 +310,7 @@ class GenerateRequest(BaseModel):
     voice: str = "uyVNoMrnUku1dZyVEXwD"  # Default voice (ElevenLabs Anna Kim)
     duration: int = 60
     platform: str = "youtube_long"
+    character_ethnicity: str = "auto"
 
     # Feature Flags
     hook_scene1_video: bool = False
@@ -333,6 +334,7 @@ class ScriptRequest(BaseModel):
     voice: str = "uyVNoMrnUku1dZyVEXwD"
     duration: int = 60
     platform: str = "youtube_long"
+    character_ethnicity: str = "auto"
 
     # Feature Flags
     hook_scene1_video: bool = False
@@ -816,9 +818,10 @@ async def generate_story(req: GenerateRequest):
         voice_over=True,
         bgm=True,
         subtitles=req.subtitle_burn_in,
+        character_ethnicity=req.character_ethnicity,
         feature_flags=feature_flags,
     )
-    
+
     # 2. Pipeline으로 스토리 생성 (Synchronous for Step 1)
     # Step 1은 비교적 빠르므로 동기 실행 하거나, 길어지면 async로 변경 고려
     # 여기서는 동기로 처리 (사용자 피드백 즉시 필요)
@@ -880,6 +883,7 @@ async def generate_from_script(req: ScriptRequest):
         voice_over=True,
         bgm=True,
         subtitles=req.subtitle_burn_in,
+        character_ethnicity=req.character_ethnicity,
         feature_flags=feature_flags,
     )
 
@@ -1013,6 +1017,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 bgm=request_params.get('bgm', True),
                 # subtitle_burn_in is what frontend sends. Map it to subtitles.
                 subtitles=request_params.get('subtitle_burn_in', True),
+                character_ethnicity=request_params.get('character_ethnicity', 'auto'),
                 feature_flags=feature_flags
             )
             print(f"[WRAPPER] ProjectRequest created successfully", flush=True)
@@ -1283,7 +1288,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
         project_id: 프로젝트 ID
         scene_id: 씬 ID
         req: {"prompt": "새 프롬프트"} (선택사항)
-    
+
     Returns:
         새로 생성된 이미지 URL
     """
@@ -1291,10 +1296,11 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     from starlette.concurrency import run_in_threadpool
     from agents.image_agent import ImageAgent
     import json
-    
+
     print(f"\n[API] Regenerating image for scene {scene_id} in project {project_id}")
 
     manifest_data = load_manifest(project_id)
+    manifest_path = f"outputs/{project_id}/manifest.json"
 
     # 해당 씬 찾기
     scenes = manifest_data.get("scenes", [])
@@ -1312,12 +1318,24 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     if req is None:
         req = {}
     new_prompt = req.get("prompt")
-    
+
+    # 인종 런타임 주입
+    final_prompt = new_prompt or target_scene.get("prompt", "")
+    _eth = manifest_data.get("character_ethnicity", "auto")
+    _ETH_KW = {
+        "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+        "southeast_asian": "Southeast Asian", "european": "European",
+        "black": "Black", "hispanic": "Hispanic",
+    }
+    _eth_kw = _ETH_KW.get(_eth, "")
+    if _eth_kw and _eth_kw.lower() not in final_prompt.lower():
+        final_prompt = f"{_eth_kw} characters, {final_prompt}"
+
     try:
         image_path, image_id = await run_in_threadpool(
             image_agent.generate_image,
             scene_id=scene_id,
-            prompt=new_prompt or target_scene.get("prompt", ""),
+            prompt=final_prompt,
             style=target_scene.get("style", "cinematic"),
             output_dir=f"outputs/{project_id}/media/images",
             seed=None  # New random seed for regeneration

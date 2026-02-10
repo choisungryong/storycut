@@ -72,6 +72,21 @@ class StorycutPipeline:
         # 2. 영상 생성 (스토리 기반)
         return self.generate_video_from_story(story_data, request)
 
+    _ETH_RULES = {
+        "korean": "All characters MUST be described as 'Korean' (e.g., 'Korean man', 'Korean woman').",
+        "japanese": "All characters MUST be described as 'Japanese'.",
+        "chinese": "All characters MUST be described as 'Chinese'.",
+        "southeast_asian": "All characters MUST be described as 'Southeast Asian'.",
+        "european": "All characters MUST be described as 'European/Caucasian'.",
+        "black": "All characters MUST be described as 'Black/African'.",
+        "hispanic": "All characters MUST be described as 'Hispanic/Latino'.",
+        "mixed": "Each character's specific ethnicity MUST be stated explicitly.",
+    }
+
+    def _get_ethnicity_rule(self, ethnicity: str) -> str:
+        rule = self._ETH_RULES.get(ethnicity, "")
+        return f"\n- *** {rule} ***" if rule else ""
+
     def generate_story_only(self, request: ProjectRequest) -> Dict[str, Any]:
         """Step 1: 스토리만 생성"""
         print(f"\n[STEP 1] Generating story for topic: {request.topic}")
@@ -124,7 +139,8 @@ class StorycutPipeline:
 
         # 2. Gemini로 씬별 이미지 프롬프트 생성
         scene_prompts = self._generate_image_prompts_for_script(
-            paragraphs, request.genre, request.mood, request.style_preset
+            paragraphs, request.genre, request.mood, request.style_preset,
+            character_ethnicity=getattr(request, 'character_ethnicity', 'auto')
         )
 
         # 3. story_data 구성 (기존 StoryAgent 출력 포맷과 호환)
@@ -134,12 +150,24 @@ class StorycutPipeline:
             char_count = len(narration)
             estimated_duration = max(5, char_count / 4)
 
+            # 인종 런타임 주입 (Gemini가 지시 무시할 때 안전망)
+            image_prompt = prompt_data.get("image_prompt", "")
+            _eth = getattr(request, 'character_ethnicity', 'auto')
+            _ETH_KW = {
+                "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+                "southeast_asian": "Southeast Asian", "european": "European",
+                "black": "Black", "hispanic": "Hispanic",
+            }
+            _eth_kw = _ETH_KW.get(_eth, "")
+            if _eth_kw and _eth_kw.lower() not in image_prompt.lower():
+                image_prompt = f"{_eth_kw} characters, {image_prompt}"
+
             scene = {
                 "scene_id": idx,
                 "narration": narration,
                 "visual_description": prompt_data.get("visual_description", ""),
-                "image_prompt": prompt_data.get("image_prompt", ""),
-                "prompt": prompt_data.get("image_prompt", ""),
+                "image_prompt": image_prompt,
+                "prompt": image_prompt,
                 "mood": prompt_data.get("mood", request.mood or "dramatic"),
                 "duration_sec": round(estimated_duration),
                 "camera_work": prompt_data.get("camera_work", "slow_zoom_in"),
@@ -155,6 +183,7 @@ class StorycutPipeline:
             "title": first_line,
             "genre": request.genre or "emotional",
             "total_duration_sec": total_duration,
+            "character_ethnicity": getattr(request, 'character_ethnicity', 'auto'),
             "scenes": scenes,
             "global_style": {
                 "art_style": request.style_preset or "cinematic, high contrast",
@@ -171,7 +200,8 @@ class StorycutPipeline:
         paragraphs: List[str],
         genre: str,
         mood: str,
-        style: str
+        style: str,
+        character_ethnicity: str = "auto"
     ) -> List[Dict[str, str]]:
         """
         Gemini를 사용하여 스크립트 단락별 이미지 프롬프트를 생성.
@@ -181,6 +211,7 @@ class StorycutPipeline:
             genre: 장르
             mood: 분위기
             style: 아트 스타일
+            character_ethnicity: 캐릭터 인종 (auto, korean, japanese, ...)
 
         Returns:
             각 씬의 image_prompt, visual_description, mood, camera_work dict 리스트
@@ -225,6 +256,7 @@ RULES:
 - Include specific details: lighting, composition, color palette, subject actions
 - Match the {style} art style consistently across all scenes
 - Camera work should vary: slow_zoom_in, slow_zoom_out, pan_left, pan_right, static
+- *** ETHNICITY IS MANDATORY ***: When characters appear, ALWAYS explicitly state their ethnicity in the prompt{self._get_ethnicity_rule(character_ethnicity)}
 
 OUTPUT FORMAT (JSON array, one object per scene):
 [

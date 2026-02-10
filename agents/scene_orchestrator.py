@@ -754,7 +754,18 @@ JSON 형식으로 출력:
                     entities=scene.entities,
                     style=style
                 )
-            
+
+            # 인종 런타임 주입 (MV 파이프라인과 동일 방식)
+            _eth = getattr(request, 'character_ethnicity', 'auto') if request else 'auto'
+            _ETH_KW = {
+                "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+                "southeast_asian": "Southeast Asian", "european": "European",
+                "black": "Black", "hispanic": "Hispanic",
+            }
+            _eth_kw = _ETH_KW.get(_eth, "")
+            if _eth_kw and _eth_kw.lower() not in scene.prompt.lower():
+                scene.prompt = f"{_eth_kw} characters, {scene.prompt}"
+
             scene.negative_prompt = self.build_negative_prompt(style)
             
             try:

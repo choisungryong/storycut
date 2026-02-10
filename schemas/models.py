@@ -193,6 +193,9 @@ class ProjectRequest(BaseModel):
     mood: Optional[str] = Field(default="dramatic", description="분위기")
     user_idea: Optional[str] = Field(default=None, description="사용자 아이디어")
 
+    # 캐릭터 인종
+    character_ethnicity: str = Field(default="auto", description="캐릭터 인종/외형 (auto, korean, japanese, ...)")
+
     # Feature Flags
     feature_flags: FeatureFlags = Field(
         default_factory=FeatureFlags,

@@ -203,6 +203,7 @@ class StorycutApp {
             voice: formData.get('voice'),
             duration: parseInt(formData.get('duration')),
             platform: formData.get('platform'),
+            character_ethnicity: formData.get('character_ethnicity') || 'auto',
 
             // Feature Flags (with null checks)
             hook_scene1_video: document.getElementById('hook_scene1_video')?.checked || false,
@@ -364,6 +365,7 @@ class StorycutApp {
             voice: formData.get('voice'),
             duration: parseInt(formData.get('duration')),
             platform: formData.get('platform'),
+            character_ethnicity: formData.get('character_ethnicity') || 'auto',
             hook_scene1_video: document.getElementById('hook_scene1_video')?.checked || false,
             ffmpeg_kenburns: document.getElementById('ffmpeg_kenburns')?.checked || true,
             ffmpeg_audio_ducking: document.getElementById('ffmpeg_audio_ducking')?.checked || false,
