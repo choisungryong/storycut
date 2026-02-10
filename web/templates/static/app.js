@@ -188,6 +188,12 @@ class StorycutApp {
 
     // ==================== Step 1: 스토리 생성 ====================
     async startStoryGeneration() {
+        // 크레딧 사전 확인
+        if (typeof checkCreditsBeforeAction === 'function') {
+            const ok = await checkCreditsBeforeAction('video');
+            if (!ok) return;
+        }
+
         const formData = new FormData(document.getElementById('generate-form'));
 
         const btn = document.getElementById('generate-story-btn');
@@ -296,6 +302,9 @@ class StorycutApp {
                 this.currentStoryData = result.story_data;
                 this.currentRequestParams = requestData;
 
+                // 크레딧 차감 반영
+                if (typeof deductLocalCredits === 'function') deductLocalCredits('video');
+
                 // 짧은 딜레이로 100% 표시 후 전환
                 await new Promise(r => setTimeout(r, 500));
                 this.renderStoryReview(this.currentStoryData);
@@ -345,6 +354,12 @@ class StorycutApp {
 
     // ===== 스크립트 직접 입력 → 씬 분할 + 이미지 프롬프트 생성 =====
     async startScriptGeneration() {
+        // 크레딧 사전 확인
+        if (typeof checkCreditsBeforeAction === 'function') {
+            const ok = await checkCreditsBeforeAction('script_video');
+            if (!ok) return;
+        }
+
         const scriptText = document.getElementById('direct-script')?.value?.trim();
         if (!scriptText) {
             this.showToast('스크립트를 입력해주세요.', 'error');
@@ -442,6 +457,9 @@ class StorycutApp {
                 this.updateProgress(100, '스크립트 분석이 완료되었습니다!');
                 this.currentStoryData = result.story_data;
                 this.currentRequestParams = requestData;
+
+                // 크레딧 차감 반영
+                if (typeof deductLocalCredits === 'function') deductLocalCredits('script_video');
 
                 await new Promise(r => setTimeout(r, 500));
                 this.renderStoryReview(this.currentStoryData);
@@ -2109,6 +2127,12 @@ class StorycutApp {
     }
 
     async regenerateImage(projectId, sceneId) {
+        // 크레딧 사전 확인
+        if (typeof checkCreditsBeforeAction === 'function') {
+            const ok = await checkCreditsBeforeAction('image_regen');
+            if (!ok) return;
+        }
+
         // 중복 클릭 방지
         const regenKey = `image_${projectId}_${sceneId}`;
         if (this._regeneratingScenes.has(regenKey)) {
@@ -2251,6 +2275,12 @@ class StorycutApp {
     }
 
     async convertToVideo(projectId, sceneId) {
+        // 크레딧 사전 확인 (I2V)
+        if (typeof checkCreditsBeforeAction === 'function') {
+            const ok = await checkCreditsBeforeAction('i2v');
+            if (!ok) return;
+        }
+
         const card = document.querySelector(`.image-card[data-scene-id="${sceneId}"]`);
         if (!card) {
             alert(`I2V 실패: Scene ${sceneId} 카드를 찾을 수 없습니다`);
@@ -2582,6 +2612,12 @@ class StorycutApp {
     }
 
     async startMVGeneration() {
+        // 크레딧 사전 확인
+        if (typeof checkCreditsBeforeAction === 'function') {
+            const ok = await checkCreditsBeforeAction('mv');
+            if (!ok) return;
+        }
+
         if (!this.mvProjectId) {
             alert('프로젝트 ID가 없습니다. 다시 업로드해주세요.');
             return;
@@ -2633,6 +2669,9 @@ class StorycutApp {
             }
 
             const result = await response.json();
+
+            // 크레딧 차감 반영
+            if (typeof deductLocalCredits === 'function') deductLocalCredits('mv');
 
             // 진행 화면으로 전환
             this.showSection('mv-progress');
@@ -3026,6 +3065,12 @@ class StorycutApp {
     }
 
     async mvRegenerateScene(projectId, sceneId) {
+        // 크레딧 사전 확인 (이미지 재생성)
+        if (typeof checkCreditsBeforeAction === 'function') {
+            const ok = await checkCreditsBeforeAction('image_regen');
+            if (!ok) return;
+        }
+
         const regenKey = `mv_${projectId}_${sceneId}`;
         if (this._regeneratingScenes.has(regenKey)) {
             this.showToast('이미 재생성 중입니다', 'warning');
@@ -3361,6 +3406,12 @@ class StorycutApp {
     }
 
     async mvRecompose() {
+        // 크레딧 사전 확인 (MV 리컴포즈)
+        if (typeof checkCreditsBeforeAction === 'function') {
+            const ok = await checkCreditsBeforeAction('mv_recompose');
+            if (!ok) return;
+        }
+
         const projectId = this._currentMVResultProjectId;
         if (!projectId) {
             this.showToast('프로젝트 ID를 찾을 수 없습니다', 'error');

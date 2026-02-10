@@ -758,6 +758,12 @@ async def signup_page():
     return HTMLResponse(content=Path("web/templates/signup.html").read_text(encoding="utf-8"))
 
 
+@app.get("/pricing.html", response_class=HTMLResponse)
+async def pricing_page():
+    """가격표 페이지"""
+    return HTMLResponse(content=Path("web/templates/pricing.html").read_text(encoding="utf-8"))
+
+
 @app.websocket("/ws/{project_id}")
 async def websocket_endpoint(websocket: WebSocket, project_id: str):
     """WebSocket 연결 (실시간 진행상황)"""

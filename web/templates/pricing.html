@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing - STORYCUT</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Noto Sans KR', sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .pricing-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .pricing-header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        .pricing-header h1 {
+            font-size: 2.2rem;
+            margin: 0 0 12px;
+            background: linear-gradient(135deg, #00adb5, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .pricing-header p {
+            color: #888;
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        .back-link {
+            display: inline-block;
+            color: #00adb5;
+            text-decoration: none;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        /* 크레딧 잔액 표시 */
+        .balance-card {
+            background: linear-gradient(135deg, #1e1e2e, #252a34);
+            border: 1px solid #f59e0b44;
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .balance-card .balance-amount {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #f59e0b;
+        }
+
+        .balance-card .balance-label {
+            color: #888;
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+
+        .balance-card .plan-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .plan-badge.free { background: #333; color: #888; }
+        .plan-badge.lite { background: #3b82f622; color: #60a5fa; border: 1px solid #3b82f644; }
+        .plan-badge.pro { background: #8b5cf622; color: #a78bfa; border: 1px solid #8b5cf644; }
+        .plan-badge.premium { background: #f59e0b22; color: #fbbf24; border: 1px solid #f59e0b44; }
+
+        /* 구독 플랜 그리드 */
+        .plans-section h2,
+        .packs-section h2 {
+            text-align: center;
+            margin: 0 0 24px;
+            font-size: 1.4rem;
+        }
+
+        .plans-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 20px;
+            margin-bottom: 48px;
+        }
+
+        .plan-card {
+            background: #1e1e2e;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 28px 24px;
+            text-align: center;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .plan-card:hover {
+            border-color: #00adb5;
+            transform: translateY(-4px);
+        }
+
+        .plan-card.popular {
+            border-color: #8b5cf6;
+        }
+
+        .plan-card.popular::before {
+            content: 'POPULAR';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #8b5cf6;
+            color: white;
+            padding: 3px 16px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .plan-card .plan-name {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin: 0 0 8px;
+        }
+
+        .plan-card .plan-price {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #fff;
+            margin: 12px 0 4px;
+        }
+
+        .plan-card .plan-price span {
+            font-size: 0.9rem;
+            font-weight: 400;
+            color: #888;
+        }
+
+        .plan-card .plan-credits {
+            color: #f59e0b;
+            font-weight: 600;
+            font-size: 1rem;
+            margin: 12px 0;
+        }
+
+        .plan-card .plan-features {
+            list-style: none;
+            padding: 0;
+            margin: 16px 0 24px;
+            text-align: left;
+        }
+
+        .plan-card .plan-features li {
+            padding: 4px 0;
+            color: #aaa;
+            font-size: 0.85rem;
+        }
+
+        .plan-card .plan-features li::before {
+            content: '\2713 ';
+            color: #00adb5;
+            font-weight: bold;
+        }
+
+        .plan-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .plan-btn.primary {
+            background: linear-gradient(135deg, #00adb5, #0891b2);
+            color: white;
+        }
+
+        .plan-btn.primary:hover {
+            opacity: 0.9;
+        }
+
+        .plan-btn.secondary {
+            background: #333;
+            color: #ccc;
+            border: 1px solid #555;
+        }
+
+        .plan-btn.popular {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+            color: white;
+        }
+
+        .plan-btn:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        /* 크레딧 팩 */
+        .packs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 48px;
+        }
+
+        .pack-card {
+            background: #1e1e2e;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .pack-card:hover {
+            border-color: #f59e0b;
+            transform: translateY(-2px);
+        }
+
+        .pack-card .pack-credits {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #f59e0b;
+        }
+
+        .pack-card .pack-price {
+            font-size: 1.2rem;
+            color: #ccc;
+            margin: 8px 0 16px;
+        }
+
+        .pack-card .pack-unit {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 12px;
+        }
+
+        .pack-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            background: transparent;
+            color: #f59e0b;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pack-btn:hover {
+            background: #f59e0b22;
+        }
+
+        /* 크레딧 비용 표 */
+        .costs-section {
+            background: #1e1e2e;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 48px;
+        }
+
+        .costs-section h2 {
+            margin: 0 0 16px;
+            font-size: 1.2rem;
+        }
+
+        .costs-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .costs-table th,
+        .costs-table td {
+            padding: 10px 16px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+
+        .costs-table th {
+            color: #888;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .costs-table td:last-child {
+            text-align: right;
+            color: #f59e0b;
+            font-weight: 600;
+        }
+
+        /* 빌링 토글 */
+        .billing-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            margin-bottom: 32px;
+            background: #1a1a2e;
+            border-radius: 10px;
+            padding: 4px;
+            border: 1px solid #333;
+            display: inline-flex;
+        }
+
+        .billing-toggle-wrap {
+            text-align: center;
+        }
+
+        .billing-toggle button {
+            padding: 8px 24px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .billing-toggle button.active {
+            background: #00adb5;
+            color: white;
+        }
+
+        .save-badge {
+            font-size: 0.75rem;
+            color: #10b981;
+            margin-left: 4px;
+        }
+
+        /* 거래 내역 */
+        .history-section {
+            background: #1e1e2e;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 28px;
+        }
+
+        .history-section h2 {
+            margin: 0 0 16px;
+            font-size: 1.2rem;
+        }
+
+        .tx-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .tx-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a3a;
+        }
+
+        .tx-item:last-child {
+            border-bottom: none;
+        }
+
+        .tx-desc {
+            color: #ccc;
+            font-size: 0.9rem;
+        }
+
+        .tx-date {
+            color: #666;
+            font-size: 0.75rem;
+        }
+
+        .tx-amount {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .tx-amount.positive {
+            color: #10b981;
+        }
+
+        .tx-amount.negative {
+            color: #ef4444;
+        }
+
+        .load-more-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-top: 12px;
+            background: transparent;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #888;
+            cursor: pointer;
+        }
+
+        .load-more-btn:hover {
+            border-color: #555;
+            color: #ccc;
+        }
+
+        /* 성공 메시지 */
+        .success-banner {
+            background: #10b98122;
+            border: 1px solid #10b98144;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            color: #10b981;
+            margin-bottom: 24px;
+            font-weight: 500;
+        }
+
+        /* 관리 버튼 */
+        .manage-section {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .manage-btn {
+            padding: 10px 24px;
+            border: 1px solid #555;
+            border-radius: 8px;
+            background: transparent;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .manage-btn:hover {
+            border-color: #888;
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="pricing-container">
+        <a href="/index.html" class="back-link">&larr; Back to App</a>
+
+        <div class="pricing-header">
+            <h1>요금제 선택</h1>
+            <p>크레딧으로 AI 영상을 만들어 보세요</p>
+        </div>
+
+        <!-- 성공 배너 (결제 후) -->
+        <div id="success-banner" class="success-banner" style="display:none;"></div>
+
+        <!-- 크레딧 잔액 -->
+        <div class="balance-card" id="balance-card" style="display:none;">
+            <div class="balance-amount" id="pricing-credit-count">-</div>
+            <div class="balance-label">보유 크레딧</div>
+            <div>
+                <span class="plan-badge free" id="pricing-plan-badge">Free</span>
+            </div>
+        </div>
+
+        <!-- 구독 관리 (구독자만) -->
+        <div class="manage-section" id="manage-section" style="display:none;">
+            <button class="manage-btn" onclick="cancelSubscription()" style="color:#ef4444; border-color:#ef4444;">구독 해지</button>
+        </div>
+
+        <!-- 빌링 주기 토글 -->
+        <div class="billing-toggle-wrap">
+            <div class="billing-toggle">
+                <button id="billing-monthly" class="active" onclick="setBillingCycle('monthly')">월간</button>
+                <button id="billing-yearly" onclick="setBillingCycle('yearly')">연간 <span class="save-badge">20% 할인</span></button>
+            </div>
+        </div>
+
+        <!-- 구독 플랜 -->
+        <section class="plans-section">
+            <h2>구독 플랜</h2>
+            <div class="plans-grid" id="plans-grid">
+                <!-- Free -->
+                <div class="plan-card">
+                    <div class="plan-name">Free</div>
+                    <div class="plan-price">무료</div>
+                    <div class="plan-credits">20 크레딧 (가입 보너스)</div>
+                    <ul class="plan-features">
+                        <li>영상 ~4편</li>
+                        <li>일반 처리</li>
+                        <li>월간 갱신 없음</li>
+                    </ul>
+                    <button class="plan-btn secondary" disabled>현재 플랜</button>
+                </div>
+
+                <!-- Lite -->
+                <div class="plan-card">
+                    <div class="plan-name">Lite</div>
+                    <div class="plan-price" data-monthly="11900" data-yearly="9917">&#8361;11,900 <span>/월</span></div>
+                    <div class="plan-credits">월 200 크레딧</div>
+                    <ul class="plan-features">
+                        <li>영상 ~40편/월</li>
+                        <li>일반 처리</li>
+                        <li>매월 크레딧 충전</li>
+                    </ul>
+                    <button class="plan-btn primary" onclick="subscribePlan('lite')">Lite 시작</button>
+                </div>
+
+                <!-- Pro -->
+                <div class="plan-card popular">
+                    <div class="plan-name">Pro</div>
+                    <div class="plan-price" data-monthly="29900" data-yearly="24917">&#8361;29,900 <span>/월</span></div>
+                    <div class="plan-credits">월 600 크레딧</div>
+                    <ul class="plan-features">
+                        <li>영상 ~120편/월</li>
+                        <li>우선 처리</li>
+                        <li>매월 크레딧 충전</li>
+                    </ul>
+                    <button class="plan-btn popular" onclick="subscribePlan('pro')">Pro 시작</button>
+                </div>
+
+                <!-- Premium -->
+                <div class="plan-card">
+                    <div class="plan-name">Premium</div>
+                    <div class="plan-price" data-monthly="139000" data-yearly="115833">&#8361;139,000 <span>/월</span></div>
+                    <div class="plan-credits">월 3,000 크레딧</div>
+                    <ul class="plan-features">
+                        <li>영상 ~600편/월</li>
+                        <li>최우선 처리</li>
+                        <li>매월 크레딧 충전</li>
+                    </ul>
+                    <button class="plan-btn primary" onclick="subscribePlan('premium')">Premium 시작</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 크레딧 팩 -->
+        <section class="packs-section">
+            <h2>크레딧 팩 (일회성)</h2>
+            <div class="packs-grid">
+                <div class="pack-card">
+                    <div class="pack-credits">50</div>
+                    <div>크레딧</div>
+                    <div class="pack-price">&#8361;5,900</div>
+                    <div class="pack-unit">&#8361;118 / 크레딧</div>
+                    <button class="pack-btn" onclick="buyPack('small')">구매</button>
+                </div>
+                <div class="pack-card">
+                    <div class="pack-credits">200</div>
+                    <div>크레딧</div>
+                    <div class="pack-price">&#8361;17,900</div>
+                    <div class="pack-unit">&#8361;90 / 크레딧</div>
+                    <button class="pack-btn" onclick="buyPack('medium')">구매</button>
+                </div>
+                <div class="pack-card">
+                    <div class="pack-credits">500</div>
+                    <div>크레딧</div>
+                    <div class="pack-price">&#8361;35,900</div>
+                    <div class="pack-unit">&#8361;72 / 크레딧</div>
+                    <button class="pack-btn" onclick="buyPack('large')">구매</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 크레딧 비용 표 -->
+        <section class="costs-section">
+            <h2>액션별 크레딧 소비</h2>
+            <table class="costs-table">
+                <thead>
+                    <tr>
+                        <th>액션</th>
+                        <th>크레딧</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>AI 스토리 영상</td><td>5</td></tr>
+                    <tr><td>스크립트 직접 영상</td><td>5</td></tr>
+                    <tr><td>뮤직비디오 (MV)</td><td>10</td></tr>
+                    <tr><td>이미지 재생성</td><td>1</td></tr>
+                    <tr><td>I2V 변환</td><td>2</td></tr>
+                    <tr><td>MV 리컴포즈</td><td>2</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- 거래 내역 -->
+        <section class="history-section" id="history-section" style="display:none;">
+            <h2>거래 내역</h2>
+            <ul class="tx-list" id="tx-list"></ul>
+            <button class="load-more-btn" id="load-more-btn" onclick="loadMoreHistory()" style="display:none;">더 보기</button>
+        </section>
+    </div>
+
+    <script src="https://cdn.portone.io/v2/browser-sdk.js"></script>
+    <script src="/static/auth.js"></script>
+    <script>
+        const WORKER = window.location.hostname === 'localhost' ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
+        let billingCycle = 'monthly';
+        let historyPage = 1;
+        let paymentInProgress = false;
+
+        // 초기화
+        document.addEventListener('DOMContentLoaded', async () => {
+            checkUrlParams();
+            await loadPricingData();
+            loadTransactionHistory();
+        });
+
+        function checkUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('success') === 'true') {
+                showBanner('결제가 완료되었습니다! 크레딧이 충전되었습니다.', 'success');
+                setTimeout(() => { if (typeof fetchCreditBalance === 'function') fetchCreditBalance(); }, 1000);
+            }
+            if (params.get('cancelled') === 'true') {
+                showBanner('결제가 취소되었습니다.', 'warning');
+            }
+        }
+
+        function showBanner(msg, type) {
+            const banner = document.getElementById('success-banner');
+            banner.textContent = msg;
+            banner.style.display = 'block';
+            if (type === 'warning') {
+                banner.style.background = '#f59e0b22';
+                banner.style.borderColor = '#f59e0b44';
+                banner.style.color = '#f59e0b';
+            }
+        }
+
+        async function loadPricingData() {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+
+            try {
+                const res = await fetch(`${WORKER}/api/credits/balance`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) {
+                    if (res.status === 401) { logout(); return; }
+                    return;
+                }
+
+                const data = await res.json();
+
+                // 잔액 카드
+                document.getElementById('balance-card').style.display = 'block';
+                document.getElementById('pricing-credit-count').textContent = data.credits;
+
+                const badge = document.getElementById('pricing-plan-badge');
+                const planId = data.plan_id || 'free';
+                badge.textContent = data.plan_name || 'Free';
+                badge.className = `plan-badge ${planId}`;
+
+                // 구독 관리 표시
+                if (planId !== 'free') {
+                    document.getElementById('manage-section').style.display = 'block';
+                }
+
+                updatePlanButtons(planId);
+            } catch (err) {
+                console.error('Failed to load pricing data:', err);
+            }
+        }
+
+        function updatePlanButtons(currentPlan) {
+            const plans = ['free', 'lite', 'pro', 'premium'];
+            const cards = document.querySelectorAll('.plan-card');
+            cards.forEach((card, i) => {
+                const btn = card.querySelector('.plan-btn');
+                const planId = plans[i];
+                if (planId === currentPlan) {
+                    btn.textContent = '현재 플랜';
+                    btn.disabled = true;
+                    btn.className = 'plan-btn secondary';
+                }
+            });
+        }
+
+        function formatKrw(num) {
+            return '\u20A9' + Number(num).toLocaleString('ko-KR');
+        }
+
+        function setBillingCycle(cycle) {
+            billingCycle = cycle;
+            document.getElementById('billing-monthly').classList.toggle('active', cycle === 'monthly');
+            document.getElementById('billing-yearly').classList.toggle('active', cycle === 'yearly');
+
+            document.querySelectorAll('.plan-price[data-monthly]').forEach(el => {
+                const price = cycle === 'yearly' ? el.dataset.yearly : el.dataset.monthly;
+                el.innerHTML = formatKrw(price) + ' <span>/월</span>';
+            });
+        }
+
+        // ==================== 크레딧 팩 구매 (PortOne 일회결제) ====================
+
+        async function buyPack(packType) {
+            const token = localStorage.getItem('token');
+            if (!token) { window.location.href = '/login.html'; return; }
+            if (paymentInProgress) return;
+            paymentInProgress = true;
+
+            try {
+                // 1) Worker에 결제 준비 요청
+                const prepareRes = await fetch(`${WORKER}/api/payments/prepare`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ type: 'credit_pack', pack_type: packType })
+                });
+                const prepareData = await prepareRes.json();
+                if (!prepareRes.ok) throw new Error(prepareData.error || '결제 준비 실패');
+
+                // 2) PortOne SDK 결제 팝업
+                const payResult = await PortOne.requestPayment({
+                    storeId: prepareData.store_id,
+                    channelKey: prepareData.channel_key,
+                    paymentId: prepareData.payment_id,
+                    orderName: prepareData.order_name,
+                    totalAmount: prepareData.total_amount,
+                    currency: 'KRW',
+                    payMethod: 'CARD',
+                });
+
+                if (payResult.code) {
+                    // 사용자가 팝업을 닫았거나 결제 실패
+                    if (payResult.code !== 'PORTONE_PAYMENT_CANCELLED') {
+                        alert('결제 실패: ' + (payResult.message || payResult.code));
+                    }
+                    return;
+                }
+
+                // 3) Worker에 결제 완료 검증 요청
+                const completeRes = await fetch(`${WORKER}/api/payments/complete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ payment_id: prepareData.payment_id, pack_type: packType })
+                });
+                const completeData = await completeRes.json();
+                if (!completeRes.ok) throw new Error(completeData.error || '결제 검증 실패');
+
+                showBanner(`${completeData.credits_added} 크레딧이 충전되었습니다!`, 'success');
+                if (typeof fetchCreditBalance === 'function') fetchCreditBalance();
+                loadPricingData();
+
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                paymentInProgress = false;
+            }
+        }
+
+        // ==================== 구독 (PortOne 빌링키 발급 → 첫 결제) ====================
+
+        async function subscribePlan(planId) {
+            const token = localStorage.getItem('token');
+            if (!token) { window.location.href = '/login.html'; return; }
+            if (paymentInProgress) return;
+            paymentInProgress = true;
+
+            try {
+                // 1) Worker에서 store_id, channel_key 가져오기
+                const prepareRes = await fetch(`${WORKER}/api/payments/prepare`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ type: 'subscription', plan_id: planId })
+                });
+                const prepareData = await prepareRes.json();
+                if (!prepareRes.ok) throw new Error(prepareData.error || '결제 준비 실패');
+
+                // 2) PortOne SDK 빌링키 발급 팝업
+                const issueResult = await PortOne.requestIssueBillingKey({
+                    storeId: prepareData.store_id,
+                    channelKey: prepareData.channel_key,
+                    billingKeyMethod: 'CARD',
+                });
+
+                if (issueResult.code) {
+                    if (issueResult.code !== 'PORTONE_BILLING_KEY_CANCELLED') {
+                        alert('카드 등록 실패: ' + (issueResult.message || issueResult.code));
+                    }
+                    return;
+                }
+
+                // 3) Worker에 구독 등록 + 첫 결제
+                const subRes = await fetch(`${WORKER}/api/payments/subscribe`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                        plan_id: planId,
+                        billing_key: issueResult.billingKey
+                    })
+                });
+                const subData = await subRes.json();
+                if (!subRes.ok) throw new Error(subData.error || '구독 등록 실패');
+
+                showBanner(`${subData.plan_name} 구독이 시작되었습니다! ${subData.credits_added} 크레딧이 충전되었습니다.`, 'success');
+                if (typeof fetchCreditBalance === 'function') fetchCreditBalance();
+                loadPricingData();
+
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                paymentInProgress = false;
+            }
+        }
+
+        // ==================== 구독 해지 ====================
+
+        async function cancelSubscription() {
+            if (!confirm('구독을 해지하시겠습니까? 현재 결제 기간이 끝날 때까지 이용 가능합니다.')) return;
+
+            const token = localStorage.getItem('token');
+            try {
+                const res = await fetch(`${WORKER}/api/payments/cancel-subscription`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '해지 실패');
+
+                alert('구독이 해지되었습니다. 현재 결제 기간이 끝날 때까지 이용 가능합니다.');
+                location.reload();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        // ==================== 거래 내역 ====================
+
+        async function loadTransactionHistory() {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+
+            try {
+                const res = await fetch(`${WORKER}/api/credits/history?page=${historyPage}&limit=15`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) return;
+
+                const data = await res.json();
+                const section = document.getElementById('history-section');
+                const list = document.getElementById('tx-list');
+
+                if (data.transactions && data.transactions.length > 0) {
+                    section.style.display = 'block';
+
+                    data.transactions.forEach(tx => {
+                        const li = document.createElement('li');
+                        li.className = 'tx-item';
+                        const isPositive = tx.amount > 0;
+                        const date = new Date(tx.created_at).toLocaleDateString('ko-KR', {
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                        });
+                        li.innerHTML = `
+                            <div>
+                                <div class="tx-desc">${tx.description || tx.action || tx.type}</div>
+                                <div class="tx-date">${date}</div>
+                            </div>
+                            <div class="tx-amount ${isPositive ? 'positive' : 'negative'}">
+                                ${isPositive ? '+' : ''}${tx.amount}
+                            </div>
+                        `;
+                        list.appendChild(li);
+                    });
+
+                    if (data.pagination.page < data.pagination.pages) {
+                        document.getElementById('load-more-btn').style.display = 'block';
+                    } else {
+                        document.getElementById('load-more-btn').style.display = 'none';
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load tx history:', err);
+            }
+        }
+
+        function loadMoreHistory() {
+            historyPage++;
+            loadTransactionHistory();
+        }
+    </script>
+</body>
+
+</html>
