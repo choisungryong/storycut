@@ -1910,6 +1910,9 @@ class MVPipeline:
                 end_sec = start_sec + 4
             end_sec = max(end_sec, start_sec + 1.0)
 
+            # 따옴표 제거 (가사 대사 표현 "..." → 깔끔한 자막)
+            text = text.strip('"').strip('\u201c').strip('\u201d')
+
             srt_lines.append(str(i + 1))
             srt_lines.append(f"{self._sec_to_srt_timecode(start_sec)} --> {self._sec_to_srt_timecode(end_sec)}")
             srt_lines.append(text)

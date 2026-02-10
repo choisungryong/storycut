@@ -3514,7 +3514,8 @@ class StorycutApp {
                 if (sttMap.has(tKey + offset)) { sttText = sttMap.get(tKey + offset); sttMap.delete(tKey + offset); break; }
                 if (offset > 0 && sttMap.has(tKey - offset)) { sttText = sttMap.get(tKey - offset); sttMap.delete(tKey - offset); break; }
             }
-            rows.push({ t: entry.t, stt: sttText, text: entry.text || '' });
+            const cleanText = (entry.text || '').replace(/^[""\u201c]+|[""\u201d]+$/g, '');
+            rows.push({ t: entry.t, stt: sttText, text: cleanText });
         });
 
         // 매칭 안 된 STT 엔트리도 추가 (회색으로)
