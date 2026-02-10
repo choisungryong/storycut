@@ -633,21 +633,50 @@ class MVPipeline:
         """
         Pass 2.5: VisualBible 캐릭터별 앵커 포트레이트 생성
 
-        각 캐릭터의 외형을 고정하기 위한 참조 이미지를 생성합니다.
-        Non-fatal: 개별 캐릭터 실패 시 건너뛰기.
+        CharacterManager의 scored multi-candidate 시스템을 사용하여
+        각 캐릭터의 앵커 이미지를 생성합니다. (후보 2장 + Gemini Vision 채점)
+        실패 시 기존 단순 방식(_generate_character_anchors_simple)으로 폴백.
         """
         if not project.visual_bible or not project.visual_bible.characters:
             print("  [Character Anchors] No characters defined, skipping")
             return project
 
         project_dir = f"{self.output_base_dir}/{project.project_id}"
+        characters = project.visual_bible.characters
+        print(f"\n  [Character Anchors] Generating {len(characters)} character portrait(s) via CharacterManager...")
+
+        try:
+            from agents.character_manager import CharacterManager
+            char_manager = CharacterManager(image_agent=self.image_agent)
+            role_to_path = char_manager.cast_mv_characters(
+                characters=characters,
+                project=project,
+                project_dir=project_dir,
+                candidates_per_pose=2,
+            )
+
+            # 결과를 MVCharacter.anchor_image_path에 저장
+            for character in characters:
+                path = role_to_path.get(character.role)
+                if path:
+                    character.anchor_image_path = path
+                    print(f"    [OK] {character.role} -> {path}")
+
+        except Exception as e:
+            print(f"  [WARNING] CharacterManager failed, falling back to simple method: {e}")
+            self._generate_character_anchors_simple(project, project_dir)
+
+        self._save_manifest(project, project_dir)
+        return project
+
+    def _generate_character_anchors_simple(self, project: MVProject, project_dir: str) -> None:
+        """
+        폴백: 기존 단순 앵커 생성 (캐릭터당 1장, 채점 없음)
+        """
         char_dir = f"{project_dir}/media/characters"
         os.makedirs(char_dir, exist_ok=True)
 
         characters = project.visual_bible.characters
-        print(f"\n  [Character Anchors] Generating {len(characters)} character portrait(s)...")
-
-        # 스타일 컨텍스트
         style_context = f"{project.style.value} style, {project.mood.value} mood"
 
         for i, character in enumerate(characters):
@@ -655,7 +684,7 @@ class MVPipeline:
             safe_role = _re.sub(r'[^\w\-]', '_', character.role)[:20]
             anchor_path = f"{char_dir}/{safe_role}.png"
 
-            print(f"    [Character {i+1}/{len(characters)}] Generating anchor: {character.role}")
+            print(f"    [Fallback {i+1}/{len(characters)}] Generating anchor: {character.role}")
 
             portrait_prompt = (
                 f"Character portrait, upper body, face clearly visible, centered composition, "
@@ -683,10 +712,6 @@ class MVPipeline:
                 print(f"      Created: {image_path}")
             except Exception as e:
                 print(f"      [WARNING] Character anchor failed (non-fatal): {e}")
-                # Non-fatal: 다음 캐릭터로 계속
-
-        self._save_manifest(project, project_dir)
-        return project
 
     def _create_manual_scenes(
         self,

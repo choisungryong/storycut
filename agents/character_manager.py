@@ -8,13 +8,16 @@ v2.0 핵심 기능:
 """
 
 import os
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from pathlib import Path
 import sys
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import CharacterSheet, GlobalStyle, AnchorSet, PoseAnchor, PoseType
+
+if TYPE_CHECKING:
+    from schemas.mv_models import MVCharacter, MVProject
 
 
 # 포즈별 프롬프트 설정
@@ -184,6 +187,111 @@ class CharacterManager:
 
         print(f"\n[CharacterManager] Casting complete: {len(character_images)}/{total_chars} characters")
         return character_images
+
+    def cast_mv_characters(
+        self,
+        characters: List["MVCharacter"],
+        project: "MVProject",
+        project_dir: str,
+        candidates_per_pose: int = 2
+    ) -> Dict[str, str]:
+        """
+        MV 파이프라인용 어댑터: MVCharacter → CharacterSheet 변환 후 cast_characters() 호출.
+
+        Args:
+            characters: MVCharacter 리스트 (VisualBible.characters)
+            project: MVProject 객체 (style/mood/genre/ethnicity 참조)
+            project_dir: 프로젝트 디렉토리
+            candidates_per_pose: 포즈당 후보 수 (기본 2)
+
+        Returns:
+            role → anchor_image_path 딕셔너리
+        """
+        import re as _re
+
+        print(f"\n{'='*60}")
+        print(f"[CharacterManager] MV Character Casting (Scored Multi-Candidate)")
+        print(f"{'='*60}")
+
+        if not characters:
+            print("  No MV characters to cast.")
+            return {}
+
+        # MVCharacter → CharacterSheet 변환
+        character_sheet: Dict[str, CharacterSheet] = {}
+        role_to_token: Dict[str, str] = {}  # token → role 역매핑용
+
+        for char in characters:
+            # role을 안전한 토큰으로 변환
+            token = _re.sub(r'[^\w\-]', '_', char.role)[:20]
+            role_to_token[token] = char.role
+
+            # description에서 gender 휴리스틱 추출
+            desc_lower = char.description.lower()
+            gender = "unknown"
+            for kw, g in [("female", "female"), ("woman", "female"), ("girl", "female"),
+                          ("여성", "female"), ("여자", "female"), ("소녀", "female"),
+                          ("male", "male"), ("man", "male"), ("boy", "male"),
+                          ("남성", "male"), ("남자", "male"), ("소년", "male")]:
+                if kw in desc_lower:
+                    gender = g
+                    break
+
+            # 인종 키워드를 appearance에 주입
+            appearance = char.description
+            ethnicity_val = getattr(project, 'character_ethnicity', None)
+            if ethnicity_val and str(ethnicity_val.value) != "auto":
+                _eth_kw = {
+                    "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+                    "southeast_asian": "Southeast Asian", "european": "European",
+                    "black": "Black", "hispanic": "Hispanic", "mixed": "Mixed ethnicity",
+                }
+                eth_keyword = _eth_kw.get(str(ethnicity_val.value), "")
+                if eth_keyword and eth_keyword.lower() not in appearance.lower():
+                    appearance = f"{eth_keyword}, {appearance}"
+
+            sheet = CharacterSheet(
+                name=char.role,
+                gender=gender,
+                age="unknown",
+                appearance=appearance,
+                clothing_default=char.outfit or "",
+                visual_seed=42,
+            )
+            character_sheet[token] = sheet
+
+        # GlobalStyle 합성 (MVProject 메타데이터로부터)
+        color_palette = ""
+        if project.visual_bible and project.visual_bible.color_palette:
+            color_palette = ", ".join(project.visual_bible.color_palette[:5])
+
+        global_style = GlobalStyle(
+            art_style=f"{project.style.value} style, {project.mood.value} mood, {project.genre.value}",
+            color_palette=color_palette,
+            visual_seed=42,
+        )
+
+        print(f"  Characters: {len(character_sheet)}")
+        print(f"  Style: {global_style.art_style}")
+        print(f"  Poses: ['front'], Candidates: {candidates_per_pose}")
+
+        # cast_characters 호출 (front 포즈만, 경량 설정)
+        token_to_path = self.cast_characters(
+            character_sheet=character_sheet,
+            global_style=global_style,
+            project_dir=project_dir,
+            poses=["front"],
+            candidates_per_pose=candidates_per_pose,
+        )
+
+        # token → role 역매핑
+        role_to_path: Dict[str, str] = {}
+        for token, path in token_to_path.items():
+            role = role_to_token.get(token, token)
+            role_to_path[role] = path
+
+        print(f"\n[CharacterManager] MV casting complete: {len(role_to_path)} characters")
+        return role_to_path
 
     def _generate_pose_candidates(
         self,
