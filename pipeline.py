@@ -98,6 +98,16 @@ class StorycutPipeline:
         # 1. 스크립트를 빈 줄 기준으로 씬 분할
         paragraphs = [p.strip() for p in re.split(r'\n\s*\n', script_text.strip()) if p.strip()]
 
+        # 빈 줄이 없어 1개 단락만 나오면 → 줄 단위로 분할 후 3~4줄씩 그룹핑
+        if len(paragraphs) <= 1:
+            lines = [l.strip() for l in script_text.strip().split('\n') if l.strip()]
+            if len(lines) > 1:
+                group_size = 3 if len(lines) <= 12 else 4
+                paragraphs = []
+                for i in range(0, len(lines), group_size):
+                    group = '\n'.join(lines[i:i + group_size])
+                    paragraphs.append(group)
+
         # 너무 짧은 단락은 이전 단락에 합치기 (최소 20자)
         merged = []
         for p in paragraphs:
@@ -122,7 +132,7 @@ class StorycutPipeline:
         for idx, (narration, prompt_data) in enumerate(zip(paragraphs, scene_prompts), start=1):
             # TTS 길이 추정: 한국어 약 4자/초, 영어 약 12자/초
             char_count = len(narration)
-            estimated_duration = max(5, min(15, char_count / 4))
+            estimated_duration = max(5, char_count / 4)
 
             scene = {
                 "scene_id": idx,

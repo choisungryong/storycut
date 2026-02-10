@@ -224,6 +224,14 @@ export default {
       return handleProxyToBackend(request, url, env, corsHeaders);
     }
 
+    // I2V 변환 + Hook 토글 (proxy to Railway)
+    if (url.pathname.startsWith('/api/convert/i2v/') && request.method === 'POST') {
+      return handleProxyToBackend(request, url, env, corsHeaders);
+    }
+    if (url.pathname.startsWith('/api/toggle/hook-video/') && request.method === 'POST') {
+      return handleProxyToBackend(request, url, env, corsHeaders);
+    }
+
     // [New] Manifest Proxy
     if (url.pathname.startsWith('/api/manifest/')) {
       return handleProxyToBackend(request, url, env, corsHeaders);

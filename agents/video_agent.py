@@ -395,6 +395,7 @@ class VideoAgent:
                 },
                 config={
                     'aspect_ratio': '16:9',
+                    'generate_audio': False,
                 }
             )
             
