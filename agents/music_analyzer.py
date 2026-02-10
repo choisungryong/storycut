@@ -513,6 +513,9 @@ class MusicAnalyzer:
 
             if result and self._validate_timestamps(result):
                 self._last_timed_lyrics = result
+                # STT 실패 시 Gemini 결과를 stt_sentences 대체로 저장
+                if not self._last_stt_sentences:
+                    self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in result if e.get("text")]
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
                 print(f"  [Gemini] Sync complete: {len(result)} entries, {len(plain)} chars")
                 print(f"  [Gemini] Time range: {result[0]['t']}s ~ {result[-1]['t']}s")
@@ -520,6 +523,8 @@ class MusicAnalyzer:
             elif result:
                 print(f"  [Gemini] Timestamps imperfect, using with interpolation fix")
                 self._last_timed_lyrics = result
+                if not self._last_stt_sentences:
+                    self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in result if e.get("text")]
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
                 return plain
             else:
@@ -742,6 +747,9 @@ class MusicAnalyzer:
             # 타임스탬프 품질 검증
             if self._validate_timestamps(gemini_result):
                 self._last_timed_lyrics = gemini_result
+                # STT 실패 시 Gemini 결과를 stt_sentences 대체로 저장
+                if not self._last_stt_sentences:
+                    self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in gemini_result if e.get("text")]
                 plain = "\n".join(e["text"] for e in gemini_result if e.get("text"))
                 print(f"  [Gemini 2.5] Final: {len(gemini_result)} entries, {len(plain)} chars")
                 print(f"  [Gemini 2.5] Time range: {gemini_result[0]['t']}s ~ {gemini_result[-1]['t']}s")
@@ -760,11 +768,15 @@ class MusicAnalyzer:
                 merged = self._merge_whisper_gemini(whisper_result, gemini_text)
                 if merged:
                     self._last_timed_lyrics = merged
+                    if not self._last_stt_sentences:
+                        self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in merged if e.get("text")]
                     plain = "\n".join(e["text"] for e in merged if e.get("text"))
                     print(f"  [Hybrid] Final: {len(merged)} entries")
                     return plain
 
             self._last_timed_lyrics = whisper_result
+            if not self._last_stt_sentences:
+                self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in whisper_result if e.get("text")]
             plain = "\n".join(e["text"] for e in whisper_result if e.get("text"))
             print(f"  [Whisper-only] Final: {len(whisper_result)} entries")
             return plain
