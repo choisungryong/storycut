@@ -255,16 +255,30 @@ class MVPipeline:
 
             client = genai.Client(api_key=api_key)
 
-            # ── 1단계: GenreProfile 로드 (장르 우선, 스타일 fallback) ──
-            gp = self.genre_profiles.get(project.genre.value, {})
-            if not gp and project.style:
-                # 스타일에 GenreProfile이 있을 수 있음 (예: hoyoverse)
-                gp = self.genre_profiles.get(project.style.value, {})
-            has_genre_profile = bool(gp)
+            # ── 1단계: GenreProfile 로드 (장르 + 스타일 병합) ──
+            genre_gp = self.genre_profiles.get(project.genre.value, {})
+            style_gp = self.genre_profiles.get(project.style.value, {}) if project.style else {}
 
+            # 스타일 프로필이 별도로 존재하면 (예: hoyoverse) 장르 프로필에 병합
+            if genre_gp and style_gp and project.genre.value != project.style.value:
+                gp = dict(genre_gp)  # 장르 기반 복사
+                # 스타일 프로필의 핵심 비주얼 요소를 오버라이드
+                for key in ("palette_base", "palette_mode", "lighting", "motif_library",
+                            "avoid_keywords", "atmosphere", "composition_guide", "prompt_lexicon"):
+                    if style_gp.get(key):
+                        gp[key] = style_gp[key]
+                print(f"  [Visual Bible] GenreProfile merged: genre={project.genre.value} + style={project.style.value}")
+            elif genre_gp:
+                gp = genre_gp
+                print(f"  [Visual Bible] GenreProfile loaded: {project.genre.value}")
+            elif style_gp:
+                gp = style_gp
+                print(f"  [Visual Bible] GenreProfile loaded (style): {project.style.value}")
+            else:
+                gp = {}
+
+            has_genre_profile = bool(gp)
             if has_genre_profile:
-                profile_key = project.genre.value if self.genre_profiles.get(project.genre.value) else project.style.value
-                print(f"  [Visual Bible] GenreProfile loaded: {profile_key}")
                 print(f"    Palette mode: {gp.get('palette_mode', 'guide')}")
             else:
                 print(f"  [Visual Bible] No GenreProfile for genre='{project.genre.value}' or style='{project.style.value}', using full-LLM mode")
@@ -685,7 +699,19 @@ class MVPipeline:
         os.makedirs(char_dir, exist_ok=True)
 
         characters = project.visual_bible.characters
-        style_context = f"{project.style.value} style, {project.mood.value} mood"
+
+        # 스타일별 전용 캐릭터 앵커 directive
+        _style_directives = {
+            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster",
+            "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime proportions, NOT a photograph",
+            "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, NOT a photograph",
+            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, NOT anime, NOT cartoon",
+            "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, NOT a photograph",
+            "abstract": "abstract expressionist art, surreal dreamlike, bold geometric shapes",
+            "hoyoverse": "anime game cinematic illustration, HoYoverse Genshin Impact quality, cel-shaded with dramatic lighting, vibrant saturated colors, NOT photorealistic, NOT western cartoon",
+        }
+        style_context = _style_directives.get(project.style.value, f"{project.style.value} style")
+        style_context += f", {project.mood.value} mood"
 
         for i, character in enumerate(characters):
             import re as _re
@@ -902,9 +928,21 @@ class MVPipeline:
                 "hoyoverse": "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, HoYoverse quality, vibrant saturated colors"
             }.get(request.style.value, "cinematic film still, dramatic lighting")
 
-            gp = self.genre_profiles.get(request.genre.value, {})
-            if not gp:
-                gp = self.genre_profiles.get(request.style.value, {})
+            # GenreProfile: 스타일 프로필이 있으면 장르 프로필에 병합
+            genre_gp = self.genre_profiles.get(request.genre.value, {})
+            style_gp = self.genre_profiles.get(request.style.value, {}) if request.style else {}
+            if genre_gp and style_gp and request.genre.value != request.style.value:
+                gp = dict(genre_gp)
+                for key in ("prompt_lexicon", "lighting", "motif_library", "avoid_keywords",
+                            "atmosphere", "composition_guide"):
+                    if style_gp.get(key):
+                        gp[key] = style_gp[key]
+            elif genre_gp:
+                gp = genre_gp
+            elif style_gp:
+                gp = style_gp
+            else:
+                gp = {}
             genre_guide = gp.get("prompt_lexicon", {}).get("positive", "")
             if not genre_guide:
                 # Fallback for unknown genres without GenreProfile
@@ -1173,14 +1211,25 @@ class MVPipeline:
             MVStyle.WEBTOON: "Korean manhwa webtoon digital art, clean sharp lines, NOT a photograph",
             MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, NOT anime, NOT cartoon, NOT illustration",
             MVStyle.ILLUSTRATION: "digital painting illustration, painterly brushstrokes, concept art quality",
-            MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike, non-representational"
+            MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike, non-representational",
+            MVStyle.HOYOVERSE: "anime game cinematic, cel-shaded illustration, dramatic lighting, elemental effects, HoYoverse Genshin Impact quality, vibrant saturated colors, NOT photorealistic",
         }
         style_prefix = style_map.get(request.style, "cinematic")
 
-        # 장르 키워드 (GenreProfile 우선, 스타일 fallback)
-        gp = self.genre_profiles.get(request.genre.value, {})
-        if not gp:
-            gp = self.genre_profiles.get(request.style.value, {})
+        # 장르 키워드 (GenreProfile + 스타일 병합)
+        genre_gp = self.genre_profiles.get(request.genre.value, {})
+        style_gp = self.genre_profiles.get(request.style.value, {}) if request.style else {}
+        if genre_gp and style_gp and request.genre.value != request.style.value:
+            gp = dict(genre_gp)
+            for key in ("prompt_lexicon", "lighting", "motif_library", "avoid_keywords"):
+                if style_gp.get(key):
+                    gp[key] = style_gp[key]
+        elif genre_gp:
+            gp = genre_gp
+        elif style_gp:
+            gp = style_gp
+        else:
+            gp = {}
         genre_keywords = gp.get("prompt_lexicon", {}).get("positive", "")
         if not genre_keywords:
             genre_map = {

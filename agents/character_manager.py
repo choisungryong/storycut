@@ -265,8 +265,20 @@ class CharacterManager:
         if project.visual_bible and project.visual_bible.color_palette:
             color_palette = ", ".join(project.visual_bible.color_palette[:5])
 
+        # 스타일별 전용 캐릭터 앵커 directive
+        _style_anchor_directives = {
+            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, color graded like a Hollywood blockbuster",
+            "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime character proportions, NOT a photograph, NOT photorealistic",
+            "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, manhwa character design, NOT a photograph, NOT photorealistic",
+            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, NOT anime, NOT cartoon, NOT illustration",
+            "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph",
+            "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, non-representational",
+            "hoyoverse": "anime game cinematic illustration, HoYoverse Genshin Impact quality, cel-shaded with dramatic lighting, vibrant saturated colors, flowing hair and fabric, NOT photorealistic, NOT western cartoon",
+        }
+        style_directive = _style_anchor_directives.get(project.style.value, f"{project.style.value} style")
+
         global_style = GlobalStyle(
-            art_style=f"{project.style.value} style, {project.mood.value} mood, {project.genre.value}",
+            art_style=f"{style_directive}, {project.mood.value} mood",
             color_palette=color_palette,
             visual_seed=42,
         )
