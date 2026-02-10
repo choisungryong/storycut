@@ -466,6 +466,8 @@ class MusicAnalyzer:
         # === 1차: Google Cloud STT ===
         stt_words = self.transcribe_with_google_stt(audio_path)
         if stt_words and len(stt_words) >= 5:
+            # Raw STT 문장 보존 (타이밍 에디터용)
+            self._last_stt_sentences = self._stt_words_to_timed_lyrics(stt_words)
             print(f"  [STT] Success! Aligning {len(stt_words)} words with user lyrics...")
             result = self._align_stt_with_lyrics(stt_words, user_lyrics)
             if result and len(result) >= 3:
@@ -475,6 +477,8 @@ class MusicAnalyzer:
                 return plain
             else:
                 print(f"  [STT] Alignment produced too few results, falling back to Gemini")
+        else:
+            self._last_stt_sentences = None
 
         # === 2차: Gemini fallback ===
         print(f"  [Fallback] Using Gemini for lyrics sync...")
@@ -721,11 +725,15 @@ class MusicAnalyzer:
         stt_words = self.transcribe_with_google_stt(audio_path)
         if stt_words and len(stt_words) >= 5:
             result = self._stt_words_to_timed_lyrics(stt_words)
+            # Raw STT 문장 보존 (타이밍 에디터용)
+            self._last_stt_sentences = list(result) if result else None
             if result and len(result) >= 3:
                 self._last_timed_lyrics = result
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
                 print(f"  [STT] Extracted: {len(result)} lines, {len(plain)} chars")
                 return plain
+        else:
+            self._last_stt_sentences = None
 
         # Step 1: Gemini 2.5 Flash로 시도
         gemini_result = self._extract_with_gemini_25(audio_path)

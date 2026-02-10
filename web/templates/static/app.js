@@ -3458,6 +3458,197 @@ class StorycutApp {
         setTimeout(poll, 2000); // 2초 후 첫 폴링
     }
 
+    // ================================================================
+    // 가사 타이밍 에디터
+    // ================================================================
+
+    async openLyricsTimeline() {
+        const projectId = this._currentMVResultProjectId;
+        if (!projectId) {
+            this.showToast('프로젝트 ID를 찾을 수 없습니다', 'error');
+            return;
+        }
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const resp = await fetch(`${baseUrl}/api/mv/${projectId}/lyrics-timeline`);
+            if (!resp.ok) throw new Error('Failed to load lyrics timeline');
+
+            const data = await resp.json();
+            this._timelineOriginalData = data;
+            this._renderTimelineTable(data);
+
+            document.getElementById('lyrics-timeline-overlay').classList.add('active');
+        } catch (err) {
+            console.error('openLyricsTimeline error:', err);
+            this.showToast(`가사 타이밍 로드 실패: ${err.message}`, 'error');
+        }
+    }
+
+    closeLyricsTimeline() {
+        document.getElementById('lyrics-timeline-overlay').classList.remove('active');
+    }
+
+    _renderTimelineTable(data) {
+        const tbody = document.getElementById('lyrics-timeline-tbody');
+        tbody.innerHTML = '';
+
+        const sttMap = new Map();
+        (data.stt_sentences || []).forEach(s => {
+            sttMap.set(Math.round(s.t * 10), s.text);
+        });
+
+        const lyrics = data.timed_lyrics || [];
+        if (lyrics.length === 0 && (data.stt_sentences || []).length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">가사 타이밍 데이터가 없습니다</td></tr>';
+            return;
+        }
+
+        // Merge: timed_lyrics를 기준으로 STT 매칭
+        const rows = [];
+        lyrics.forEach(entry => {
+            const tKey = Math.round(entry.t * 10);
+            // 가장 가까운 STT 매칭 (+-0.5초 이내)
+            let sttText = '';
+            for (let offset = 0; offset <= 5; offset++) {
+                if (sttMap.has(tKey + offset)) { sttText = sttMap.get(tKey + offset); sttMap.delete(tKey + offset); break; }
+                if (offset > 0 && sttMap.has(tKey - offset)) { sttText = sttMap.get(tKey - offset); sttMap.delete(tKey - offset); break; }
+            }
+            rows.push({ t: entry.t, stt: sttText, text: entry.text || '' });
+        });
+
+        // 매칭 안 된 STT 엔트리도 추가 (회색으로)
+        sttMap.forEach((text, tKey) => {
+            rows.push({ t: tKey / 10, stt: text, text: '' });
+        });
+
+        // 시간순 정렬
+        rows.sort((a, b) => a.t - b.t);
+
+        rows.forEach((row, idx) => {
+            this._appendTimelineRow(tbody, row.t, row.stt, row.text, idx);
+        });
+    }
+
+    _appendTimelineRow(tbody, t, sttText, lyricsText, idx) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="col-time">
+                <input type="text" class="time-input" value="${this._formatTimeMS(t)}" data-orig-sec="${t}">
+            </td>
+            <td class="col-stt">
+                <span class="stt-text">${sttText || '(없음)'}</span>
+            </td>
+            <td class="col-lyrics">
+                <input type="text" class="lyrics-input" value="${(lyricsText || '').replace(/"/g, '&quot;')}" placeholder="자막 텍스트 입력...">
+            </td>
+            <td class="col-del">
+                <button class="btn-row-del" onclick="this.closest('tr').remove()" title="삭제">&times;</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    }
+
+    timelineAddRow() {
+        const tbody = document.getElementById('lyrics-timeline-tbody');
+        const rows = tbody.querySelectorAll('tr');
+        // 마지막 행의 시간 + 3초를 기본값으로
+        let lastT = 0;
+        if (rows.length > 0) {
+            const lastInput = rows[rows.length - 1].querySelector('.time-input');
+            if (lastInput) {
+                lastT = this._parseTimeInput(lastInput.value) + 3;
+            }
+        }
+        this._appendTimelineRow(tbody, lastT, '', '', rows.length);
+        // 새 행으로 스크롤
+        const body = document.querySelector('.lyrics-timeline-body');
+        if (body) body.scrollTop = body.scrollHeight;
+    }
+
+    timelineReset() {
+        if (!this._timelineOriginalData) return;
+        if (!confirm('편집 내용을 초기화하시겠습니까?')) return;
+        this._renderTimelineTable(this._timelineOriginalData);
+    }
+
+    async timelineSave() {
+        const projectId = this._currentMVResultProjectId;
+        if (!projectId) return;
+
+        const tbody = document.getElementById('lyrics-timeline-tbody');
+        const rows = tbody.querySelectorAll('tr');
+        const entries = [];
+
+        rows.forEach(tr => {
+            const timeInput = tr.querySelector('.time-input');
+            const lyricsInput = tr.querySelector('.lyrics-input');
+            if (!timeInput || !lyricsInput) return;
+
+            const text = lyricsInput.value.trim();
+            if (!text) return; // 빈 텍스트 행 스킵
+
+            const t = this._parseTimeInput(timeInput.value);
+            entries.push({ t, text });
+        });
+
+        if (entries.length === 0) {
+            this.showToast('저장할 가사가 없습니다', 'error');
+            return;
+        }
+
+        // 시간순 정렬
+        entries.sort((a, b) => a.t - b.t);
+
+        const saveBtn = document.getElementById('btn-tl-save');
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '저장 중...'; }
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const resp = await fetch(`${baseUrl}/api/mv/${projectId}/lyrics-timeline`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ timed_lyrics: entries })
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.detail || 'Save failed');
+            }
+
+            this.showToast(`가사 타이밍 저장 완료 (${entries.length}줄). 재합성하면 반영됩니다.`, 'success');
+            this.closeLyricsTimeline();
+
+            // 리컴포즈 버튼 표시
+            const recomposeBtn = document.getElementById('mv-recompose-btn');
+            if (recomposeBtn) {
+                recomposeBtn.style.display = '';
+            }
+        } catch (err) {
+            console.error('timelineSave error:', err);
+            this.showToast(`저장 실패: ${err.message}`, 'error');
+        } finally {
+            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '저장'; }
+        }
+    }
+
+    _formatTimeMS(sec) {
+        const s = Math.max(0, sec);
+        const m = Math.floor(s / 60);
+        const sRem = (s % 60).toFixed(1);
+        return `${m}:${sRem.padStart(4, '0')}`;
+    }
+
+    _parseTimeInput(str) {
+        // "M:SS.s" 또는 "SS.s" 형식 파싱
+        str = (str || '0').trim();
+        const parts = str.split(':');
+        if (parts.length === 2) {
+            return (parseFloat(parts[0]) || 0) * 60 + (parseFloat(parts[1]) || 0);
+        }
+        return parseFloat(str) || 0;
+    }
+
     resetMVUI() {
         this.mvProjectId = null;
         this.mvAnalysis = null;

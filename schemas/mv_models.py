@@ -148,6 +148,7 @@ class MusicAnalysis(BaseModel):
     key_timestamps: List[float] = Field(default_factory=list, description="주요 전환 포인트")
     extracted_lyrics: Optional[str] = Field(None, description="Gemini로 자동 추출된 가사")
     timed_lyrics: Optional[List[Dict[str, Any]]] = Field(None, description="타임스탬프 포함 가사 [{t: 초, text: 가사}]")
+    stt_sentences: Optional[List[Dict[str, Any]]] = Field(None, description="Raw STT 문장 [{t: 초, text: 인식텍스트}] (타이밍 에디터용)")
 
 
 # ============================================================
@@ -282,6 +283,9 @@ class MVProject(BaseModel):
 
     # 옵션
     subtitle_enabled: bool = Field(default=True, description="가사 자막 burn-in 여부")
+
+    # 사용자 편집 가사 타이밍 (timed_lyrics보다 우선)
+    edited_timed_lyrics: Optional[List[Dict[str, Any]]] = Field(None, description="사용자 편집 타임스탬프 가사 [{t: 초, text: 가사}]")
 
     # 씬 목록
     scenes: List[MVScene] = Field(default_factory=list)

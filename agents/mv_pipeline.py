@@ -121,6 +121,10 @@ class MVPipeline:
                     timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
                     if timed_lyrics:
                         analysis_result["timed_lyrics"] = timed_lyrics
+                # Raw STT 문장 보존 (타이밍 에디터용)
+                stt_sentences = getattr(self.music_analyzer, '_last_stt_sentences', None)
+                if stt_sentences:
+                    analysis_result["stt_sentences"] = stt_sentences
                 extracted_lyrics = synced_lyrics
             else:
                 print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
@@ -130,6 +134,10 @@ class MVPipeline:
                     timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
                     if timed_lyrics:
                         analysis_result["timed_lyrics"] = timed_lyrics
+                # Raw STT 문장 보존 (타이밍 에디터용)
+                stt_sentences = getattr(self.music_analyzer, '_last_stt_sentences', None)
+                if stt_sentences:
+                    analysis_result["stt_sentences"] = stt_sentences
 
             project.music_analysis = MusicAnalysis(**analysis_result)
             project.status = MVProjectStatus.READY
@@ -1527,9 +1535,12 @@ class MVPipeline:
                 srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
                 os.makedirs(os.path.dirname(srt_path), exist_ok=True)
 
-                # SRT 파일 생성 (타임스탬프 가사 우선 사용)
+                # SRT 파일 생성 (edited_timed_lyrics > timed_lyrics 우선순위)
                 timed_lyrics = None
-                if project.music_analysis and project.music_analysis.timed_lyrics:
+                if project.edited_timed_lyrics:
+                    timed_lyrics = project.edited_timed_lyrics
+                    print(f"    Using edited_timed_lyrics ({len(timed_lyrics)} entries)")
+                elif project.music_analysis and project.music_analysis.timed_lyrics:
                     timed_lyrics = project.music_analysis.timed_lyrics
                 self._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=timed_lyrics)
 

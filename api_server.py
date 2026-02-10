@@ -2823,6 +2823,77 @@ async def mv_compose(project_id: str):
     return {"status": "composing", "project_id": project_id}
 
 
+class UpdateLyricsTimelineRequest(BaseModel):
+    timed_lyrics: List[Dict[str, Any]]  # [{t: float, text: str}, ...]
+
+@app.get("/api/mv/{project_id}/lyrics-timeline")
+async def get_mv_lyrics_timeline(project_id: str):
+    """MV 가사 타이밍 에디터용 데이터 반환 (STT 원문 + 정렬 가사)"""
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    stt_sentences = None
+    timed_lyrics = None
+    duration_sec = 0.0
+
+    if project.music_analysis:
+        stt_sentences = project.music_analysis.stt_sentences
+        timed_lyrics = project.music_analysis.timed_lyrics
+        duration_sec = project.music_analysis.duration_sec
+
+    # edited_timed_lyrics가 있으면 has_edits=True
+    has_edits = bool(project.edited_timed_lyrics)
+
+    return {
+        "stt_sentences": stt_sentences or [],
+        "timed_lyrics": project.edited_timed_lyrics or timed_lyrics or [],
+        "duration_sec": duration_sec,
+        "has_edits": has_edits,
+    }
+
+@app.put("/api/mv/{project_id}/lyrics-timeline")
+async def update_mv_lyrics_timeline(project_id: str, req: UpdateLyricsTimelineRequest):
+    """MV 가사 타이밍 에디터 저장 → edited_timed_lyrics에 저장 + SRT 재생성"""
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    # 편집 결과 저장
+    project.edited_timed_lyrics = req.timed_lyrics
+    print(f"[Lyrics Timeline] Saved {len(req.timed_lyrics)} edited entries for {project_id}")
+
+    # SRT 재생성
+    project_dir = f"outputs/{project_id}"
+    srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
+    os.makedirs(os.path.dirname(srt_path), exist_ok=True)
+
+    pipeline._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=req.timed_lyrics)
+
+    # 매니페스트 저장
+    pipeline._save_manifest(project, project_dir)
+    try:
+        from utils.storage import StorageManager
+        storage = StorageManager()
+        manifest_file = f"{project_dir}/manifest.json"
+        if os.path.exists(manifest_file):
+            storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
+    except Exception as e:
+        print(f"[Lyrics Timeline] R2 manifest upload error (non-fatal): {e}")
+
+    return {"success": True, "entries": len(req.timed_lyrics)}
+
+
 class UpdateLyricsRequest(BaseModel):
     lyrics: str
 
