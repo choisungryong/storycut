@@ -1738,6 +1738,18 @@ class MVPipeline:
                 if seg_type in ("chorus", "hook") and ci >= 3:
                     reframe = "detail"
 
+                # close/detail 크롭은 얼굴 영역(상단 중앙)에 고정
+                # 16:9 인물 이미지에서 얼굴은 거의 항상 y=0.25~0.35 영역
+                if reframe in ("close", "detail"):
+                    has_chars = bool(scene.characters_in_scene)
+                    if has_chars:
+                        # 캐릭터 씬: 얼굴 영역 (상단 중앙 ± 약간 변화)
+                        face_anchors = [(0.5, 0.3), (0.45, 0.28), (0.55, 0.32)]
+                        anchor = face_anchors[ci % len(face_anchors)]
+                    else:
+                        # 환경 씬: 중앙 유지
+                        anchor = (0.5, 0.5)
+
                 cut_plan.append({
                     "parent_scene_id": scene.scene_id,
                     "cut_index": ci,
