@@ -263,7 +263,11 @@ class ImageAgent:
                 all_reference_paths.extend(character_reference_paths)
             if character_reference_path and character_reference_path not in all_reference_paths:
                 all_reference_paths.insert(0, character_reference_path)
+            pre_filter_count = len(all_reference_paths)
             all_reference_paths = [p for p in all_reference_paths if p and os.path.exists(p)]
+            if pre_filter_count > len(all_reference_paths):
+                missing = pre_filter_count - len(all_reference_paths)
+                print(f"     [WARNING] {missing}/{pre_filter_count} character reference paths not found on disk")
 
             # v2.1: Use MultimodalPromptBuilder for consistent part ordering
             # v3.0: Visual Bible enrichment (genre/mood/negative/visual_bible/color_mood)

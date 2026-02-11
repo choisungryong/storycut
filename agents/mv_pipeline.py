@@ -1116,27 +1116,14 @@ class MVPipeline:
                 f"{directors_context}"
             )
 
-            # 인종 지시 (user_prompt에도 강제)
-            _eth_val = getattr(request, 'character_ethnicity', None)
-            _eth_str = _eth_val.value if hasattr(_eth_val, 'value') else str(_eth_val or 'auto')
-            _ETH_PROMPT = {
-                "korean": "MANDATORY: ALL characters must be described as 'Korean' in EVERY prompt. Write 'Korean man/woman' explicitly.",
-                "japanese": "MANDATORY: ALL characters must be described as 'Japanese' in EVERY prompt.",
-                "chinese": "MANDATORY: ALL characters must be described as 'Chinese' in EVERY prompt.",
-                "southeast_asian": "MANDATORY: ALL characters must be described as 'Southeast Asian' in EVERY prompt.",
-                "european": "MANDATORY: ALL characters must be described as 'European/Caucasian' in EVERY prompt.",
-                "black": "MANDATORY: ALL characters must be described as 'Black/African' in EVERY prompt.",
-                "hispanic": "MANDATORY: ALL characters must be described as 'Hispanic/Latino' in EVERY prompt.",
-                "mixed": "MANDATORY: Each character's specific ethnicity must be stated in EVERY prompt.",
-            }
-            eth_prompt_line = _ETH_PROMPT.get(_eth_str, "")
+            # 인종 지시: system_prompt의 "ETHNICITY IS MANDATORY" + Visual Bible 지시로 충분.
+            # user_prompt에서 중복 제거 (LLM이 "Korean Korean Korean" 과잉 반복하는 문제 방지)
+            # 최종 방어선은 generate_images()의 런타임 주입이 담당.
 
             user_prompt = (
                 f"컨셉: {request.concept or '자유'}\n"
                 f"총 씬 수: {len(project.scenes)}\n\n"
             )
-            if eth_prompt_line:
-                user_prompt += f"*** {eth_prompt_line} ***\n\n"
             user_prompt += (
                 f"[중요] 먼저 아래 가사 전체를 읽고 '이 노래의 이야기'를 파악한 뒤,\n"
                 f"각 씬이 그 이야기의 어느 부분을 담당하는지 정한 후 프롬프트를 작성하세요.\n"

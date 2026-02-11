@@ -249,6 +249,10 @@ class MultimodalPromptBuilder:
         """
         parts = []
 
+        # STEP 0: LOCK Declaration (from 7-step LOCK system)
+        lock_declaration = MultimodalPromptBuilder._build_lock_declaration()
+        parts.append({"text": lock_declaration})
+
         # Style anchor - composition/layout reference only, not style override
         if style_anchor_path and os.path.exists(style_anchor_path):
             image_part = MultimodalPromptBuilder._encode_image_part(style_anchor_path)
@@ -263,8 +267,10 @@ class MultimodalPromptBuilder:
                 parts.append(image_part)
                 parts.append({"text": "[ENVIRONMENT ANCHOR] Match this background."})
 
-        # 참조 이미지 추가
+        # 참조 이미지 추가 (최대 3개, Gemini 컨텍스트 한계)
         if character_reference_paths:
+            if len(character_reference_paths) > 3:
+                print(f"  [WARNING] {len(character_reference_paths)} character references but max 3 allowed, dropping: {[os.path.basename(p) for p in character_reference_paths[3:]]}")
             for path in character_reference_paths[:3]:
                 if path and os.path.exists(path):
                     image_part = MultimodalPromptBuilder._encode_image_part(path)
@@ -279,7 +285,13 @@ class MultimodalPromptBuilder:
                     "[CHARACTER LOCK] The character portrait(s) above are DEFINITIVE references. "
                     "Maintain EXACT face shape, eye shape, nose, skin tone, hair color/length/style, "
                     "body proportions, and clothing. "
-                    "Do NOT change ethnicity, age, or any facial features."
+                    "Do NOT change ethnicity, age, or any facial features.\n"
+                    "STRICT RULES:\n"
+                    "- IDENTITY PRESERVATION: Character faces must be pixel-level consistent with anchors\n"
+                    "- NO identity drift: faces, hair, eyes, body shape must not change\n"
+                    "- NO wardrobe change: clothing, accessories must remain exactly as in reference\n"
+                    "- NO style drift: lighting, color grading, rendering style must not change\n"
+                    "- NO spontaneous props or background elements not described in the prompt"
                 )})
             else:
                 parts.append({

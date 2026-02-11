@@ -421,12 +421,17 @@ JSON 형식으로 출력:
             if scene.characters_in_scene:
                 print(f"  [v2.0] Characters: {', '.join(scene.characters_in_scene)}")
 
-                # 첫 번째 캐릭터의 visual_seed 사용
+                # 모든 캐릭터의 visual_seed 결합
                 if character_sheet and scene.characters_in_scene:
-                    first_char_token = scene.characters_in_scene[0]
-                    if first_char_token in character_sheet:
-                        scene_seed = character_sheet[first_char_token].get("visual_seed")
-                        print(f"  [v2.0] Using visual_seed: {scene_seed}")
+                    all_seeds = []
+                    for char_token in scene.characters_in_scene:
+                        if char_token in character_sheet:
+                            s = character_sheet[char_token].get("visual_seed")
+                            if s is not None:
+                                all_seeds.append(s)
+                    if all_seeds:
+                        scene_seed = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
+                        print(f"  [v2.0] Combined visual_seed: {scene_seed} (from {len(all_seeds)} characters: {all_seeds})")
 
             # v2.0: Scene에 메타데이터 저장 (video_agent가 활용)
             if not hasattr(scene, '_seed'):
@@ -517,16 +522,26 @@ JSON 형식으로 출력:
 
                 # v2.0: ConsistencyValidator 검증 (이미지 생성 후, 비디오 합성 전)
                 if consistency_validator and scene.assets.image_path:
-                    # 캐릭터 앵커 경로 수집
+                    # 캐릭터 앵커 경로 수집 (포즈 선택 활성화)
                     char_anchor_paths = []
                     if scene.characters_in_scene and character_sheet:
                         from agents.character_manager import CharacterManager
                         cm = CharacterManager.__new__(CharacterManager)
-                        char_anchor_paths = cm.get_active_character_images(
-                            scene.characters_in_scene, character_sheet
-                        )
+                        for char_token in scene.characters_in_scene:
+                            pose_path = cm.get_pose_appropriate_image(
+                                char_token, character_sheet, scene.prompt
+                            )
+                            if pose_path and os.path.exists(pose_path):
+                                char_anchor_paths.append(pose_path)
+                            else:
+                                print(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
+                        if len(char_anchor_paths) < len(scene.characters_in_scene):
+                            print(f"  [WARNING] Only {len(char_anchor_paths)}/{len(scene.characters_in_scene)} character anchors found")
 
                     env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
+
+                    # Anchor audit log
+                    print(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_anchor_paths]}, style={os.path.basename(style_anchor_path) if style_anchor_path else 'None'}, env={os.path.basename(env_anchor) if env_anchor else 'None'}")
 
                     val_result = consistency_validator.validate_scene_image(
                         generated_image_path=scene.assets.image_path,
@@ -716,12 +731,17 @@ JSON 형식으로 출력:
                 characters_in_scene=scene_data.get("characters_in_scene", []),
             )
             
-            # Seed 추출
+            # Seed 추출 (모든 캐릭터의 visual_seed 결합)
             scene_seed = None
             if scene.characters_in_scene and character_sheet:
-                first_char_token = scene.characters_in_scene[0]
-                if first_char_token in character_sheet:
-                    scene_seed = character_sheet[first_char_token].get("visual_seed")
+                all_seeds = []
+                for char_token in scene.characters_in_scene:
+                    if char_token in character_sheet:
+                        s = character_sheet[char_token].get("visual_seed")
+                        if s is not None:
+                            all_seeds.append(s)
+                if all_seeds:
+                    scene_seed = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
             
             # 메타데이터 저장
             scene._seed = scene_seed
@@ -773,19 +793,28 @@ JSON 형식으로 출력:
                 from agents.image_agent import ImageAgent
                 image_agent = ImageAgent()
                 
-                # Character references
+                # Character references (포즈 선택 활성화)
                 char_refs = []
                 if scene.characters_in_scene and character_sheet:
                     from agents.character_manager import CharacterManager
                     cm = CharacterManager.__new__(CharacterManager)
-                    char_refs = cm.get_active_character_images(
-                        scene.characters_in_scene,
-                        character_sheet
-                    )
-                
+                    for char_token in scene.characters_in_scene:
+                        pose_path = cm.get_pose_appropriate_image(
+                            char_token, character_sheet, scene.prompt
+                        )
+                        if pose_path and os.path.exists(pose_path):
+                            char_refs.append(pose_path)
+                        else:
+                            print(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
+                    if len(char_refs) < len(scene.characters_in_scene):
+                        print(f"  [WARNING] Only {len(char_refs)}/{len(scene.characters_in_scene)} character anchors found")
+
                 # v2.1: Extract anchors for this scene
                 scene_style_anchor = style_anchor_path
                 scene_env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
+
+                # Anchor audit log
+                print(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_refs]}, style={os.path.basename(scene_style_anchor) if scene_style_anchor else 'None'}, env={os.path.basename(scene_env_anchor) if scene_env_anchor else 'None'}")
 
                 # Generate image
                 image_path, image_id = image_agent.generate_image(

@@ -251,15 +251,30 @@ class ConsistencyValidator:
                 parts.append(gen_part)
                 parts.append({"text": "[GENERATED IMAGE] This is the newly generated scene image."})
 
-            # 앵커 이미지들
+            # 앵커 이미지들 (캐릭터별 라벨 부여)
+            char_labels = []
             for path, label in zip(anchor_image_paths, anchor_labels):
                 anchor_part = self._encode_image_part(path)
                 if anchor_part:
                     parts.append(anchor_part)
-                    parts.append({"text": f"[{label.upper()}] This is the reference anchor."})
+                    display_label = label.upper().replace("CHARACTER_ANCHOR_", "CHARACTER_")
+                    if label.startswith("character_anchor_"):
+                        display_label = f"CHARACTER_{int(label.split('_')[-1]) + 1}"
+                        char_labels.append(display_label)
+                    parts.append({"text": f"[{display_label}] This is the reference anchor."})
 
-            # 스코어링 요청
-            parts.append({"text": """Compare the GENERATED IMAGE against the reference anchors.
+            # 스코어링 요청 (캐릭터별 점수 지원)
+            if char_labels:
+                face_format = "{" + ", ".join(f'"{cl}": 0.0' for cl in char_labels) + "}"
+                parts.append({"text": f"""Compare the GENERATED IMAGE against the reference anchors.
+Score each dimension from 0.0 to 1.0:
+- face_similarity: Score EACH character separately. How consistent is each character's face? (1.0 = identical)
+- style_drift: How well does the art style match? (1.0 = perfect match, 0.0 = completely different style)
+- environment_similarity: How consistent is the background/environment? (1.0 = identical setting)
+
+Respond ONLY with JSON: {{"face_similarity": {face_format}, "style_drift": 0.0, "environment_similarity": 0.0}}"""})
+            else:
+                parts.append({"text": """Compare the GENERATED IMAGE against the reference anchors.
 Score each dimension from 0.0 to 1.0:
 - face_similarity: How consistent are character faces between generated and anchor? (1.0 = identical)
 - style_drift: How well does the art style match? (1.0 = perfect match, 0.0 = completely different style)
@@ -280,8 +295,18 @@ Respond ONLY with JSON: {"face_similarity": 0.0, "style_drift": 0.0, "environmen
 
             scores = json.loads(content)
 
+            # face_similarity: per-character dict → use minimum (all must pass)
+            face_raw = scores.get("face_similarity", 0.5)
+            if isinstance(face_raw, dict):
+                # Per-character scores: use minimum for threshold check
+                per_char = {k: float(v) for k, v in face_raw.items()}
+                face_score = min(per_char.values()) if per_char else 0.5
+                print(f"  [ConsistencyValidator] Per-character face scores: {per_char} -> min={face_score:.2f}")
+            else:
+                face_score = float(face_raw)
+
             return {
-                "face_similarity": float(scores.get("face_similarity", 0.5)),
+                "face_similarity": face_score,
                 "style_drift": float(scores.get("style_drift", 0.5)),
                 "environment_similarity": float(scores.get("environment_similarity", 0.5)),
             }

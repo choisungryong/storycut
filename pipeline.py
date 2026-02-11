@@ -151,6 +151,8 @@ class StorycutPipeline:
             estimated_duration = max(5, char_count / 4)
 
             # 인종 런타임 주입 (Gemini가 지시 무시할 때 안전망)
+            # Note: scene_orchestrator.generate_images_for_scenes()에도 동일 로직 있음.
+            # "not in prompt" 가드로 중복 주입 방지됨.
             image_prompt = prompt_data.get("image_prompt", "")
             _eth = getattr(request, 'character_ethnicity', 'auto')
             _ETH_KW = {
@@ -384,6 +386,15 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     if token in story_data["character_sheet"]:
                         story_data["character_sheet"][token]["master_image_path"] = image_path
 
+            # manifest에도 즉시 반영 + 디스크 저장 (중간 실패 시 anchor 경로 유실 방지)
+            for token, image_path in character_images.items():
+                if token in manifest.character_sheet:
+                    cs = manifest.character_sheet[token]
+                    if hasattr(cs, 'master_image_path'):
+                        cs.master_image_path = image_path
+            self._save_manifest(manifest, project_dir)
+            print(f"  [Manifest] Saved character anchors to disk")
+
         try:
             print(f"\n{'='*60}")
             print(f"STORYCUT Pipeline - Video Generation - Project: {project_id}")
@@ -579,6 +590,15 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 for token, image_path in character_images.items():
                     if token in story_data["character_sheet"]:
                         story_data["character_sheet"][token]["master_image_path"] = image_path
+
+            # manifest에도 즉시 반영 + 디스크 저장 (중간 실패 시 anchor 경로 유실 방지)
+            for token, image_path in character_images.items():
+                if token in manifest.character_sheet:
+                    cs = manifest.character_sheet[token]
+                    if hasattr(cs, 'master_image_path'):
+                        cs.master_image_path = image_path
+            self._save_manifest(manifest, project_dir)
+            print(f"  [Manifest] Saved character anchors to disk")
 
         # 준비 완료 → 이미지 생성 시작
         manifest.status = "generating_images"
