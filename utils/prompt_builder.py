@@ -442,14 +442,16 @@ class MultimodalPromptBuilder:
                 # shot_type이 매칭되지 않으면 camera_directive 그대로 사용
                 framing_text = f"[CAMERA] {camera_directive}"
 
-        # 해부학적 오류 + 잔혹 표현 방지 (글로벌)
+        # 해부학적 오류 + 잔혹 표현 + 직립 포즈 방지 (글로벌)
         anatomy_negative = (
             "NEVER: extra limbs, extra arms, extra legs, extra fingers, missing fingers, "
             "deformed hands, fused fingers, mutated body parts, bad anatomy, wrong proportions, "
             "three arms, three legs, six fingers. "
             "NEVER: blood, bloody tears, gore, grotesque, horror elements, creepy faces, "
             "disfigured faces, zombie-like appearance, unnatural skin discoloration, "
-            "characters not described in the prompt, random bystanders, unexplained observers."
+            "characters not described in the prompt, random bystanders, unexplained observers. "
+            "NEVER: stiff military stance, standing at attention, arms rigidly at sides, "
+            "mannequin pose, T-pose, passport photo pose, mugshot pose."
         )
 
         # 네거티브 파트 통합

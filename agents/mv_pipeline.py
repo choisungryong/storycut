@@ -385,6 +385,10 @@ class MVPipeline:
                     "- NEVER change a character's ethnicity, age, or core features between scenes.\n"
                     "- Each character's 'appears_in' must match the scenes where they appear in scene_blocking.\n"
                     "- The characters and blocking must strongly reflect the genre, mood, and style choices.\n"
+                    "- *** TIME PERIOD LOCK ***: If the concept specifies a historical period (medieval, ancient, etc.), "
+                    "ALL character outfits, props, locations, and actions must be era-appropriate. "
+                    "NEVER give characters modern items (earphones, smartphones, coffee cups, modern clothes). "
+                    "Design outfits and settings that match the specified time period.\n"
                     "- Do NOT include color_palette, lighting_style, recurring_motifs, atmosphere, "
                     "avoid_keywords, composition_notes, or reference_artists in your JSON -- those are pre-defined."
                     f"{gp_context}"
@@ -1106,6 +1110,15 @@ class MVPipeline:
                 "- *** ETHNICITY IS MANDATORY IN EVERY PROMPT ***: Every prompt MUST explicitly state "
                 "the character's ethnicity/race (e.g. 'Korean man', 'Korean woman'). "
                 "NEVER omit ethnicity. If you skip it, the image model will generate random races.\n"
+                "- *** SETTING / TIME PERIOD LOCK ***: The '컨셉' field defines the world and era. "
+                "ALL scene prompts MUST be consistent with that setting. "
+                "If the concept mentions a historical period (medieval, ancient, 1800s, etc.), "
+                "NEVER include modern objects (smartphones, earphones, headphones, laptops, cars, café, "
+                "modern furniture, streetlights, neon signs, contemporary clothing). "
+                "Use ONLY era-appropriate props, architecture, clothing, and technology. "
+                "If concept is 'medieval' → stone castles, candlelight, swords, robes, taverns. "
+                "If concept is 'ancient' → temples, torches, clay pots, linen garments. "
+                "Violating the time period is as serious as changing a character's ethnicity.\n"
                 "- SCENE BLOCKING의 shot_type, expression, lighting, ACTION을 반드시 반영하세요.\n"
                 "- EXPRESSION 필드의 표정을 프롬프트 앞부분에 강하게 포함. 무표정 금지.\n"
                 "  표정은 가사의 감정을 직접 반영해야 합니다. 슬픈 가사=슬픈 표정, 격한 가사=격한 표정.\n"
@@ -1159,6 +1172,27 @@ class MVPipeline:
             # user_prompt에서 중복 제거 (LLM이 "Korean Korean Korean" 과잉 반복하는 문제 방지)
             # 최종 방어선은 generate_images()의 런타임 주입이 담당.
 
+            # --- 시대/배경 키워드 추출 (concept에서) ---
+            _concept = (request.concept or "").lower()
+            _era_warning = ""
+            if any(kw in _concept for kw in [
+                "medieval", "중세", "ancient", "고대", "조선", "joseon",
+                "victorian", "빅토리아", "1800", "1700", "1600", "1500",
+                "renaissance", "르네상스", "전쟁", "war", "삼국", "고려",
+                "roman", "로마", "greek", "그리스", "edo", "에도",
+            ]):
+                _era_warning = (
+                    "\n*** TIME PERIOD WARNING ***\n"
+                    f"The concept '{request.concept}' specifies a HISTORICAL setting.\n"
+                    "You MUST ensure ALL scene prompts use ONLY era-appropriate elements.\n"
+                    "ABSOLUTELY FORBIDDEN in prompts: café, coffee shop, earphones, headphones, "
+                    "smartphone, laptop, computer, modern car, streetlight, neon sign, "
+                    "modern clothing (hoodie, jeans, sneakers, t-shirt), glasses (modern frames), "
+                    "electric guitar, microphone stand, modern building, concrete, asphalt road.\n"
+                    "USE INSTEAD: tavern, candle, torch, horse, sword, bow, quill, parchment, "
+                    "stone walls, wooden furniture, linen/silk/leather garments, medieval armor.\n"
+                )
+
             user_prompt = (
                 f"컨셉: {request.concept or '자유'}\n"
                 f"총 씬 수: {len(project.scenes)}\n\n"
@@ -1166,7 +1200,8 @@ class MVPipeline:
             user_prompt += (
                 f"[중요] 먼저 아래 가사 전체를 읽고 '이 노래의 이야기'를 파악한 뒤,\n"
                 f"각 씬이 그 이야기의 어느 부분을 담당하는지 정한 후 프롬프트를 작성하세요.\n"
-                f"시청자가 이미지 순서만 봐도 이야기를 따라갈 수 있어야 합니다.\n\n"
+                f"시청자가 이미지 순서만 봐도 이야기를 따라갈 수 있어야 합니다.\n"
+                f"{_era_warning}\n"
                 f"씬 정보:\n{scenes_text}\n\n"
                 f"위 {len(project.scenes)}개 씬에 대해 각각 이미지 생성 프롬프트를 한 줄씩 출력하세요."
             )
@@ -1337,11 +1372,34 @@ class MVPipeline:
             if r in char_map
         ]
 
+    def _extract_era_setting(self, concept: str) -> tuple:
+        """concept에서 시대/배경 키워드를 추출. (era_prefix, era_negative) 반환."""
+        if not concept:
+            return ("", "")
+        _c = concept.lower()
+        _ERA_MAP = {
+            "medieval": ("medieval setting, period-accurate props and architecture", "modern objects, café, earphones, headphones, smartphone, laptop, contemporary clothing, hoodie, jeans, sneakers, neon, streetlight, asphalt"),
+            "중세": ("medieval setting, period-accurate props and architecture", "modern objects, café, earphones, headphones, smartphone, laptop, contemporary clothing, hoodie, jeans, sneakers, neon, streetlight, asphalt"),
+            "ancient": ("ancient era setting, historical architecture", "modern objects, café, earphones, smartphone, contemporary clothing, neon, electric light"),
+            "고대": ("ancient era setting, historical architecture", "modern objects, café, earphones, smartphone, contemporary clothing, neon, electric light"),
+            "조선": ("Joseon dynasty Korea, traditional hanbok, wooden architecture", "modern objects, café, earphones, smartphone, western clothing, neon, electric light, concrete"),
+            "joseon": ("Joseon dynasty Korea, traditional hanbok, wooden architecture", "modern objects, café, earphones, smartphone, western clothing, neon, electric light, concrete"),
+            "victorian": ("Victorian era setting, 19th century props and fashion", "modern objects, smartphone, earphones, neon, contemporary clothing, electric devices"),
+            "빅토리아": ("Victorian era setting, 19th century props and fashion", "modern objects, smartphone, earphones, neon, contemporary clothing, electric devices"),
+            "renaissance": ("Renaissance era setting, classical architecture", "modern objects, smartphone, earphones, neon, contemporary clothing"),
+            "르네상스": ("Renaissance era setting, classical architecture", "modern objects, smartphone, earphones, neon, contemporary clothing"),
+        }
+        for keyword, (prefix, negative) in _ERA_MAP.items():
+            if keyword in _c:
+                return (prefix, negative)
+        return ("", "")
+
     def _inject_character_descriptions(self, project: MVProject, scene: MVScene, prompt: str) -> str:
-        """씬 프롬프트에 Visual Bible 캐릭터의 외형+의상 설명을 주입.
+        """씬 프롬프트에 Visual Bible 캐릭터의 외형+의상 설명 및 action_pose를 주입.
 
         LLM이 생성한 프롬프트는 캐릭터 외형을 생략하거나 변경할 수 있음.
         이 메서드가 원본 Visual Bible 설명을 강제 주입하여 일관성 확보.
+        또한 action_pose를 주입하여 앵커 이미지의 직립 자세 복제를 방지.
         """
         if not project.visual_bible or not project.visual_bible.characters:
             return prompt
@@ -1363,9 +1421,28 @@ class MVPipeline:
         if not char_descs:
             return prompt
 
-        # 캐릭터 설명을 프롬프트 맨 앞에 주입
+        # 씬 블로킹에서 action_pose, expression 추출
+        action_pose = ""
+        expression = ""
+        if project.visual_bible and project.visual_bible.scene_blocking:
+            blocking_map = {b.scene_id: b for b in project.visual_bible.scene_blocking}
+            blocking = blocking_map.get(scene.scene_id)
+            if blocking:
+                if blocking.action_pose:
+                    action_pose = blocking.action_pose
+                if blocking.expression:
+                    expression = blocking.expression
+
+        # 프롬프트 조립: action_pose를 최우선에 배치 (앵커 이미지의 직립 자세 덮어쓰기)
+        prefix_parts = []
+        if action_pose:
+            prefix_parts.append(f"POSE: {action_pose}")
+        if expression:
+            prefix_parts.append(f"EXPRESSION: {expression}")
         char_block = " | ".join(char_descs)
-        return f"{char_block}. {prompt}"
+        prefix_parts.append(char_block)
+
+        return f"{'. '.join(prefix_parts)}. {prompt}"
 
     # ================================================================
     # Step 3: 이미지 생성
@@ -1414,6 +1491,11 @@ class MVPipeline:
             "black": "Black", "hispanic": "Hispanic",
         }
         ethnicity_keyword = _ETH_KW.get(_eth_v, "")
+
+        # 시대/배경 키워드 (concept에서 추출, 프롬프트에 자동 주입)
+        era_prefix, era_negative = self._extract_era_setting(project.concept)
+        if era_prefix:
+            print(f"  [Era Lock] Detected historical setting: {era_prefix[:40]}...")
 
         # Pexels B-roll 에이전트 초기화
         pexels = None
@@ -1495,6 +1577,14 @@ class MVPipeline:
                 if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
                     final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
+                # 시대/배경 키워드 자동 주입 (concept에서 추출)
+                if era_prefix and era_prefix.lower() not in final_prompt.lower():
+                    final_prompt = f"{era_prefix}, {final_prompt}"
+                # 시대 부정 키워드 (negative_prompt에 추가)
+                _scene_neg = scene.negative_prompt or ""
+                if era_negative:
+                    _scene_neg = f"{era_negative}, {_scene_neg}" if _scene_neg else era_negative
+
                 # Pass 4: 풀 컨텍스트 이미지 생성
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
@@ -1504,7 +1594,7 @@ class MVPipeline:
                     style_anchor_path=style_anchor_path,
                     genre=project.genre.value,
                     mood=project.mood.value,
-                    negative_prompt=scene.negative_prompt,
+                    negative_prompt=_scene_neg or scene.negative_prompt,
                     visual_bible=vb_dict,
                     color_mood=scene.color_mood,
                     character_reference_paths=char_anchor_paths or None,
@@ -2042,6 +2132,14 @@ class MVPipeline:
         if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
             final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
+        # 시대/배경 키워드 자동 주입 (concept에서 추출)
+        era_prefix, era_negative = self._extract_era_setting(project.concept)
+        if era_prefix and era_prefix.lower() not in final_prompt.lower():
+            final_prompt = f"{era_prefix}, {final_prompt}"
+        _regen_neg = scene.negative_prompt or ""
+        if era_negative:
+            _regen_neg = f"{era_negative}, {_regen_neg}" if _regen_neg else era_negative
+
         try:
             image_path, _ = self.image_agent.generate_image(
                 scene_id=scene.scene_id,
@@ -2051,7 +2149,7 @@ class MVPipeline:
                 style_anchor_path=style_anchor_path,
                 genre=project.genre.value,
                 mood=project.mood.value,
-                negative_prompt=scene.negative_prompt,
+                negative_prompt=_regen_neg or scene.negative_prompt,
                 visual_bible=vb_dict,
                 color_mood=scene.color_mood,
                 character_reference_paths=char_anchor_paths or None,
