@@ -1679,17 +1679,33 @@ class MVPipeline:
                "-vf", "scale=1920:1080", out_path]
         subprocess.run(cmd, capture_output=True, timeout=30)
 
-    def _trim_video(self, video_path: str, target_duration: float, out_path: str) -> Optional[str]:
-        """B-roll 영상을 target_duration으로 트림 (더 짧으면 그대로 사용)"""
+    def _normalize_broll(self, video_path: str, target_duration: float, out_path: str) -> Optional[str]:
+        """B-roll 영상을 Ken Burns 클립과 동일한 스펙으로 정규화
+
+        - 해상도/FPS 통일 (ffmpeg_composer 기준)
+        - 오디오 트랙 제거 (음악과 충돌 방지)
+        - 너무 길면 target_duration으로 트림
+        """
         import subprocess
         try:
-            actual = self.ffmpeg_composer.get_video_duration(video_path)
-            if actual <= target_duration + 0.5:
-                return None  # 트림 불필요
-            cmd = ["ffmpeg", "-y", "-i", video_path, "-t", str(target_duration),
-                   "-c", "copy", out_path]
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
-            return out_path if result.returncode == 0 else None
+            w = self.ffmpeg_composer.width
+            h = self.ffmpeg_composer.height
+            fps = self.ffmpeg_composer.fps
+            cmd = [
+                "ffmpeg", "-y", "-i", video_path,
+                "-t", str(target_duration),
+                "-an",  # 오디오 제거
+                "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                       f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+                "-r", str(fps),
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                "-pix_fmt", "yuv420p",
+                out_path,
+            ]
+            result = subprocess.run(cmd, capture_output=True, timeout=60)
+            if result.returncode == 0 and os.path.exists(out_path):
+                return out_path
+            return None
         except Exception:
             return None
 
@@ -1735,10 +1751,10 @@ class MVPipeline:
 
                 # I2V / B-roll 씬은 이미 비디오가 있음
                 if cut.get("video_path"):
-                    # B-roll duration이 씬보다 길 수 있으므로 트림
-                    trimmed_path = f"{project_dir}/media/video/trimmed_{cut['parent_scene_id']:02d}.mp4"
-                    trimmed = self._trim_video(cut["video_path"], cut["duration_sec"], trimmed_path)
-                    video_clips.append(trimmed or cut["video_path"])
+                    # B-roll: 해상도/FPS/코덱 정규화 + 오디오 제거 + 트림
+                    norm_path = f"{project_dir}/media/video/norm_{cut['parent_scene_id']:02d}.mp4"
+                    normalized = self._normalize_broll(cut["video_path"], cut["duration_sec"], norm_path)
+                    video_clips.append(normalized or cut["video_path"])
                     print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} (video pre-generated)")
                     continue
 
