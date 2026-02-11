@@ -1442,9 +1442,12 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # B-roll 시도: intro/outro/bridge + 캐릭터 미등장 씬
+            # B-roll 시도: intro/outro/bridge + 캐릭터 미등장 + 실사 계열 스타일만
             seg_type = self._extract_segment_type(scene)
-            if pexels and seg_type in BROLL_SEGMENTS and not scene.characters_in_scene:
+            BROLL_COMPATIBLE_STYLES = {"cinematic", "realistic"}
+            if (pexels and seg_type in BROLL_SEGMENTS
+                    and not scene.characters_in_scene
+                    and project.style.value in BROLL_COMPATIBLE_STYLES):
                 query = pexels.build_query(
                     genre=project.genre.value,
                     mood=project.mood.value,
@@ -1456,6 +1459,7 @@ class MVPipeline:
                 video = pexels.fetch_broll(query, scene.duration_sec, broll_path)
                 if video:
                     scene.video_path = video
+                    scene.is_broll = True
                     scene.status = MVSceneStatus.COMPLETED
                     # 첫 프레임을 썸네일로 추출
                     thumb_path = f"{image_dir}/scene_{scene.scene_id:02d}.png"
@@ -1464,6 +1468,7 @@ class MVPipeline:
                     print(f"\n  [Scene {scene.scene_id}/{total_scenes}] B-roll from Pexels ({seg_type})")
                     progress_per_scene = 50 / total_scenes
                     project.progress = int(20 + (i + 1) * progress_per_scene)
+                    self._save_manifest(project, project_dir)
                     if on_scene_complete:
                         try:
                             on_scene_complete(scene, i + 1, total_scenes)
@@ -1970,6 +1975,11 @@ class MVPipeline:
         scene = project.scenes[scene_id - 1]
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         image_dir = f"{project_dir}/media/images"
+
+        # B-roll 씬은 재생성 불가 (스톡 영상 보호)
+        if getattr(scene, 'is_broll', False):
+            print(f"[MV Regenerate] Scene {scene_id} is B-roll, skipping regeneration")
+            return scene
 
         print(f"[MV Regenerate] Scene {scene_id} image regeneration...")
 

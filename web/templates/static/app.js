@@ -1296,10 +1296,11 @@ class StorycutApp {
                 ${errorMsg}
 
                 <div class="scene-card-actions">
+                    ${scene.is_broll ? '<span class="broll-badge">B-Roll</span>' : `
                     <button class="btn-regenerate" data-scene-id="${scene.scene_id}" data-project-id="${projectId}"
                         ${scene.status === 'regenerating' ? 'disabled' : ''}>
                         재생성
-                    </button>
+                    </button>`}
                 </div>
             `;
 

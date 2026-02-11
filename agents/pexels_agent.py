@@ -222,7 +222,7 @@ class PexelsAgent:
             query=query,
             per_page=15,
             orientation="landscape",
-            min_duration=max(3, int(duration_sec) - 5),
+            min_duration=max(1, int(duration_sec) - 3),
             max_duration=int(duration_sec) + 15,
         )
 
