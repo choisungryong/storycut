@@ -1,30 +1,47 @@
 """
 Pexels B-roll Agent - 무료 스톡 영상으로 intro/outro/bridge 씬 대체
+LLM 기반 스톡 검색 쿼리 생성 + 멀티 쿼리 순차 시도
 """
 
 import os
+import json
 import requests
 from typing import Optional, List, Dict, Any
 
 
-# 장르별 검색 키워드
+# 장르별 폴백 검색 키워드 (LLM 실패 시 사용)
 GENRE_KEYWORDS: Dict[str, List[str]] = {
-    "fantasy": ["mystical forest", "ethereal nature", "magical landscape"],
-    "romance": ["city sunset", "bokeh lights", "rain street"],
-    "action": ["urban night", "motion blur", "dynamic skyline"],
-    "scifi": ["futuristic neon", "technology abstract", "space nebula"],
-    "horror": ["dark fog", "abandoned building", "eerie shadows"],
-    "drama": ["emotional atmosphere", "window rain", "solitary figure silhouette"],
-    "comedy": ["bright colorful", "playful atmosphere", "sunny day"],
-    "abstract": ["abstract motion", "flowing colors", "geometric patterns"],
+    "fantasy": ["mystical forest b-roll", "ethereal nature cinematic", "magical landscape drone"],
+    "romance": ["city sunset b-roll", "bokeh lights slow motion", "rain street cinematic"],
+    "action": ["urban night b-roll", "motion blur cinematic", "dynamic skyline drone"],
+    "scifi": ["futuristic neon b-roll", "technology abstract slow motion", "space nebula cinematic"],
+    "horror": ["dark fog b-roll", "abandoned building cinematic", "eerie shadows slow motion"],
+    "drama": ["emotional atmosphere b-roll", "window rain close-up", "solitary silhouette cinematic"],
+    "comedy": ["bright colorful b-roll", "playful atmosphere cinematic", "sunny day slow motion"],
+    "abstract": ["abstract motion b-roll", "flowing colors slow motion", "geometric patterns cinematic"],
 }
 
-# 세그먼트별 검색 보조 키워드
 SEGMENT_MODIFIERS: Dict[str, str] = {
-    "intro": "establishing shot cinematic",
-    "outro": "sunset fade ending",
+    "intro": "establishing shot",
+    "outro": "sunset ending",
     "bridge": "transition atmospheric",
 }
+
+# LLM 스톡 쿼리 생성 프롬프트
+_STOCK_QUERY_SYSTEM_PROMPT = """You are generating STOCK SEARCH QUERIES for short b-roll video clips (Pexels).
+Input: lyric line + scene description + shot role + genre + mood.
+Output: JSON with 3-8 English queries.
+
+Rules:
+- Queries must be 2-6 words each.
+- Add "b-roll" to at least half of the queries.
+- Include at least 1 query with a camera/style term: "cinematic", "slow motion", "handheld", "drone", "close-up", "silhouette", "bokeh".
+- role is always "broll" (never "hero"). Avoid identity-specific queries (no character names, no celebrity).
+- Prefer environment/texture/detail shots over faces.
+- Include variety: (place/object) + (time/weather) + (camera/style) combos.
+
+Return ONLY valid JSON, no markdown:
+{"stock_query":[...],"notes":"brief reasoning"}"""
 
 
 class PexelsAgent:
@@ -42,18 +59,7 @@ class PexelsAgent:
         min_duration: int = 3,
         max_duration: int = 30,
     ) -> List[Dict[str, Any]]:
-        """Pexels Video Search API 호출
-
-        Args:
-            query: 검색 키워드
-            per_page: 결과 수 (최대 80)
-            orientation: landscape/portrait/square
-            min_duration: 최소 길이 (초)
-            max_duration: 최대 길이 (초)
-
-        Returns:
-            비디오 결과 리스트
-        """
+        """Pexels Video Search API 호출"""
         if not self.api_key:
             return []
 
@@ -95,16 +101,7 @@ class PexelsAgent:
         out_path: str,
         target_quality: str = "hd",
     ) -> Optional[str]:
-        """비디오 다운로드 (HD 우선, SD 폴백)
-
-        Args:
-            video_data: Pexels API video object
-            out_path: 저장 경로
-            target_quality: hd or sd
-
-        Returns:
-            다운로드 경로 또는 None
-        """
+        """비디오 다운로드 (HD 우선, SD 폴백)"""
         video_files = video_data.get("video_files", [])
         if not video_files:
             return None
@@ -124,7 +121,6 @@ class PexelsAgent:
 
         chosen = None
         if target_quality == "hd" and hd_files:
-            # 1920x1080에 가장 가까운 것
             hd_files.sort(key=lambda f: abs(f.get("width", 0) - 1920))
             chosen = hd_files[0]
         elif sd_files:
@@ -133,7 +129,6 @@ class PexelsAgent:
         elif hd_files:
             chosen = hd_files[0]
         elif video_files:
-            # 아무거나
             chosen = video_files[0]
 
         if not chosen:
@@ -162,97 +157,127 @@ class PexelsAgent:
             print(f"    [Pexels] Download error: {e}")
             return None
 
-    def build_query(
+    # ------------------------------------------------------------------
+    # LLM 기반 스톡 검색 쿼리 생성
+    # ------------------------------------------------------------------
+
+    def generate_stock_queries(
         self,
-        genre: str,
-        mood: str,
-        segment_type: str,
-        visual_bible=None,
         scene_prompt: str = None,
-    ) -> str:
-        """장르 + 세그먼트 + Visual Bible + 디렉터 프롬프트 기반 검색 쿼리 생성
+        lyrics_text: str = None,
+        segment_type: str = "intro",
+        genre: str = "drama",
+        mood: str = "epic",
+    ) -> List[str]:
+        """Gemini LLM으로 Pexels 검색 쿼리 3-8개 생성
 
         Args:
-            genre: MVGenre value (e.g. "fantasy")
-            mood: MVMood value (e.g. "epic")
-            segment_type: "intro", "outro", "bridge"
-            visual_bible: VisualBible 객체 (Optional)
-            scene_prompt: 디렉터 LLM이 생성한 씬 프롬프트 (Optional)
+            scene_prompt: 디렉터 LLM이 생성한 씬 프롬프트
+            lyrics_text: 해당 씬의 가사 (없을 수 있음)
+            segment_type: intro/outro/bridge
+            genre: 장르
+            mood: 분위기
 
         Returns:
-            Pexels 검색 쿼리
+            검색 쿼리 리스트 (실패 시 폴백 쿼리)
         """
-        # 디렉터 프롬프트가 있으면 핵심 키워드를 우선 사용
-        if scene_prompt:
-            # 프롬프트에서 검색에 불필요한 접미사 제거
-            clean = scene_prompt.split("|")[0].strip()  # positive 부분만
-            # "no text, no letters..." 등 네거티브 지시 제거
-            for suffix in ["no text", "no letters", "no words", "no writing", "no watermark"]:
-                clean = clean.replace(suffix, "")
-            clean = clean.replace(",", " ").strip()
-            # 너무 길면 앞부분만 (Pexels 검색은 짧은 쿼리가 효과적)
-            words = clean.split()
-            if len(words) > 8:
-                words = words[:8]
-            return " ".join(words)
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key or not scene_prompt:
+            return self._fallback_queries(genre, segment_type, mood)
 
-        # 디렉터 프롬프트 없으면 장르+무드 기반 폴백
-        parts = []
+        try:
+            from google import genai
+            from google.genai import types
 
-        # 장르 키워드 (첫 번째)
-        genre_kw = GENRE_KEYWORDS.get(genre, ["cinematic landscape"])
-        parts.append(genre_kw[0])
+            client = genai.Client(api_key=api_key)
 
-        # 세그먼트 모디파이어
+            user_prompt = (
+                f"role=broll\n"
+                f"lyric={lyrics_text or '(instrumental)'}\n"
+                f"scene={scene_prompt}\n"
+                f"genre={genre}\n"
+                f"mood={mood}\n"
+                f"segment={segment_type}"
+            )
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=_STOCK_QUERY_SYSTEM_PROMPT,
+                    temperature=0.7,
+                )
+            )
+
+            text = response.text.strip()
+            # JSON 파싱 (마크다운 래퍼 제거)
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+                text = text.strip()
+
+            data = json.loads(text)
+            queries = data.get("stock_query", [])
+            notes = data.get("notes", "")
+
+            if queries and isinstance(queries, list):
+                print(f"    [Pexels] LLM generated {len(queries)} queries: {queries[:3]}...")
+                if notes:
+                    print(f"    [Pexels] Reasoning: {notes[:80]}")
+                return queries
+
+        except Exception as e:
+            print(f"    [Pexels] LLM query generation failed: {e}")
+
+        return self._fallback_queries(genre, segment_type, mood)
+
+    def _fallback_queries(self, genre: str, segment_type: str, mood: str) -> List[str]:
+        """LLM 실패 시 장르/세그먼트 기반 폴백 쿼리"""
+        keywords = GENRE_KEYWORDS.get(genre, ["cinematic landscape b-roll"])
         modifier = SEGMENT_MODIFIERS.get(segment_type, "cinematic")
-        parts.append(modifier)
+        return keywords + [f"{mood} {modifier} b-roll"]
 
-        # 분위기
-        parts.append(mood)
-
-        # Visual Bible 모티프 (상위 2개)
-        if visual_bible:
-            motifs = getattr(visual_bible, "recurring_motifs", None)
-            if motifs and isinstance(motifs, list):
-                for m in motifs[:2]:
-                    parts.append(m)
-
-        return " ".join(parts)
+    # ------------------------------------------------------------------
+    # 통합 B-roll Fetch (멀티 쿼리 순차 시도)
+    # ------------------------------------------------------------------
 
     def fetch_broll(
         self,
-        query: str,
+        queries: List[str],
         duration_sec: float,
         out_path: str,
     ) -> Optional[str]:
-        """B-roll 영상 검색 + 다운로드 통합 메서드
+        """여러 검색 쿼리를 순차 시도하여 B-roll 다운로드
 
         Args:
-            query: 검색 쿼리
+            queries: 검색 쿼리 리스트 (우선순위 순)
             duration_sec: 목표 길이 (초)
             out_path: 저장 경로
 
         Returns:
             다운로드된 파일 경로 또는 None
         """
-        videos = self.search_videos(
-            query=query,
-            per_page=15,
-            orientation="landscape",
-            min_duration=max(1, int(duration_sec) - 3),
-            max_duration=int(duration_sec) + 15,
-        )
+        for qi, query in enumerate(queries):
+            videos = self.search_videos(
+                query=query,
+                per_page=10,
+                orientation="landscape",
+                min_duration=max(1, int(duration_sec) - 3),
+                max_duration=int(duration_sec) + 15,
+            )
 
-        if not videos:
-            return None
+            if not videos:
+                continue
 
-        # duration 매칭: 목표 길이에 가장 가까운 것 선택
-        videos.sort(key=lambda v: abs(v.get("duration", 0) - duration_sec))
+            # duration 매칭: 목표 길이에 가장 가까운 것 선택
+            videos.sort(key=lambda v: abs(v.get("duration", 0) - duration_sec))
 
-        # 상위 3개 중 다운로드 시도
-        for video in videos[:3]:
-            result = self.download_video(video, out_path, target_quality="hd")
-            if result:
-                return result
+            # 상위 2개 중 다운로드 시도
+            for video in videos[:2]:
+                result = self.download_video(video, out_path, target_quality="hd")
+                if result:
+                    print(f"    [Pexels] Found with query #{qi+1}: '{query}'")
+                    return result
 
         return None
