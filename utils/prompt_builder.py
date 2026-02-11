@@ -393,24 +393,34 @@ class MultimodalPromptBuilder:
             # shot_type 기반 프레이밍 룰 매핑
             _SHOT_FRAMING = {
                 "close-up": (
-                    "[FRAMING: CLOSE-UP] Frame the character from CHEST UP. "
-                    "Center the face horizontally. Position eyes in upper third of frame. "
-                    "NEVER crop the top of the head. NEVER shoot from extreme side angles. "
-                    "Show subtle background blur (bokeh) that matches the scene environment."
+                    "CRITICAL FRAMING RULE - CLOSE-UP PORTRAIT: "
+                    "Show head, neck, and upper chest ONLY. "
+                    "The FULL FACE must be visible - forehead to chin, ear to ear. "
+                    "Face is CENTERED in the frame, occupying 60-70% of frame width. "
+                    "Eyes positioned in upper third. Camera at EYE LEVEL, facing front or slight 3/4 angle. "
+                    "Background is BLURRED (shallow depth of field). "
+                    "FORBIDDEN: cropped forehead, cropped chin, only one eye visible, "
+                    "extreme angle from below, face at edge/corner/bottom of frame, "
+                    "zoomed too tight on partial face, bird's eye view."
                 ),
                 "extreme-close-up": (
-                    "[FRAMING: EXTREME CLOSE-UP] Frame the character's FACE ONLY, from chin to forehead. "
-                    "Center the face in frame. Sharp focus on eyes. "
-                    "NEVER crop forehead or chin. Background fully blurred but contextually matching."
+                    "CRITICAL FRAMING RULE - EXTREME CLOSE-UP: "
+                    "Show FACE ONLY from chin to forehead, filling 80% of frame. "
+                    "Both eyes, nose, and mouth must be FULLY visible. "
+                    "Camera at EYE LEVEL. Sharp focus on eyes. "
+                    "FORBIDDEN: cropping any facial feature, showing only one eye, "
+                    "face at bottom of frame, top-down angle."
                 ),
                 "medium": (
-                    "[FRAMING: MEDIUM SHOT] Frame the character from WAIST UP. "
-                    "Center the subject. Show enough body for gesture/action. "
+                    "CRITICAL FRAMING RULE - MEDIUM SHOT: "
+                    "Frame character from WAIST UP, centered in frame. "
+                    "Full face clearly visible. Show enough body for gesture/action. "
                     "Background visible with moderate depth of field."
                 ),
                 "wide": (
-                    "[FRAMING: WIDE SHOT] Show FULL BODY plus surrounding environment. "
-                    "Character occupies 30-50% of frame height. "
+                    "CRITICAL FRAMING RULE - WIDE SHOT: "
+                    "Show FULL BODY plus surrounding environment. "
+                    "Character occupies 30-50% of frame height, centered. "
                     "Establish location context with visible background details."
                 ),
             }
@@ -439,11 +449,13 @@ class MultimodalPromptBuilder:
         all_negatives = " ".join(filter(None, [style_negative, genre_negative, scene_negative, anatomy_negative])).strip()
         negative_part = f" {all_negatives}" if all_negatives else ""
 
-        # 부스트 파트 통합
-        all_boosts = " ".join(filter(None, [framing_text, mood_boost, vb_enrichment, color_mood_text])).strip()
+        # 부스트 파트 통합 (프레이밍 제외 - 프레이밍은 맨 앞에 배치)
+        all_boosts = " ".join(filter(None, [mood_boost, vb_enrichment, color_mood_text])).strip()
         boost_part = f" {all_boosts}" if all_boosts else ""
 
-        full_prompt = f"[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Anatomically correct human body with proper proportions. Aspect ratio 16:9."
+        # 프레이밍은 프롬프트 최상단에 배치 (모델이 최우선으로 따르도록)
+        framing_prefix = f"{framing_text} " if framing_text else ""
+        full_prompt = f"{framing_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Anatomically correct human body with proper proportions. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts

@@ -1614,6 +1614,7 @@ class MVPipeline:
                     "zoom_range": (1.0, 1.05),
                     "image_path": None,
                     "video_path": scene.video_path,
+                    "is_broll": getattr(scene, 'is_broll', False),
                 })
                 global_cut_idx += 1
                 continue
@@ -1749,17 +1750,31 @@ class MVPipeline:
             # 1. 파생 컷 플래닝 + 클립 생성
             cut_plan = self._generate_cut_plan(completed_scenes)
             video_clips = []
+            # 씬 그룹 추적 (크로스페이드용): [[scene1_clips], [scene2_clips], ...]
+            scene_groups = []
+            current_scene_id = None
 
             for ci, cut in enumerate(cut_plan):
                 clip_path = f"{project_dir}/media/video/cut_{cut['parent_scene_id']:02d}_{cut['cut_index']:02d}.mp4"
 
+                # 씬 전환 감지 → 새 그룹 시작
+                if cut['parent_scene_id'] != current_scene_id:
+                    scene_groups.append([])
+                    current_scene_id = cut['parent_scene_id']
+
                 # I2V / B-roll 씬은 이미 비디오가 있음
                 if cut.get("video_path"):
-                    # B-roll: 해상도/FPS/코덱 정규화 + 오디오 제거 + 트림
-                    norm_path = f"{project_dir}/media/video/norm_{cut['parent_scene_id']:02d}.mp4"
-                    normalized = self._normalize_broll(cut["video_path"], cut["duration_sec"], norm_path)
-                    video_clips.append(normalized or cut["video_path"])
-                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} (video pre-generated)")
+                    if cut.get("is_broll"):
+                        # B-roll만 정규화 (해상도/FPS/코덱 통일 + 오디오 제거 + 트림)
+                        norm_path = f"{project_dir}/media/video/norm_{cut['parent_scene_id']:02d}.mp4"
+                        normalized = self._normalize_broll(cut["video_path"], cut["duration_sec"], norm_path)
+                        resolved = normalized or cut["video_path"]
+                    else:
+                        # I2V: 이미 올바른 포맷이므로 그대로 사용
+                        resolved = cut["video_path"]
+                    video_clips.append(resolved)
+                    scene_groups[-1].append(resolved)
+                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} ({'B-roll' if cut.get('is_broll') else 'I2V'})")
                     continue
 
                 if not cut.get("image_path"):
@@ -1776,6 +1791,7 @@ class MVPipeline:
                         zoom_range=cut["zoom_range"],
                     )
                     video_clips.append(clip_path)
+                    scene_groups[-1].append(clip_path)
                 except Exception as cut_err:
                     print(f"    [WARNING] Derived cut failed (scene {cut['parent_scene_id']}, cut {cut['cut_index']}): {str(cut_err)[-200:]}")
                     # Fallback: 정적 이미지
@@ -1786,6 +1802,7 @@ class MVPipeline:
                             output_path=clip_path
                         )
                         video_clips.append(clip_path)
+                        scene_groups[-1].append(clip_path)
                     except Exception:
                         continue
 
@@ -1805,16 +1822,27 @@ class MVPipeline:
 
             print(f"  Video clips created: {len(video_clips)}")
 
-            # 2. 클립들 이어붙이기
+            # 2. 클립들 이어붙이기 (씬 간 크로스페이드 전환)
             concat_video = f"{project_dir}/media/video/concat.mp4"
-            print(f"  Concatenating {len(video_clips)} clips (total ~{sum(s.duration_sec for s in completed_scenes):.0f}s)...")
-            project.current_step = f"영상 {len(video_clips)}개 이어붙이는 중..."
+            # 빈 그룹 제거
+            scene_groups = [g for g in scene_groups if g]
+            total_dur = sum(s.duration_sec for s in completed_scenes)
+            print(f"  Concatenating {len(video_clips)} clips in {len(scene_groups)} scenes (total ~{total_dur:.0f}s)...")
+            project.current_step = f"영상 {len(scene_groups)}개 씬 크로스페이드 합성 중..."
             self._save_manifest(project, project_dir)
 
-            concat_result = self.ffmpeg_composer.concatenate_videos(
-                video_paths=video_clips,
-                output_path=concat_video
-            )
+            if len(scene_groups) >= 2:
+                concat_result = self.ffmpeg_composer.concatenate_with_crossfade(
+                    scene_groups=scene_groups,
+                    output_path=concat_video,
+                    fade_duration=0.3,
+                )
+            else:
+                # 씬이 1개면 크로스페이드 불필요
+                concat_result = self.ffmpeg_composer.concatenate_videos(
+                    video_paths=video_clips,
+                    output_path=concat_video
+                )
 
             if not concat_result or not os.path.exists(concat_video):
                 raise RuntimeError("Video concatenation failed - output file not created")

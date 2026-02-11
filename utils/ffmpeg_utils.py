@@ -689,6 +689,215 @@ class FFmpegComposer:
         return out_path
 
     # =========================================================================
+    # 크로스페이드 전환 (씬 간 부드러운 전환)
+    # =========================================================================
+
+    def concatenate_with_crossfade(
+        self,
+        scene_groups: List[List[str]],
+        output_path: str,
+        fade_duration: float = 0.3,
+    ) -> bool:
+        """씬 그룹 단위로 크로스페이드 전환을 적용하여 연결.
+
+        같은 씬 내 컷들은 하드 컷으로 빠르게 연결하고,
+        씬 간 전환에만 xfade 크로스페이드를 적용합니다.
+
+        Args:
+            scene_groups: [[cut1_a, cut1_b], [cut2_a], [cut3_a, cut3_b, cut3_c], ...]
+                          각 리스트가 하나의 씬, 내부 요소가 해당 씬의 컷 클립들
+            output_path: 최종 출력 경로
+            fade_duration: 크로스페이드 길이 (초, 기본 0.3)
+
+        Returns:
+            성공 여부
+        """
+        if not scene_groups:
+            return False
+
+        output_dir = os.path.dirname(os.path.abspath(output_path))
+        temp_scene_videos = []
+
+        try:
+            # Stage 1: 각 씬 내 컷들을 하드 컷으로 연결 (빠름)
+            for si, clips in enumerate(scene_groups):
+                if not clips:
+                    continue
+                if len(clips) == 1:
+                    temp_scene_videos.append(clips[0])
+                    continue
+
+                scene_concat = os.path.join(output_dir, f"temp_scene_{si:03d}.mp4")
+                concat_file = os.path.join(output_dir, f"temp_scene_{si:03d}.txt")
+                with open(concat_file, "w", encoding="utf-8") as f:
+                    for clip in clips:
+                        f.write(f"file '{os.path.abspath(clip)}'\n")
+                cmd = [
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", concat_file, "-c", "copy", scene_concat
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                        encoding='utf-8', errors='replace', timeout=60)
+                if os.path.exists(concat_file):
+                    os.remove(concat_file)
+                if result.returncode != 0 or not os.path.exists(scene_concat):
+                    # copy 실패 시 재인코딩
+                    cmd_re = [
+                        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", concat_file if os.path.exists(concat_file) else "",
+                    ]
+                    # fallback: 그냥 첫 번째 클립 사용
+                    temp_scene_videos.append(clips[0])
+                    continue
+                temp_scene_videos.append(scene_concat)
+
+            if not temp_scene_videos:
+                return False
+
+            # 씬이 하나면 xfade 불필요
+            if len(temp_scene_videos) == 1:
+                import shutil
+                shutil.copy2(temp_scene_videos[0], output_path)
+                return True
+
+            # Stage 2: 씬 간 xfade 크로스페이드 적용
+            print(f"[FFmpeg] Applying crossfade ({fade_duration}s) between {len(temp_scene_videos)} scenes...")
+
+            # 각 씬 영상 duration 확인
+            durations = []
+            for sv in temp_scene_videos:
+                dur = self.get_video_duration(sv)
+                durations.append(max(dur, 0.5))  # 최소 0.5초 보장
+
+            # xfade 필터 체인 구성
+            # 씬이 너무 많으면 xfade 체인이 너무 길어지므로 배치 처리
+            MAX_XFADE_BATCH = 15
+            if len(temp_scene_videos) > MAX_XFADE_BATCH:
+                # 배치 처리: MAX_XFADE_BATCH씩 나누어 xfade 후 최종 concat
+                return self._batched_crossfade(
+                    temp_scene_videos, durations, output_path,
+                    fade_duration, MAX_XFADE_BATCH, output_dir
+                )
+
+            return self._apply_xfade_chain(
+                temp_scene_videos, durations, output_path, fade_duration
+            )
+
+        finally:
+            # 임시 씬 파일 정리
+            for sv in temp_scene_videos:
+                if sv.startswith(os.path.join(output_dir, "temp_scene_")) and os.path.exists(sv):
+                    os.remove(sv)
+
+    def _apply_xfade_chain(
+        self,
+        video_paths: List[str],
+        durations: List[float],
+        output_path: str,
+        fade_duration: float,
+    ) -> bool:
+        """xfade 필터 체인으로 크로스페이드 적용."""
+        n = len(video_paths)
+        if n <= 1:
+            return False
+
+        # 입력 파일
+        inputs = []
+        for path in video_paths:
+            inputs.extend(["-i", os.path.abspath(path)])
+
+        # xfade 필터 체인
+        filter_parts = []
+        offset = durations[0] - fade_duration
+
+        for i in range(1, n):
+            # fade_duration이 클립보다 길면 조정
+            actual_fade = min(fade_duration, durations[i] * 0.4, durations[i-1] * 0.4 if i == 1 else fade_duration)
+            if i == 1:
+                offset = durations[0] - actual_fade
+
+            prev_label = f"[v{i-1}]" if i > 1 else "[0:v]"
+            curr_label = f"[{i}:v]"
+            out_label = f"[v{i}]"
+
+            filter_parts.append(
+                f"{prev_label}{curr_label}xfade=transition=fade:duration={actual_fade:.3f}:offset={max(0, offset):.3f}{out_label}"
+            )
+
+            if i < n - 1:
+                offset += durations[i] - actual_fade
+
+        filter_complex = ";".join(filter_parts)
+        final_label = f"[v{n-1}]"
+
+        cmd = ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_complex,
+            "-map", final_label,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-r", str(self.fps),
+            output_path
+        ]
+
+        timeout = max(180, n * 30)
+        print(f"[FFmpeg] xfade chain: {n} clips, fade={fade_duration}s (timeout={timeout}s)")
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=timeout)
+
+        if result.returncode != 0:
+            print(f"[FFmpeg] xfade failed: {result.stderr[-500:]}")
+            # Fallback: 일반 concat
+            print(f"[FFmpeg] Falling back to hard-cut concatenation...")
+            return self.concatenate_videos(video_paths, output_path)
+
+        print(f"[FFmpeg] Crossfade complete: {output_path}")
+        return True
+
+    def _batched_crossfade(
+        self,
+        video_paths: List[str],
+        durations: List[float],
+        output_path: str,
+        fade_duration: float,
+        batch_size: int,
+        output_dir: str,
+    ) -> bool:
+        """씬이 많을 때 배치 처리로 xfade 적용."""
+        batch_outputs = []
+        try:
+            for start in range(0, len(video_paths), batch_size):
+                end = min(start + batch_size, len(video_paths))
+                batch_paths = video_paths[start:end]
+                batch_durs = durations[start:end]
+
+                if len(batch_paths) == 1:
+                    batch_outputs.append(batch_paths[0])
+                    continue
+
+                batch_out = os.path.join(output_dir, f"temp_batch_{start:03d}.mp4")
+                ok = self._apply_xfade_chain(batch_paths, batch_durs, batch_out, fade_duration)
+                if ok and os.path.exists(batch_out):
+                    batch_outputs.append(batch_out)
+                else:
+                    batch_outputs.extend(batch_paths)
+
+            # 배치 결과물을 최종 xfade 또는 concat
+            if len(batch_outputs) <= 1:
+                import shutil
+                shutil.copy2(batch_outputs[0], output_path)
+                return True
+
+            batch_durs = [self.get_video_duration(p) for p in batch_outputs]
+            return self._apply_xfade_chain(batch_outputs, batch_durs, output_path, fade_duration)
+
+        finally:
+            for bo in batch_outputs:
+                if bo.startswith(os.path.join(output_dir, "temp_batch_")) and os.path.exists(bo):
+                    os.remove(bo)
+
+    # =========================================================================
     # 기존 기능 (하위 호환성 유지)
     # =========================================================================
 
