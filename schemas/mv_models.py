@@ -255,6 +255,7 @@ class MVProjectRequest(BaseModel):
 
     # 옵션
     subtitle_enabled: bool = Field(default=True, description="가사 자막 burn-in 여부")
+    watermark_enabled: bool = Field(default=True, description="워터마크 표시 여부 (무료=True, 유료=False)")
 
     # 수동 씬 분할 (Phase 1)
     manual_scenes: Optional[List[Dict[str, Any]]] = Field(
@@ -283,6 +284,7 @@ class MVProject(BaseModel):
 
     # 옵션
     subtitle_enabled: bool = Field(default=True, description="가사 자막 burn-in 여부")
+    watermark_enabled: bool = Field(default=True, description="워터마크 표시 여부")
 
     # 사용자 편집 가사 타이밍 (timed_lyrics보다 우선)
     edited_timed_lyrics: Optional[List[Dict[str, Any]]] = Field(None, description="사용자 편집 타임스탬프 가사 [{t: 초, text: 가사}]")

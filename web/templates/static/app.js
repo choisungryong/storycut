@@ -186,6 +186,16 @@ class StorycutApp {
         return 'https://storycut-worker.twinspa0713.workers.dev';
     }
 
+    _shouldShowWatermark() {
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            const paidPlans = ['lite', 'pro', 'premium'];
+            return !paidPlans.includes(user.plan_id);
+        } catch {
+            return true;
+        }
+    }
+
     // ==================== Step 1: 스토리 생성 ====================
     async startStoryGeneration() {
         // 크레딧 사전 확인
@@ -2655,6 +2665,7 @@ class StorycutApp {
                     mood: this.mvRequestParams?.mood || 'epic',
                     style: this.mvRequestParams?.style || 'cinematic',
                     subtitle_enabled: this.mvRequestParams?.subtitle_enabled !== false,
+                    watermark_enabled: this._shouldShowWatermark(),
                     scene_descriptions: sceneDescriptions
                 })
             });

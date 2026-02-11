@@ -193,6 +193,7 @@ class MVPipeline:
         project.mood = request.mood
         project.style = request.style
         project.subtitle_enabled = request.subtitle_enabled
+        project.watermark_enabled = request.watermark_enabled
         project.status = MVProjectStatus.GENERATING
         project.current_step = "씬 구성 중..."
 
@@ -1113,7 +1114,14 @@ class MVPipeline:
                 f"각 프롬프트의 첫 부분에 스타일 키워드를 반드시 포함하세요."
                 f"{genre_profile_context}"
                 f"{vb_context}"
-                f"{directors_context}"
+                f"{directors_context}\n\n"
+
+                f"[NEGATIVE LOCK]\n"
+                f"{'no cartoon, no anime, no illustration, ' if request.style not in (MVStyle.ANIME, MVStyle.WEBTOON) else ''}"
+                f"{'no photorealistic, no photograph, ' if request.style not in (MVStyle.REALISTIC, MVStyle.CINEMATIC) else ''}"
+                f"no different ethnicity, no different skin tone, "
+                f"no different outfit colors, keep signature outfit, "
+                f"no extra characters, no random faces"
             )
 
             # 인종 지시: system_prompt의 "ETHNICITY IS MANDATORY" + Visual Bible 지시로 충분.
@@ -1481,6 +1489,116 @@ class MVPipeline:
         return project
 
     # ================================================================
+    # Cut Plan: 파생 컷 플래닝 (24 scenes → 72~120 cuts)
+    # ================================================================
+
+    def _generate_cut_plan(self, scenes: List[MVScene]) -> List[dict]:
+        """
+        코드 기반 컷 플래닝: 세그먼트 타입에 따라 컷 수/길이를 자동 분배.
+        I2V(video_path) 씬은 분할하지 않고 단일 컷으로 통과.
+
+        Returns:
+            List of cut dicts: parent_scene_id, cut_index, duration_sec,
+            reframe, crop_anchor, effect_type, zoom_range, image_path
+        """
+        # 세그먼트 타입별 컷 설정
+        cut_config = {
+            "verse":       {"cuts": 3, "dur_range": (1.5, 3.0)},
+            "chorus":      {"cuts": 5, "dur_range": (0.6, 1.2)},
+            "hook":        {"cuts": 5, "dur_range": (0.6, 1.2)},
+            "pre_chorus":  {"cuts": 4, "dur_range": (0.8, 1.5)},
+            "post_chorus": {"cuts": 4, "dur_range": (0.8, 1.5)},
+            "intro":       {"cuts": 2, "dur_range": (2.0, 4.0)},
+            "outro":       {"cuts": 2, "dur_range": (2.0, 4.0)},
+            "bridge":      {"cuts": 3, "dur_range": (1.0, 2.0)},
+        }
+        default_config = {"cuts": 3, "dur_range": (1.0, 2.5)}
+
+        reframe_cycle = ["wide", "medium", "close", "detail"]
+        effect_cycle = ["zoom_in", "pan_left", "zoom_out", "pan_right", "diagonal"]
+        anchor_positions = [
+            (0.33, 0.33), (0.5, 0.5), (0.67, 0.33),
+            (0.33, 0.67), (0.67, 0.67), (0.5, 0.33),
+        ]
+
+        cut_plan = []
+        global_cut_idx = 0
+
+        for scene in scenes:
+            # I2V 씬은 분할하지 않음
+            if scene.video_path and os.path.exists(scene.video_path):
+                cut_plan.append({
+                    "parent_scene_id": scene.scene_id,
+                    "cut_index": 0,
+                    "duration_sec": scene.duration_sec,
+                    "reframe": "wide",
+                    "crop_anchor": (0.5, 0.5),
+                    "effect_type": "zoom_in",
+                    "zoom_range": (1.0, 1.05),
+                    "image_path": None,
+                    "video_path": scene.video_path,
+                })
+                global_cut_idx += 1
+                continue
+
+            if not scene.image_path or not os.path.exists(scene.image_path):
+                continue
+
+            # 세그먼트 타입 추출
+            seg_type = self._extract_segment_type(scene)
+            config = cut_config.get(seg_type, default_config)
+            num_cuts = config["cuts"]
+
+            # duration 분배: 균등 분할
+            total_dur = scene.duration_sec
+            cut_dur = total_dur / num_cuts
+
+            for ci in range(num_cuts):
+                reframe = reframe_cycle[global_cut_idx % len(reframe_cycle)]
+                effect = effect_cycle[global_cut_idx % len(effect_cycle)]
+                anchor = anchor_positions[global_cut_idx % len(anchor_positions)]
+
+                # chorus 4+ 컷이면 detail 추가
+                if seg_type in ("chorus", "hook") and ci >= 3:
+                    reframe = "detail"
+
+                cut_plan.append({
+                    "parent_scene_id": scene.scene_id,
+                    "cut_index": ci,
+                    "duration_sec": round(cut_dur, 2),
+                    "reframe": reframe,
+                    "crop_anchor": anchor,
+                    "effect_type": effect,
+                    "zoom_range": (1.0, 1.08),
+                    "image_path": scene.image_path,
+                    "video_path": None,
+                })
+                global_cut_idx += 1
+
+        # 로그
+        type_counts = {}
+        for scene in scenes:
+            seg = self._extract_segment_type(scene)
+            cfg = cut_config.get(seg, default_config)
+            if scene.video_path and os.path.exists(scene.video_path):
+                type_counts[seg] = type_counts.get(seg, 0) + 1
+            else:
+                type_counts[seg] = type_counts.get(seg, 0) + cfg["cuts"]
+        type_summary = ", ".join(f"{k}:{v}" for k, v in type_counts.items())
+        print(f"  [CUT PLAN] {len(scenes)} scenes -> {len(cut_plan)} cuts ({type_summary})")
+
+        return cut_plan
+
+    def _extract_segment_type(self, scene: MVScene) -> str:
+        """씬의 visual_description에서 segment_type 추출."""
+        desc = (scene.visual_description or "").lower()
+        # "verse section" → "verse", "chorus section" → "chorus"
+        for seg_type in ["pre_chorus", "post_chorus", "chorus", "hook", "verse", "bridge", "intro", "outro"]:
+            if seg_type.replace("_", " ") in desc or seg_type.replace("_", "-") in desc or seg_type in desc:
+                return seg_type
+        return "verse"  # default
+
+    # ================================================================
     # Step 4: 영상 합성
     # ================================================================
 
@@ -1513,54 +1631,49 @@ class MVPipeline:
         print(f"  Completed scenes: {len(completed_scenes)}/{len(project.scenes)}")
 
         try:
-            # 1. 각 이미지를 비디오 클립으로 변환 (Ken Burns 효과)
+            # 1. 파생 컷 플래닝 + 클립 생성
+            cut_plan = self._generate_cut_plan(completed_scenes)
             video_clips = []
-            effect_types = ["zoom_in", "zoom_out", "pan_left", "pan_right"]  # 다양하게
 
-            for i, scene in enumerate(completed_scenes):
-                clip_path = f"{project_dir}/media/video/scene_{scene.scene_id:02d}.mp4"
+            for ci, cut in enumerate(cut_plan):
+                clip_path = f"{project_dir}/media/video/cut_{cut['parent_scene_id']:02d}_{cut['cut_index']:02d}.mp4"
 
-                print(f"    [Scene {scene.scene_id}] image_path: {scene.image_path}")
-
-                # I2V로 생성된 비디오가 이미 있으면 그대로 사용
-                if scene.video_path and os.path.exists(scene.video_path):
-                    video_clips.append(scene.video_path)
-                    print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip (I2V pre-generated)")
+                # I2V 씬은 이미 비디오가 있음
+                if cut.get("video_path"):
+                    video_clips.append(cut["video_path"])
+                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} (I2V pre-generated)")
                     continue
 
-                # 이미지 파일 존재 확인
-                if not scene.image_path or not os.path.exists(scene.image_path):
-                    print(f"    [SKIP] Image not found: {scene.image_path}")
+                if not cut.get("image_path"):
                     continue
-
-                # Ken Burns 효과 결정
-                effect = effect_types[i % len(effect_types)]
 
                 try:
-                    self.ffmpeg_composer.ken_burns_clip(
-                        image_path=scene.image_path,
+                    self.ffmpeg_composer.derived_cut_clip(
+                        image_path=cut["image_path"],
+                        duration_sec=cut["duration_sec"],
                         out_path=clip_path,
-                        duration_sec=scene.duration_sec,
-                        effect_type=effect,
+                        reframe=cut["reframe"],
+                        crop_anchor=cut["crop_anchor"],
+                        effect_type=cut["effect_type"],
+                        zoom_range=cut["zoom_range"],
                     )
-                    scene.video_path = clip_path
                     video_clips.append(clip_path)
-                    print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip created (Ken Burns)")
-                except Exception as kb_err:
-                    print(f"    [WARNING] Ken Burns failed: {str(kb_err)[-200:]}")
-                    # Fallback: 정적 이미지 → 비디오 (FFmpegComposer 사용으로 해상도 일관성 보장)
+                except Exception as cut_err:
+                    print(f"    [WARNING] Derived cut failed (scene {cut['parent_scene_id']}, cut {cut['cut_index']}): {str(cut_err)[-200:]}")
+                    # Fallback: 정적 이미지
                     try:
                         self.ffmpeg_composer._image_to_static_video(
-                            image_path=scene.image_path,
-                            duration_sec=scene.duration_sec,
+                            image_path=cut["image_path"],
+                            duration_sec=cut["duration_sec"],
                             output_path=clip_path
                         )
-                        scene.video_path = clip_path
                         video_clips.append(clip_path)
-                        print(f"    Scene {scene.scene_id}: {scene.duration_sec:.1f}s clip created (static)")
-                    except Exception as static_err:
-                        print(f"    [SKIP] Static also failed: {str(static_err)[-200:]}")
+                    except Exception:
                         continue
+
+                # 진행률: 컷 기준
+                clip_progress = 75 + int((ci + 1) / len(cut_plan) * 10)
+                project.progress = max(project.progress, clip_progress)
 
             project.progress = 85
             project.current_step = "영상 클립 생성 완료, 이어붙이는 중..."
@@ -1632,12 +1745,14 @@ class MVPipeline:
             project.current_step = "음악 합성 중..."
             self._save_manifest(project, project_dir)
 
-            # 4. 음악 합성
+            # 4. 최종 인코딩 (H.264 High + AAC + 조건부 워터마크)
             final_video = f"{project_dir}/final_mv.mp4"
-            self.ffmpeg_composer._add_audio_to_video(
+            watermark = "Made with Klippa" if getattr(project, 'watermark_enabled', True) else None
+            self.ffmpeg_composer.final_encode(
                 video_in=video_with_subtitles,
                 audio_path=project.music_file_path,
-                out_path=final_video
+                out_path=final_video,
+                watermark_text=watermark,
             )
 
             project.final_video_path = final_video

@@ -152,6 +152,127 @@ class FFmpegComposer:
         return out_path
 
     # =========================================================================
+    # Derived Cut Clip (리프레이밍 + 모션 변형)
+    # =========================================================================
+
+    def derived_cut_clip(
+        self,
+        image_path: str,
+        duration_sec: float,
+        out_path: str,
+        reframe: str = "wide",
+        crop_anchor: Tuple[float, float] = (0.5, 0.5),
+        effect_type: str = "zoom_in",
+        zoom_range: Tuple[float, float] = (1.0, 1.08),
+    ) -> str:
+        """
+        이미지에 리프레이밍(crop) + 모션을 결합한 파생 컷 생성.
+
+        Args:
+            image_path: 입력 이미지 경로
+            duration_sec: 컷 길이 (초)
+            out_path: 출력 영상 경로
+            reframe: 리프레이밍 레벨 (wide|medium|close|detail)
+            crop_anchor: 크롭 중심점 (0~1 정규화 x, y)
+            effect_type: 모션 효과 (zoom_in, zoom_out, pan_left, pan_right, diagonal)
+            zoom_range: 줌 범위 (최소, 최대)
+
+        Returns:
+            출력 영상 경로
+        """
+        # 프리스케일 해상도 (줌 헤드룸 확보)
+        prescale_w = 3840
+        prescale_h = 2160
+
+        # 리프레이밍별 크롭 영역
+        reframe_ratios = {
+            "wide": 1.0,
+            "medium": 0.75,
+            "close": 0.5,
+            "detail": 0.33,
+        }
+        ratio = reframe_ratios.get(reframe, 1.0)
+        crop_w = int(prescale_w * ratio)
+        crop_h = int(prescale_h * ratio)
+
+        # crop_anchor 기반 크롭 위치 계산 (경계 클램핑)
+        anchor_x, anchor_y = crop_anchor
+        crop_x = max(0, min(int(anchor_x * prescale_w - crop_w / 2), prescale_w - crop_w))
+        crop_y = max(0, min(int(anchor_y * prescale_h - crop_h / 2), prescale_h - crop_h))
+
+        total_frames = int(duration_sec * self.fps)
+        if total_frames < 1:
+            total_frames = 1
+        zoom_min, zoom_max = zoom_range
+
+        # 효과별 zoompan 필터
+        effects = {
+            "zoom_in": (
+                f"zoompan=z='min(zoom+{(zoom_max-zoom_min)/total_frames},{zoom_max})':"
+                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+            ),
+            "zoom_out": (
+                f"zoompan=z='if(lte(zoom,{zoom_min}),{zoom_max},max({zoom_min},zoom-{(zoom_max-zoom_min)/total_frames}))':"
+                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+            ),
+            "pan_left": (
+                f"zoompan=z='{zoom_min + 0.05}':"
+                f"x='if(lte(on,1),0,min(iw/zoom-iw,x+{self.width/(total_frames*2)}))':"
+                f"y='ih/2-(ih/zoom/2)':"
+                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+            ),
+            "pan_right": (
+                f"zoompan=z='{zoom_min + 0.05}':"
+                f"x='if(lte(on,1),iw/zoom-iw,max(0,x-{self.width/(total_frames*2)}))':"
+                f"y='ih/2-(ih/zoom/2)':"
+                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+            ),
+            "diagonal": (
+                f"zoompan=z='min(zoom+{(zoom_max-zoom_min)/total_frames},{zoom_max-0.02})':"
+                f"x='if(lte(on,1),0,min(iw/zoom-iw,x+0.5))':"
+                f"y='if(lte(on,1),0,min(ih/zoom-ih,y+0.3))':"
+                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+            ),
+        }
+
+        filter_str = effects.get(effect_type, effects["zoom_in"])
+
+        # 필터 체인: prescale → crop → zoompan
+        full_filter = (
+            f"scale={prescale_w}:{prescale_h}:force_original_aspect_ratio=increase,"
+            f"crop={prescale_w}:{prescale_h},"
+            f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},"
+            f"scale={self.width * 2}:{self.height * 2},"
+            f"{filter_str}"
+        )
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-loop", "1",
+            "-i", image_path,
+            "-vf", full_filter,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-t", str(duration_sec),
+            "-pix_fmt", "yuv420p",
+            "-r", str(self.fps),
+            out_path
+        ]
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=60
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Derived cut clip failed: {result.stderr[-300:]}")
+
+        return out_path
+
+    # =========================================================================
     # P0: Subtitle Overlay (Burn-in)
     # =========================================================================
 
@@ -1070,5 +1191,100 @@ class FFmpegComposer:
             self._copy_file(video_in, out_path)
         else:
             print(f"[SUCCESS] Film look applied: {out_path}")
+
+        return out_path
+
+    # =========================================================================
+    # Final Encode (최종 인코딩 + 워터마크)
+    # =========================================================================
+
+    def final_encode(
+        self,
+        video_in: str,
+        audio_path: str,
+        out_path: str,
+        watermark_text: Optional[str] = None,
+        watermark_opacity: float = 0.3,
+        audio_bitrate: str = "192k",
+    ) -> str:
+        """
+        최종 영상 인코딩: H.264 High Profile + AAC + 조건부 워터마크.
+
+        Args:
+            video_in: 입력 영상 (자막 포함)
+            audio_path: 오디오 파일 (음악)
+            out_path: 최종 출력 영상 경로
+            watermark_text: 워터마크 텍스트 (None이면 워터마크 없음)
+            watermark_opacity: 워터마크 투명도 (0~1)
+            audio_bitrate: 오디오 비트레이트
+
+        Returns:
+            출력 영상 경로
+        """
+        print(f"[FFmpeg] Final encode: {video_in}")
+
+        video_in_abs = os.path.abspath(video_in)
+        audio_abs = os.path.abspath(audio_path)
+        out_abs = os.path.abspath(out_path)
+
+        if watermark_text:
+            # 워터마크 포함 인코딩
+            opacity_hex = f"{watermark_opacity:.2f}"
+            filter_complex = (
+                f"[0:v]drawtext=text='{watermark_text}':"
+                f"fontsize=24:fontcolor=white@{opacity_hex}:"
+                f"x=w-tw-20:y=20[vout]"
+            )
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_in_abs,
+                "-i", audio_abs,
+                "-filter_complex", filter_complex,
+                "-map", "[vout]", "-map", "1:a",
+                "-c:v", "libx264", "-profile:v", "high",
+                "-preset", "medium", "-crf", "20",
+                "-pix_fmt", "yuv420p", "-r", str(self.fps),
+                "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000",
+                "-shortest",
+                out_abs
+            ]
+        else:
+            # 워터마크 없이 인코딩
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_in_abs,
+                "-i", audio_abs,
+                "-map", "0:v", "-map", "1:a",
+                "-c:v", "libx264", "-profile:v", "high",
+                "-preset", "medium", "-crf", "20",
+                "-pix_fmt", "yuv420p", "-r", str(self.fps),
+                "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000",
+                "-shortest",
+                out_abs
+            ]
+
+        # 동적 timeout: 영상 길이 기반
+        try:
+            duration = self.get_video_duration(video_in_abs)
+            timeout = max(300, int(duration * 4))
+        except Exception:
+            timeout = 600
+
+        print(f"  Preset: medium, CRF: 20, Audio: AAC {audio_bitrate}")
+        print(f"  Watermark: {'Yes - ' + watermark_text if watermark_text else 'None'}")
+        print(f"  Timeout: {timeout}s")
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=timeout
+        )
+
+        if result.returncode != 0:
+            print(f"[ERROR] Final encode failed: {result.stderr[-500:]}")
+            # 폴백: 단순 오디오 합성
+            print(f"[FALLBACK] Trying simple audio merge...")
+            self._add_audio_to_video(video_in_abs, audio_abs, out_abs)
+        else:
+            print(f"[SUCCESS] Final encode complete: {out_abs}")
 
         return out_path
