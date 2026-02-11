@@ -1528,10 +1528,9 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # B-roll 시도: intro/outro/bridge + 캐릭터 미등장
+            # B-roll 시도: 캐릭터 미등장 씬은 세그먼트 타입 상관없이 스톡 영상 우선
             seg_type = self._extract_segment_type(scene)
-            if (pexels and seg_type in BROLL_SEGMENTS
-                    and not scene.characters_in_scene):
+            if (pexels and not scene.characters_in_scene):
                 queries = pexels.generate_stock_queries(
                     scene_prompt=scene.image_prompt,
                     lyrics_text=scene.lyrics_text,
