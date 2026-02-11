@@ -2694,9 +2694,9 @@ async def mv_result(project_id: str):
 
 
 @app.post("/api/mv/scenes/{project_id}/{scene_id}/regenerate")
-async def mv_regenerate_scene(project_id: str, scene_id: int):
+async def mv_regenerate_scene(project_id: str, scene_id: int, req: Request = None):
     """
-    MV 씬 이미지 재생성
+    MV 씬 이미지 재생성 (선택: custom_prompt로 프롬프트 교체)
     """
     validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
@@ -2709,6 +2709,22 @@ async def mv_regenerate_scene(project_id: str, scene_id: int):
 
     if scene_id < 1 or scene_id > len(project.scenes):
         raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
+
+    # custom_prompt가 있으면 씬 프롬프트 교체
+    custom_prompt = None
+    try:
+        body = await req.json() if req else {}
+        custom_prompt = body.get("custom_prompt")
+    except Exception:
+        pass
+
+    if custom_prompt and custom_prompt.strip():
+        scene_obj = project.scenes[scene_id - 1]
+        scene_obj.image_prompt = custom_prompt.strip()
+        # 매니페스트에 저장 (프롬프트 변경 영구 반영)
+        project_dir = f"outputs/{project_id}"
+        pipeline._save_manifest(project, project_dir)
+        print(f"[MV Regenerate] Scene {scene_id} prompt updated: {custom_prompt[:80]}...")
 
     try:
         scene = pipeline.regenerate_scene_image(project, scene_id)

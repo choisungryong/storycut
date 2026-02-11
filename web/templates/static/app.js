@@ -3062,6 +3062,12 @@ class StorycutApp {
                     <span class="mv-review-time">${timeBadge}</span>
                 </div>
                 ${lyrics ? `<div class="mv-review-lyrics" title="${lyrics}">${lyrics}</div>` : ''}
+                <div class="mv-prompt-area" style="margin:4px 0;">
+                    <div class="mv-prompt-text" style="font-size:0.7rem;color:#888;max-height:2.4em;overflow:hidden;cursor:pointer;word-break:break-all;line-height:1.2em;"
+                        title="클릭하여 프롬프트 편집"
+                        onclick="app.togglePromptEdit(this, '${projectId}', ${scene.scene_id})"
+                    >${(scene.image_prompt || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;')}</div>
+                </div>
                 <div class="mv-review-actions">
                     <button class="mv-regen-btn" onclick="app.mvRegenerateScene('${projectId}', ${scene.scene_id})">
                         🔄 재생성
@@ -3076,7 +3082,51 @@ class StorycutApp {
         });
     }
 
-    async mvRegenerateScene(projectId, sceneId) {
+    togglePromptEdit(el, projectId, sceneId) {
+        const area = el.closest('.mv-prompt-area');
+        // 이미 편집 중이면 무시
+        if (area.querySelector('textarea')) return;
+
+        const currentText = el.textContent.trim();
+        el.style.display = 'none';
+
+        const textarea = document.createElement('textarea');
+        textarea.value = currentText;
+        textarea.style.cssText = 'width:100%;min-height:60px;font-size:0.75rem;background:#1e1e2e;color:#ccc;border:1px solid #555;border-radius:4px;padding:4px;resize:vertical;font-family:inherit;';
+
+        const btnWrap = document.createElement('div');
+        btnWrap.style.cssText = 'display:flex;gap:4px;margin-top:3px;';
+        btnWrap.innerHTML = `
+            <button style="flex:1;padding:3px 6px;font-size:0.7rem;background:#f59e0b;border:none;border-radius:4px;color:#000;cursor:pointer;font-weight:600;">저장 후 재생성</button>
+            <button style="padding:3px 6px;font-size:0.7rem;background:#333;border:1px solid #555;border-radius:4px;color:#ccc;cursor:pointer;">취소</button>
+        `;
+
+        area.appendChild(textarea);
+        area.appendChild(btnWrap);
+        textarea.focus();
+
+        // 저장 후 재생성
+        btnWrap.children[0].onclick = () => {
+            const newPrompt = textarea.value.trim();
+            textarea.remove();
+            btnWrap.remove();
+            el.textContent = newPrompt || currentText;
+            el.style.display = '';
+            if (newPrompt && newPrompt !== currentText) {
+                // custom_prompt와 함께 재생성
+                this.mvRegenerateScene(projectId, sceneId, newPrompt);
+            }
+        };
+
+        // 취소
+        btnWrap.children[1].onclick = () => {
+            textarea.remove();
+            btnWrap.remove();
+            el.style.display = '';
+        };
+    }
+
+    async mvRegenerateScene(projectId, sceneId, customPrompt = null) {
         // 크레딧 사전 확인 (이미지 재생성)
         if (typeof checkCreditsBeforeAction === 'function') {
             const ok = await checkCreditsBeforeAction('image_regen');
@@ -3108,8 +3158,11 @@ class StorycutApp {
 
         try {
             const baseUrl = this.getApiBaseUrl();
+            const fetchBody = customPrompt ? JSON.stringify({ custom_prompt: customPrompt }) : '{}';
             const response = await fetch(`${baseUrl}/api/mv/scenes/${projectId}/${sceneId}/regenerate`, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: fetchBody,
             });
 
             if (!response.ok) {
@@ -3342,7 +3395,9 @@ class StorycutApp {
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/mv/scenes/${projectId}/${sceneId}/regenerate`, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
             });
 
             if (!response.ok) {
