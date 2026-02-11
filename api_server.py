@@ -99,8 +99,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Optional: Add a broad CORS handler for non-credentialed requests if needed
-# But for now, let's stick to the specific list which is safer with allow_credentials=True
+# Health check
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "version": "2.7.0"}
 
 # ============================================================
 # Security: Input Validation Helpers

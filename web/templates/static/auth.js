@@ -190,7 +190,11 @@ async function checkCreditsBeforeAction(action) {
     if (!cost) return true;
 
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    const credits = user.credits ?? 0;
+
+    // Worker 미배포 등으로 크레딧 정보가 없으면 체크 스킵
+    if (user.credits === undefined || user.credits === null) return true;
+
+    const credits = user.credits;
 
     if (credits < cost) {
         showInsufficientCreditsModal(action, cost, credits);
