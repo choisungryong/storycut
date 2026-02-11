@@ -1442,12 +1442,10 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # B-roll 시도: intro/outro/bridge + 캐릭터 미등장 + 실사 계열 스타일만
+            # B-roll 시도: intro/outro/bridge + 캐릭터 미등장
             seg_type = self._extract_segment_type(scene)
-            BROLL_COMPATIBLE_STYLES = {"cinematic", "realistic"}
             if (pexels and seg_type in BROLL_SEGMENTS
-                    and not scene.characters_in_scene
-                    and project.style.value in BROLL_COMPATIBLE_STYLES):
+                    and not scene.characters_in_scene):
                 query = pexels.build_query(
                     genre=project.genre.value,
                     mood=project.mood.value,
