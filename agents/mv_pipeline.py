@@ -1451,6 +1451,7 @@ class MVPipeline:
                     mood=project.mood.value,
                     segment_type=seg_type,
                     visual_bible=project.visual_bible,
+                    scene_prompt=scene.image_prompt,
                 )
                 broll_path = f"{project_dir}/media/video/broll_{scene.scene_id:02d}.mp4"
                 os.makedirs(os.path.dirname(broll_path), exist_ok=True)

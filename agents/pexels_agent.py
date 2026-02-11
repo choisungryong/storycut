@@ -168,18 +168,35 @@ class PexelsAgent:
         mood: str,
         segment_type: str,
         visual_bible=None,
+        scene_prompt: str = None,
     ) -> str:
-        """장르 + 세그먼트 + Visual Bible 기반 검색 쿼리 생성
+        """장르 + 세그먼트 + Visual Bible + 디렉터 프롬프트 기반 검색 쿼리 생성
 
         Args:
             genre: MVGenre value (e.g. "fantasy")
             mood: MVMood value (e.g. "epic")
             segment_type: "intro", "outro", "bridge"
             visual_bible: VisualBible 객체 (Optional)
+            scene_prompt: 디렉터 LLM이 생성한 씬 프롬프트 (Optional)
 
         Returns:
             Pexels 검색 쿼리
         """
+        # 디렉터 프롬프트가 있으면 핵심 키워드를 우선 사용
+        if scene_prompt:
+            # 프롬프트에서 검색에 불필요한 접미사 제거
+            clean = scene_prompt.split("|")[0].strip()  # positive 부분만
+            # "no text, no letters..." 등 네거티브 지시 제거
+            for suffix in ["no text", "no letters", "no words", "no writing", "no watermark"]:
+                clean = clean.replace(suffix, "")
+            clean = clean.replace(",", " ").strip()
+            # 너무 길면 앞부분만 (Pexels 검색은 짧은 쿼리가 효과적)
+            words = clean.split()
+            if len(words) > 8:
+                words = words[:8]
+            return " ".join(words)
+
+        # 디렉터 프롬프트 없으면 장르+무드 기반 폴백
         parts = []
 
         # 장르 키워드 (첫 번째)
