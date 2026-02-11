@@ -775,6 +775,21 @@ JSON 형식으로 출력:
                     style=style
                 )
 
+            # 캐릭터 외형 설명 주입 (character_sheet 기준)
+            if scene.characters_in_scene and character_sheet:
+                char_descs = []
+                for char_token in scene.characters_in_scene[:3]:
+                    char_data = character_sheet.get(char_token)
+                    if not char_data:
+                        continue
+                    name = char_data.get("name", char_token) if isinstance(char_data, dict) else getattr(char_data, "name", char_token)
+                    appearance = char_data.get("appearance", "") if isinstance(char_data, dict) else getattr(char_data, "appearance", "")
+                    if appearance:
+                        char_descs.append(f"[{name}] {appearance}")
+                if char_descs:
+                    char_block = " | ".join(char_descs)
+                    scene.prompt = f"{char_block}. {scene.prompt}"
+
             # 인종 런타임 주입 (MV 파이프라인과 동일 방식)
             _eth = getattr(request, 'character_ethnicity', 'auto') if request else 'auto'
             _ETH_KW = {

@@ -1298,6 +1298,36 @@ class MVPipeline:
             if r in char_map
         ]
 
+    def _inject_character_descriptions(self, project: MVProject, scene: MVScene, prompt: str) -> str:
+        """씬 프롬프트에 Visual Bible 캐릭터의 외형+의상 설명을 주입.
+
+        LLM이 생성한 프롬프트는 캐릭터 외형을 생략하거나 변경할 수 있음.
+        이 메서드가 원본 Visual Bible 설명을 강제 주입하여 일관성 확보.
+        """
+        if not project.visual_bible or not project.visual_bible.characters:
+            return prompt
+        if not scene.characters_in_scene:
+            return prompt
+
+        char_map = {c.role: c for c in project.visual_bible.characters}
+        char_descs = []
+        for role in scene.characters_in_scene[:3]:
+            char = char_map.get(role)
+            if not char:
+                continue
+            parts = [char.description] if char.description else []
+            if char.outfit:
+                parts.append(f"wearing {char.outfit}")
+            if parts:
+                char_descs.append(f"[{role.upper()}] {', '.join(parts)}")
+
+        if not char_descs:
+            return prompt
+
+        # 캐릭터 설명을 프롬프트 맨 앞에 주입
+        char_block = " | ".join(char_descs)
+        return f"{char_block}. {prompt}"
+
     # ================================================================
     # Step 3: 이미지 생성
     # ================================================================
@@ -1374,8 +1404,10 @@ class MVPipeline:
                 if char_anchor_paths:
                     print(f"    [Characters] {len(char_anchor_paths)} anchor(s) for scene {scene.scene_id}")
 
+                # 캐릭터 외형+의상 설명 주입 (Visual Bible 기준, LLM 생략/변경 방지)
+                final_prompt = self._inject_character_descriptions(project, scene, scene.image_prompt)
+
                 # 인종 키워드 자동 주입 (프롬프트에 없으면 앞에 추가)
-                final_prompt = scene.image_prompt
                 if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
                     final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
@@ -1729,6 +1761,9 @@ class MVPipeline:
         # 캐릭터 앵커 이미지 조회
         char_anchor_paths = self._get_character_anchors_for_scene(project, scene)
 
+        # 캐릭터 외형+의상 설명 주입 (Visual Bible 기준)
+        final_prompt = self._inject_character_descriptions(project, scene, scene.image_prompt)
+
         # 인종 키워드 자동 주입
         _eth = getattr(project, 'character_ethnicity', None)
         _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
@@ -1738,7 +1773,6 @@ class MVPipeline:
             "black": "Black", "hispanic": "Hispanic",
         }
         ethnicity_keyword = _ETH_KW.get(_eth_v, "")
-        final_prompt = scene.image_prompt
         if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
             final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
