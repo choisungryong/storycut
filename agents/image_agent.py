@@ -82,6 +82,7 @@ class ImageAgent:
         mood: Optional[str] = None,             # v3.0: Visual Bible
         visual_bible: Optional[dict] = None,    # v3.0: Visual Bible
         color_mood: Optional[str] = None,       # v3.0: Visual Bible
+        camera_directive: Optional[str] = None, # v3.1: 카메라/프레이밍 지시
     ) -> tuple:
         """
         Generate an image with specific model strategies.
@@ -143,6 +144,7 @@ class ImageAgent:
                         negative_prompt=negative_prompt,
                         visual_bible=visual_bible,
                         color_mood=color_mood,
+                        camera_directive=camera_directive,
                     )
                 except Exception as e:
                     error_msg = str(e)
@@ -168,6 +170,7 @@ class ImageAgent:
                                 negative_prompt=negative_prompt,
                                 visual_bible=visual_bible,
                                 color_mood=color_mood,
+                                camera_directive=camera_directive,
                             )
                         except Exception as retry_e:
                             print(f"     [Error] Softened prompt retry failed: {retry_e}")
@@ -223,6 +226,7 @@ class ImageAgent:
         negative_prompt: Optional[str] = None,  # v3.0: Visual Bible
         visual_bible: Optional[dict] = None,    # v3.0: Visual Bible
         color_mood: Optional[str] = None,       # v3.0: Visual Bible
+        camera_directive: Optional[str] = None, # v3.1: 카메라/프레이밍 지시
     ) -> tuple:
         """
         Call Google Gemini 2.5 Flash Image API for image generation.
@@ -282,6 +286,7 @@ class ImageAgent:
                 negative_prompt=negative_prompt,
                 visual_bible=visual_bible,
                 color_mood=color_mood,
+                camera_directive=camera_directive,
             )
 
             # Log what anchors are being used

@@ -571,11 +571,21 @@ class MVPipeline:
 
             project.visual_bible = VisualBible(**vb_data)
 
-            # MVScene.characters_in_scene 자동 채우기 (scene_blocking 기반)
+            # MVScene.characters_in_scene + camera_directive 자동 채우기 (scene_blocking 기반)
             for blocking in mv_blocking:
                 idx = blocking.scene_id - 1
                 if 0 <= idx < len(project.scenes):
                     project.scenes[idx].characters_in_scene = blocking.characters
+                    # shot_type → camera_directive 매핑
+                    cam_parts = []
+                    if blocking.shot_type:
+                        cam_parts.append(blocking.shot_type)
+                    if blocking.expression:
+                        cam_parts.append(f"expression: {blocking.expression}")
+                    if blocking.lighting:
+                        cam_parts.append(f"lighting: {blocking.lighting}")
+                    if cam_parts:
+                        project.scenes[idx].camera_directive = ", ".join(cam_parts)
 
             print(f"  [Director's Brief] Generated successfully:")
             print(f"    Colors: {project.visual_bible.color_palette}")
@@ -908,12 +918,23 @@ class MVPipeline:
             client = genai.Client(api_key=api_key)
 
             # 씬 정보 구성
+            # B-roll 대상 세그먼트 (Pexels 스톡 영상 사용)
+            _BROLL_SEGMENTS = {"intro", "outro", "bridge"}
+            _has_pexels = bool(_os.environ.get("PEXELS_API_KEY"))
+
             scene_descriptions = []
             for i, scene in enumerate(project.scenes):
                 lyrics_part = f'  가사: "{scene.lyrics_text}"' if scene.lyrics_text else "  가사: (없음)"
+                # B-roll 마킹: intro/outro/bridge + 캐릭터 미등장
+                broll_tag = ""
+                if _has_pexels:
+                    desc_lower = (scene.visual_description or "").lower()
+                    is_broll_seg = any(s in desc_lower for s in _BROLL_SEGMENTS)
+                    if is_broll_seg and not scene.characters_in_scene:
+                        broll_tag = " [B-ROLL: 스톡 영상 사용]"
                 scene_descriptions.append(
                     f"Scene {i+1} [{scene.start_sec:.1f}s-{scene.end_sec:.1f}s] "
-                    f"({scene.visual_description})\n{lyrics_part}"
+                    f"({scene.visual_description}){broll_tag}\n{lyrics_part}"
                 )
 
             scenes_text = "\n".join(scene_descriptions)
@@ -1095,6 +1116,16 @@ class MVPipeline:
                 "'dancing mid-spin with flowing dress', 'leaning on railing gazing at city lights'\n"
                 "- 가사의 은유적 표현을 절대 문자 그대로 묘사하지 마세요. "
                 "현실적이고 자연스러운 인간 동작으로 변환하세요.\n\n"
+
+                "=== B-ROLL 씬 규칙 ===\n"
+                "- [B-ROLL: 스톡 영상 사용]으로 표시된 씬은 Pexels 스톡 영상으로 대체됩니다.\n"
+                "- B-ROLL 씬의 프롬프트는 스톡 영상 검색에 적합하게 작성하세요:\n"
+                "  - 분위기, 풍경, 환경 묘사 위주 (atmospheric, cinematic landscape, mood)\n"
+                "  - 구체적 캐릭터 묘사 불필요 (캐릭터가 등장하지 않는 씬)\n"
+                "  - 검색 키워드로 쓸 수 있는 일반적이고 보편적인 비주얼 단어 사용\n"
+                "  - 예: 'rainy city night, neon reflections, cinematic establishing shot'\n"
+                "  - 예: 'golden sunset over ocean, peaceful ending, warm atmosphere'\n"
+                "- B-ROLL이 아닌 씬은 기존대로 구체적인 AI 이미지 프롬프트로 작성하세요.\n\n"
 
                 "=== 출력 형식 ===\n"
                 "- 정확히 씬 개수만큼 줄을 출력 (한 줄에 하나의 프롬프트)\n"
@@ -1384,6 +1415,16 @@ class MVPipeline:
         }
         ethnicity_keyword = _ETH_KW.get(_eth_v, "")
 
+        # Pexels B-roll 에이전트 초기화
+        pexels = None
+        pexels_key = os.environ.get("PEXELS_API_KEY")
+        if pexels_key:
+            from agents.pexels_agent import PexelsAgent
+            pexels = PexelsAgent(api_key=pexels_key)
+            print(f"  [B-roll] Pexels agent enabled")
+
+        BROLL_SEGMENTS = {"intro", "outro", "bridge"}
+
         # 모든 씬에 고유 이미지 생성
         print(f"  Generating {total_scenes} unique images")
 
@@ -1400,6 +1441,37 @@ class MVPipeline:
                 project.current_step = f"이미지 생성 중단됨 ({i}/{total_scenes})"
                 self._save_manifest(project, project_dir)
                 return project
+
+            # B-roll 시도: intro/outro/bridge + 캐릭터 미등장 씬
+            seg_type = self._extract_segment_type(scene)
+            if pexels and seg_type in BROLL_SEGMENTS and not scene.characters_in_scene:
+                query = pexels.build_query(
+                    genre=project.genre.value,
+                    mood=project.mood.value,
+                    segment_type=seg_type,
+                    visual_bible=project.visual_bible,
+                )
+                broll_path = f"{project_dir}/media/video/broll_{scene.scene_id:02d}.mp4"
+                os.makedirs(os.path.dirname(broll_path), exist_ok=True)
+                video = pexels.fetch_broll(query, scene.duration_sec, broll_path)
+                if video:
+                    scene.video_path = video
+                    scene.status = MVSceneStatus.COMPLETED
+                    # 첫 프레임을 썸네일로 추출
+                    thumb_path = f"{image_dir}/scene_{scene.scene_id:02d}.png"
+                    self._extract_thumbnail(video, thumb_path)
+                    scene.image_path = thumb_path
+                    print(f"\n  [Scene {scene.scene_id}/{total_scenes}] B-roll from Pexels ({seg_type})")
+                    progress_per_scene = 50 / total_scenes
+                    project.progress = int(20 + (i + 1) * progress_per_scene)
+                    if on_scene_complete:
+                        try:
+                            on_scene_complete(scene, i + 1, total_scenes)
+                        except Exception:
+                            pass
+                    continue
+                else:
+                    print(f"    [Pexels] B-roll failed for {seg_type}, falling back to image gen")
 
             print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
             if style_anchor_path:
@@ -1432,6 +1504,7 @@ class MVPipeline:
                     visual_bible=vb_dict,
                     color_mood=scene.color_mood,
                     character_reference_paths=char_anchor_paths or None,
+                    camera_directive=scene.camera_directive,
                 )
 
                 scene.image_path = image_path
@@ -1598,6 +1671,28 @@ class MVPipeline:
                 return seg_type
         return "verse"  # default
 
+    def _extract_thumbnail(self, video_path: str, out_path: str):
+        """B-roll 영상 첫 프레임을 썸네일로 추출"""
+        import subprocess
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        cmd = ["ffmpeg", "-y", "-i", video_path, "-vframes", "1",
+               "-vf", "scale=1920:1080", out_path]
+        subprocess.run(cmd, capture_output=True, timeout=30)
+
+    def _trim_video(self, video_path: str, target_duration: float, out_path: str) -> Optional[str]:
+        """B-roll 영상을 target_duration으로 트림 (더 짧으면 그대로 사용)"""
+        import subprocess
+        try:
+            actual = self.ffmpeg_composer.get_video_duration(video_path)
+            if actual <= target_duration + 0.5:
+                return None  # 트림 불필요
+            cmd = ["ffmpeg", "-y", "-i", video_path, "-t", str(target_duration),
+                   "-c", "copy", out_path]
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            return out_path if result.returncode == 0 else None
+        except Exception:
+            return None
+
     # ================================================================
     # Step 4: 영상 합성
     # ================================================================
@@ -1638,10 +1733,13 @@ class MVPipeline:
             for ci, cut in enumerate(cut_plan):
                 clip_path = f"{project_dir}/media/video/cut_{cut['parent_scene_id']:02d}_{cut['cut_index']:02d}.mp4"
 
-                # I2V 씬은 이미 비디오가 있음
+                # I2V / B-roll 씬은 이미 비디오가 있음
                 if cut.get("video_path"):
-                    video_clips.append(cut["video_path"])
-                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} (I2V pre-generated)")
+                    # B-roll duration이 씬보다 길 수 있으므로 트림
+                    trimmed_path = f"{project_dir}/media/video/trimmed_{cut['parent_scene_id']:02d}.mp4"
+                    trimmed = self._trim_video(cut["video_path"], cut["duration_sec"], trimmed_path)
+                    video_clips.append(trimmed or cut["video_path"])
+                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} (video pre-generated)")
                     continue
 
                 if not cut.get("image_path"):
@@ -1904,6 +2002,7 @@ class MVPipeline:
                 visual_bible=vb_dict,
                 color_mood=scene.color_mood,
                 character_reference_paths=char_anchor_paths or None,
+                camera_directive=scene.camera_directive,
             )
             scene.image_path = image_path
             scene.video_path = None  # I2V 결과 초기화 (이미지 변경됨)

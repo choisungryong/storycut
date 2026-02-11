@@ -228,6 +228,7 @@ class MultimodalPromptBuilder:
         negative_prompt: Optional[str] = None,
         visual_bible: Optional[dict] = None,
         color_mood: Optional[str] = None,
+        camera_directive: Optional[str] = None,
     ) -> List[Dict]:
         """
         간단한 멀티모달 요청 구성 (단순 프롬프트 + 참조 이미지).
@@ -243,6 +244,7 @@ class MultimodalPromptBuilder:
             negative_prompt: 씬별 네거티브 프롬프트
             visual_bible: VisualBible dict (color_palette, lighting_style, motifs 등)
             color_mood: 씬별 색감/무드 키워드
+            camera_directive: 카메라 연출 (shot_type + 프레이밍 지시)
 
         Returns:
             Gemini API parts 리스트
@@ -385,6 +387,51 @@ class MultimodalPromptBuilder:
         if color_mood:
             color_mood_text = f"Scene color mood: {color_mood}."
 
+        # --- 카메라/프레이밍 지시 ---
+        framing_text = ""
+        if camera_directive:
+            # shot_type 기반 프레이밍 룰 매핑
+            _SHOT_FRAMING = {
+                "close-up": (
+                    "[FRAMING: CLOSE-UP] Frame the character from CHEST UP. "
+                    "Center the face horizontally. Position eyes in upper third of frame. "
+                    "NEVER crop the top of the head. NEVER shoot from extreme side angles. "
+                    "Show subtle background blur (bokeh) that matches the scene environment."
+                ),
+                "extreme-close-up": (
+                    "[FRAMING: EXTREME CLOSE-UP] Frame the character's FACE ONLY, from chin to forehead. "
+                    "Center the face in frame. Sharp focus on eyes. "
+                    "NEVER crop forehead or chin. Background fully blurred but contextually matching."
+                ),
+                "medium": (
+                    "[FRAMING: MEDIUM SHOT] Frame the character from WAIST UP. "
+                    "Center the subject. Show enough body for gesture/action. "
+                    "Background visible with moderate depth of field."
+                ),
+                "wide": (
+                    "[FRAMING: WIDE SHOT] Show FULL BODY plus surrounding environment. "
+                    "Character occupies 30-50% of frame height. "
+                    "Establish location context with visible background details."
+                ),
+            }
+            # camera_directive에서 shot_type 추출
+            cd_lower = camera_directive.lower()
+            matched_framing = None
+            for shot_key in ["extreme-close-up", "extreme close-up", "close-up", "close up", "medium", "wide"]:
+                if shot_key in cd_lower:
+                    normalized = shot_key.replace(" ", "-")
+                    if "extreme" in normalized:
+                        normalized = "extreme-close-up"
+                    elif "close" in normalized:
+                        normalized = "close-up"
+                    matched_framing = _SHOT_FRAMING.get(normalized)
+                    break
+            if matched_framing:
+                framing_text = matched_framing
+            else:
+                # shot_type이 매칭되지 않으면 camera_directive 그대로 사용
+                framing_text = f"[CAMERA] {camera_directive}"
+
         # 해부학적 오류 방지 (글로벌)
         anatomy_negative = "NEVER: extra limbs, extra arms, extra legs, extra fingers, missing fingers, deformed hands, fused fingers, mutated body parts, bad anatomy, wrong proportions, three arms, three legs, six fingers."
 
@@ -393,7 +440,7 @@ class MultimodalPromptBuilder:
         negative_part = f" {all_negatives}" if all_negatives else ""
 
         # 부스트 파트 통합
-        all_boosts = " ".join(filter(None, [mood_boost, vb_enrichment, color_mood_text])).strip()
+        all_boosts = " ".join(filter(None, [framing_text, mood_boost, vb_enrichment, color_mood_text])).strip()
         boost_part = f" {all_boosts}" if all_boosts else ""
 
         full_prompt = f"[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Anatomically correct human body with proper proportions. Aspect ratio 16:9."
