@@ -1106,6 +1106,10 @@ class MVPipeline:
 
                 "=== 캐릭터/동작 규칙 ===\n"
                 "- CHARACTERS 섹션의 인물만 등장. 정의되지 않은 인물 절대 추가 금지.\n"
+                "- *** NO UNNAMED PEOPLE ***: If a scene has NO characters assigned (instrumental/intro/outro), "
+                "the prompt MUST describe ONLY scenery, environment, objects, or atmosphere. "
+                "NEVER add random people (old man, stranger, bystander, crowd, silhouette of person) "
+                "to fill empty scenes. Use landscape, architecture, nature, or abstract visuals instead.\n"
                 "- 캐릭터 외형(인종, 나이, 헤어, 체형)을 프롬프트에 구체적으로 포함하세요.\n"
                 "- *** ETHNICITY IS MANDATORY IN EVERY PROMPT ***: Every prompt MUST explicitly state "
                 "the character's ethnicity/race (e.g. 'Korean man', 'Korean woman'). "
@@ -1577,11 +1581,16 @@ class MVPipeline:
                 if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
                     final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
+                # 캐릭터 미등장 씬: 정의 안 된 인물 등장 방지
+                _scene_neg = scene.negative_prompt or ""
+                if not scene.characters_in_scene:
+                    _no_people = "random person, unnamed person, elderly man, old man, bystander, stranger, human figure"
+                    _scene_neg = f"{_no_people}, {_scene_neg}" if _scene_neg else _no_people
+
                 # 시대/배경 키워드 자동 주입 (concept에서 추출)
                 if era_prefix and era_prefix.lower() not in final_prompt.lower():
                     final_prompt = f"{era_prefix}, {final_prompt}"
                 # 시대 부정 키워드 (negative_prompt에 추가)
-                _scene_neg = scene.negative_prompt or ""
                 if era_negative:
                     _scene_neg = f"{era_negative}, {_scene_neg}" if _scene_neg else era_negative
 
@@ -2132,11 +2141,16 @@ class MVPipeline:
         if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
             final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
+        # 캐릭터 미등장 씬: 정의 안 된 인물 등장 방지
+        _regen_neg = scene.negative_prompt or ""
+        if not scene.characters_in_scene:
+            _no_people = "random person, unnamed person, elderly man, old man, bystander, stranger, human figure"
+            _regen_neg = f"{_no_people}, {_regen_neg}" if _regen_neg else _no_people
+
         # 시대/배경 키워드 자동 주입 (concept에서 추출)
         era_prefix, era_negative = self._extract_era_setting(project.concept)
         if era_prefix and era_prefix.lower() not in final_prompt.lower():
             final_prompt = f"{era_prefix}, {final_prompt}"
-        _regen_neg = scene.negative_prompt or ""
         if era_negative:
             _regen_neg = f"{era_negative}, {_regen_neg}" if _regen_neg else era_negative
 
