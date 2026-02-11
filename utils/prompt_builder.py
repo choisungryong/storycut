@@ -180,12 +180,12 @@ class MultimodalPromptBuilder:
     # 장르별 네거티브 프롬프트 (이미지 생성 시 회피할 요소) — fallback
     _GENRE_NEGATIVES_FALLBACK = {
         "fantasy": "modern buildings, cars, phones, realistic office, contemporary clothing, neon signage",
-        "romance": "violence, weapons, gore, dark horror, monsters, cold sterile, harsh daylight, military",
-        "action": "static, boring, peaceful, soft pastel, calm, gentle, slow, still, dreamy",
+        "romance": "violence, weapons, gore, blood, bloody tears, dark horror, monsters, cold sterile, harsh daylight, military, grotesque, creepy",
+        "action": "static, boring, peaceful, soft pastel, calm, gentle, slow, still, dreamy, gore, blood, grotesque",
         "horror": "bright cheerful, rainbow, cute cartoon, happy, sunny, pastel, warm cozy, clean daylight",
-        "scifi": "medieval, horses, castles, nature only, rustic village, historical, ancient, wooden, cute cartoon",
-        "drama": "cartoon, exaggerated, slapstick, neon colors, silly, fantastical, bright cheerful, magic spells",
-        "comedy": "dark, grim, horror, blood, violence, depressing, muted, bleak, melancholic",
+        "scifi": "medieval, horses, castles, nature only, rustic village, historical, ancient, wooden, cute cartoon, gore, bloody, grotesque",
+        "drama": "cartoon, exaggerated, slapstick, neon colors, silly, fantastical, bright cheerful, magic spells, gore, blood, bloody tears, grotesque, horror, creepy",
+        "comedy": "dark, grim, horror, blood, violence, depressing, muted, bleak, melancholic, gore, grotesque",
         "abstract": "photorealistic, literal, mundane, ordinary, documentary, plain, conventional, real brands",
         "hoyoverse": "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands",
     }
@@ -442,8 +442,15 @@ class MultimodalPromptBuilder:
                 # shot_type이 매칭되지 않으면 camera_directive 그대로 사용
                 framing_text = f"[CAMERA] {camera_directive}"
 
-        # 해부학적 오류 방지 (글로벌)
-        anatomy_negative = "NEVER: extra limbs, extra arms, extra legs, extra fingers, missing fingers, deformed hands, fused fingers, mutated body parts, bad anatomy, wrong proportions, three arms, three legs, six fingers."
+        # 해부학적 오류 + 잔혹 표현 방지 (글로벌)
+        anatomy_negative = (
+            "NEVER: extra limbs, extra arms, extra legs, extra fingers, missing fingers, "
+            "deformed hands, fused fingers, mutated body parts, bad anatomy, wrong proportions, "
+            "three arms, three legs, six fingers. "
+            "NEVER: blood, bloody tears, gore, grotesque, horror elements, creepy faces, "
+            "disfigured faces, zombie-like appearance, unnatural skin discoloration, "
+            "characters not described in the prompt, random bystanders, unexplained observers."
+        )
 
         # 네거티브 파트 통합
         all_negatives = " ".join(filter(None, [style_negative, genre_negative, scene_negative, anatomy_negative])).strip()
