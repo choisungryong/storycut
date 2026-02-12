@@ -707,6 +707,19 @@ class MVPipeline:
             print(f"  [WARNING] CharacterManager failed, falling back to simple method: {e}")
             self._generate_character_anchors_simple(project, project_dir)
 
+        # CharacterQA: 앵커 임베딩 추출 + 등록
+        try:
+            from agents.character_qa import CharacterQA
+            self._character_qa = CharacterQA(threshold=0.45)
+            for character in characters:
+                if character.anchor_image_path and os.path.exists(character.anchor_image_path):
+                    emb = self._character_qa.register_anchor(character.role, character.anchor_image_path)
+                    if emb:
+                        character.face_embedding = emb
+        except Exception as e:
+            print(f"  [WARNING] CharacterQA init failed: {e}")
+            self._character_qa = None
+
         self._save_manifest(project, project_dir)
         return project
 
@@ -1464,12 +1477,31 @@ class MVPipeline:
                 if blocking.expression:
                     expression = blocking.expression
 
+        # 렌즈 프롬프트 락: 캐릭터 샷의 얼굴 왜곡 방지
+        # 씬 블로킹의 shot_type에 따라 렌즈 토큰 결정
+        shot_type_raw = ""
+        if project.visual_bible and project.visual_bible.scene_blocking:
+            blocking_map = {b.scene_id: b for b in project.visual_bible.scene_blocking}
+            b = blocking_map.get(scene.scene_id)
+            if b:
+                shot_type_raw = (b.shot_type or "").lower()
+        is_closeup = "close" in shot_type_raw
+        lens_token = "cinematic 50mm lens, natural facial proportions" if is_closeup else "portrait 85mm lens, natural facial proportions"
+
+        # 손/접촉 토큰: 2인 이상 씬에서 손 품질 강화
+        hand_token = ""
+        if len(scene.characters_in_scene) >= 2:
+            hand_token = "natural hands, correct fingers, anatomically correct hands"
+
         # 프롬프트 조립: action_pose를 최우선에 배치 (앵커 이미지의 직립 자세 덮어쓰기)
         prefix_parts = []
         if action_pose:
             prefix_parts.append(f"POSE: {action_pose}")
         if expression:
             prefix_parts.append(f"EXPRESSION: {expression}")
+        prefix_parts.append(lens_token)
+        if hand_token:
+            prefix_parts.append(hand_token)
         char_block = " | ".join(char_descs)
         prefix_parts.append(char_block)
 
@@ -1623,8 +1655,15 @@ class MVPipeline:
                 if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
                     final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
-                # 캐릭터 미등장 씬: 정의 안 된 인물 등장 방지
+                # 캐릭터 등장 씬: 렌즈 왜곡 + 손 기형 negative
                 _scene_neg = scene.negative_prompt or ""
+                if scene.characters_in_scene:
+                    _lens_neg = "wide-angle distortion, fisheye, exaggerated facial features"
+                    _hand_neg = "extra fingers, deformed hands, fused fingers, missing fingers"
+                    _char_neg = f"{_lens_neg}, {_hand_neg}"
+                    _scene_neg = f"{_char_neg}, {_scene_neg}" if _scene_neg else _char_neg
+
+                # 캐릭터 미등장 씬: 정의 안 된 인물 등장 방지
                 if not scene.characters_in_scene:
                     _no_people = "random person, unnamed person, elderly man, old man, bystander, stranger, human figure"
                     _scene_neg = f"{_no_people}, {_scene_neg}" if _scene_neg else _no_people
@@ -1654,6 +1693,26 @@ class MVPipeline:
 
                 scene.image_path = image_path
                 scene.status = MVSceneStatus.COMPLETED
+
+                # CharacterQA: 생성 이미지 vs 앵커 임베딩 검증
+                if hasattr(self, '_character_qa') and self._character_qa and scene.characters_in_scene:
+                    try:
+                        qa_results = self._character_qa.verify_scene_image(
+                            image_path=image_path,
+                            characters_in_scene=scene.characters_in_scene,
+                            scene_id=scene.scene_id,
+                        )
+                        for role, qr in qa_results.items():
+                            if not qr["passed"]:
+                                print(f"    [CharacterQA] FAIL scene {scene.scene_id} role={role}: "
+                                      f"sim={qr['similarity']:.3f} reason={qr['fail_reason']}")
+                            else:
+                                sim_str = f"{qr['similarity']:.3f}" if qr['similarity'] >= 0 else "n/a"
+                                print(f"    [CharacterQA] OK scene {scene.scene_id} role={role}: sim={sim_str}")
+                        # QA 결과를 씬에 저장 (compose_video에서 derived cut 제외 판단용)
+                        scene.qa_results = qa_results
+                    except Exception as qa_e:
+                        print(f"    [CharacterQA] Error: {qa_e}")
 
                 # fallback: 전용 앵커 없으면 첫 번째 성공 이미지를 스타일 앵커로 설정
                 if fallback_anchor and style_anchor_path is None and image_path and os.path.exists(image_path):
@@ -1890,6 +1949,12 @@ class MVPipeline:
                 # Ghost 방지
                 if reframe in ("close", "detail") and prev_reframe in ("close", "detail"):
                     reframe = "medium"
+
+                # CharacterQA: 실패 씬은 close/detail 컷 제외 → medium으로 강등
+                if has_chars and reframe in ("close", "detail"):
+                    _qa_res = getattr(scene, 'qa_results', None)
+                    if _qa_res and not all(r.get("passed", True) for r in _qa_res.values()):
+                        reframe = "medium"
 
                 # ── Subject-aware crop_anchor (Rule 1) ──
                 if reframe in ("close", "medium") and face_bb and has_chars:
@@ -2270,6 +2335,131 @@ class MVPipeline:
     # Transition Planner: 씬 간 전환 타입 자동 결정
     # ================================================================
 
+    def _save_cuts_and_render_log(self, project, project_dir: str, cut_plan: list,
+                                   transition_plan: list, scenes: list) -> None:
+        """cuts.json + render.log 저장. 디버깅/튜닝 산출물."""
+        import json as _json
+        from datetime import datetime as _dt
+
+        # ── cuts.json ──
+        cuts_path = f"{project_dir}/cuts.json"
+        try:
+            serializable_cuts = []
+            for c in cut_plan:
+                sc = {}
+                for k, v in c.items():
+                    if isinstance(v, tuple):
+                        sc[k] = list(v)
+                    elif isinstance(v, (str, int, float, bool, type(None), list, dict)):
+                        sc[k] = v
+                    else:
+                        sc[k] = str(v)
+                serializable_cuts.append(sc)
+            with open(cuts_path, "w", encoding="utf-8") as f:
+                _json.dump(serializable_cuts, f, indent=2, ensure_ascii=False)
+            print(f"  [LOG] cuts.json saved ({len(cut_plan)} cuts)")
+        except Exception as e:
+            print(f"  [LOG] cuts.json save failed: {e}")
+
+        # ── render.log ──
+        log_path = f"{project_dir}/render.log"
+        try:
+            lines = []
+            lines.append(f"# Render Log - {_dt.now().isoformat()}")
+            lines.append(f"# Project: {project.project_id}")
+            lines.append(f"# Scenes: {len(scenes)}, Cuts: {len(cut_plan)}, Transitions: {len(transition_plan)}")
+            lines.append("")
+
+            # Section 1: Cut Plan + BBox + QA
+            lines.append("## CUT PLAN")
+            lines.append(f"{'scene':>5} {'ci':>3} {'reframe':>8} {'effect':>10} {'seg':>12} "
+                         f"{'bbox_src':>8} {'qa_fail':>30} {'anchor':>14}")
+            lines.append("-" * 100)
+            for c in cut_plan:
+                anchor = c.get("crop_anchor", (0, 0))
+                anchor_str = f"({anchor[0]:.2f},{anchor[1]:.2f})" if isinstance(anchor, (tuple, list)) else str(anchor)
+                lines.append(
+                    f"{c.get('parent_scene_id', '?'):>5} "
+                    f"{c.get('cut_index', 0):>3} "
+                    f"{c.get('reframe', '?'):>8} "
+                    f"{c.get('effect_type', '?'):>10} "
+                    f"{c.get('segment_type', '?'):>12} "
+                    f"{c.get('bbox_source', 'none'):>8} "
+                    f"{(c.get('qa_fail_reason') or 'OK'):>30} "
+                    f"{anchor_str:>14}"
+                )
+
+            # Section 2: Transition Plan
+            lines.append("")
+            lines.append("## TRANSITION PLAN")
+            lines.append(f"{'boundary':>8} {'type':>12} {'frames':>6} {'reason':>40}")
+            lines.append("-" * 80)
+            for ti, t in enumerate(transition_plan):
+                lines.append(
+                    f"{ti:>8} "
+                    f"{t.get('transition_type', '?'):>12} "
+                    f"{t.get('transition_frames', 0):>6} "
+                    f"{t.get('reason', ''):>40}"
+                )
+
+            # Section 3: CharacterQA results
+            qa = getattr(self, '_character_qa', None)
+            if qa:
+                qa_entries = qa.get_log_entries()
+                if qa_entries:
+                    lines.append("")
+                    lines.append("## CHARACTER QA")
+                    lines.append(f"{'scene':>5} {'role':>15} {'face':>5} {'sim':>6} {'pass':>5} {'reason':>25} {'provider':>20}")
+                    lines.append("-" * 90)
+                    for entry in qa_entries:
+                        lines.append(
+                            f"{entry.get('scene_id', '?'):>5} "
+                            f"{entry.get('role', '?'):>15} "
+                            f"{'Y' if entry.get('face_detected') else 'N':>5} "
+                            f"{entry.get('similarity', -1):>6.3f} "
+                            f"{'PASS' if entry.get('passed') else 'FAIL':>5} "
+                            f"{(entry.get('fail_reason') or 'OK'):>25} "
+                            f"{entry.get('provider', ''):>20}"
+                        )
+
+            # Section 4: Summary stats
+            lines.append("")
+            lines.append("## SUMMARY")
+            bbox_sources = {}
+            for c in cut_plan:
+                src = c.get("bbox_source", "none")
+                bbox_sources[src] = bbox_sources.get(src, 0) + 1
+            lines.append(f"BBox sources: {bbox_sources}")
+
+            qa_fail_counts = {}
+            for c in cut_plan:
+                reason = c.get("qa_fail_reason") or "OK"
+                key = reason.split("(")[0]  # strip detail
+                qa_fail_counts[key] = qa_fail_counts.get(key, 0) + 1
+            lines.append(f"QA results: {qa_fail_counts}")
+
+            t_counts = {}
+            for t in transition_plan:
+                tt = t.get("transition_type", "unknown")
+                t_counts[tt] = t_counts.get(tt, 0) + 1
+            lines.append(f"Transitions: {t_counts}")
+
+            if qa:
+                qa_entries = qa.get_log_entries()
+                total_qa = len(qa_entries)
+                passed_qa = sum(1 for e in qa_entries if e.get("passed"))
+                lines.append(f"CharacterQA: {passed_qa}/{total_qa} passed (threshold={qa.threshold})")
+                sims = [e.get("similarity", -1) for e in qa_entries if e.get("similarity", -1) >= 0]
+                if sims:
+                    lines.append(f"  Similarity distribution: min={min(sims):.3f}, max={max(sims):.3f}, "
+                                 f"avg={sum(sims)/len(sims):.3f}, median={sorted(sims)[len(sims)//2]:.3f}")
+
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            print(f"  [LOG] render.log saved ({len(lines)} lines)")
+        except Exception as e:
+            print(f"  [LOG] render.log save failed: {e}")
+
     def _get_palette_stats(self, image_path: str) -> dict:
         """이미지에서 평균 밝기(Y)와 채도(S) 추출. PIL 사용."""
         try:
@@ -2370,42 +2560,52 @@ class MVPipeline:
 
             transition_type = "xfade"  # default (Rule 9)
             custom_frames = None  # None이면 기본 duration 사용
+            reason = "R9:default_xfade"
 
             # Rule 2: chorus/hook 진입 -> whiteflash
             if nxt_seg in ("chorus", "hook") and cur_seg not in ("chorus", "hook"):
                 transition_type = "whiteflash"
+                reason = f"R2:chorus_entry({cur_seg}->{nxt_seg})"
             # Rule 3: contrast_cut continuity -> fadeblack
             elif nxt_vc == "contrast_cut":
                 transition_type = "fadeblack"
+                reason = "R3:contrast_cut"
             # Rule 4: palette 충돌 -> fadeblack
             elif delta_y > 60 or delta_s > 0.3:
                 transition_type = "fadeblack"
+                reason = f"R4:palette_clash(dY={delta_y:.0f},dS={delta_s:.2f})"
             # Rule 5: 같은 캐릭터 연속 -> cut
             elif shared_chars and cur_seg == nxt_seg:
                 transition_type = "cut"
+                reason = f"R5:same_char({list(shared_chars)[:2]})"
             # xfade 제한: hero↔hero -> xfade 금지 (얼굴 겹침/ghosting)
             elif cur_is_hero and nxt_is_hero:
-                # hero↔hero: fadeblack 또는 cut (xfade 절대 금지)
                 transition_type = "fadeblack" if delta_y > 30 else "cut"
+                reason = f"R-hero2hero(dY={delta_y:.0f})"
             # xfade 제한: hero↔broll -> fadeblack/filmburn 우선
             elif (cur_is_hero and nxt_is_broll) or (cur_is_broll and nxt_is_hero):
                 if filmburn_used < filmburn_budget:
                     transition_type = "filmburn"
                     filmburn_used += 1
+                    reason = "R-hero_broll:filmburn"
                 else:
                     transition_type = "fadeblack"
+                    reason = "R-hero_broll:fadeblack(budget)"
             # xfade 제한: broll↔broll -> short xfade 4-6 frames만
             elif cur_is_broll and nxt_is_broll:
                 transition_type = "xfade"
-                custom_frames = 5  # ~0.17s at 30fps
+                custom_frames = 5
+                reason = "R-broll2broll:short_xfade"
             # Rule 7: chorus->chorus + glitch 예산 -> glitch
             elif cur_seg in ("chorus", "hook") and nxt_seg in ("chorus", "hook") and glitch_used < glitch_budget:
                 transition_type = "glitch"
                 glitch_used += 1
+                reason = f"R7:chorus_glitch({glitch_used}/{glitch_budget})"
             # Rule 8: 완전 다른 캐릭터 + 다른 세그먼트 + filmburn 예산
             elif not shared_chars and cur_seg != nxt_seg and filmburn_used < filmburn_budget:
                 transition_type = "filmburn"
                 filmburn_used += 1
+                reason = f"R8:diff_chars_seg({cur_seg}->{nxt_seg})"
             # Rule 9: default xfade (already set)
 
             duration_sec = self._TRANSITION_DURATIONS.get(transition_type, 0.3)
@@ -2414,6 +2614,7 @@ class MVPipeline:
                 "transition_type": transition_type,
                 "transition_frames": t_frames,
                 "overlay_asset_path": None,
+                "reason": reason,
             })
 
         # 로그
@@ -2500,6 +2701,10 @@ class MVPipeline:
             # 1. 파생 컷 플래닝 (세그먼트 인식) + 전환 플래닝
             cut_plan = self._generate_cut_plan(completed_scenes, project=project)
             transition_plan = self._plan_transitions(cut_plan, completed_scenes, project)
+
+            # ── Phase 3: cuts.json + render.log 저장 ──
+            self._save_cuts_and_render_log(project, project_dir, cut_plan, transition_plan, completed_scenes)
+
             video_clips = []
             # 씬 그룹 추적 (크로스페이드용): [[scene1_clips], [scene2_clips], ...]
             scene_groups = []
