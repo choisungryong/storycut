@@ -5,8 +5,9 @@ LLM 기반 스톡 검색 쿼리 생성 + 멀티 쿼리 순차 시도
 
 import os
 import json
+import random
 import requests
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 
 
 # 장르별 폴백 검색 키워드 (LLM 실패 시 사용)
@@ -50,6 +51,8 @@ class PexelsAgent:
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("PEXELS_API_KEY")
         self.base_url = "https://api.pexels.com/videos"
+        # 세션 내 중복 방지: 이미 사용된 영상 ID 추적
+        self.used_video_ids: Set[int] = set()
 
     def search_videos(
         self,
@@ -64,10 +67,13 @@ class PexelsAgent:
             return []
 
         headers = {"Authorization": self.api_key}
+        # 랜덤 페이지(1-3)로 다양한 결과 확보
+        page = random.randint(1, 3)
         params = {
             "query": query,
             "per_page": per_page,
             "orientation": orientation,
+            "page": page,
         }
 
         try:
@@ -78,7 +84,7 @@ class PexelsAgent:
                 timeout=15,
             )
             if not resp.ok:
-                print(f"    [Pexels] Search failed: HTTP {resp.status_code}")
+                print(f"    [Pexels] Search failed: HTTP {resp.status_code} (page={page})")
                 return []
 
             data = resp.json()
@@ -261,7 +267,7 @@ class PexelsAgent:
         for qi, query in enumerate(queries):
             videos = self.search_videos(
                 query=query,
-                per_page=10,
+                per_page=15,
                 orientation="landscape",
                 min_duration=max(1, int(duration_sec) - 3),
                 max_duration=int(duration_sec) + 15,
@@ -270,14 +276,23 @@ class PexelsAgent:
             if not videos:
                 continue
 
-            # duration 매칭: 목표 길이에 가장 가까운 것 선택
-            videos.sort(key=lambda v: abs(v.get("duration", 0) - duration_sec))
+            # 이미 사용된 영상 제외
+            fresh = [v for v in videos if v.get("id") not in self.used_video_ids]
+            if not fresh:
+                fresh = videos  # 모두 사용된 경우 전체에서 다시 선택
 
-            # 상위 2개 중 다운로드 시도
-            for video in videos[:2]:
+            # duration 매칭: 목표 길이에 가장 가까운 순 정렬 후 상위 5개 중 랜덤 선택
+            fresh.sort(key=lambda v: abs(v.get("duration", 0) - duration_sec))
+            candidates = fresh[:5]
+            random.shuffle(candidates)
+
+            for video in candidates:
                 result = self.download_video(video, out_path, target_quality="hd")
                 if result:
-                    print(f"    [Pexels] Found with query #{qi+1}: '{query}'")
+                    vid_id = video.get("id")
+                    if vid_id:
+                        self.used_video_ids.add(vid_id)
+                    print(f"    [Pexels] Found with query #{qi+1}: '{query}' (id={vid_id}, used={len(self.used_video_ids)})")
                     return result
 
         return None
