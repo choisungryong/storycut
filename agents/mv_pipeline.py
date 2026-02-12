@@ -1568,9 +1568,12 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # B-roll 시도: 캐릭터 미등장 씬은 세그먼트 타입 상관없이 스톡 영상 우선
+            # B-roll 시도: 캐릭터 미등장 + 감정적으로 중요하지 않은 세그먼트만 스톡 사용
+            # chorus/hook/pre_chorus는 감정 절정 구간이므로 AI 이미지 강제
             seg_type = self._extract_segment_type(scene)
-            if (pexels and not scene.characters_in_scene):
+            _EMOTIONAL_SEGMENTS = {"chorus", "hook", "pre_chorus"}
+            is_emotional = seg_type in _EMOTIONAL_SEGMENTS
+            if (pexels and not scene.characters_in_scene and not is_emotional):
                 queries = pexels.generate_stock_queries(
                     scene_prompt=scene.image_prompt,
                     lyrics_text=scene.lyrics_text,
