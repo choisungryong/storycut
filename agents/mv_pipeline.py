@@ -1133,7 +1133,8 @@ class MVPipeline:
                 "to fill empty scenes. Use landscape, architecture, nature, or abstract visuals instead.\n"
                 "- 캐릭터 외형(인종, 나이, 헤어, 체형)을 프롬프트에 구체적으로 포함하세요.\n"
                 "- *** ETHNICITY IS MANDATORY IN EVERY PROMPT ***: Every prompt MUST explicitly state "
-                "the character's ethnicity/race (e.g. 'Korean man', 'Korean woman'). "
+                "the character's ethnicity/race. "
+                f"{self._get_ethnicity_prompt_example(request)} "
                 "NEVER omit ethnicity. If you skip it, the image model will generate random races.\n"
                 "- *** SETTING / TIME PERIOD LOCK ***: The '컨셉' field defines the world and era. "
                 "ALL scene prompts MUST be consistent with that setting. "
@@ -1517,6 +1518,22 @@ class MVPipeline:
         "southeast_asian": "Southeast Asian", "european": "European",
         "black": "Black", "hispanic": "Hispanic",
     }
+
+    def _get_ethnicity_prompt_example(self, request) -> str:
+        """시스템 프롬프트용 인종 예시 문구 생성 (하드코딩 Korean 방지)."""
+        _eth = getattr(request, 'character_ethnicity', None)
+        _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
+        _EXAMPLES = {
+            "korean":         "(e.g. 'a Korean man', 'a Korean woman').",
+            "japanese":       "(e.g. 'a Japanese man', 'a Japanese woman').",
+            "chinese":        "(e.g. 'a Chinese man', 'a Chinese woman').",
+            "southeast_asian":"(e.g. 'a Southeast Asian man', 'a Southeast Asian woman').",
+            "european":       "(e.g. 'a European man', 'a European woman').",
+            "black":          "(e.g. 'a Black man', 'a Black woman').",
+            "hispanic":       "(e.g. 'a Hispanic man', 'a Hispanic woman').",
+            "mixed":          "State each character's SPECIFIC ethnicity explicitly.",
+        }
+        return _EXAMPLES.get(_eth_v, "(e.g. 'a [ethnicity] man', 'a [ethnicity] woman').")
 
     def _get_ethnicity_keyword(self, project: "MVProject") -> str:
         """프로젝트의 character_ethnicity에서 인종 키워드 추출."""
