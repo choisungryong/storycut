@@ -337,8 +337,8 @@ class MVPipeline:
                     "- characters: array of character objects (as many as the story needs), each with:\n"
                     "  - role: string (e.g. 'protagonist', 'love_interest', 'antagonist')\n"
                     "  - description: SPECIFIC appearance -- ethnicity, age range, hair color/length/style, "
-                    "eye shape, face shape, skin tone, body type. Be CONCRETE (e.g. 'Korean woman in her mid-20s, "
-                    "long straight black hair, almond eyes, fair skin, slender build')\n"
+                    "eye shape, face shape, skin tone, body type. Be CONCRETE "
+                    f"{self._get_ethnicity_description_example(project)}\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
                     "=== SCENE BLOCKING ===\n"
@@ -421,8 +421,8 @@ class MVPipeline:
                     "- characters: array of character objects (as many as the story needs), each with:\n"
                     "  - role: string (e.g. 'protagonist', 'love_interest', 'antagonist')\n"
                     "  - description: SPECIFIC appearance -- ethnicity, age range, hair color/length/style, "
-                    "eye shape, face shape, skin tone, body type. Be CONCRETE (e.g. 'Korean woman in her mid-20s, "
-                    "long straight black hair, almond eyes, fair skin, slender build')\n"
+                    "eye shape, face shape, skin tone, body type. Be CONCRETE "
+                    f"{self._get_ethnicity_description_example(project)}\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
                     "=== SCENE BLOCKING ===\n"
@@ -1534,6 +1534,22 @@ class MVPipeline:
             "mixed":          "State each character's SPECIFIC ethnicity explicitly.",
         }
         return _EXAMPLES.get(_eth_v, "(e.g. 'a [ethnicity] man', 'a [ethnicity] woman').")
+
+    def _get_ethnicity_description_example(self, obj) -> str:
+        """캐릭터 외형 예시 문구 생성 (Visual Bible 프롬프트용)."""
+        _eth = getattr(obj, 'character_ethnicity', None)
+        _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
+        _DESC = {
+            "korean":         "(e.g. 'Korean woman in her mid-20s, long straight black hair, almond eyes, fair skin, slender build')",
+            "japanese":       "(e.g. 'Japanese woman in her mid-20s, shoulder-length dark hair, soft features, fair skin, petite build')",
+            "chinese":        "(e.g. 'Chinese man in his late-20s, short dark hair, oval face, fair skin, athletic build')",
+            "southeast_asian":"(e.g. 'Southeast Asian woman in her mid-20s, wavy dark hair, warm brown skin, expressive eyes')",
+            "european":       "(e.g. 'European woman in her mid-20s, wavy auburn hair, blue eyes, fair skin, slender build')",
+            "black":          "(e.g. 'Black woman in her mid-20s, natural curly hair, warm brown skin, bright expressive eyes')",
+            "hispanic":       "(e.g. 'Hispanic man in his late-20s, dark wavy hair, olive skin, strong jawline, athletic build')",
+            "mixed":          "(e.g. 'a woman in her mid-20s with specific ethnicity stated, detailed hair/eye/skin description')",
+        }
+        return _DESC.get(_eth_v, "(e.g. 'a woman in her mid-20s, long straight hair, almond eyes, fair skin, slender build')")
 
     def _get_ethnicity_keyword(self, project: "MVProject") -> str:
         """프로젝트의 character_ethnicity에서 인종 키워드 추출."""
