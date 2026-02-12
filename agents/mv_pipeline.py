@@ -24,6 +24,10 @@ from schemas.mv_models import (
 )
 from agents.music_analyzer import MusicAnalyzer
 from agents.image_agent import ImageAgent
+from agents.subtitle_utils import (
+    ffprobe_duration_sec, split_lyrics_lines,
+    clamp_timeline_anchored, detect_anchors, write_srt
+)
 from utils.ffmpeg_utils import FFmpegComposer
 
 
@@ -2862,54 +2866,74 @@ class MVPipeline:
             project.current_step = "자막 처리 중..."
             self._save_manifest(project, project_dir)
 
-            # 3. 가사 자막 생성 및 burn-in (가사가 있고 자막 옵션이 켜진 경우)
-            video_with_subtitles = concat_video
-            has_lyrics = bool(project.lyrics) or any(s.lyrics_text for s in project.scenes)
+            # 3. 가사 자막 SRT 생성 (앵커 기반 분배 - intro/outro 자막 방지)
+            user_lyrics_text = project.lyrics or ""
             subtitle_on = getattr(project, 'subtitle_enabled', True)
-            print(f"  [Lyrics Check] project.lyrics = '{(project.lyrics or '')[:50]}...' (truthy={bool(project.lyrics)}), scene lyrics={any(s.lyrics_text for s in project.scenes)}, subtitle_enabled={subtitle_on}")
-            if has_lyrics and subtitle_on:
-                print(f"  Adding lyrics subtitles...")
+            has_lyrics = bool(user_lyrics_text.strip()) and subtitle_on
+
+            srt_path = None
+            n_lines = 0
+            audio_duration = 0.0
+            anchor_info = None
+
+            if has_lyrics:
+                print(f"  Generating lyrics SRT from user input ({len(user_lyrics_text)} chars)...")
                 srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
                 os.makedirs(os.path.dirname(srt_path), exist_ok=True)
 
-                # SRT 파일 생성 (edited_timed_lyrics > timed_lyrics 우선순위)
-                timed_lyrics = None
-                if project.edited_timed_lyrics:
-                    timed_lyrics = project.edited_timed_lyrics
-                    print(f"    Using edited_timed_lyrics ({len(timed_lyrics)} entries)")
-                elif project.music_analysis and project.music_analysis.timed_lyrics:
-                    timed_lyrics = project.music_analysis.timed_lyrics
-                self._generate_lyrics_srt(project.scenes, srt_path, timed_lyrics=timed_lyrics)
+                audio_duration = ffprobe_duration_sec(project.music_file_path)
 
-                # 자막 burn-in
-                subtitled_video = f"{project_dir}/media/video/subtitled.mp4"
-                try:
-                    self.ffmpeg_composer.overlay_subtitles(
-                        video_in=concat_video,
-                        srt_path=srt_path,
-                        out_path=subtitled_video
-                    )
-                    if os.path.exists(subtitled_video) and os.path.getsize(subtitled_video) > 1024:
-                        video_with_subtitles = subtitled_video
-                        print(f"    Subtitles added successfully")
-                    else:
-                        print(f"    [WARNING] Subtitle burn-in failed, using video without subtitles")
-                except Exception as sub_err:
-                    print(f"    [WARNING] Subtitle error: {sub_err}")
+                # 앵커 추정 (사용자 보정 > 세그먼트 > VAD > fallback)
+                segments = None
+                if project.music_analysis and project.music_analysis.segments:
+                    segments = project.music_analysis.segments
+                anchor_info = detect_anchors(
+                    media_path=project.music_file_path,
+                    segments=segments,
+                    user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
+                    user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
+                )
+                print(f"    Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s] method={anchor_info.method}")
+
+                lines = split_lyrics_lines(user_lyrics_text)
+                n_lines = len(lines)
+                timeline = clamp_timeline_anchored(
+                    lines, anchor_info.anchor_start, anchor_info.anchor_end
+                )
+                write_srt(timeline, srt_path)
+                print(f"    SRT: {n_lines} lines, audio={audio_duration:.1f}s, path={srt_path}")
+            else:
+                print(f"  [Lyrics Check] No user lyrics or subtitle disabled (subtitle_enabled={subtitle_on})")
 
             project.progress = 95
-            project.current_step = "음악 합성 중..."
+            project.current_step = "최종 렌더링 중..."
             self._save_manifest(project, project_dir)
 
-            # 4. 최종 인코딩 (H.264 High + AAC + 조건부 워터마크)
+            # 4. 최종 렌더링 (자막 + 음악 + 워터마크 통합 FFmpeg 패스)
             final_video = f"{project_dir}/final_mv.mp4"
             watermark = "Made with Klippa" if getattr(project, 'watermark_enabled', True) else None
-            self.ffmpeg_composer.final_encode(
-                video_in=video_with_subtitles,
+            self._final_render(
+                video_in=concat_video,
                 audio_path=project.music_file_path,
                 out_path=final_video,
+                srt_path=srt_path,
                 watermark_text=watermark,
             )
+
+            # render.log 기록
+            render_log_path = f"{project_dir}/render.log"
+            with open(render_log_path, "a", encoding="utf-8") as log:
+                log.write(f"--- compose_video {datetime.now().isoformat()} ---\n")
+                log.write(f"lyrics_source=user_input_only\n")
+                log.write(f"timeline_mode=anchored_uniform\n")
+                log.write(f"N_lines={n_lines}\n")
+                log.write(f"audio_duration={audio_duration:.2f}\n")
+                if anchor_info:
+                    log.write(f"anchor_start={anchor_info.anchor_start:.2f}\n")
+                    log.write(f"anchor_end={anchor_info.anchor_end:.2f}\n")
+                    log.write(f"anchor_method={anchor_info.method}\n")
+                log.write(f"srt_path={srt_path}\n")
+                log.write(f"\n")
 
             project.final_video_path = final_video
             project.status = MVProjectStatus.COMPLETED
@@ -3142,6 +3166,116 @@ class MVPipeline:
     # ================================================================
     # 유틸리티
     # ================================================================
+
+    def _final_render(
+        self,
+        video_in: str,
+        audio_path: str,
+        out_path: str,
+        srt_path: Optional[str] = None,
+        watermark_text: Optional[str] = None,
+        watermark_opacity: float = 0.3,
+    ):
+        """
+        통합 최종 렌더링: 자막 burn-in + 음악 합성 + 워터마크를 단일 FFmpeg 패스로 처리.
+
+        subtitle_fix.md 명세에 따라:
+        - fps=30 고정
+        - subtitles= 필터로 SRT burn-in
+        - aresample=48000, asetpts=N/SR/TB
+        - H.264 High Profile, AAC 192k
+        """
+        import platform
+        import subprocess
+
+        video_abs = os.path.abspath(video_in)
+        audio_abs = os.path.abspath(audio_path)
+        out_abs = os.path.abspath(out_path)
+
+        # 플랫폼별 폰트
+        system = platform.system()
+        font_name = "Malgun Gothic" if system == "Windows" else "Noto Sans CJK KR"
+
+        # --- 비디오 필터 체인 구성 ---
+        vf_parts = ["fps=30"]
+
+        if srt_path and os.path.exists(srt_path):
+            srt_abs = os.path.abspath(srt_path)
+            # FFmpeg subtitles 필터: 백슬래시→슬래시, 콜론 이스케이프
+            srt_escaped = srt_abs.replace("\\", "/").replace(":", "\\:")
+            force_style = (
+                f"FontName={font_name},"
+                f"FontSize=42,"
+                f"Outline=2,"
+                f"Shadow=1,"
+                f"MarginV=60"
+            )
+            vf_parts.append(f"subtitles='{srt_escaped}':force_style='{force_style}'")
+
+        if watermark_text:
+            opacity_hex = f"{watermark_opacity:.2f}"
+            vf_parts.append(
+                f"drawtext=text='{watermark_text}':"
+                f"fontsize=24:fontcolor=white@{opacity_hex}:"
+                f"x=w-tw-20:y=20"
+            )
+
+        vf_filter = ",".join(vf_parts)
+
+        # --- FFmpeg 커맨드 ---
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_abs,
+            "-i", audio_abs,
+            "-filter_complex",
+            f"[0:v]{vf_filter}[v];[1:a]aresample=48000,asetpts=N/SR/TB[a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-profile:v", "high", "-level", "4.1", "-r", "30",
+            "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+            "-shortest",
+            out_abs
+        ]
+
+        # 동적 timeout
+        try:
+            duration = self.ffmpeg_composer.get_video_duration(video_abs)
+            timeout = max(300, int(duration * 5))
+        except Exception:
+            timeout = 600
+
+        print(f"  [Final Render] Combined pass: subtitle={'Yes' if srt_path else 'No'}, watermark={'Yes' if watermark_text else 'No'}")
+        print(f"  [Final Render] VF: {vf_filter}")
+        print(f"  [Final Render] Timeout: {timeout}s")
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=timeout
+        )
+
+        if result.returncode != 0:
+            print(f"  [ERROR] Final render failed (rc={result.returncode})")
+            print(f"  [ERROR] stderr: {result.stderr[-500:] if result.stderr else '(empty)'}")
+            # 폴백: 자막 없이 기존 final_encode 사용
+            print(f"  [FALLBACK] Retrying without subtitles via final_encode...")
+            self.ffmpeg_composer.final_encode(
+                video_in=video_in,
+                audio_path=audio_path,
+                out_path=out_path,
+                watermark_text=watermark_text,
+            )
+        else:
+            out_size = os.path.getsize(out_abs) if os.path.exists(out_abs) else 0
+            if out_size < 1024:
+                print(f"  [ERROR] Output too small ({out_size}B), falling back to final_encode")
+                self.ffmpeg_composer.final_encode(
+                    video_in=video_in,
+                    audio_path=audio_path,
+                    out_path=out_path,
+                    watermark_text=watermark_text,
+                )
+            else:
+                print(f"  [SUCCESS] Final render: {out_abs} ({out_size:,} bytes)")
 
     def _generate_lyrics_srt(
         self,

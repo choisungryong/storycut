@@ -2966,6 +2966,36 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
     return {"success": True, "scene_id": scene_id, "lyrics": req.lyrics}
 
 
+class SubtitleAnchorRequest(BaseModel):
+    anchor_start: float
+    anchor_end: Optional[float] = None
+
+@app.put("/api/mv/{project_id}/subtitle-anchor")
+async def update_subtitle_anchor(project_id: str, req: SubtitleAnchorRequest):
+    """가사 자막 시작/종료 시점 사용자 보정"""
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    project.subtitle_anchor_start = req.anchor_start
+    if req.anchor_end is not None:
+        project.subtitle_anchor_end = req.anchor_end
+
+    project_dir = f"outputs/{project_id}"
+    pipeline._save_manifest(project, project_dir)
+
+    return {
+        "success": True,
+        "subtitle_anchor_start": project.subtitle_anchor_start,
+        "subtitle_anchor_end": project.subtitle_anchor_end,
+    }
+
+
 @app.post("/api/mv/{project_id}/upload-music")
 async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile = File(...)):
     """기존 MV 프로젝트에 음악 파일 재업로드 (리컴포즈용)"""

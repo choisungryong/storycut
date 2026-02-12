@@ -289,6 +289,10 @@ class MVProject(BaseModel):
     subtitle_enabled: bool = Field(default=True, description="가사 자막 burn-in 여부")
     watermark_enabled: bool = Field(default=True, description="워터마크 표시 여부")
 
+    # 자막 앵커 보정 (사용자 입력 시 자동추정보다 우선)
+    subtitle_anchor_start: Optional[float] = Field(None, description="가사 시작 시점 (초) - 사용자 보정")
+    subtitle_anchor_end: Optional[float] = Field(None, description="가사 종료 시점 (초) - 사용자 보정")
+
     # 사용자 편집 가사 타이밍 (timed_lyrics보다 우선)
     edited_timed_lyrics: Optional[List[Dict[str, Any]]] = Field(None, description="사용자 편집 타임스탬프 가사 [{t: 초, text: 가사}]")
 
