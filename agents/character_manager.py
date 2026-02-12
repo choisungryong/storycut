@@ -283,27 +283,40 @@ class CharacterManager:
             visual_seed=42,
         )
 
+        mv_poses = ["front", "full_body"]
         print(f"  Characters: {len(character_sheet)}")
         print(f"  Style: {global_style.art_style}")
-        print(f"  Poses: ['front'], Candidates: {candidates_per_pose}")
+        print(f"  Poses: {mv_poses}, Candidates: {candidates_per_pose}")
 
-        # cast_characters 호출 (front 포즈만, 경량 설정)
+        # cast_characters 호출 (front + full_body 포즈)
         token_to_path = self.cast_characters(
             character_sheet=character_sheet,
             global_style=global_style,
             project_dir=project_dir,
-            poses=["front"],
+            poses=mv_poses,
             candidates_per_pose=candidates_per_pose,
         )
 
-        # token → role 역매핑
+        # token → role 역매핑 + 전체 포즈 경로 수집
         role_to_path: Dict[str, str] = {}
+        role_to_poses: Dict[str, Dict[str, str]] = {}
         for token, path in token_to_path.items():
             role = role_to_token.get(token, token)
             role_to_path[role] = path
+            # AnchorSet에서 전체 포즈 경로 추출
+            char_data = character_sheet.get(token)
+            if char_data and isinstance(char_data, CharacterSheet) and char_data.anchor_set:
+                poses_dict = {}
+                for pose_name, pose_anchor in char_data.anchor_set.poses.items():
+                    if pose_anchor.image_path and os.path.exists(pose_anchor.image_path):
+                        poses_dict[pose_name] = pose_anchor.image_path
+                if poses_dict:
+                    role_to_poses[role] = poses_dict
 
         print(f"\n[CharacterManager] MV casting complete: {len(role_to_path)} characters")
-        return role_to_path
+        for role, poses in role_to_poses.items():
+            print(f"    {role}: {list(poses.keys())}")
+        return role_to_path, role_to_poses
 
     def _generate_pose_candidates(
         self,

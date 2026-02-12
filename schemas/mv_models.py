@@ -66,7 +66,8 @@ class MVCharacter(BaseModel):
     description: str = Field(..., description="구체적 외형 -- 인종, 나이, 헤어, 얼굴, 체형")
     outfit: str = Field(default="", description="의상")
     appears_in: List[int] = Field(default_factory=list, description="등장 씬 ID 목록")
-    anchor_image_path: Optional[str] = Field(None, description="앵커 이미지 경로")
+    anchor_image_path: Optional[str] = Field(None, description="앵커 이미지 경로 (기본 front 포즈)")
+    anchor_poses: Optional[Dict[str, str]] = Field(None, description="포즈별 앵커 이미지 경로 (pose_name -> path)")
 
 
 class MVSceneBlocking(BaseModel):

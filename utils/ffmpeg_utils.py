@@ -155,6 +155,15 @@ class FFmpegComposer:
     # Derived Cut Clip (리프레이밍 + 모션 변형)
     # =========================================================================
 
+    # shot_type별 줌 스케일 범위 (Quality_upgrade2.md Rule 2)
+    _SHOT_SCALE = {
+        "wide":   (1.00, 1.06),
+        "medium": (1.06, 1.15),
+        "close":  (1.12, 1.22),
+        "detail": (1.10, 1.30),
+    }
+    _MAX_DELTA_SCALE = 0.06  # Rule 5: 한 컷 내 최대 줌 변화량
+
     def derived_cut_clip(
         self,
         image_path: str,
@@ -166,7 +175,10 @@ class FFmpegComposer:
         zoom_range: Tuple[float, float] = (1.0, 1.08),
     ) -> str:
         """
-        이미지에 리프레이밍(crop) + 모션을 결합한 파생 컷 생성.
+        이미지에 리프레이밍(crop) + easeInOutSine 모션을 결합한 파생 컷 생성.
+
+        모션은 easeInOutSine 커브로 시작/끝이 완만하고 중간이 빠른 자연스러운 움직임.
+        Δscale <= 0.06 강제, 패닝 제한 max_dx=3% max_dy=2%.
 
         Args:
             image_path: 입력 이미지 경로
@@ -175,7 +187,7 @@ class FFmpegComposer:
             reframe: 리프레이밍 레벨 (wide|medium|close|detail)
             crop_anchor: 크롭 중심점 (0~1 정규화 x, y)
             effect_type: 모션 효과 (zoom_in, zoom_out, pan_left, pan_right, diagonal)
-            zoom_range: 줌 범위 (최소, 최대)
+            zoom_range: 줌 범위 (최소, 최대) - Δscale 자동 클램핑
 
         Returns:
             출력 영상 경로
@@ -203,37 +215,68 @@ class FFmpegComposer:
         total_frames = int(duration_sec * self.fps)
         if total_frames < 1:
             total_frames = 1
-        zoom_min, zoom_max = zoom_range
 
-        # 효과별 zoompan 필터
+        # Δscale 클램핑 (Rule 5: max 0.06)
+        zoom_min, zoom_max = zoom_range
+        delta = min(zoom_max - zoom_min, self._MAX_DELTA_SCALE)
+        zoom_max = zoom_min + delta
+
+        # shot_type별 스케일 범위 검증 (Rule 2)
+        scale_min, scale_max = self._SHOT_SCALE.get(reframe, (1.0, 1.30))
+        zoom_min = max(zoom_min, scale_min)
+        zoom_max = min(zoom_max, scale_max)
+        if zoom_max <= zoom_min:
+            zoom_max = zoom_min + min(delta, 0.04)
+
+        N = total_frames
+        # easeInOutSine: (1 - cos(PI * t)) / 2, t = on/N
+        ease = f"(1-cos(on/{N}*3.14159265))/2"
+
+        # 패닝 제한 (Rule 4): max_dx=3%, max_dy=2%, hero/closeup은 dy=1%
+        max_dx = 0.03
+        max_dy = 0.01 if reframe in ("close", "detail") else 0.02
+        # zoompan 입력은 upscaled crop (self.width*2 x self.height*2)
+        zp_w = self.width * 2
+        zp_h = self.height * 2
+        pan_px_x = max_dx * zp_w
+        pan_px_y = max_dy * zp_h
+
+        # 정적 줌 (패닝 이펙트용): 약한 줌으로 시각적 깊이감
+        static_z = zoom_min + min(delta * 0.5, 0.03)
+
+        # 중앙 좌표 표현식
+        cx = "iw/2-iw/zoom/2"
+        cy = "ih/2-ih/zoom/2"
+
+        # 효과별 zoompan 필터 (easeInOutSine 적용)
         effects = {
             "zoom_in": (
-                f"zoompan=z='min(zoom+{(zoom_max-zoom_min)/total_frames},{zoom_max})':"
-                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+                f"zoompan=z='{zoom_min}+{delta}*{ease}':"
+                f"x='{cx}':y='{cy}':"
+                f"d={N}:s={self.resolution}:fps={self.fps}"
             ),
             "zoom_out": (
-                f"zoompan=z='if(lte(zoom,{zoom_min}),{zoom_max},max({zoom_min},zoom-{(zoom_max-zoom_min)/total_frames}))':"
-                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+                f"zoompan=z='{zoom_max}-{delta}*{ease}':"
+                f"x='{cx}':y='{cy}':"
+                f"d={N}:s={self.resolution}:fps={self.fps}"
             ),
             "pan_left": (
-                f"zoompan=z='{zoom_min + 0.05}':"
-                f"x='if(lte(on,1),0,min(iw/zoom-iw,x+{self.width/(total_frames*2)}))':"
-                f"y='ih/2-(ih/zoom/2)':"
-                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+                f"zoompan=z='{static_z}':"
+                f"x='max(0,min(iw-iw/zoom,{cx}+{pan_px_x:.1f}*{ease}))':"
+                f"y='{cy}':"
+                f"d={N}:s={self.resolution}:fps={self.fps}"
             ),
             "pan_right": (
-                f"zoompan=z='{zoom_min + 0.05}':"
-                f"x='if(lte(on,1),iw/zoom-iw,max(0,x-{self.width/(total_frames*2)}))':"
-                f"y='ih/2-(ih/zoom/2)':"
-                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+                f"zoompan=z='{static_z}':"
+                f"x='max(0,min(iw-iw/zoom,{cx}-{pan_px_x:.1f}*{ease}))':"
+                f"y='{cy}':"
+                f"d={N}:s={self.resolution}:fps={self.fps}"
             ),
             "diagonal": (
-                f"zoompan=z='min(zoom+{(zoom_max-zoom_min)/total_frames},{zoom_max-0.02})':"
-                f"x='if(lte(on,1),0,min(iw/zoom-iw,x+0.5))':"
-                f"y='if(lte(on,1),0,min(ih/zoom-ih,y+0.3))':"
-                f"d={total_frames}:s={self.resolution}:fps={self.fps}"
+                f"zoompan=z='{zoom_min}+{delta}*{ease}':"
+                f"x='max(0,min(iw-iw/zoom,{cx}+{pan_px_x * 0.7:.1f}*{ease}))':"
+                f"y='max(0,min(ih-ih/zoom,{cy}+{pan_px_y * 0.7:.1f}*{ease}))':"
+                f"d={N}:s={self.resolution}:fps={self.fps}"
             ),
         }
 
@@ -271,6 +314,65 @@ class FFmpegComposer:
             raise RuntimeError(f"Derived cut clip failed: {result.stderr[-300:]}")
 
         return out_path
+
+    def apply_brightness_ramp(
+        self,
+        clip_path: str,
+        out_path: str,
+        brightness_offset: float,
+        ramp_frames: int = 6,
+    ) -> Optional[str]:
+        """씬 경계에서 밝기 점프를 완화하기 위해 클립 시작 N프레임에 밝기 램프 적용.
+
+        이전 씬과 다음 씬의 밝기 차이가 클 때, 다음 씬 첫 클립의 시작 부분을
+        이전 씬 밝기에 맞추고 점진적으로 원래 밝기로 돌아오게 합니다.
+
+        Args:
+            clip_path: 입력 클립 경로
+            out_path: 출력 클립 경로
+            brightness_offset: 밝기 오프셋 (-1.0~1.0). 양수=밝게, 음수=어둡게
+            ramp_frames: 램프 프레임 수 (기본 6 = 0.2초@30fps)
+
+        Returns:
+            출력 경로 or None (실패 시)
+        """
+        # 오프셋이 너무 작으면 스킵
+        if abs(brightness_offset) < 0.02:
+            return None
+
+        # 클램핑: 과보정 방지
+        brightness_offset = max(-0.15, min(0.15, brightness_offset))
+
+        # FFmpeg eq 필터 표현식: 첫 ramp_frames 동안 offset→0 선형 감소
+        # if() 안의 쉼표는 FFmpeg 필터 그래프에서 \, 이스케이핑 필요
+        expr = (
+            f"if(lt(n\\,{ramp_frames})\\,"
+            f"{brightness_offset:.4f}*(1-n/{ramp_frames})\\,"
+            f"0)"
+        )
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", os.path.abspath(clip_path),
+            "-vf", f"eq=brightness='{expr}'",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            out_path,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                encoding='utf-8', errors='replace', timeout=30,
+            )
+            if result.returncode == 0 and os.path.exists(out_path):
+                return out_path
+            else:
+                print(f"  [FFmpeg] brightness ramp failed: {result.stderr[-200:]}")
+                return None
+        except Exception:
+            return None
 
     # =========================================================================
     # P0: Subtitle Overlay (Burn-in)
@@ -692,22 +794,34 @@ class FFmpegComposer:
     # 크로스페이드 전환 (씬 간 부드러운 전환)
     # =========================================================================
 
+    # 전환 타입 -> FFmpeg xfade 전환 이름 매핑
+    _XFADE_MAP = {
+        "xfade":      "fade",
+        "fadeblack":  "fadeblack",
+        "whiteflash": "fadewhite",
+        "filmburn":   "fadeblack",   # fadeblack + 긴 duration으로 시뮬레이션
+        "glitch":     "pixelize",    # FFmpeg 내장 pixelize 전환
+        # "cut"은 xfade 없이 concat demuxer 사용
+    }
+
     def concatenate_with_crossfade(
         self,
         scene_groups: List[List[str]],
         output_path: str,
         fade_duration: float = 0.3,
+        transition_plan: List[dict] = None,
     ) -> bool:
-        """씬 그룹 단위로 크로스페이드 전환을 적용하여 연결.
+        """씬 그룹 단위로 전환을 적용하여 연결.
 
         같은 씬 내 컷들은 하드 컷으로 빠르게 연결하고,
-        씬 간 전환에만 xfade 크로스페이드를 적용합니다.
+        씬 간 전환에는 transition_plan에 따라 다양한 전환 타입을 적용합니다.
 
         Args:
             scene_groups: [[cut1_a, cut1_b], [cut2_a], [cut3_a, cut3_b, cut3_c], ...]
                           각 리스트가 하나의 씬, 내부 요소가 해당 씬의 컷 클립들
             output_path: 최종 출력 경로
-            fade_duration: 크로스페이드 길이 (초, 기본 0.3)
+            fade_duration: 기본 크로스페이드 길이 (초, transition_plan 없을 때 사용)
+            transition_plan: TransitionPlanner 출력. 씬 경계마다 전환 타입 지정.
 
         Returns:
             성공 여부
@@ -760,8 +874,8 @@ class FFmpegComposer:
                 shutil.copy2(temp_scene_videos[0], output_path)
                 return True
 
-            # Stage 2: 씬 간 xfade 크로스페이드 적용
-            print(f"[FFmpeg] Applying crossfade ({fade_duration}s) between {len(temp_scene_videos)} scenes...")
+            # Stage 2: 씬 간 전환 적용 (transition_plan 기반 또는 기본 fade)
+            print(f"[FFmpeg] Applying transitions between {len(temp_scene_videos)} scenes...")
 
             # 각 씬 영상 duration 확인
             durations = []
@@ -769,18 +883,37 @@ class FFmpegComposer:
                 dur = self.get_video_duration(sv)
                 durations.append(max(dur, 0.5))  # 최소 0.5초 보장
 
+            # boundary_transitions: 씬 경계별 전환 정보 (len = len(temp_scene_videos) - 1)
+            boundary_transitions = None
+            if transition_plan and len(transition_plan) == len(temp_scene_videos) - 1:
+                boundary_transitions = transition_plan
+            elif transition_plan:
+                print(f"  [WARNING] transition_plan length mismatch: {len(transition_plan)} vs {len(temp_scene_videos)-1} boundaries, using default fade")
+
+            # "cut" 전환인 씬 경계는 concat demuxer로 pre-merge
+            if boundary_transitions:
+                temp_scene_videos, durations, boundary_transitions = self._premerge_cut_groups(
+                    temp_scene_videos, durations, boundary_transitions, output_dir
+                )
+
+            if len(temp_scene_videos) <= 1:
+                import shutil
+                shutil.copy2(temp_scene_videos[0], output_path)
+                return True
+
             # xfade 필터 체인 구성
             # 씬이 너무 많으면 xfade 체인이 너무 길어지므로 배치 처리
             MAX_XFADE_BATCH = 15
             if len(temp_scene_videos) > MAX_XFADE_BATCH:
-                # 배치 처리: MAX_XFADE_BATCH씩 나누어 xfade 후 최종 concat
                 return self._batched_crossfade(
                     temp_scene_videos, durations, output_path,
-                    fade_duration, MAX_XFADE_BATCH, output_dir
+                    fade_duration, MAX_XFADE_BATCH, output_dir,
+                    boundary_transitions=boundary_transitions,
                 )
 
             return self._apply_xfade_chain(
-                temp_scene_videos, durations, output_path, fade_duration
+                temp_scene_videos, durations, output_path, fade_duration,
+                boundary_transitions=boundary_transitions,
             )
 
         finally:
@@ -789,14 +922,87 @@ class FFmpegComposer:
                 if sv.startswith(os.path.join(output_dir, "temp_scene_")) and os.path.exists(sv):
                     os.remove(sv)
 
+    def _premerge_cut_groups(
+        self,
+        video_paths: List[str],
+        durations: List[float],
+        boundary_transitions: List[dict],
+        output_dir: str,
+    ):
+        """'cut' 전환으로 연결된 인접 씬들을 concat demuxer로 pre-merge.
+
+        Returns:
+            (merged_paths, merged_durations, merged_transitions)
+            - "cut" 경계를 제거하고 인접 씬들을 합친 결과
+        """
+        # 그룹 빌드: 연속 "cut" 경계로 연결된 씬들을 하나의 그룹으로
+        groups = [[0]]  # group of video indices
+        for i, t in enumerate(boundary_transitions):
+            if t.get("transition_type") == "cut":
+                groups[-1].append(i + 1)
+            else:
+                groups.append([i + 1])
+
+        # 모든 경계가 non-cut이면 그대로 반환
+        if all(len(g) == 1 for g in groups):
+            return video_paths, durations, boundary_transitions
+
+        merged_paths = []
+        merged_durations = []
+        merged_transitions = []
+
+        for gi, group in enumerate(groups):
+            if len(group) == 1:
+                idx = group[0]
+                merged_paths.append(video_paths[idx])
+                merged_durations.append(durations[idx])
+            else:
+                # concat demuxer로 그룹 내 씬들 합치기
+                group_paths = [video_paths[idx] for idx in group]
+                group_dur = sum(durations[idx] for idx in group)
+                merge_out = os.path.join(output_dir, f"temp_cutmerge_{gi:03d}.mp4")
+                concat_file = os.path.join(output_dir, f"temp_cutmerge_{gi:03d}.txt")
+                with open(concat_file, "w", encoding="utf-8") as f:
+                    for p in group_paths:
+                        f.write(f"file '{os.path.abspath(p)}'\n")
+                cmd = [
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", concat_file, "-c", "copy", merge_out
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                        encoding='utf-8', errors='replace', timeout=60)
+                if os.path.exists(concat_file):
+                    os.remove(concat_file)
+                if result.returncode == 0 and os.path.exists(merge_out):
+                    merged_paths.append(merge_out)
+                    merged_durations.append(group_dur)
+                else:
+                    # fallback: 첫 번째 클립만 사용
+                    merged_paths.append(video_paths[group[0]])
+                    merged_durations.append(durations[group[0]])
+
+            # 그룹 간 전환 추가 (마지막 그룹 제외)
+            if gi < len(groups) - 1:
+                # 이 그룹의 마지막 씬과 다음 그룹의 첫 씬 사이의 전환
+                last_idx = group[-1]
+                if last_idx < len(boundary_transitions):
+                    merged_transitions.append(boundary_transitions[last_idx])
+
+        cut_count = sum(1 for t in boundary_transitions if t.get("transition_type") == "cut")
+        if cut_count > 0:
+            print(f"  [FFmpeg] Pre-merged {cut_count} hard-cut boundaries into {len(merged_paths)} groups")
+
+        return merged_paths, merged_durations, merged_transitions
+
     def _apply_xfade_chain(
         self,
         video_paths: List[str],
         durations: List[float],
         output_path: str,
         fade_duration: float,
+        boundary_transitions: List[dict] = None,
     ) -> bool:
-        """xfade 필터 체인으로 크로스페이드 적용."""
+        """xfade 필터 체인으로 전환 적용. 경계별 다른 전환 타입 지원."""
         n = len(video_paths)
         if n <= 1:
             return False
@@ -811,8 +1017,22 @@ class FFmpegComposer:
         offset = durations[0] - fade_duration
 
         for i in range(1, n):
+            # 경계별 전환 타입과 duration 결정
+            if boundary_transitions and i - 1 < len(boundary_transitions):
+                bt = boundary_transitions[i - 1]
+                transition_type = bt.get("transition_type", "xfade")
+                xfade_name = self._XFADE_MAP.get(transition_type, "fade")
+                t_frames = bt.get("transition_frames", int(fade_duration * self.fps))
+                actual_fade = t_frames / self.fps if t_frames > 0 else fade_duration
+            else:
+                xfade_name = "fade"
+                actual_fade = fade_duration
+
             # fade_duration이 클립보다 길면 조정
-            actual_fade = min(fade_duration, durations[i] * 0.4, durations[i-1] * 0.4 if i == 1 else fade_duration)
+            actual_fade = min(actual_fade, durations[i] * 0.4, durations[i-1] * 0.4 if i == 1 else actual_fade)
+            if actual_fade < 0.05:
+                actual_fade = 0.05  # 최소 전환 길이
+
             if i == 1:
                 offset = durations[0] - actual_fade
 
@@ -821,7 +1041,7 @@ class FFmpegComposer:
             out_label = f"[v{i}]"
 
             filter_parts.append(
-                f"{prev_label}{curr_label}xfade=transition=fade:duration={actual_fade:.3f}:offset={max(0, offset):.3f}{out_label}"
+                f"{prev_label}{curr_label}xfade=transition={xfade_name}:duration={actual_fade:.3f}:offset={max(0, offset):.3f}{out_label}"
             )
 
             if i < n - 1:
@@ -842,7 +1062,17 @@ class FFmpegComposer:
         ]
 
         timeout = max(180, n * 30)
-        print(f"[FFmpeg] xfade chain: {n} clips, fade={fade_duration}s (timeout={timeout}s)")
+        # 전환 타입 요약 로그
+        if boundary_transitions:
+            type_counts = {}
+            for bt in boundary_transitions:
+                tt = bt.get("transition_type", "xfade")
+                type_counts[tt] = type_counts.get(tt, 0) + 1
+            summary = ", ".join(f"{k}:{v}" for k, v in sorted(type_counts.items()))
+            print(f"[FFmpeg] xfade chain: {n} clips, transitions: {summary} (timeout={timeout}s)")
+        else:
+            print(f"[FFmpeg] xfade chain: {n} clips, fade={fade_duration}s (timeout={timeout}s)")
+
         result = subprocess.run(cmd, capture_output=True, text=True,
                                 encoding='utf-8', errors='replace', timeout=timeout)
 
@@ -863,8 +1093,9 @@ class FFmpegComposer:
         fade_duration: float,
         batch_size: int,
         output_dir: str,
+        boundary_transitions: List[dict] = None,
     ) -> bool:
-        """씬이 많을 때 배치 처리로 xfade 적용."""
+        """씬이 많을 때 배치 처리로 xfade 적용. 배치별 전환 정보 슬라이싱."""
         batch_outputs = []
         try:
             for start in range(0, len(video_paths), batch_size):
@@ -872,12 +1103,24 @@ class FFmpegComposer:
                 batch_paths = video_paths[start:end]
                 batch_durs = durations[start:end]
 
+                # 배치별 전환 정보 슬라이싱
+                batch_trans = None
+                if boundary_transitions:
+                    # 전환은 경계 수 = 클립 수 - 1
+                    trans_start = start
+                    trans_end = min(end - 1, len(boundary_transitions))
+                    if trans_start < trans_end:
+                        batch_trans = boundary_transitions[trans_start:trans_end]
+
                 if len(batch_paths) == 1:
                     batch_outputs.append(batch_paths[0])
                     continue
 
                 batch_out = os.path.join(output_dir, f"temp_batch_{start:03d}.mp4")
-                ok = self._apply_xfade_chain(batch_paths, batch_durs, batch_out, fade_duration)
+                ok = self._apply_xfade_chain(
+                    batch_paths, batch_durs, batch_out, fade_duration,
+                    boundary_transitions=batch_trans,
+                )
                 if ok and os.path.exists(batch_out):
                     batch_outputs.append(batch_out)
                 else:

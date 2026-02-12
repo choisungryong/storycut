@@ -685,19 +685,23 @@ class MVPipeline:
         try:
             from agents.character_manager import CharacterManager
             char_manager = CharacterManager(image_agent=self.image_agent)
-            role_to_path = char_manager.cast_mv_characters(
+            role_to_path, role_to_poses = char_manager.cast_mv_characters(
                 characters=characters,
                 project=project,
                 project_dir=project_dir,
                 candidates_per_pose=2,
             )
 
-            # 결과를 MVCharacter.anchor_image_path에 저장
+            # 결과를 MVCharacter.anchor_image_path + anchor_poses에 저장
             for character in characters:
                 path = role_to_path.get(character.role)
                 if path:
                     character.anchor_image_path = path
                     print(f"    [OK] {character.role} -> {path}")
+                poses = role_to_poses.get(character.role)
+                if poses:
+                    character.anchor_poses = poses
+                    print(f"         poses: {list(poses.keys())}")
 
         except Exception as e:
             print(f"  [WARNING] CharacterManager failed, falling back to simple method: {e}")
@@ -1362,19 +1366,39 @@ class MVPipeline:
         return prompt
 
     def _get_character_anchors_for_scene(self, project: MVProject, scene: MVScene) -> List[str]:
-        """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 3개)"""
+        """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 3개, shot_type 기반 포즈 선택)"""
         if not project.visual_bible or not project.visual_bible.characters:
             return []
-        char_map = {
-            c.role: c.anchor_image_path
-            for c in project.visual_bible.characters
-            if c.anchor_image_path and os.path.exists(c.anchor_image_path)
+
+        # shot_type → 최적 포즈 매핑
+        _SHOT_TO_POSE = {
+            "close-up": "front",
+            "extreme-close-up": "front",
+            "medium": "front",
+            "wide": "full_body",
+            "full": "full_body",
         }
-        return [
-            char_map[r]
-            for r in (scene.characters_in_scene or [])[:3]
-            if r in char_map
-        ]
+        # 씬 블로킹에서 shot_type 추출
+        shot_type = "medium"
+        if scene.scene_blocking:
+            shot_type = getattr(scene.scene_blocking, 'shot_type', 'medium') or 'medium'
+        target_pose = _SHOT_TO_POSE.get(shot_type.lower(), "front")
+
+        results = []
+        for role in (scene.characters_in_scene or [])[:3]:
+            char = next((c for c in project.visual_bible.characters if c.role == role), None)
+            if not char:
+                continue
+            # 포즈별 앵커에서 최적 포즈 선택
+            if char.anchor_poses and target_pose in char.anchor_poses:
+                pose_path = char.anchor_poses[target_pose]
+                if os.path.exists(pose_path):
+                    results.append(pose_path)
+                    continue
+            # 폴백: 기본 anchor_image_path
+            if char.anchor_image_path and os.path.exists(char.anchor_image_path):
+                results.append(char.anchor_image_path)
+        return results
 
     def _extract_era_setting(self, concept: str) -> tuple:
         """concept에서 시대/배경 키워드를 추출. (era_prefix, era_negative) 반환."""
@@ -1447,6 +1471,19 @@ class MVPipeline:
         prefix_parts.append(char_block)
 
         return f"{'. '.join(prefix_parts)}. {prompt}"
+
+    # 인종 키워드 매핑 (중복 정의 방지용 공용 상수)
+    _ETH_KEYWORD_MAP = {
+        "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+        "southeast_asian": "Southeast Asian", "european": "European",
+        "black": "Black", "hispanic": "Hispanic",
+    }
+
+    def _get_ethnicity_keyword(self, project: "MVProject") -> str:
+        """프로젝트의 character_ethnicity에서 인종 키워드 추출."""
+        _eth = getattr(project, 'character_ethnicity', None)
+        _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
+        return self._ETH_KEYWORD_MAP.get(_eth_v, "")
 
     # ================================================================
     # Step 3: 이미지 생성
@@ -1667,14 +1704,66 @@ class MVPipeline:
     # Cut Plan: 파생 컷 플래닝 (24 scenes → 72~120 cuts)
     # ================================================================
 
-    def _generate_cut_plan(self, scenes: List[MVScene]) -> List[dict]:
+    # 세그먼트별 리프레임 시퀀스 (글로벌 카운터 대신 세그먼트 컨텍스트 기반 순환)
+    _SEGMENT_REFRAME = {
+        "verse":       ["wide", "medium", "medium", "close"],
+        "chorus":      ["medium", "close", "wide", "detail", "medium"],
+        "hook":        ["close", "medium", "detail", "wide", "close"],
+        "pre_chorus":  ["medium", "close", "medium", "wide"],
+        "post_chorus": ["medium", "wide", "medium", "close"],
+        "bridge":      ["wide", "medium", "wide"],
+        "intro":       ["wide", "wide"],
+        "outro":       ["wide", "medium"],
+    }
+
+    # 세그먼트별 모션 이펙트 시퀀스
+    _SEGMENT_EFFECT = {
+        "verse":       ["zoom_in", "pan_left", "zoom_in"],
+        "chorus":      ["zoom_in", "pan_right", "diagonal", "zoom_out", "zoom_in"],
+        "hook":        ["diagonal", "zoom_in", "pan_left", "zoom_out", "diagonal"],
+        "pre_chorus":  ["zoom_in", "pan_left", "zoom_in", "diagonal"],
+        "post_chorus": ["zoom_out", "pan_right", "zoom_in", "pan_left"],
+        "bridge":      ["zoom_out", "pan_left", "zoom_out"],
+        "intro":       ["zoom_in", "pan_right"],
+        "outro":       ["zoom_out", "pan_left"],
+    }
+
+    # 세그먼트별 줌 강도 (calm=tight, energetic=wide range)
+    _SEGMENT_ZOOM = {
+        "verse":       (1.0, 1.06),
+        "chorus":      (1.0, 1.12),
+        "hook":        (1.0, 1.14),
+        "pre_chorus":  (1.0, 1.08),
+        "post_chorus": (1.0, 1.06),
+        "bridge":      (1.0, 1.04),
+        "intro":       (1.0, 1.05),
+        "outro":       (1.0, 1.04),
+    }
+
+    # 얼굴 앵커 5개 (공간적 분리 >= 0.08로 ghosting 방지)
+    _FACE_ANCHORS = [
+        (0.50, 0.28), (0.42, 0.32), (0.58, 0.30),
+        (0.48, 0.25), (0.52, 0.35),
+    ]
+
+    # 전환 타입별 duration (초)
+    _TRANSITION_DURATIONS = {
+        "cut": 0.0, "xfade": 0.3, "fadeblack": 0.5,
+        "whiteflash": 0.25, "filmburn": 0.7, "glitch": 0.2,
+    }
+
+    def _generate_cut_plan(self, scenes: List[MVScene], project=None) -> List[dict]:
         """
-        코드 기반 컷 플래닝: 세그먼트 타입에 따라 컷 수/길이를 자동 분배.
+        Subject-aware 컷 플래닝: bbox 기반 크롭 + 세그먼트별 시퀀스 + QA 검증.
         I2V(video_path) 씬은 분할하지 않고 단일 컷으로 통과.
+        Ghost 방지 + Face-safe padding + Match-cut 연속성.
+
+        Args:
+            scenes: 완료된 MVScene 리스트
+            project: MVProject (visual_continuity 참조용, optional)
 
         Returns:
-            List of cut dicts: parent_scene_id, cut_index, duration_sec,
-            reframe, crop_anchor, effect_type, zoom_range, image_path
+            List of cut dicts with bbox/QA 로깅 메타데이터 포함
         """
         # 세그먼트 타입별 컷 설정
         cut_config = {
@@ -1689,17 +1778,62 @@ class MVPipeline:
         }
         default_config = {"cuts": 3, "dur_range": (1.0, 2.5)}
 
-        reframe_cycle = ["wide", "medium", "close", "detail"]
-        effect_cycle = ["zoom_in", "pan_left", "zoom_out", "pan_right", "diagonal"]
+        # shot_type별 줌 범위 (Rule 2) + Δscale 제한은 FFmpeg에서 추가 적용
+        _SHOT_ZOOM = {
+            "wide":   (1.00, 1.06),
+            "medium": (1.06, 1.12),   # capped by Δscale 0.06
+            "close":  (1.12, 1.18),   # capped
+            "detail": (1.10, 1.16),   # capped
+        }
+
+        # general anchor positions (bbox 없을 때 fallback)
         anchor_positions = [
             (0.33, 0.33), (0.5, 0.5), (0.67, 0.33),
             (0.33, 0.67), (0.67, 0.67), (0.5, 0.33),
         ]
 
+        # ── bbox 캐시: 이미지당 1회만 추출 ──
+        bbox_cache = {}
+        unique_images = set()
+        for scene in scenes:
+            if scene.image_path and os.path.exists(scene.image_path):
+                unique_images.add(scene.image_path)
+
+        print(f"  [BBOX] Extracting subject bbox for {len(unique_images)} unique images...")
+        for img_path in unique_images:
+            try:
+                bbox_cache[img_path] = self._extract_subject_bbox(img_path)
+            except Exception as e:
+                print(f"    [BBOX] Failed for {os.path.basename(img_path)}: {str(e)[:100]}")
+                bbox_cache[img_path] = {
+                    "face_bbox": None, "person_bbox": None,
+                    "saliency_center": {"x": 0.5, "y": 0.4}, "bbox_source": "saliency"
+                }
+
+        bbox_sources = {}
+        for v in bbox_cache.values():
+            src = v.get("bbox_source", "unknown")
+            bbox_sources[src] = bbox_sources.get(src, 0) + 1
+        print(f"  [BBOX] Sources: {', '.join(f'{k}:{v}' for k, v in bbox_sources.items())}")
+
+        # Face-safe padding (Rule 3)
+        _PAD_TOP = 0.12
+        _PAD_BOTTOM = 0.10
+        _PAD_SIDES = 0.08
+        _SUBTITLE_SAFE = 0.20  # Rule 6: 하단 20%
+
         cut_plan = []
-        global_cut_idx = 0
+        prev_reframe = None
+        prev_center_x = None  # match-cut 연속성용
+        motion_direction = "zoom_in"  # match-cut 모션 방향 연속성
+        direction_counter = 0
+        qa_stats = {"passed": 0, "retried": 0, "downgraded": 0}
 
         for scene in scenes:
+            is_broll = getattr(scene, 'is_broll', False)
+            has_chars = bool(scene.characters_in_scene)
+            seg_type = self._extract_segment_type(scene)
+
             # I2V 씬은 분할하지 않음
             if scene.video_path and os.path.exists(scene.video_path):
                 cut_plan.append({
@@ -1712,43 +1846,173 @@ class MVPipeline:
                     "zoom_range": (1.0, 1.05),
                     "image_path": None,
                     "video_path": scene.video_path,
-                    "is_broll": getattr(scene, 'is_broll', False),
+                    "is_broll": is_broll,
+                    "shot_type": "wide",
+                    "source": "stock" if is_broll else "ai",
+                    "has_characters": has_chars,
+                    "segment_type": seg_type,
+                    "bbox_source": "none",
                 })
-                global_cut_idx += 1
+                prev_reframe = "wide"
                 continue
 
             if not scene.image_path or not os.path.exists(scene.image_path):
                 continue
 
-            # 세그먼트 타입 추출
-            seg_type = self._extract_segment_type(scene)
             config = cut_config.get(seg_type, default_config)
             num_cuts = config["cuts"]
-
-            # duration 분배: 균등 분할
             total_dur = scene.duration_sec
             cut_dur = total_dur / num_cuts
 
+            # bbox 조회
+            bbox_info = bbox_cache.get(scene.image_path, {
+                "face_bbox": None, "person_bbox": None,
+                "saliency_center": {"x": 0.5, "y": 0.4}, "bbox_source": "saliency"
+            })
+            face_bb = bbox_info.get("face_bbox")
+            person_bb = bbox_info.get("person_bbox")
+            saliency = bbox_info.get("saliency_center", {"x": 0.5, "y": 0.4})
+
+            # 세그먼트별 시퀀스
+            reframe_seq = self._SEGMENT_REFRAME.get(seg_type, self._SEGMENT_REFRAME["verse"])
+            effect_seq = self._SEGMENT_EFFECT.get(seg_type, self._SEGMENT_EFFECT["verse"])
+
             for ci in range(num_cuts):
-                reframe = reframe_cycle[global_cut_idx % len(reframe_cycle)]
-                effect = effect_cycle[global_cut_idx % len(effect_cycle)]
-                anchor = anchor_positions[global_cut_idx % len(anchor_positions)]
+                reframe = reframe_seq[ci % len(reframe_seq)]
+                effect = effect_seq[ci % len(effect_seq)]
 
-                # chorus 4+ 컷이면 detail 추가
-                if seg_type in ("chorus", "hook") and ci >= 3:
-                    reframe = "detail"
+                # Ghost 방지
+                if reframe in ("close", "detail") and prev_reframe in ("close", "detail"):
+                    reframe = "medium"
 
-                # close/detail 크롭은 얼굴 영역(상단 중앙)에 고정
-                # 16:9 인물 이미지에서 얼굴은 거의 항상 y=0.25~0.35 영역
-                if reframe in ("close", "detail"):
-                    has_chars = bool(scene.characters_in_scene)
-                    if has_chars:
-                        # 캐릭터 씬: 얼굴 영역 (상단 중앙 ± 약간 변화)
-                        face_anchors = [(0.5, 0.3), (0.45, 0.28), (0.55, 0.32)]
-                        anchor = face_anchors[ci % len(face_anchors)]
-                    else:
-                        # 환경 씬: 중앙 유지
-                        anchor = (0.5, 0.5)
+                # ── Subject-aware crop_anchor (Rule 1) ──
+                if reframe in ("close", "medium") and face_bb and has_chars:
+                    # 얼굴 bbox 중심을 crop center로
+                    anchor = (
+                        face_bb["x"] + face_bb["w"] / 2,
+                        face_bb["y"] + face_bb["h"] / 2,
+                    )
+                elif reframe == "wide" and person_bb:
+                    anchor = (
+                        person_bb["x"] + person_bb["w"] / 2,
+                        person_bb["y"] + person_bb["h"] / 2,
+                    )
+                elif face_bb and has_chars:
+                    anchor = (
+                        face_bb["x"] + face_bb["w"] / 2,
+                        face_bb["y"] + face_bb["h"] / 2,
+                    )
+                else:
+                    anchor = (saliency["x"], saliency["y"])
+
+                # ── Match-cut: 프레이밍 연속성 (Rule C-1) ──
+                if has_chars and prev_center_x is not None:
+                    dx = anchor[0] - prev_center_x
+                    if abs(dx) > 0.05:
+                        # ±5% 이내로 제한 (강박자에서만 반전 허용)
+                        is_strong = seg_type in ("chorus", "hook")
+                        if not is_strong:
+                            anchor = (
+                                prev_center_x + max(-0.05, min(0.05, dx)),
+                                anchor[1],
+                            )
+
+                # ── Match-cut: 모션 방향 연속성 (Rule C-2) ──
+                direction_counter += 1
+                if direction_counter <= 6:
+                    # 4-8컷 단위로 방향 유지
+                    if effect in ("zoom_in", "zoom_out"):
+                        if motion_direction in ("zoom_in", "zoom_out") and effect != motion_direction:
+                            effect = motion_direction
+                else:
+                    # 전환 허용, 카운터 리셋
+                    if effect in ("zoom_in", "zoom_out"):
+                        motion_direction = effect
+                    direction_counter = 0
+
+                # shot_type별 줌 범위
+                zoom_range = _SHOT_ZOOM.get(reframe, (1.0, 1.06))
+
+                # ── QA Gate (Rule 1-6 검증) ──
+                qa_passed = True
+                qa_fail_reason = None
+                retry_count = 0
+                original_reframe = reframe
+
+                while retry_count < 4:
+                    # reframe ratio
+                    reframe_ratios = {"wide": 1.0, "medium": 0.75, "close": 0.5, "detail": 0.33}
+                    ratio = reframe_ratios.get(reframe, 1.0)
+
+                    qa_passed = True
+                    qa_fail_reason = None
+
+                    if face_bb and has_chars and reframe in ("close", "medium"):
+                        face_cx = face_bb["x"] + face_bb["w"] / 2
+                        face_cy = face_bb["y"] + face_bb["h"] / 2
+                        face_top = face_bb["y"]
+                        face_bottom = face_bb["y"] + face_bb["h"]
+
+                        # 크롭 영역 계산 (정규화 좌표)
+                        crop_left = anchor[0] - ratio / 2
+                        crop_top = anchor[1] - ratio / 2
+                        crop_right = anchor[0] + ratio / 2
+                        crop_bottom = anchor[1] + ratio / 2
+
+                        # Rule 3: Face-safe padding
+                        face_top_in_crop = (face_top - crop_top) / ratio if ratio > 0 else 0
+                        face_bottom_in_crop = (face_bottom - crop_top) / ratio if ratio > 0 else 1
+                        if face_top_in_crop < _PAD_TOP:
+                            qa_fail_reason = f"head_clip(top_pad={face_top_in_crop:.2f}<{_PAD_TOP})"
+                            qa_passed = False
+                        elif face_bottom_in_crop > (1.0 - _PAD_BOTTOM):
+                            qa_fail_reason = f"chin_clip(bot_pad={1-face_bottom_in_crop:.2f}<{_PAD_BOTTOM})"
+                            qa_passed = False
+
+                        # Rule 6: Subtitle safe area
+                        if face_bottom_in_crop > (1.0 - _SUBTITLE_SAFE):
+                            qa_fail_reason = f"subtitle_overlap(face_bot={face_bottom_in_crop:.2f})"
+                            qa_passed = False
+
+                        # QA: 인물 중심 과도 치우침 (15% 이상)
+                        face_cx_in_crop = (face_cx - crop_left) / ratio if ratio > 0 else 0.5
+                        if abs(face_cx_in_crop - 0.5) > 0.15:
+                            qa_fail_reason = f"off_center(cx={face_cx_in_crop:.2f})"
+                            qa_passed = False
+
+                        # QA: CLOSEUP scale > 1.25
+                        if reframe == "close" and zoom_range[1] > 1.25:
+                            zoom_range = (zoom_range[0], 1.22)
+
+                    if qa_passed:
+                        qa_stats["passed"] += 1
+                        break
+
+                    # ── 재시도 (비용 0: 파라미터만 조정) ──
+                    retry_count += 1
+                    qa_stats["retried"] += 1
+                    if retry_count == 1:
+                        # 패딩 증가: anchor를 얼굴 위쪽으로 이동
+                        anchor = (anchor[0], anchor[1] - 0.03)
+                    elif retry_count == 2:
+                        # 스케일 상한 감소
+                        zoom_range = (zoom_range[0], zoom_range[0] + 0.04)
+                    elif retry_count == 3:
+                        # MEDIUM으로 강등 (가장 안전)
+                        reframe = "medium"
+                        zoom_range = _SHOT_ZOOM["medium"]
+                        qa_stats["downgraded"] += 1
+                        qa_passed = True
+                        qa_fail_reason = f"downgraded_from_{original_reframe}"
+                        break
+
+                # crop_anchor 범위 클램핑
+                anchor = (
+                    max(0.1, min(0.9, anchor[0])),
+                    max(0.1, min(0.9, anchor[1])),
+                )
+
+                prev_center_x = anchor[0] if has_chars else prev_center_x
 
                 cut_plan.append({
                     "parent_scene_id": scene.scene_id,
@@ -1757,11 +2021,19 @@ class MVPipeline:
                     "reframe": reframe,
                     "crop_anchor": anchor,
                     "effect_type": effect,
-                    "zoom_range": (1.0, 1.08),
+                    "zoom_range": zoom_range,
                     "image_path": scene.image_path,
                     "video_path": None,
+                    "shot_type": reframe,
+                    "source": "stock" if is_broll else "ai",
+                    "has_characters": has_chars,
+                    "segment_type": seg_type,
+                    # 로깅 메타데이터
+                    "bbox_source": bbox_info.get("bbox_source", "none"),
+                    "bbox_values": face_bb or person_bb,
+                    "qa_fail_reason": qa_fail_reason,
                 })
-                global_cut_idx += 1
+                prev_reframe = reframe
 
         # 로그
         type_counts = {}
@@ -1774,6 +2046,7 @@ class MVPipeline:
                 type_counts[seg] = type_counts.get(seg, 0) + cfg["cuts"]
         type_summary = ", ".join(f"{k}:{v}" for k, v in type_counts.items())
         print(f"  [CUT PLAN] {len(scenes)} scenes -> {len(cut_plan)} cuts ({type_summary})")
+        print(f"  [QA] passed:{qa_stats['passed']}, retried:{qa_stats['retried']}, downgraded:{qa_stats['downgraded']}")
 
         return cut_plan
 
@@ -1785,6 +2058,367 @@ class MVPipeline:
             if seg_type.replace("_", " ") in desc or seg_type.replace("_", "-") in desc or seg_type in desc:
                 return seg_type
         return "verse"  # default
+
+    # ================================================================
+    # Subject BBox Extraction (Gemini Vision + OpenCV fallback)
+    # ================================================================
+
+    def _extract_subject_bbox(self, image_path: str) -> dict:
+        """이미지에서 주 피사체 bbox 추출. Gemini Vision > OpenCV > saliency fallback.
+
+        Returns:
+            {
+                "face_bbox": {"x": float, "y": float, "w": float, "h": float} or None,
+                "person_bbox": {"x": float, "y": float, "w": float, "h": float} or None,
+                "saliency_center": {"x": float, "y": float},
+                "bbox_source": "gemini" | "opencv" | "saliency"
+            }
+        """
+        # 1) Gemini Vision (recommended)
+        try:
+            result = self._gemini_bbox(image_path)
+            if result and (result.get("face_bbox") or result.get("person_bbox")):
+                result["bbox_source"] = "gemini"
+                return result
+        except Exception as e:
+            print(f"    [bbox] Gemini Vision failed: {str(e)[:100]}")
+
+        # 2) OpenCV fallback
+        try:
+            result = self._opencv_bbox(image_path)
+            if result and result.get("face_bbox"):
+                result["bbox_source"] = "opencv"
+                return result
+        except Exception as e:
+            print(f"    [bbox] OpenCV failed: {str(e)[:100]}")
+
+        # 3) Saliency center fallback
+        result = self._saliency_center(image_path)
+        result["bbox_source"] = "saliency"
+        return result
+
+    def _gemini_bbox(self, image_path: str) -> Optional[dict]:
+        """Gemini Vision으로 face/person bbox 추출 (normalized 0~1 좌표)."""
+        import os as _os
+        api_key = _os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return None
+
+        from google import genai
+        from google.genai import types
+        from PIL import Image
+        import io
+
+        client = genai.Client(api_key=api_key)
+
+        # 이미지를 작은 크기로 리사이즈 (비용/속도 절감)
+        img = Image.open(image_path).convert("RGB")
+        img_w, img_h = img.size
+        img_small = img.resize((512, int(512 * img_h / img_w)))
+
+        buf = io.BytesIO()
+        img_small.save(buf, format="JPEG", quality=80)
+        img_bytes = buf.getvalue()
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=[
+                types.Content(parts=[
+                    types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
+                    types.Part.from_text(
+                        "Analyze this image. Return ONLY a JSON object (no markdown) with:\n"
+                        "- face_bbox: bounding box of the main face {x, y, w, h} in normalized 0-1 coordinates, or null if no face\n"
+                        "- person_bbox: bounding box of the main person {x, y, w, h} in normalized 0-1 coordinates, or null if no person\n"
+                        "- saliency_center: {x, y} center of visual interest in normalized 0-1 coordinates\n"
+                        "Example: {\"face_bbox\": {\"x\": 0.35, \"y\": 0.15, \"w\": 0.3, \"h\": 0.25}, "
+                        "\"person_bbox\": {\"x\": 0.2, \"y\": 0.05, \"w\": 0.6, \"h\": 0.9}, "
+                        "\"saliency_center\": {\"x\": 0.5, \"y\": 0.3}}"
+                    ),
+                ]),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=300,
+            ),
+        )
+
+        text = response.text.strip()
+        # JSON 파싱 (markdown 코드블록 제거)
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+
+        data = json.loads(text)
+        result = {
+            "face_bbox": None,
+            "person_bbox": None,
+            "saliency_center": {"x": 0.5, "y": 0.4},
+        }
+
+        if data.get("face_bbox"):
+            fb = data["face_bbox"]
+            if all(k in fb for k in ("x", "y", "w", "h")):
+                result["face_bbox"] = {
+                    "x": float(fb["x"]), "y": float(fb["y"]),
+                    "w": float(fb["w"]), "h": float(fb["h"]),
+                }
+
+        if data.get("person_bbox"):
+            pb = data["person_bbox"]
+            if all(k in pb for k in ("x", "y", "w", "h")):
+                result["person_bbox"] = {
+                    "x": float(pb["x"]), "y": float(pb["y"]),
+                    "w": float(pb["w"]), "h": float(pb["h"]),
+                }
+
+        if data.get("saliency_center"):
+            sc = data["saliency_center"]
+            result["saliency_center"] = {
+                "x": float(sc.get("x", 0.5)),
+                "y": float(sc.get("y", 0.4)),
+            }
+
+        return result
+
+    def _opencv_bbox(self, image_path: str) -> Optional[dict]:
+        """OpenCV Haar cascade로 얼굴 bbox 추출 (fallback)."""
+        import cv2
+
+        img = cv2.imread(image_path)
+        if img is None:
+            return None
+
+        img_h, img_w = img.shape[:2]
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        face_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        )
+        faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
+
+        if len(faces) == 0:
+            return None
+
+        # 가장 큰 얼굴 선택
+        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+        face_bbox = {
+            "x": x / img_w, "y": y / img_h,
+            "w": w / img_w, "h": h / img_h,
+        }
+
+        # 얼굴 중심 기반 person bbox 추정 (얼굴 높이의 ~4배)
+        face_cx = face_bbox["x"] + face_bbox["w"] / 2
+        face_cy = face_bbox["y"] + face_bbox["h"] / 2
+        person_h = min(face_bbox["h"] * 4, 0.95)
+        person_w = min(face_bbox["w"] * 2.5, 0.8)
+        person_bbox = {
+            "x": max(0, face_cx - person_w / 2),
+            "y": max(0, face_cy - face_bbox["h"] * 0.5),
+            "w": person_w,
+            "h": person_h,
+        }
+
+        return {
+            "face_bbox": face_bbox,
+            "person_bbox": person_bbox,
+            "saliency_center": {"x": face_cx, "y": face_cy},
+        }
+
+    def _saliency_center(self, image_path: str) -> dict:
+        """PIL로 이미지의 시각적 관심 중심점 추출 (최종 fallback)."""
+        try:
+            from PIL import Image
+            img = Image.open(image_path).convert("RGB").resize((64, 64))
+            pixels = list(img.getdata())
+            w, h = 64, 64
+            # 밝기 가중 중심점 계산
+            total_weight = 0
+            cx, cy = 0, 0
+            for i, (r, g, b) in enumerate(pixels):
+                weight = 0.299 * r + 0.587 * g + 0.114 * b
+                px = (i % w) / w
+                py = (i // w) / h
+                cx += px * weight
+                cy += py * weight
+                total_weight += weight
+            if total_weight > 0:
+                cx /= total_weight
+                cy /= total_weight
+            else:
+                cx, cy = 0.5, 0.4
+            return {
+                "face_bbox": None,
+                "person_bbox": None,
+                "saliency_center": {"x": cx, "y": cy},
+            }
+        except Exception:
+            return {
+                "face_bbox": None,
+                "person_bbox": None,
+                "saliency_center": {"x": 0.5, "y": 0.4},
+            }
+
+    # ================================================================
+    # Transition Planner: 씬 간 전환 타입 자동 결정
+    # ================================================================
+
+    def _get_palette_stats(self, image_path: str) -> dict:
+        """이미지에서 평균 밝기(Y)와 채도(S) 추출. PIL 사용."""
+        try:
+            from PIL import Image
+            img = Image.open(image_path).convert("RGB").resize((64, 64))
+            pixels = list(img.getdata())
+            avg_r = sum(p[0] for p in pixels) / len(pixels)
+            avg_g = sum(p[1] for p in pixels) / len(pixels)
+            avg_b = sum(p[2] for p in pixels) / len(pixels)
+            avg_y = 0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b
+            max_c = max(avg_r, avg_g, avg_b)
+            min_c = min(avg_r, avg_g, avg_b)
+            avg_s = (max_c - min_c) / max_c if max_c > 0 else 0
+            return {"avgY": avg_y, "avgS": avg_s}
+        except Exception:
+            return {"avgY": 128.0, "avgS": 0.5}
+
+    def _plan_transitions(self, cuts: List[dict], scenes: List[MVScene], project=None) -> List[dict]:
+        """
+        컷 경계마다 전환 타입을 결정. 9가지 우선순위 규칙 + 예산 제한.
+
+        Args:
+            cuts: _generate_cut_plan 출력 (shot_type, source, has_characters, segment_type 포함)
+            scenes: 완료된 MVScene 리스트
+            project: MVProject (visual_bible 참조용)
+
+        Returns:
+            List[dict] - 각 컷 경계(len = len(cuts)-1)마다:
+                transition_type, transition_frames, overlay_asset_path
+        """
+        if len(cuts) <= 1:
+            return []
+
+        # visual_continuity 매핑 빌드 (scene_id -> continuity hint)
+        vc_map = {}
+        if project and hasattr(project, 'visual_bible') and project.visual_bible:
+            vb = project.visual_bible
+            if hasattr(vb, 'scene_blocking') and vb.scene_blocking:
+                for sb in vb.scene_blocking:
+                    if hasattr(sb, 'scene_id') and hasattr(sb, 'visual_continuity'):
+                        vc_map[sb.scene_id] = getattr(sb, 'visual_continuity', '')
+
+        # scene_id -> characters 매핑
+        scene_chars = {}
+        for s in scenes:
+            scene_chars[s.scene_id] = set(s.characters_in_scene or [])
+
+        # palette stats 캐시 (이미지 경로 -> stats)
+        palette_cache = {}
+        for cut in cuts:
+            img = cut.get("image_path")
+            if img and img not in palette_cache:
+                palette_cache[img] = self._get_palette_stats(img)
+
+        # 예산 계산
+        total_scenes = len(set(c["parent_scene_id"] for c in cuts))
+        glitch_budget = max(1, total_scenes // 15)
+        filmburn_budget = max(1, total_scenes // 12)
+        glitch_used = 0
+        filmburn_used = 0
+
+        fps = 30
+        transitions = []
+
+        for i in range(len(cuts) - 1):
+            cur = cuts[i]
+            nxt = cuts[i + 1]
+            same_scene = cur["parent_scene_id"] == nxt["parent_scene_id"]
+
+            # Rule 1: 같은 씬 내 컷 -> hard cut
+            if same_scene:
+                transitions.append({
+                    "transition_type": "cut",
+                    "transition_frames": 0,
+                    "overlay_asset_path": None,
+                })
+                continue
+
+            # 씬 경계 전환 결정
+            cur_seg = cur.get("segment_type", "verse")
+            nxt_seg = nxt.get("segment_type", "verse")
+            cur_chars = scene_chars.get(cur["parent_scene_id"], set())
+            nxt_chars = scene_chars.get(nxt["parent_scene_id"], set())
+            shared_chars = cur_chars & nxt_chars
+            nxt_vc = vc_map.get(nxt["parent_scene_id"], "")
+
+            # palette 비교
+            cur_palette = palette_cache.get(cur.get("image_path"), {"avgY": 128.0, "avgS": 0.5})
+            nxt_palette = palette_cache.get(nxt.get("image_path"), {"avgY": 128.0, "avgS": 0.5})
+            delta_y = abs(cur_palette["avgY"] - nxt_palette["avgY"])
+            delta_s = abs(cur_palette["avgS"] - nxt_palette["avgS"])
+
+            # shot role 판별 (hero = 캐릭터 AI 이미지, broll = 스톡/배경)
+            cur_is_hero = cur.get("has_characters") and cur.get("source") == "ai"
+            nxt_is_hero = nxt.get("has_characters") and nxt.get("source") == "ai"
+            cur_is_broll = cur.get("source") == "stock" or not cur.get("has_characters")
+            nxt_is_broll = nxt.get("source") == "stock" or not nxt.get("has_characters")
+
+            transition_type = "xfade"  # default (Rule 9)
+            custom_frames = None  # None이면 기본 duration 사용
+
+            # Rule 2: chorus/hook 진입 -> whiteflash
+            if nxt_seg in ("chorus", "hook") and cur_seg not in ("chorus", "hook"):
+                transition_type = "whiteflash"
+            # Rule 3: contrast_cut continuity -> fadeblack
+            elif nxt_vc == "contrast_cut":
+                transition_type = "fadeblack"
+            # Rule 4: palette 충돌 -> fadeblack
+            elif delta_y > 60 or delta_s > 0.3:
+                transition_type = "fadeblack"
+            # Rule 5: 같은 캐릭터 연속 -> cut
+            elif shared_chars and cur_seg == nxt_seg:
+                transition_type = "cut"
+            # xfade 제한: hero↔hero -> xfade 금지 (얼굴 겹침/ghosting)
+            elif cur_is_hero and nxt_is_hero:
+                # hero↔hero: fadeblack 또는 cut (xfade 절대 금지)
+                transition_type = "fadeblack" if delta_y > 30 else "cut"
+            # xfade 제한: hero↔broll -> fadeblack/filmburn 우선
+            elif (cur_is_hero and nxt_is_broll) or (cur_is_broll and nxt_is_hero):
+                if filmburn_used < filmburn_budget:
+                    transition_type = "filmburn"
+                    filmburn_used += 1
+                else:
+                    transition_type = "fadeblack"
+            # xfade 제한: broll↔broll -> short xfade 4-6 frames만
+            elif cur_is_broll and nxt_is_broll:
+                transition_type = "xfade"
+                custom_frames = 5  # ~0.17s at 30fps
+            # Rule 7: chorus->chorus + glitch 예산 -> glitch
+            elif cur_seg in ("chorus", "hook") and nxt_seg in ("chorus", "hook") and glitch_used < glitch_budget:
+                transition_type = "glitch"
+                glitch_used += 1
+            # Rule 8: 완전 다른 캐릭터 + 다른 세그먼트 + filmburn 예산
+            elif not shared_chars and cur_seg != nxt_seg and filmburn_used < filmburn_budget:
+                transition_type = "filmburn"
+                filmburn_used += 1
+            # Rule 9: default xfade (already set)
+
+            duration_sec = self._TRANSITION_DURATIONS.get(transition_type, 0.3)
+            t_frames = custom_frames if custom_frames is not None else int(duration_sec * fps)
+            transitions.append({
+                "transition_type": transition_type,
+                "transition_frames": t_frames,
+                "overlay_asset_path": None,
+            })
+
+        # 로그
+        type_counts = {}
+        for t in transitions:
+            tt = t["transition_type"]
+            type_counts[tt] = type_counts.get(tt, 0) + 1
+        summary = ", ".join(f"{k}:{v}" for k, v in sorted(type_counts.items()))
+        print(f"  [TRANSITION PLAN] {len(transitions)} transitions: {summary}")
+
+        return transitions
 
     def _extract_thumbnail(self, video_path: str, out_path: str):
         """B-roll 영상 첫 프레임을 썸네일로 추출"""
@@ -1857,8 +2491,9 @@ class MVPipeline:
         print(f"  Completed scenes: {len(completed_scenes)}/{len(project.scenes)}")
 
         try:
-            # 1. 파생 컷 플래닝 + 클립 생성
-            cut_plan = self._generate_cut_plan(completed_scenes)
+            # 1. 파생 컷 플래닝 (세그먼트 인식) + 전환 플래닝
+            cut_plan = self._generate_cut_plan(completed_scenes, project=project)
+            transition_plan = self._plan_transitions(cut_plan, completed_scenes, project)
             video_clips = []
             # 씬 그룹 추적 (크로스페이드용): [[scene1_clips], [scene2_clips], ...]
             scene_groups = []
@@ -1932,20 +2567,74 @@ class MVPipeline:
 
             print(f"  Video clips created: {len(video_clips)}")
 
-            # 2. 클립들 이어붙이기 (씬 간 크로스페이드 전환)
+            # 1.5. 씬 경계 밝기 점프 완화 (C-3: 3-6프레임 밝기 램프)
+            scene_groups_clean = [g for g in scene_groups if g]
+            if len(scene_groups_clean) >= 2:
+                # 씬별 대표 이미지의 palette stats 수집
+                scene_image_map = {}
+                for scene in completed_scenes:
+                    if scene.image_path and os.path.exists(scene.image_path):
+                        scene_image_map[scene.scene_id] = scene.image_path
+
+                scene_ids_ordered = []
+                for scene in completed_scenes:
+                    if scene.scene_id not in scene_ids_ordered:
+                        scene_ids_ordered.append(scene.scene_id)
+
+                ramp_count = 0
+                for si in range(len(scene_ids_ordered) - 1):
+                    prev_sid = scene_ids_ordered[si]
+                    next_sid = scene_ids_ordered[si + 1]
+                    prev_img = scene_image_map.get(prev_sid)
+                    next_img = scene_image_map.get(next_sid)
+                    if not prev_img or not next_img:
+                        continue
+
+                    prev_stats = self._get_palette_stats(prev_img)
+                    next_stats = self._get_palette_stats(next_img)
+                    delta_y = prev_stats["avgY"] - next_stats["avgY"]
+
+                    # |deltaY| > 20이면 밝기 램프 적용 (과보정 방지: 50%만 보정)
+                    if abs(delta_y) > 20:
+                        offset = (delta_y / 255.0) * 0.5
+                        # scene_groups에서 next scene의 첫 클립 찾기
+                        if si + 1 < len(scene_groups_clean) and scene_groups_clean[si + 1]:
+                            first_clip = scene_groups_clean[si + 1][0]
+                            ramp_out = f"{project_dir}/media/video/ramp_{next_sid:02d}.mp4"
+                            result = self.ffmpeg_composer.apply_brightness_ramp(
+                                first_clip, ramp_out, brightness_offset=offset, ramp_frames=6
+                            )
+                            if result:
+                                scene_groups_clean[si + 1][0] = ramp_out
+                                ramp_count += 1
+
+                if ramp_count > 0:
+                    print(f"  [BRIGHTNESS] Applied {ramp_count} brightness ramps at scene boundaries")
+                scene_groups = scene_groups_clean
+
+            # 2. 클립들 이어붙이기 (전환 플랜 기반)
             concat_video = f"{project_dir}/media/video/concat.mp4"
             # 빈 그룹 제거
             scene_groups = [g for g in scene_groups if g]
             total_dur = sum(s.duration_sec for s in completed_scenes)
             print(f"  Concatenating {len(video_clips)} clips in {len(scene_groups)} scenes (total ~{total_dur:.0f}s)...")
-            project.current_step = f"영상 {len(scene_groups)}개 씬 크로스페이드 합성 중..."
+            project.current_step = f"영상 {len(scene_groups)}개 씬 전환 합성 중..."
             self._save_manifest(project, project_dir)
+
+            # 씬 경계 전환만 추출 (within-scene "cut" 제거)
+            boundary_transitions = []
+            if transition_plan:
+                for ti, t in enumerate(transition_plan):
+                    if ti < len(cut_plan) - 1:
+                        if cut_plan[ti]["parent_scene_id"] != cut_plan[ti + 1]["parent_scene_id"]:
+                            boundary_transitions.append(t)
 
             if len(scene_groups) >= 2:
                 concat_result = self.ffmpeg_composer.concatenate_with_crossfade(
                     scene_groups=scene_groups,
                     output_path=concat_video,
                     fade_duration=0.3,
+                    transition_plan=boundary_transitions if boundary_transitions else None,
                 )
             else:
                 # 씬이 1개면 크로스페이드 불필요

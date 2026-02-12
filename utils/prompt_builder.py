@@ -290,10 +290,13 @@ class MultimodalPromptBuilder:
                     "Do NOT change ethnicity, age, or any facial features.\n"
                     "STRICT RULES:\n"
                     "- IDENTITY PRESERVATION: Character faces must be pixel-level consistent with anchors\n"
+                    "- STYLE PRESERVATION: Art style and color palette must match the style anchor exactly\n"
+                    "- ENVIRONMENT PRESERVATION: Background must match the environment anchor\n"
                     "- NO identity drift: faces, hair, eyes, body shape must not change\n"
-                    "- NO wardrobe change: clothing, accessories must remain exactly as in reference\n"
                     "- NO style drift: lighting, color grading, rendering style must not change\n"
-                    "- NO spontaneous props or background elements not described in the prompt"
+                    "- NO wardrobe change: clothing, accessories must remain exactly as in reference\n"
+                    "- NO spontaneous props or background elements not described in the prompt\n"
+                    "- Characters in this scene must match their respective anchor images EXACTLY"
                 )})
             else:
                 parts.append({
