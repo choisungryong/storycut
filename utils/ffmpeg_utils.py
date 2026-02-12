@@ -157,9 +157,9 @@ class FFmpegComposer:
 
     # shot_type별 줌 스케일 범위 (Quality_upgrade2.md Rule 2)
     _SHOT_SCALE = {
-        "wide":   (1.00, 1.06),
-        "medium": (1.06, 1.15),
-        "close":  (1.12, 1.22),
+        "wide":   (1.00, 1.05),
+        "medium": (1.05, 1.12),
+        "close":  (1.10, 1.18),
         "detail": (1.10, 1.30),
     }
     _MAX_DELTA_SCALE = 0.06  # Rule 5: 한 컷 내 최대 줌 변화량

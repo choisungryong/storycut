@@ -1849,9 +1849,9 @@ class MVPipeline:
 
         # shot_type별 줌 범위 (Rule 2) + Δscale 제한은 FFmpeg에서 추가 적용
         _SHOT_ZOOM = {
-            "wide":   (1.00, 1.06),
-            "medium": (1.06, 1.12),   # capped by Δscale 0.06
-            "close":  (1.12, 1.18),   # capped
+            "wide":   (1.00, 1.05),
+            "medium": (1.05, 1.12),   # capped by Δscale 0.06
+            "close":  (1.10, 1.18),   # capped; max 1.18 per Closeup_fix
             "detail": (1.10, 1.16),   # capped
         }
 
@@ -1946,6 +1946,10 @@ class MVPipeline:
             reframe_seq = self._SEGMENT_REFRAME.get(seg_type, self._SEGMENT_REFRAME["verse"])
             effect_seq = self._SEGMENT_EFFECT.get(seg_type, self._SEGMENT_EFFECT["verse"])
 
+            # multi-face ambiguity flag
+            is_multi_face_ambiguous = bbox_info.get("multi_face_ambiguous", False)
+            face_count = bbox_info.get("face_count", 1 if face_bb else 0)
+
             for ci in range(num_cuts):
                 reframe = reframe_seq[ci % len(reframe_seq)]
                 effect = effect_seq[ci % len(effect_seq)]
@@ -1959,6 +1963,23 @@ class MVPipeline:
                     _qa_res = getattr(scene, 'qa_results', None)
                     if _qa_res and not all(r.get("passed", True) for r in _qa_res.values()):
                         reframe = "medium"
+
+                # ── Closeup_fix #1: face_bbox 필수 (CLOSEUP/MEDIUM) ──
+                if has_chars and reframe in ("close", "detail") and not face_bb:
+                    # face_bbox 없으면 CLOSEUP/DETAIL은 WIDE로 강등
+                    reframe = "wide"
+                    qa_stats["downgraded"] += 1
+                    print(f"    [QA] scene {scene.scene_id} cut {ci}: close->wide (no face_bbox)")
+
+                if has_chars and reframe == "medium" and not face_bb:
+                    # MEDIUM은 saliency fallback 허용하지만 로그 남김
+                    print(f"    [QA] scene {scene.scene_id} cut {ci}: medium w/o face_bbox (saliency fallback)")
+
+                # ── Closeup_fix #4: 다인 케이스 - ambiguous면 CLOSEUP 금지 ──
+                if is_multi_face_ambiguous and reframe in ("close", "detail"):
+                    reframe = "medium"
+                    qa_stats["downgraded"] += 1
+                    print(f"    [QA] scene {scene.scene_id} cut {ci}: close->medium (multi_face_ambiguous)")
 
                 # ── Subject-aware crop_anchor (Rule 1) ──
                 if reframe in ("close", "medium") and face_bb and has_chars:
@@ -2006,13 +2027,15 @@ class MVPipeline:
                     direction_counter = 0
 
                 # shot_type별 줌 범위
-                zoom_range = _SHOT_ZOOM.get(reframe, (1.0, 1.06))
+                zoom_range = _SHOT_ZOOM.get(reframe, (1.0, 1.05))
 
-                # ── QA Gate (Rule 1-6 검증) ──
+                # ── QA Gate (Rule 1-6 + Closeup_fix #2 검증) ──
                 qa_passed = True
                 qa_fail_reason = None
                 retry_count = 0
                 original_reframe = reframe
+                eyes_y_ratio = None
+                chin_margin_ratio = None
 
                 while retry_count < 4:
                     # reframe ratio
@@ -2021,6 +2044,8 @@ class MVPipeline:
 
                     qa_passed = True
                     qa_fail_reason = None
+                    eyes_y_ratio = None
+                    chin_margin_ratio = None
 
                     if face_bb and has_chars and reframe in ("close", "medium"):
                         face_cx = face_bb["x"] + face_bb["w"] / 2
@@ -2045,19 +2070,39 @@ class MVPipeline:
                             qa_passed = False
 
                         # Rule 6: Subtitle safe area
-                        if face_bottom_in_crop > (1.0 - _SUBTITLE_SAFE):
+                        if qa_passed and face_bottom_in_crop > (1.0 - _SUBTITLE_SAFE):
                             qa_fail_reason = f"subtitle_overlap(face_bot={face_bottom_in_crop:.2f})"
                             qa_passed = False
 
                         # QA: 인물 중심 과도 치우침 (15% 이상)
                         face_cx_in_crop = (face_cx - crop_left) / ratio if ratio > 0 else 0.5
-                        if abs(face_cx_in_crop - 0.5) > 0.15:
+                        if qa_passed and abs(face_cx_in_crop - 0.5) > 0.15:
                             qa_fail_reason = f"off_center(cx={face_cx_in_crop:.2f})"
                             qa_passed = False
 
-                        # QA: CLOSEUP scale > 1.25
-                        if reframe == "close" and zoom_range[1] > 1.25:
-                            zoom_range = (zoom_range[0], 1.22)
+                        # ── Closeup_fix #2: 프레이밍 품질 (eyes_y / chin_y) ──
+                        # eyes_y ≈ face_top + 0.35 * face_h
+                        eyes_y = face_top + 0.35 * face_bb["h"]
+                        eyes_y_in_crop = (eyes_y - crop_top) / ratio if ratio > 0 else 0.5
+                        eyes_y_ratio = eyes_y_in_crop
+
+                        # chin_y ≈ face_top + 0.90 * face_h
+                        chin_y = face_top + 0.90 * face_bb["h"]
+                        chin_y_in_crop = (chin_y - crop_top) / ratio if ratio > 0 else 0.5
+                        chin_margin = 1.0 - chin_y_in_crop
+                        chin_margin_ratio = chin_margin
+
+                        if qa_passed and (eyes_y_in_crop < 0.22 or eyes_y_in_crop > 0.42):
+                            qa_fail_reason = f"eyes_y_out(eyes_y={eyes_y_in_crop:.2f},need=[0.22,0.42])"
+                            qa_passed = False
+
+                        if qa_passed and chin_margin < 0.12:
+                            qa_fail_reason = f"chin_margin_low(margin={chin_margin:.2f}<0.12)"
+                            qa_passed = False
+
+                        # ── Closeup_fix #3: CLOSEUP scale 상한 강제 ──
+                        if reframe == "close" and zoom_range[1] > 1.18:
+                            zoom_range = (zoom_range[0], 1.18)
 
                     if qa_passed:
                         qa_stats["passed"] += 1
@@ -2073,9 +2118,12 @@ class MVPipeline:
                         # 스케일 상한 감소
                         zoom_range = (zoom_range[0], zoom_range[0] + 0.04)
                     elif retry_count == 3:
-                        # MEDIUM으로 강등 (가장 안전)
-                        reframe = "medium"
-                        zoom_range = _SHOT_ZOOM["medium"]
+                        # CLOSEUP → MEDIUM → WIDE 강등 (가장 안전)
+                        if reframe in ("close", "detail"):
+                            reframe = "medium"
+                        else:
+                            reframe = "wide"
+                        zoom_range = _SHOT_ZOOM.get(reframe, (1.0, 1.05))
                         qa_stats["downgraded"] += 1
                         qa_passed = True
                         qa_fail_reason = f"downgraded_from_{original_reframe}"
@@ -2107,6 +2155,13 @@ class MVPipeline:
                     "bbox_source": bbox_info.get("bbox_source", "none"),
                     "bbox_values": face_bb or person_bb,
                     "qa_fail_reason": qa_fail_reason,
+                    # ── Closeup_fix: 확장 로깅 ──
+                    "eyes_y_ratio": round(eyes_y_ratio, 3) if eyes_y_ratio is not None else None,
+                    "chin_margin_ratio": round(chin_margin_ratio, 3) if chin_margin_ratio is not None else None,
+                    "scale_from": zoom_range[0],
+                    "scale_to": zoom_range[1],
+                    "face_count": face_count,
+                    "multi_face_ambiguous": is_multi_face_ambiguous,
                 })
                 prev_reframe = reframe
 
@@ -2173,7 +2228,9 @@ class MVPipeline:
         return result
 
     def _gemini_bbox(self, image_path: str) -> Optional[dict]:
-        """Gemini Vision으로 face/person bbox 추출 (normalized 0~1 좌표)."""
+        """Gemini Vision으로 face/person bbox 추출 (normalized 0~1 좌표).
+        다인 케이스: face_count + multi_face_ambiguous 반환.
+        """
         import os as _os
         api_key = _os.environ.get("GOOGLE_API_KEY")
         if not api_key:
@@ -2202,18 +2259,19 @@ class MVPipeline:
                     types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
                     types.Part.from_text(
                         "Analyze this image. Return ONLY a JSON object (no markdown) with:\n"
-                        "- face_bbox: bounding box of the main face {x, y, w, h} in normalized 0-1 coordinates, or null if no face\n"
+                        "- face_bbox: bounding box of the DOMINANT (largest or most centered) face {x, y, w, h} in normalized 0-1 coordinates, or null if no face\n"
                         "- person_bbox: bounding box of the main person {x, y, w, h} in normalized 0-1 coordinates, or null if no person\n"
                         "- saliency_center: {x, y} center of visual interest in normalized 0-1 coordinates\n"
+                        "- face_count: total number of faces detected in the image (integer)\n"
                         "Example: {\"face_bbox\": {\"x\": 0.35, \"y\": 0.15, \"w\": 0.3, \"h\": 0.25}, "
                         "\"person_bbox\": {\"x\": 0.2, \"y\": 0.05, \"w\": 0.6, \"h\": 0.9}, "
-                        "\"saliency_center\": {\"x\": 0.5, \"y\": 0.3}}"
+                        "\"saliency_center\": {\"x\": 0.5, \"y\": 0.3}, \"face_count\": 1}"
                     ),
                 ]),
             ],
             config=types.GenerateContentConfig(
                 temperature=0.1,
-                max_output_tokens=300,
+                max_output_tokens=400,
             ),
         )
 
@@ -2226,10 +2284,16 @@ class MVPipeline:
         text = text.strip()
 
         data = json.loads(text)
+        face_count = int(data.get("face_count", 1))
+        # face_count >= 2이고 dominant face가 명확하지 않으면 ambiguous
+        multi_face_ambiguous = face_count >= 2
+
         result = {
             "face_bbox": None,
             "person_bbox": None,
             "saliency_center": {"x": 0.5, "y": 0.4},
+            "face_count": face_count,
+            "multi_face_ambiguous": multi_face_ambiguous,
         }
 
         if data.get("face_bbox"):
@@ -2239,6 +2303,10 @@ class MVPipeline:
                     "x": float(fb["x"]), "y": float(fb["y"]),
                     "w": float(fb["w"]), "h": float(fb["h"]),
                 }
+                # Gemini가 dominant face를 선택했으므로 단일 face는 ambiguous 아님
+                if face_count == 1:
+                    multi_face_ambiguous = False
+                    result["multi_face_ambiguous"] = False
 
         if data.get("person_bbox"):
             pb = data["person_bbox"]
@@ -2255,10 +2323,15 @@ class MVPipeline:
                 "y": float(sc.get("y", 0.4)),
             }
 
+        if face_count >= 2:
+            print(f"    [bbox] Gemini multi-face: {face_count} faces, ambiguous={multi_face_ambiguous}")
+
         return result
 
     def _opencv_bbox(self, image_path: str) -> Optional[dict]:
-        """OpenCV Haar cascade로 얼굴 bbox 추출 (fallback)."""
+        """OpenCV Haar cascade로 얼굴 bbox 추출 (fallback).
+        다인(multi-face) 케이스: dominant face 선택 + 불명확 시 ambiguous 플래그.
+        """
         import cv2
 
         img = cv2.imread(image_path)
@@ -2276,8 +2349,31 @@ class MVPipeline:
         if len(faces) == 0:
             return None
 
-        # 가장 큰 얼굴 선택
-        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+        face_count = len(faces)
+        multi_face_ambiguous = False
+
+        # 면적 내림차순 정렬
+        sorted_faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+
+        # dominant face 선택: 가장 큰 얼굴
+        x, y, w, h = sorted_faces[0]
+
+        # 다인 케이스: 가장 큰 얼굴이 차순위보다 1.5배 이상 크지 않으면 ambiguous
+        if face_count >= 2:
+            area_1st = sorted_faces[0][2] * sorted_faces[0][3]
+            area_2nd = sorted_faces[1][2] * sorted_faces[1][3]
+            if area_1st < area_2nd * 1.5:
+                # 면적 비슷 → 프레임 중앙에 가장 가까운 얼굴 선택
+                center_x, center_y = img_w / 2, img_h / 2
+                def dist_to_center(f):
+                    fx = f[0] + f[2] / 2
+                    fy = f[1] + f[3] / 2
+                    return ((fx - center_x) ** 2 + (fy - center_y) ** 2) ** 0.5
+                closest = min(sorted_faces, key=dist_to_center)
+                x, y, w, h = closest
+                multi_face_ambiguous = True
+            print(f"    [bbox] Multi-face: {face_count} faces, ambiguous={multi_face_ambiguous}")
+
         face_bbox = {
             "x": x / img_w, "y": y / img_h,
             "w": w / img_w, "h": h / img_h,
@@ -2299,6 +2395,8 @@ class MVPipeline:
             "face_bbox": face_bbox,
             "person_bbox": person_bbox,
             "saliency_center": {"x": face_cx, "y": face_cy},
+            "face_count": face_count,
+            "multi_face_ambiguous": multi_face_ambiguous,
         }
 
     def _saliency_center(self, image_path: str) -> dict:
@@ -2374,14 +2472,20 @@ class MVPipeline:
             lines.append(f"# Scenes: {len(scenes)}, Cuts: {len(cut_plan)}, Transitions: {len(transition_plan)}")
             lines.append("")
 
-            # Section 1: Cut Plan + BBox + QA
+            # Section 1: Cut Plan + BBox + QA + Framing Quality
             lines.append("## CUT PLAN")
             lines.append(f"{'scene':>5} {'ci':>3} {'reframe':>8} {'effect':>10} {'seg':>12} "
-                         f"{'bbox_src':>8} {'qa_fail':>30} {'anchor':>14}")
-            lines.append("-" * 100)
+                         f"{'bbox_src':>8} {'eyes_y':>7} {'chin_m':>7} {'scale':>12} {'faces':>5} "
+                         f"{'qa_fail':>30} {'anchor':>14}")
+            lines.append("-" * 140)
             for c in cut_plan:
                 anchor = c.get("crop_anchor", (0, 0))
                 anchor_str = f"({anchor[0]:.2f},{anchor[1]:.2f})" if isinstance(anchor, (tuple, list)) else str(anchor)
+                eyes_y = c.get("eyes_y_ratio")
+                chin_m = c.get("chin_margin_ratio")
+                s_from = c.get("scale_from", 0)
+                s_to = c.get("scale_to", 0)
+                fc = c.get("face_count", 0)
                 lines.append(
                     f"{c.get('parent_scene_id', '?'):>5} "
                     f"{c.get('cut_index', 0):>3} "
@@ -2389,6 +2493,10 @@ class MVPipeline:
                     f"{c.get('effect_type', '?'):>10} "
                     f"{c.get('segment_type', '?'):>12} "
                     f"{c.get('bbox_source', 'none'):>8} "
+                    f"{(f'{eyes_y:.2f}' if eyes_y is not None else '-'):>7} "
+                    f"{(f'{chin_m:.2f}' if chin_m is not None else '-'):>7} "
+                    f"{f'{s_from:.2f}-{s_to:.2f}':>12} "
+                    f"{fc:>5} "
                     f"{(c.get('qa_fail_reason') or 'OK'):>30} "
                     f"{anchor_str:>14}"
                 )
