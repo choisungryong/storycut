@@ -215,7 +215,7 @@ class CharacterManager:
 
         if not characters:
             print("  No MV characters to cast.")
-            return {}
+            return {}, {}
 
         # MVCharacter → CharacterSheet 변환
         character_sheet: Dict[str, CharacterSheet] = {}

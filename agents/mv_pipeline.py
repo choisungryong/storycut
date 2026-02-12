@@ -1378,10 +1378,13 @@ class MVPipeline:
             "wide": "full_body",
             "full": "full_body",
         }
-        # 씬 블로킹에서 shot_type 추출
+        # 씬 블로킹에서 shot_type 추출 (VisualBible.scene_blocking 리스트에서 scene_id로 조회)
         shot_type = "medium"
-        if scene.scene_blocking:
-            shot_type = getattr(scene.scene_blocking, 'shot_type', 'medium') or 'medium'
+        if project.visual_bible and project.visual_bible.scene_blocking:
+            blocking_map = {b.scene_id: b for b in project.visual_bible.scene_blocking}
+            blocking = blocking_map.get(scene.scene_id)
+            if blocking:
+                shot_type = getattr(blocking, 'shot_type', 'medium') or 'medium'
         target_pose = _SHOT_TO_POSE.get(shot_type.lower(), "front")
 
         results = []
