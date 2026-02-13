@@ -216,27 +216,121 @@ class MVPipeline:
 
         print(f"  Total scenes: {len(scenes)}")
 
-        # Gemini LLM으로 씬별 프롬프트 일괄 생성 시도
-        gemini_prompts = self._generate_prompts_with_gemini(project, request)
-
+        # 프롬프트는 Visual Bible 이후 generate_scene_prompts()에서 생성
+        # 여기서는 씬 골격(타이밍+가사)만 준비
         for i, scene in enumerate(project.scenes):
-            print(f"\n  [Scene {scene.scene_id}] {scene.start_sec:.1f}s - {scene.end_sec:.1f}s")
-
-            if gemini_prompts and i < len(gemini_prompts):
-                scene.image_prompt = gemini_prompts[i]
-            else:
-                # fallback: 템플릿 기반 프롬프트
-                scene.image_prompt = self._generate_image_prompt(
-                    scene=scene,
-                    project=project,
-                    request=request,
-                    scene_index=i,
-                    total_scenes=len(project.scenes)
-                )
-
-            print(f"    Prompt: {scene.image_prompt[:80]}...")
+            print(f"  [Scene {scene.scene_id}] {scene.start_sec:.1f}s - {scene.end_sec:.1f}s "
+                  f"lyrics={'YES' if scene.lyrics_text else 'none'}")
 
         self._save_manifest(project, project_dir)
+
+        return project
+
+    # ================================================================
+    # Step 2.1: Story Analysis (가사 전체 → 씬별 서사 분석)
+    # ================================================================
+
+    def analyze_story(self, project: MVProject) -> MVProject:
+        """
+        가사 전체를 읽고 씬별 서사 이벤트 + 드라마틱 중요도를 분석.
+        Visual Bible과 씬 프롬프트 생성에 앞서 '이 노래가 하는 이야기'를 구조화.
+        """
+        import os as _os
+        api_key = _os.getenv("GOOGLE_API_KEY")
+        full_lyrics = project.lyrics or ""
+        if not api_key or not full_lyrics.strip() or not project.scenes:
+            print("  [Story Analysis] Skipped (no API key or lyrics)")
+            return project
+
+        project.current_step = "가사 서사 분석 중..."
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        self._save_manifest(project, project_dir)
+
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=api_key)
+
+            # 씬 타임라인 + 전체 가사 구성
+            scene_lines = []
+            for s in project.scenes:
+                lyrics_part = s.lyrics_text or "(instrumental)"
+                scene_lines.append(
+                    f"Scene {s.scene_id} [{s.start_sec:.1f}s-{s.end_sec:.1f}s] "
+                    f"({s.visual_description or 'unknown'}):\n  lyrics: \"{lyrics_part}\""
+                )
+            scenes_block = "\n".join(scene_lines)
+
+            system_prompt = (
+                "You are a story analyst for music videos. Your job is to read the COMPLETE lyrics "
+                "of a song and understand the NARRATIVE STORY being told.\n\n"
+                "Then, for each scene (which has specific lyrics assigned), you must identify:\n"
+                "1. WHAT HAPPENS in this scene narratively (the event, not the mood)\n"
+                "2. HOW IMPORTANT this scene is dramatically (1-5 scale)\n\n"
+                "=== IMPORTANCE SCALE ===\n"
+                "1 = Atmospheric/transitional (intro establishing mood, outro fading)\n"
+                "2 = Supporting (reinforcing mood, showing daily life, setting context)\n"
+                "3 = Developing (advancing the story, showing change or movement)\n"
+                "4 = Key moment (revelation, confrontation, significant emotional shift)\n"
+                "5 = Climactic/turning point (the single most dramatic moment, death, reunion, betrayal)\n\n"
+                "=== RULES ===\n"
+                "- Read ALL lyrics first, understand the full story arc BEFORE analyzing individual scenes\n"
+                "- narrative_event must describe a CONCRETE EVENT, not a vague mood\n"
+                "  BAD: 'sadness deepens' / 'emotional moment' / 'melancholic atmosphere'\n"
+                "  GOOD: 'A messenger arrives on horseback to deliver news of the husband's death'\n"
+                "  GOOD: 'The wife collapses to the ground upon hearing the news'\n"
+                "  GOOD: 'Flashback to happier times - the couple walks through a garden'\n"
+                "- For instrumental sections with no lyrics, infer from context what visual would serve the story\n"
+                "- key_visual must describe THE SINGLE MOST IMPORTANT THING to show in this scene's image\n"
+                "- Only 1-2 scenes should be importance=5 (the true climax)\n\n"
+                "Return ONLY valid JSON array, no markdown:\n"
+                "[{\"scene_id\": 1, \"narrative_event\": \"...\", \"importance\": 3, \"key_visual\": \"...\"}]"
+            )
+
+            user_prompt = (
+                f"Full lyrics:\n{full_lyrics}\n\n"
+                f"Scene timeline:\n{scenes_block}\n\n"
+                f"Analyze the story in these {len(project.scenes)} scenes."
+            )
+
+            print(f"  [Story Analysis] Analyzing {len(project.scenes)} scenes with full lyrics ({len(full_lyrics)} chars)...")
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.4,
+                    response_mime_type="application/json",
+                )
+            )
+
+            result_text = response.text.strip()
+            story_beats = json.loads(result_text)
+
+            if isinstance(story_beats, list):
+                beat_map = {b["scene_id"]: b for b in story_beats if "scene_id" in b}
+                for scene in project.scenes:
+                    beat = beat_map.get(scene.scene_id)
+                    if beat:
+                        scene.story_event = beat.get("narrative_event", "")
+                        scene.story_importance = beat.get("importance", 2)
+                        print(
+                            f"    Scene {scene.scene_id} [importance={scene.story_importance}]: "
+                            f"{(scene.story_event or '')[:60]}"
+                        )
+
+                # 클라이맥스 씬 강조
+                climax_scenes = [s for s in project.scenes if (s.story_importance or 0) >= 4]
+                if climax_scenes:
+                    print(f"  [Story Analysis] Key moments: {[s.scene_id for s in climax_scenes]}")
+
+            self._save_manifest(project, project_dir)
+            print(f"  [Story Analysis] Complete")
+
+        except Exception as e:
+            print(f"  [Story Analysis] Failed (non-fatal): {e}")
 
         return project
 
@@ -292,23 +386,28 @@ class MVPipeline:
             else:
                 print(f"  [Visual Bible] No GenreProfile for genre='{project.genre.value}' or style='{project.style.value}', using full-LLM mode")
 
-            # 가사 요약 (너무 길면 앞부분만)
+            # 가사 전체 전달 (이전: 500자 절삭 → 개선: 전체)
             lyrics_summary = ""
             if project.lyrics:
-                lyrics_summary = project.lyrics[:500]
+                lyrics_summary = project.lyrics
             elif project.music_analysis and project.music_analysis.extracted_lyrics:
-                lyrics_summary = project.music_analysis.extracted_lyrics[:500]
+                lyrics_summary = project.music_analysis.extracted_lyrics
 
-            # 씬 타임라인 정보 (LLM이 appears_in/scene_blocking을 올바르게 생성하도록)
+            # 씬 타임라인 + 가사 전체 + Story Analysis 결과 포함
             scene_timeline = ""
             if project.scenes:
                 timeline_parts = []
                 for s in project.scenes:
-                    lyrics_preview = (s.lyrics_text or "")[:40].replace("\n", " ")
-                    timeline_parts.append(
-                        f"  Scene {s.scene_id}: {s.start_sec:.1f}s-{s.end_sec:.1f}s"
-                        + (f' lyrics: "{lyrics_preview}..."' if lyrics_preview else "")
-                    )
+                    lyrics_full = (s.lyrics_text or "").replace("\n", " ").strip()
+                    line = f"  Scene {s.scene_id}: {s.start_sec:.1f}s-{s.end_sec:.1f}s"
+                    if lyrics_full:
+                        line += f' lyrics: "{lyrics_full}"'
+                    # Story Analysis 결과가 있으면 포함
+                    if s.story_event:
+                        line += f" | STORY: {s.story_event}"
+                    if s.story_importance and s.story_importance >= 4:
+                        line += f" | *** KEY MOMENT (importance={s.story_importance}) ***"
+                    timeline_parts.append(line)
                 scene_timeline = "\n".join(timeline_parts)
 
             total_scenes = len(project.scenes) if project.scenes else 8
@@ -926,6 +1025,47 @@ class MVPipeline:
 
         return '\n'.join(lines[start_idx:end_idx])
 
+    # ================================================================
+    # Step 2.8: 씬별 이미지 프롬프트 생성 (Visual Bible 이후)
+    # ================================================================
+
+    def generate_scene_prompts(
+        self,
+        project: MVProject,
+        request: MVProjectRequest,
+    ) -> MVProject:
+        """
+        Visual Bible + Story Analysis가 완료된 후 씬별 이미지 프롬프트를 생성.
+        이전에는 generate_scenes()에서 VB 없이 프롬프트를 생성했으나,
+        이제는 VB의 캐릭터/블로킹/서사 아크와 Story Analysis를 모두 반영.
+        """
+        print(f"\n[Step 2.8] Generating scene prompts (with Visual Bible + Story Analysis)...")
+        project.current_step = "씬 프롬프트 생성 중..."
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        self._save_manifest(project, project_dir)
+
+        gemini_prompts = self._generate_prompts_with_gemini(project, request)
+
+        for i, scene in enumerate(project.scenes):
+            if gemini_prompts and i < len(gemini_prompts):
+                scene.image_prompt = gemini_prompts[i]
+            else:
+                scene.image_prompt = self._generate_image_prompt(
+                    scene=scene,
+                    project=project,
+                    request=request,
+                    scene_index=i,
+                    total_scenes=len(project.scenes)
+                )
+
+            print(f"  [Scene {scene.scene_id}] "
+                  f"{'*** ' if (scene.story_importance or 0) >= 4 else ''}"
+                  f"{scene.image_prompt[:80]}...")
+
+        self._save_manifest(project, project_dir)
+        print(f"  [Step 2.8] {len(project.scenes)} prompts generated")
+        return project
+
     def _generate_prompts_with_gemini(
         self,
         project: MVProject,
@@ -963,9 +1103,15 @@ class MVPipeline:
                     is_broll_seg = any(s in desc_lower for s in _BROLL_SEGMENTS)
                     if is_broll_seg and not scene.characters_in_scene:
                         broll_tag = " [B-ROLL: 스톡 영상 사용]"
+                # Story Analysis 결과 포함
+                story_line = ""
+                if scene.story_event:
+                    story_line = f"\n  *** STORY EVENT: {scene.story_event}"
+                    if (scene.story_importance or 0) >= 4:
+                        story_line += f" [DRAMATIC IMPORTANCE: {scene.story_importance}/5 - THIS IS A KEY MOMENT. The image MUST depict this event specifically.]"
                 scene_descriptions.append(
                     f"Scene {i+1} [{scene.start_sec:.1f}s-{scene.end_sec:.1f}s] "
-                    f"({scene.visual_description}){broll_tag}\n{lyrics_part}"
+                    f"({scene.visual_description}){broll_tag}\n{lyrics_part}{story_line}"
                 )
 
             scenes_text = "\n".join(scene_descriptions)
@@ -1119,6 +1265,14 @@ class MVPipeline:
                 "   - 전개부: 사건/감정의 변화를 보여주는 장면 (무슨 일이 일어나는지)\n"
                 "   - 클라이맥스: 감정의 정점을 시각적으로 폭발시키는 장면\n"
                 "   - 마무리: 결말 또는 여운을 남기는 장면\n\n"
+
+                "=== STORY EVENT 반영 (최우선) ===\n"
+                "- 각 씬에 'STORY EVENT'가 주어져 있으면, 그 이벤트를 이미지의 핵심으로 반영하세요.\n"
+                "- DRAMATIC IMPORTANCE가 4-5인 씬은 이야기의 전환점입니다. "
+                "이 씬의 프롬프트는 해당 이벤트를 구체적이고 강렬하게 묘사해야 합니다.\n"
+                "- 예: STORY EVENT='전령이 부고를 전달한다' → 프롬프트에 반드시 전령+부고 전달 장면 포함\n"
+                "- 예: STORY EVENT='아내가 무너져 내린다' → 프롬프트에 반드시 쓰러지는/무릎 꿇는 장면 포함\n"
+                "- STORY EVENT가 없는 씬은 가사와 분위기를 기반으로 자유롭게 작성\n\n"
 
                 "=== 씬 간 연결 규칙 (나열 금지) ===\n"
                 "- 연속된 씬은 시각적으로 연결되어야 합니다. 방법:\n"
@@ -3299,15 +3453,21 @@ class MVPipeline:
         if on_progress:
             on_progress(project)
 
-        # Step 2: 씬 생성
+        # Step 2: 씬 골격 생성
         project = self.generate_scenes(project, request)
         if on_progress:
             on_progress(project)
+
+        # Step 2.1: 가사 서사 분석
+        project = self.analyze_story(project)
 
         # Visual Bible + Style Anchor + Character Anchors
         project = self.generate_visual_bible(project)
         project = self.generate_style_anchor(project)
         project = self.generate_character_anchors(project)
+
+        # Step 2.8: 씬 프롬프트 생성 (Visual Bible 이후)
+        project = self.generate_scene_prompts(project, request)
 
         # Step 3: 이미지 생성
         def _on_scene_image(scene, idx, total):

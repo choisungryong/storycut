@@ -2565,25 +2565,31 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
             print(f"[MV Thread] Starting generation for {request.project_id}")
             cancel_path = f"outputs/{request.project_id}/.cancel"
 
-            # Step 2: 씬 생성
+            # Step 2: 씬 골격 생성 (타이밍+가사, 프롬프트 아직 없음)
             project_updated = pipeline.generate_scenes(project, request)
 
             if os.path.exists(cancel_path):
-                print(f"[MV Thread] Cancelled before visual bible")
+                print(f"[MV Thread] Cancelled before story analysis")
                 return
 
-            # Step 2.5: Visual Bible 생성 (Pass 1)
+            # Step 2.1: 가사 서사 분석 (전체 가사 → 씬별 이벤트+중요도)
+            project_updated = pipeline.analyze_story(project_updated)
+
+            # Step 2.5: Visual Bible 생성 (전체 가사 + Story Analysis 반영)
             project_updated = pipeline.generate_visual_bible(project_updated)
 
             if os.path.exists(cancel_path):
                 print(f"[MV Thread] Cancelled before style anchor")
                 return
 
-            # Step 2.6: 전용 스타일 앵커 생성 (Pass 2)
+            # Step 2.6: 전용 스타일 앵커 생성
             project_updated = pipeline.generate_style_anchor(project_updated)
 
-            # Step 2.7: 캐릭터 앵커 생성 (Pass 2.5)
+            # Step 2.7: 캐릭터 앵커 생성
             project_updated = pipeline.generate_character_anchors(project_updated)
+
+            # Step 2.8: 씬 프롬프트 생성 (Visual Bible + Story 반영)
+            project_updated = pipeline.generate_scene_prompts(project_updated, request)
 
             if os.path.exists(cancel_path):
                 print(f"[MV Thread] Cancelled before image generation")

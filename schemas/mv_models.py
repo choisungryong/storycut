@@ -178,7 +178,7 @@ class MVScene(BaseModel):
     duration_sec: float = Field(..., description="씬 길이")
 
     # 비주얼 정보
-    image_prompt: str = Field(..., description="이미지 생성 프롬프트")
+    image_prompt: str = Field(default="", description="이미지 생성 프롬프트 (generate_scene_prompts에서 생성)")
     visual_description: Optional[str] = Field(None, description="비주얼 설명 (한국어)")
 
     # 가사 연동
@@ -206,6 +206,10 @@ class MVScene(BaseModel):
     negative_prompt: Optional[str] = Field(None, description="네거티브 프롬프트")
     color_mood: Optional[str] = Field(None, description="이 씬의 색감/무드 키워드")
     camera_directive: Optional[str] = Field(None, description="카메라 연출 지시")
+
+    # Story Analysis (Step 2.1에서 생성)
+    story_event: Optional[str] = Field(None, description="이 씬의 서사 이벤트 (무슨 일이 일어나는가)")
+    story_importance: Optional[int] = Field(None, description="드라마틱 중요도 (1-5, 5=클라이맥스)")
 
     # Director's Brief
     characters_in_scene: List[str] = Field(default_factory=list, description="등장 캐릭터 역할명")
