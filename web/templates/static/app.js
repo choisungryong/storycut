@@ -2636,13 +2636,9 @@ class StorycutApp {
     }
 
     async startMVGeneration() {
-        // 안전장치: 자막만 테스트 모드면 생성 차단
-        if (document.getElementById('mv-subtitle-only')?.checked) {
-            console.log('[MV] subtitle-only mode - blocking startMVGeneration');
-            this.showSection('mv-analysis');
-            this.mvSubtitleTest();
-            return;
-        }
+        // 자막만 테스트 체크 해제 (이미 테스트 완료 후 생성 진행)
+        const subtitleOnlyBox = document.getElementById('mv-subtitle-only');
+        if (subtitleOnlyBox) subtitleOnlyBox.checked = false;
 
         // 크레딧 사전 확인
         if (typeof checkCreditsBeforeAction === 'function') {
@@ -3340,37 +3336,58 @@ class StorycutApp {
                 throw new Error(err.detail || 'Subtitle test failed');
             }
 
-            this.showToast('자막 테스트 시작! ~30초 후 결과를 확인하세요.', 'success');
+            this.showToast('자막 테스트 생성 중... 완료되면 자동으로 미리보기가 열립니다.', 'success');
 
-            // 30초 후 결과 폴링
-            setTimeout(async () => {
+            // 폴링으로 완료 대기 (5초 간격, 최대 3분)
+            const maxAttempts = 36;
+            let attempt = 0;
+            const pollInterval = setInterval(async () => {
+                attempt++;
                 try {
                     const statusResp = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
-                    if (statusResp.ok) {
-                        const data = await statusResp.json();
-                        const testVideoUrl = `${baseUrl}/api/asset/${projectId}/video/final_mv_subtitle_test.mp4`;
+                    if (!statusResp.ok) return;
+                    const data = await statusResp.json();
 
-                        // 팝업으로 테스트 영상 재생
+                    const isDone = data.current_step === '자막 테스트 완료';
+                    const isFailed = data.error_message && data.error_message.includes('Subtitle test');
+
+                    if (isDone || isFailed || attempt >= maxAttempts) {
+                        clearInterval(pollInterval);
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = '<span class="btn-icon">📝</span> 자막 테스트';
+                        }
+
+                        if (isFailed) {
+                            this.showToast(`자막 테스트 실패: ${data.error_message}`, 'error');
+                            return;
+                        }
+                        if (attempt >= maxAttempts && !isDone) {
+                            this.showToast('자막 테스트 시간 초과 (3분)', 'error');
+                            return;
+                        }
+
+                        // 성공: 영상 팝업
+                        const testVideoUrl = `${baseUrl}/api/asset/${projectId}/video/final_mv_subtitle_test.mp4`;
                         const overlay = document.createElement('div');
                         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;';
                         overlay.innerHTML = `
                             <h3 style="color:#fff;margin:0;">자막 테스트 미리보기</h3>
                             <video controls autoplay style="max-width:90vw;max-height:70vh;border-radius:8px;" src="${testVideoUrl}"></video>
-                            <button style="padding:10px 24px;border-radius:8px;border:none;background:#666;color:#fff;cursor:pointer;font-size:1rem;">닫기</button>
+                            <div style="display:flex;gap:12px;">
+                                <button class="close-btn" style="padding:10px 24px;border-radius:8px;border:none;background:#666;color:#fff;cursor:pointer;font-size:1rem;">닫기</button>
+                            </div>
                         `;
-                        overlay.querySelector('button').addEventListener('click', () => overlay.remove());
+                        overlay.querySelector('.close-btn').addEventListener('click', () => overlay.remove());
                         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
                         document.body.appendChild(overlay);
+                    } else if (btn) {
+                        btn.innerHTML = `<span class="btn-icon">⏳</span> 자막 생성 중... (${attempt * 5}초)`;
                     }
                 } catch (pollErr) {
-                    console.error('Subtitle test poll failed:', pollErr);
+                    console.error('Subtitle test poll error:', pollErr);
                 }
-
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<span class="btn-icon">📝</span> 자막 테스트';
-                }
-            }, 30000);
+            }, 5000);
 
         } catch (error) {
             console.error('Subtitle test failed:', error);
