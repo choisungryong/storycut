@@ -3382,31 +3382,56 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # STT로 정확한 시작/끝 시간 보정
-            actual_start = anchor_info.anchor_start
-            actual_end = anchor_info.anchor_end
+            # STT 세그먼트로 실제 보컬 구간 감지
+            # (music_analysis.segments는 템플릿 패턴이라 instrumental 구간 정보가 없음)
+            vocal_ranges = []
             if stt_segments:
-                first_stt = min(float(s.get("start", 9999)) for s in stt_segments)
-                last_stt = max(float(s.get("end", 0)) for s in stt_segments)
-                actual_start = min(actual_start, first_stt)
-                actual_end = max(actual_end, last_stt)
-                print(f"  [SubTest] STT vocal range: {first_stt:.1f}s ~ {last_stt:.1f}s")
+                sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
+                # 인접 STT 세그먼트를 병합 (5초 이내 갭은 같은 보컬 구간으로 취급)
+                GAP_TOLERANCE = 5.0
+                for seg in sorted_stt:
+                    s = float(seg.get("start", 0))
+                    e = float(seg.get("end", 0))
+                    if vocal_ranges and s - vocal_ranges[-1][1] < GAP_TOLERANCE:
+                        vocal_ranges[-1] = (vocal_ranges[-1][0], max(vocal_ranges[-1][1], e))
+                    else:
+                        vocal_ranges.append((s, e))
+                print(f"  [SubTest] STT vocal ranges ({len(vocal_ranges)}):")
+                for vi, (vs, ve) in enumerate(vocal_ranges):
+                    print(f"    [{vi}] {vs:.1f}s ~ {ve:.1f}s ({ve-vs:.1f}s)")
 
-            # 보컬 세그먼트 정보가 있으면 간주 건너뛰기
-            seg_data = None
-            if project.music_analysis and project.music_analysis.segments:
-                seg_data = project.music_analysis.segments
-
-            if seg_data:
-                timeline = clamp_timeline_vocal_segments(
-                    lines, seg_data, actual_start, actual_end
-                )
-                # 보컬 구간 총 시간 로그
-                from agents.subtitle_utils import _extract_vocal_ranges
-                vr = _extract_vocal_ranges(seg_data, actual_start, actual_end)
-                vocal_dur = sum(e - s for s, e in vr)
-                print(f"  [SubTest] Vocal-segment distribution: {len(lines)} lines across {len(vr)} vocal sections ({vocal_dur:.0f}s vocal / {actual_end - actual_start:.0f}s total)")
+            if vocal_ranges and len(vocal_ranges) >= 2:
+                # 보컬 구간에만 가사 배치 (간주 건너뜀)
+                total_vocal_dur = sum(e - s for s, e in vocal_ranges)
+                n = len(lines)
+                timeline = []
+                line_idx = 0
+                for vi, (vstart, vend) in enumerate(vocal_ranges):
+                    if line_idx >= n:
+                        break
+                    seg_dur = vend - vstart
+                    # 비례 배분
+                    seg_lines = max(1, round(n * seg_dur / total_vocal_dur))
+                    if vi == len(vocal_ranges) - 1:
+                        seg_lines = n - line_idx
+                    else:
+                        seg_lines = min(seg_lines, n - line_idx)
+                    # 구간 내 균등 분배
+                    sub = lines[line_idx:line_idx + seg_lines]
+                    sub_dur = seg_dur / max(1, len(sub))
+                    for si, txt in enumerate(sub):
+                        t_start = vstart + si * sub_dur
+                        t_end = min(vstart + (si + 1) * sub_dur, vend)
+                        timeline.append(SubtitleLine(t_start, t_end, txt))
+                    line_idx += seg_lines
+                print(f"  [SubTest] STT vocal distribution: {len(lines)} lines across {len(vocal_ranges)} vocal sections ({total_vocal_dur:.0f}s vocal)")
             else:
+                # STT 없거나 단일 구간이면 전체 균등 분배
+                actual_start = anchor_info.anchor_start
+                actual_end = anchor_info.anchor_end
+                if stt_segments:
+                    actual_start = min(actual_start, float(min(s.get("start", 9999) for s in stt_segments)))
+                    actual_end = max(actual_end, float(max(s.get("end", 0) for s in stt_segments)))
                 timeline = clamp_timeline_anchored(lines, actual_start, actual_end)
                 print(f"  [SubTest] Uniform distribution: {len(lines)} lines over {actual_start:.1f}s-{actual_end:.1f}s")
 
