@@ -2636,9 +2636,13 @@ class StorycutApp {
     }
 
     async startMVGeneration() {
-        // 자막만 테스트 체크 해제 (이미 테스트 완료 후 생성 진행)
+        // 자막만 테스트 모드가 켜져있으면 자막 테스트로 리다이렉트
         const subtitleOnlyBox = document.getElementById('mv-subtitle-only');
-        if (subtitleOnlyBox) subtitleOnlyBox.checked = false;
+        if (subtitleOnlyBox && subtitleOnlyBox.checked) {
+            subtitleOnlyBox.checked = false;  // 다음 클릭 시 전체 생성 가능
+            this.mvSubtitleTest();
+            return;
+        }
 
         // 크레딧 사전 확인
         if (typeof checkCreditsBeforeAction === 'function') {

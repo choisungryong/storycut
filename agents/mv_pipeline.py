@@ -3328,16 +3328,12 @@ class MVPipeline:
         self._save_manifest(project, project_dir)
 
         try:
-            # 1. STT 미실행 상태면 Gemini Audio STT 호출
+            # 1. 캐시된 STT가 있으면 사용, 없으면 근사 타이밍 (빠른 테스트)
             stt_segments = getattr(project, 'stt_segments', None)
-            if not stt_segments:
-                print(f"  [SubTest] Running Gemini Audio STT...")
-                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
-                    project.music_file_path
-                )
-                if stt_segments:
-                    project.stt_segments = stt_segments
-                    print(f"  [SubTest] Got {len(stt_segments)} STT segments")
+            if stt_segments:
+                print(f"  [SubTest] Using cached STT ({len(stt_segments)} segments)")
+            else:
+                print(f"  [SubTest] No STT cache - using approximate timing (fast mode)")
 
             # 2. 앵커 추정
             segments = None
@@ -3351,7 +3347,7 @@ class MVPipeline:
             )
             print(f"  [SubTest] Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s]")
 
-            # 3. 정렬 + ASS 생성
+            # 3. 정렬
             lines = split_lyrics_lines(user_lyrics_text)
             if stt_segments:
                 aligned = align_lyrics_with_stt(
@@ -3359,14 +3355,13 @@ class MVPipeline:
                     anchor_info.anchor_start, anchor_info.anchor_end,
                 )
             else:
+                # STT 없이 근사 타이밍 (가사를 균등 분배)
                 timeline = clamp_timeline_anchored(
                     lines, anchor_info.anchor_start, anchor_info.anchor_end
                 )
                 aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
 
-            ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
-            write_ass(aligned, ass_path)
-            print(f"  [SubTest] ASS: {len(aligned)} lines -> {ass_path}")
+            print(f"  [SubTest] Aligned {len(aligned)} lines")
 
             # alignment.json 저장
             project.aligned_lyrics = [
@@ -3400,15 +3395,15 @@ class MVPipeline:
             print(f"  [SubTest] SRT: {srt_abs} (exists={os.path.exists(srt_abs)})")
             print(f"  [SubTest] Audio: {audio_abs} (exists={os.path.exists(audio_abs)})")
 
-            # 시도 1: subtitles= 필터 (SRT)
+            # 시도 1: subtitles= 필터 (SRT) - 테스트용 720p + ultrafast
             cmd = [
                 "ffmpeg", "-y",
-                "-f", "lavfi", "-i", f"color=c=black:s=1920x1080:d={audio_duration}:r=30",
+                "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                 "-i", audio_abs,
                 "-vf", f"subtitles={srt_escaped}:force_style='{force_style}'",
                 "-map", "0:v", "-map", "1:a",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
                 "-shortest",
                 out_abs,
             ]
@@ -3425,11 +3420,11 @@ class MVPipeline:
                 print(f"  [SubTest] stderr: {result.stderr[-800:]}")
                 cmd_nosub = [
                     "ffmpeg", "-y",
-                    "-f", "lavfi", "-i", f"color=c=black:s=1920x1080:d={audio_duration}:r=30",
+                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                     "-i", audio_abs,
                     "-map", "0:v", "-map", "1:a",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
                     "-shortest",
                     out_abs,
                 ]
