@@ -3382,22 +3382,35 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # STT는 앵커(시작/끝) 보정에만 사용, 줄 배치는 균등 분배
-            # (STT fuzzy matching은 누적 밀림 발생 → 균등 분배가 가장 안정적)
-            #
-            # STT 첫 세그먼트로 정확한 시작 시간 결정
+            # STT로 정확한 시작/끝 시간 보정
             actual_start = anchor_info.anchor_start
+            actual_end = anchor_info.anchor_end
             if stt_segments:
-                first_stt_start = min(float(s.get("start", 9999)) for s in stt_segments)
-                if first_stt_start < actual_start:
-                    actual_start = first_stt_start
-                print(f"  [SubTest] First vocal detected at {first_stt_start:.1f}s (anchor was {anchor_info.anchor_start:.1f}s)")
+                first_stt = min(float(s.get("start", 9999)) for s in stt_segments)
+                last_stt = max(float(s.get("end", 0)) for s in stt_segments)
+                actual_start = min(actual_start, first_stt)
+                actual_end = max(actual_end, last_stt)
+                print(f"  [SubTest] STT vocal range: {first_stt:.1f}s ~ {last_stt:.1f}s")
 
-            timeline = clamp_timeline_anchored(
-                lines, actual_start, anchor_info.anchor_end
-            )
+            # 보컬 세그먼트 정보가 있으면 간주 건너뛰기
+            seg_data = None
+            if project.music_analysis and project.music_analysis.segments:
+                seg_data = project.music_analysis.segments
+
+            if seg_data:
+                timeline = clamp_timeline_vocal_segments(
+                    lines, seg_data, actual_start, actual_end
+                )
+                # 보컬 구간 총 시간 로그
+                from agents.subtitle_utils import _extract_vocal_ranges
+                vr = _extract_vocal_ranges(seg_data, actual_start, actual_end)
+                vocal_dur = sum(e - s for s, e in vr)
+                print(f"  [SubTest] Vocal-segment distribution: {len(lines)} lines across {len(vr)} vocal sections ({vocal_dur:.0f}s vocal / {actual_end - actual_start:.0f}s total)")
+            else:
+                timeline = clamp_timeline_anchored(lines, actual_start, actual_end)
+                print(f"  [SubTest] Uniform distribution: {len(lines)} lines over {actual_start:.1f}s-{actual_end:.1f}s")
+
             aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
-            print(f"  [SubTest] Uniform distribution: {len(aligned)} lines over {actual_start:.1f}s-{anchor_info.anchor_end:.1f}s")
 
             # 디버그: 전체 정렬 결과 출력
             for ai, a in enumerate(aligned):
