@@ -2490,6 +2490,11 @@ class StorycutApp {
         document.getElementById('mv-cancel-btn')?.addEventListener('click', () => {
             this.cancelMVGeneration();
         });
+
+        // MV 자막 테스트
+        document.getElementById('mv-subtitle-test-btn')?.addEventListener('click', () => {
+            this.mvSubtitleTest();
+        });
     }
 
     async uploadAndAnalyzeMusic() {
@@ -3290,6 +3295,72 @@ class StorycutApp {
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<span class="btn-icon">🎬</span> 최종 뮤직비디오 생성';
+            }
+        }
+    }
+
+    async mvSubtitleTest() {
+        const projectId = this.mvProjectId;
+        if (!projectId) {
+            this.showToast('Project ID not found', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('mv-subtitle-test-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon">⏳</span> 자막 생성 중...';
+        }
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/api/mv/subtitle-test/${projectId}`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Subtitle test failed');
+            }
+
+            this.showToast('자막 테스트 시작! ~30초 후 결과를 확인하세요.', 'success');
+
+            // 30초 후 결과 폴링
+            setTimeout(async () => {
+                try {
+                    const statusResp = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
+                    if (statusResp.ok) {
+                        const data = await statusResp.json();
+                        const testVideoUrl = `${baseUrl}/api/asset/${projectId}/video/final_mv_subtitle_test.mp4`;
+
+                        // 팝업으로 테스트 영상 재생
+                        const overlay = document.createElement('div');
+                        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;';
+                        overlay.innerHTML = `
+                            <h3 style="color:#fff;margin:0;">자막 테스트 미리보기</h3>
+                            <video controls autoplay style="max-width:90vw;max-height:70vh;border-radius:8px;" src="${testVideoUrl}"></video>
+                            <button style="padding:10px 24px;border-radius:8px;border:none;background:#666;color:#fff;cursor:pointer;font-size:1rem;">닫기</button>
+                        `;
+                        overlay.querySelector('button').addEventListener('click', () => overlay.remove());
+                        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+                        document.body.appendChild(overlay);
+                    }
+                } catch (pollErr) {
+                    console.error('Subtitle test poll failed:', pollErr);
+                }
+
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="btn-icon">📝</span> 자막 테스트';
+                }
+            }, 30000);
+
+        } catch (error) {
+            console.error('Subtitle test failed:', error);
+            this.showToast(`자막 테스트 실패: ${error.message}`, 'error');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">📝</span> 자막 테스트';
             }
         }
     }
