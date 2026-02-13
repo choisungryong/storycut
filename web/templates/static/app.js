@@ -2636,6 +2636,14 @@ class StorycutApp {
     }
 
     async startMVGeneration() {
+        // 안전장치: 자막만 테스트 모드면 생성 차단
+        if (document.getElementById('mv-subtitle-only')?.checked) {
+            console.log('[MV] subtitle-only mode - blocking startMVGeneration');
+            this.showSection('mv-analysis');
+            this.mvSubtitleTest();
+            return;
+        }
+
         // 크레딧 사전 확인
         if (typeof checkCreditsBeforeAction === 'function') {
             const ok = await checkCreditsBeforeAction('mv');
