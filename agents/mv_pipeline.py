@@ -3407,82 +3407,64 @@ class MVPipeline:
                     dur = timed_clean[ve]["t"] - timed_clean[vs]["t"]
                     print(f"    Sec {si}: entries {vs}-{ve}, {timed_clean[vs]['t']:.1f}s ~ {timed_clean[ve]['t']:.1f}s ({ve - vs + 1} entries, {dur:.1f}s)")
 
-                # ── Step B: 가사를 보컬 구간에 배분 ──
-                # 각 구간의 엔트리 수에 비례하여 가사 줄 할당
-                total_entries = n_timed
-                alloc = []
-                for vs, ve in vocal_sections:
-                    alloc.append((ve - vs + 1) / total_entries * n_lines)
-
-                # 반올림 + 총합 보정
-                int_alloc = [max(1, round(a)) for a in alloc]
-                # 총합이 n_lines와 다르면 마지막 구간에서 보정
-                diff = n_lines - sum(int_alloc)
-                int_alloc[-1] = max(1, int_alloc[-1] + diff)
-
-                # 구간별 가사 범위
-                line_cursor = 0
-                section_assignments = []  # (line_start, line_end, vocal_sec_idx)
-                for si, n_sec in enumerate(int_alloc):
-                    if line_cursor >= n_lines:
-                        break
-                    le = min(line_cursor + n_sec - 1, n_lines - 1)
-                    section_assignments.append((line_cursor, le, si))
-                    line_cursor = le + 1
-
-                # ── Step C: 각 보컬 구간 내에서 가사 -> timed 매칭 ──
-                timeline = [None] * n_lines
-
-                for (ls, le, si) in section_assignments:
-                    vs, ve = vocal_sections[si]
-                    sec_n_lines = le - ls + 1
-                    sec_n_entries = ve - vs + 1
-
-                    # 이 구간의 시간 상한 (간주로 넘어가지 않도록)
+                # ── Step B: 보컬 구간별 시간 범위 계산 ──
+                sections = []
+                for si, (vs, ve) in enumerate(vocal_sections):
+                    t_start = timed_clean[vs]["t"]
+                    t_last = timed_clean[ve]["t"]
                     if si + 1 < len(vocal_sections):
-                        next_start = timed_clean[vocal_sections[si + 1][0]]["t"]
-                        sec_max_t = min(timed_clean[ve]["t"] + 2.0, next_start - 0.5)
+                        next_t = timed_clean[vocal_sections[si + 1][0]]["t"]
+                        t_end = min(t_last + 2.0, next_t - 0.5)
                     else:
-                        sec_max_t = timed_clean[ve]["t"] + 3.0
+                        t_end = t_last + 3.0
+                    dur = max(0.5, t_end - t_start)
+                    sections.append({"t_start": t_start, "t_end": t_end, "dur": dur})
 
-                    for offset in range(sec_n_lines):
-                        li = ls + offset
+                total_vocal_dur = sum(s["dur"] for s in sections)
+
+                # ── Step C: 가사를 보컬 구간에 시간 비례 배분 + 균등 시간 분할 ──
+                # 엔트리 인덱스 매핑 없이, 각 구간의 시간을 가사 줄 수로 나눔
+                # -> 구간을 절대 넘을 수 없음
+                alloc_float = [s["dur"] / total_vocal_dur * n_lines for s in sections]
+                int_alloc = [round(a) for a in alloc_float]
+                # 최소 1줄 보장 (구간이 존재하면)
+                for i in range(len(int_alloc)):
+                    if int_alloc[i] < 1 and sections[i]["dur"] > 0.5:
+                        int_alloc[i] = 1
+                # 총합 보정
+                diff = n_lines - sum(int_alloc)
+                if diff != 0:
+                    # 가장 긴 구간에서 보정
+                    longest = max(range(len(sections)), key=lambda i: sections[i]["dur"])
+                    int_alloc[longest] = max(1, int_alloc[longest] + diff)
+
+                timeline = [None] * n_lines
+                line_cursor = 0
+
+                for si, sec in enumerate(sections):
+                    n_sec = int_alloc[si] if si < len(int_alloc) else 0
+                    if n_sec <= 0 or line_cursor >= n_lines:
+                        continue
+
+                    sec_start = sec["t_start"]
+                    sec_end = sec["t_end"]
+                    sec_dur = sec["dur"]
+
+                    for offset in range(n_sec):
+                        li = line_cursor + offset
                         if li >= n_lines:
                             break
 
-                        # 비례 위치로 timed 엔트리 선택
-                        ratio = offset / max(1, sec_n_lines - 1)
-                        ti = vs + round(ratio * max(0, sec_n_entries - 1))
-                        ti = max(vs, min(ti, ve))
-
-                        t_start = timed_clean[ti]["t"]
-
-                        # t_end: 같은 구간 내 다음 엔트리, 또는 구간 상한
-                        if ti + 1 <= ve:
-                            t_end = timed_clean[ti + 1]["t"]
-                        else:
-                            t_end = sec_max_t
-
-                        # 같은 엔트리에 여러 줄 -> 시간 분할
-                        if offset > 0 and timeline[li - 1] is not None:
-                            if abs(t_start - timeline[li - 1].start) < 0.1:
-                                t_start = timeline[li - 1].end
-
-                        # 구간 상한 적용
-                        t_end = min(t_end, sec_max_t)
-                        if t_end <= t_start:
-                            t_end = t_start + 0.5
-                        if t_end - t_start < 0.3:
-                            t_end = t_start + 0.5
-                        t_end = min(t_end, sec_max_t)
-                        if t_end <= t_start:
-                            t_end = t_start + 0.5
+                        # 균등 시간 분할: 각 줄이 구간 내 동일한 시간을 차지
+                        t_start = sec_start + (offset / n_sec) * sec_dur
+                        t_end = sec_start + ((offset + 1) / n_sec) * sec_dur
 
                         timeline[li] = SubtitleLine(t_start, t_end, lines[li])
 
-                    print(f"    Sec {si}: lines {ls}-{le} ({sec_n_lines}L) -> {timed_clean[vs]['t']:.1f}s ~ {sec_max_t:.1f}s")
+                    print(f"    Sec {si}: lines {line_cursor}-{line_cursor + n_sec - 1} ({n_sec}L) -> {sec_start:.1f}s ~ {sec_end:.1f}s (dur={sec_dur:.1f}s)")
+                    line_cursor += n_sec
 
-                # 빈 슬롯 채우기 (혹시 모를 경우)
+                # 미할당 줄 처리 (구간 수 < 줄 수 극단 케이스)
                 for i in range(n_lines):
                     if timeline[i] is None:
                         prev_end = timeline[i - 1].end if i > 0 and timeline[i - 1] else 0
