@@ -3549,7 +3549,7 @@ class MVPipeline:
             # subtitles= + force_style은 ASS 내장 스타일을 덮어써서 렌더링 오류 발생
             cmd = [
                 "ffmpeg", "-y",
-                "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
+                "-f", "lavfi", "-i", f"color=c=black:s=640x360:d={audio_duration}:r=10",
                 "-i", audio_abs,
                 "-filter_complex",
                 f"[0:v]ass='{ass_escaped}'[v];[1:a]aresample=44100[a]",
@@ -3581,7 +3581,7 @@ class MVPipeline:
 
                 cmd2 = [
                     "ffmpeg", "-y",
-                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
+                    "-f", "lavfi", "-i", f"color=c=black:s=640x360:d={audio_duration}:r=10",
                     "-i", audio_abs,
                     "-filter_complex",
                     f"[0:v]subtitles='{srt_escaped}'[v];[1:a]aresample=44100[a]",
@@ -3601,7 +3601,7 @@ class MVPipeline:
                     # 최종 fallback: 자막 없이 오디오만
                     cmd3 = [
                         "ffmpeg", "-y",
-                        "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
+                        "-f", "lavfi", "-i", f"color=c=black:s=640x360:d={audio_duration}:r=10",
                         "-i", audio_abs,
                         "-map", "0:v", "-map", "1:a",
                         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
