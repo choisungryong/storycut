@@ -3378,9 +3378,9 @@ class MVPipeline:
                 import difflib
 
                 def norm(text):
-                    return text.replace(" ", "").replace(",", "").replace(".", "").lower()
+                    return text.replace(" ", "").replace(",", "").replace(".", "").replace("~", "").replace("!", "").replace("?", "").lower()
 
-                # timed_lyrics 엔트리 정리 (빈 텍스트 제거, 시간순 정렬)
+                # timed_lyrics 엔트리 정리
                 timed_clean = [
                     {"t": float(e.get("t", 0)), "text": e.get("text", "").strip()}
                     for e in timed if e.get("text", "").strip()
@@ -3391,58 +3391,100 @@ class MVPipeline:
                 n_timed = len(timed_clean)
                 print(f"  [SubTest] Matching {n_lines} lyrics lines -> {n_timed} timed entries")
 
-                # 순방향 매칭: 각 원본 가사 줄을 timed 엔트리에 매칭
-                timeline = []
-                timed_cursor = 0
+                # ── Pass 1: 앵커 포인트 탐색 ──
+                # 텍스트 유사도가 높은 (line, entry) 쌍을 앵커로 확정
+                # 경계 앵커: 첫 줄→첫 엔트리, 마지막 줄→마지막 엔트리 (무조건)
+                ANCHOR_THRESHOLD = 0.4
+                anchors = [(0, 0)]  # (line_idx, timed_idx)
 
-                for li, lyric_line in enumerate(lines):
-                    norm_lyric = norm(lyric_line)
-                    best_score = -1
-                    best_idx = timed_cursor
+                timed_cursor = 1
+                for li in range(1, n_lines - 1):
+                    norm_lyric = norm(lines[li])
+                    best_score = 0
+                    best_ti = -1
 
-                    # 탐색 범위: 현재 커서부터 적절한 범위
-                    search_end = min(n_timed, timed_cursor + max(5, (n_timed - timed_cursor) // max(1, n_lines - li) * 3 + 3))
+                    # 탐색 범위: 커서부터 남은 비율의 3배 + 5
+                    remaining_lines = n_lines - li
+                    remaining_timed = n_timed - timed_cursor
+                    search_range = max(5, remaining_timed * 3 // max(1, remaining_lines))
+                    search_end = min(n_timed - 1, timed_cursor + search_range)
 
-                    # 단일 엔트리 매칭
                     for ti in range(timed_cursor, search_end):
+                        # 단일 매칭
                         score = difflib.SequenceMatcher(None, norm_lyric, norm(timed_clean[ti]["text"])).ratio()
                         if score > best_score:
                             best_score = score
-                            best_idx = ti
+                            best_ti = ti
+                        # 2개 합쳐서 매칭 (Gemini가 한 줄을 2개로 쪼갠 경우)
+                        if ti + 1 < n_timed:
+                            combined = timed_clean[ti]["text"] + timed_clean[ti + 1]["text"]
+                            score2 = difflib.SequenceMatcher(None, norm_lyric, norm(combined)).ratio()
+                            if score2 > best_score:
+                                best_score = score2
+                                best_ti = ti
 
-                    # 연속 2개 엔트리 합쳐서 매칭 (한 가사 줄이 2개 timed로 나뉜 경우)
-                    for ti in range(timed_cursor, min(search_end - 1, n_timed - 1)):
-                        combined = timed_clean[ti]["text"] + timed_clean[ti + 1]["text"]
-                        score = difflib.SequenceMatcher(None, norm_lyric, norm(combined)).ratio()
-                        if score > best_score:
-                            best_score = score
-                            best_idx = ti
+                    if best_score >= ANCHOR_THRESHOLD and best_ti >= 0:
+                        anchors.append((li, best_ti))
+                        timed_cursor = best_ti + 1
+                        print(f"    [ANCHOR] line {li} -> entry {best_ti} (score={best_score:.2f}) '{lines[li][:25]}' = '{timed_clean[best_ti]['text'][:25]}'")
 
-                    t_start = timed_clean[best_idx]["t"]
-                    # 끝 시간: 다음 엔트리 시작 또는 +3초
-                    if best_idx + 1 < n_timed:
-                        t_end = timed_clean[best_idx + 1]["t"]
-                    else:
-                        t_end = t_start + 3.0
+                anchors.append((n_lines - 1, n_timed - 1))  # 경계 앵커
+                print(f"  [SubTest] Found {len(anchors)} anchors (including boundaries)")
 
-                    # 최소 표시 시간
-                    if t_end - t_start < 0.3:
-                        t_end = t_start + 0.5
+                # ── Pass 2: 앵커 사이 보간 ──
+                # 앵커 구간마다 해당 범위의 timed 타임스탬프를 사용하여 줄 배치
+                timeline = [None] * n_lines
 
-                    timeline.append(SubtitleLine(t_start, t_end, lyric_line))
-                    timed_cursor = best_idx + 1
+                for ai in range(len(anchors) - 1):
+                    li_s, ti_s = anchors[ai]
+                    li_e, ti_e = anchors[ai + 1]
 
-                    print(f"    [{li:2d}] {t_start:6.1f}s-{t_end:6.1f}s  score={best_score:.2f}  '{lyric_line[:30]}' <- '{timed_clean[best_idx]['text'][:30]}'")
+                    seg_lines = li_e - li_s + 1   # 이 구간의 가사 줄 수
+                    seg_entries = ti_e - ti_s + 1  # 이 구간의 timed 엔트리 수
 
-                # synced_lyrics 저장 (캐시)
+                    for offset in range(seg_lines):
+                        li = li_s + offset
+                        # 비례 위치로 timed 엔트리 선택
+                        ratio = offset / max(1, seg_lines - 1)
+                        ti = ti_s + round(ratio * (seg_entries - 1))
+                        ti = max(ti_s, min(ti, ti_e))
+
+                        t_start = timed_clean[ti]["t"]
+                        # 끝 시간: 다음 엔트리 시작 또는 +3초
+                        if ti + 1 < n_timed:
+                            t_end = timed_clean[ti + 1]["t"]
+                        else:
+                            t_end = t_start + 3.0
+
+                        # 같은 엔트리에 여러 줄이 배치되면 시간 분할
+                        if timeline[li - 1] is not None and li > li_s:
+                            prev_start = timeline[li - 1].start
+                            if abs(t_start - prev_start) < 0.1:
+                                # 이전 줄과 같은 엔트리 → 시간 분할
+                                t_start = timeline[li - 1].end
+
+                        if t_end <= t_start:
+                            t_end = t_start + max(0.5, (timed_clean[min(ti + 1, n_timed - 1)]["t"] - timed_clean[ti]["t"]) / 2)
+                        if t_end - t_start < 0.3:
+                            t_end = t_start + 0.5
+
+                        timeline[li] = SubtitleLine(t_start, t_end, lines[li])
+
+                # 빈 슬롯 채우기 (혹시 모를 경우)
+                for i in range(n_lines):
+                    if timeline[i] is None:
+                        prev_end = timeline[i - 1].end if i > 0 and timeline[i - 1] else 0
+                        timeline[i] = SubtitleLine(prev_end, prev_end + 2.0, lines[i])
+
+                # synced_lyrics 저장
                 project.synced_lyrics = [
                     {"t": s.start, "text": s.text} for s in timeline
                 ]
                 self._save_manifest(project, project_dir)
 
-                print(f"  [SubTest] Sync complete: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
+                print(f"  [SubTest] Sync: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
                 for ti in range(1, len(timeline)):
-                    gap = timeline[ti].start - timeline[ti-1].end
+                    gap = timeline[ti].start - timeline[ti - 1].end
                     if gap > 3.0:
                         print(f"    [GAP] {gap:.1f}s instrumental before line {ti}")
             else:
