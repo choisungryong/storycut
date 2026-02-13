@@ -28,6 +28,7 @@ from agents.subtitle_utils import (
     ffprobe_duration_sec, split_lyrics_lines,
     clamp_timeline_anchored, detect_anchors, write_srt,
     SubtitleLine, AlignedSubtitle, align_lyrics_with_stt, write_ass,
+    clamp_timeline_vocal_segments, snap_away_from_instrumental,
 )
 from utils.ffmpeg_utils import FFmpegComposer
 
@@ -3398,11 +3399,30 @@ class MVPipeline:
                 use_uniform = True
 
             if use_uniform:
-                timeline = clamp_timeline_anchored(
-                    lines, anchor_info.anchor_start, anchor_info.anchor_end
-                )
+                # 보컬 세그먼트 정보가 있으면 간주 구간을 건너뛰고 분배
+                seg_data = None
+                if project.music_analysis and project.music_analysis.segments:
+                    seg_data = project.music_analysis.segments
+                if seg_data:
+                    timeline = clamp_timeline_vocal_segments(
+                        lines, seg_data,
+                        anchor_info.anchor_start, anchor_info.anchor_end
+                    )
+                    print(f"  [SubTest] Vocal-segment distribution: {len(timeline)} lines (skipping instrumentals)")
+                else:
+                    timeline = clamp_timeline_anchored(
+                        lines, anchor_info.anchor_start, anchor_info.anchor_end
+                    )
+                    print(f"  [SubTest] Uniform distribution (no segment data)")
                 aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
-                print(f"  [SubTest] Uniform distribution: {len(aligned)} lines over {anchor_info.anchor_start:.0f}s-{anchor_info.anchor_end:.0f}s")
+            else:
+                # STT 정렬 결과도 간주 구간 보정 적용
+                if project.music_analysis and project.music_analysis.segments:
+                    aligned = snap_away_from_instrumental(
+                        aligned, project.music_analysis.segments,
+                        anchor_info.anchor_start, anchor_info.anchor_end,
+                    )
+                    print(f"  [SubTest] Snapped STT alignment away from instrumental sections")
 
             # 디버그: 전체 정렬 결과 출력
             for ai, a in enumerate(aligned):

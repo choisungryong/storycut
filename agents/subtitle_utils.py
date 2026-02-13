@@ -243,6 +243,114 @@ def clamp_timeline_anchored(
     return raw
 
 
+def _extract_vocal_ranges(
+    segments: list,
+    anchor_start: float = 0.0,
+    anchor_end: float = 9999.0,
+) -> List[Tuple[float, float]]:
+    """세그먼트 목록에서 보컬 구간만 추출 (시간순 정렬)."""
+    vocal_types = {"verse", "chorus", "pre_chorus", "pre-chorus", "hook", "rap", "bridge"}
+    ranges = []
+    for seg in segments:
+        if isinstance(seg, dict):
+            seg_type = seg.get("segment_type", "")
+            start = float(seg.get("start_sec", 0))
+            end = float(seg.get("end_sec", 0))
+        else:
+            seg_type = getattr(seg, "segment_type", "")
+            start = float(getattr(seg, "start_sec", 0))
+            end = float(getattr(seg, "end_sec", 0))
+        if seg_type.lower().replace(" ", "_") in vocal_types and start < end:
+            ranges.append((max(start, anchor_start), min(end, anchor_end)))
+    ranges.sort(key=lambda r: r[0])
+    return ranges
+
+
+def clamp_timeline_vocal_segments(
+    lines: List[str],
+    segments: list,
+    anchor_start: float,
+    anchor_end: float,
+    min_dur: float = 0.8,
+    max_dur: float = 4.0,
+) -> List[SubtitleLine]:
+    """
+    보컬 세그먼트 내에서만 가사를 분배.
+    간주/인트로/아웃트로 구간에는 자막을 배치하지 않음.
+    """
+    vocal_ranges = _extract_vocal_ranges(segments, anchor_start, anchor_end)
+
+    if not vocal_ranges:
+        return clamp_timeline_anchored(lines, anchor_start, anchor_end, min_dur, max_dur)
+
+    n = len(lines)
+    if n == 0:
+        return []
+
+    total_vocal_dur = sum(e - s for s, e in vocal_ranges)
+    if total_vocal_dur <= 0:
+        return clamp_timeline_anchored(lines, anchor_start, anchor_end, min_dur, max_dur)
+
+    result: List[SubtitleLine] = []
+    line_idx = 0
+
+    for vi, (vstart, vend) in enumerate(vocal_ranges):
+        if line_idx >= n:
+            break
+        seg_dur = vend - vstart
+        # 이 보컬 구간에 비례 배분할 줄 수
+        seg_lines = max(1, round(n * seg_dur / total_vocal_dur))
+        # 마지막 보컬 구간이면 남은 줄 전부 배정
+        if vi == len(vocal_ranges) - 1:
+            seg_lines = n - line_idx
+        else:
+            seg_lines = min(seg_lines, n - line_idx)
+
+        sub_lines = lines[line_idx:line_idx + seg_lines]
+        sub_timeline = clamp_timeline_uniform(sub_lines, seg_dur, min_dur, max_dur)
+        for entry in sub_timeline:
+            entry.start += vstart
+            entry.end += vstart
+        result.extend(sub_timeline)
+        line_idx += seg_lines
+
+    return result
+
+
+def snap_away_from_instrumental(
+    aligned: list,
+    segments: list,
+    anchor_start: float = 0.0,
+    anchor_end: float = 9999.0,
+) -> list:
+    """
+    STT 정렬 결과에서 간주 구간에 배치된 자막을 다음 보컬 구간으로 밀어냄.
+    aligned: List[AlignedSubtitle]
+    """
+    vocal_ranges = _extract_vocal_ranges(segments, anchor_start, anchor_end)
+    if not vocal_ranges:
+        return aligned
+
+    def _in_vocal(t: float) -> bool:
+        return any(s <= t < e for s, e in vocal_ranges)
+
+    def _next_vocal_start(t: float) -> Optional[float]:
+        for s, e in vocal_ranges:
+            if s > t:
+                return s
+        return None
+
+    for a in aligned:
+        if not _in_vocal(a.start):
+            nv = _next_vocal_start(a.start)
+            if nv is not None:
+                dur = a.end - a.start
+                a.start = nv
+                a.end = nv + dur
+
+    return aligned
+
+
 # ── SRT 출력 ───────────────────────────────────────────────
 
 def format_srt_timestamp(seconds: float) -> str:
