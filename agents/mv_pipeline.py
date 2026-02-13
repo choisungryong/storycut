@@ -3328,12 +3328,22 @@ class MVPipeline:
         self._save_manifest(project, project_dir)
 
         try:
-            # 1. 캐시된 STT가 있으면 사용, 없으면 근사 타이밍 (빠른 테스트)
+            # 1. 캐시된 STT가 있으면 사용, 없으면 STT 실행 후 캐시
             stt_segments = getattr(project, 'stt_segments', None)
             if stt_segments:
                 print(f"  [SubTest] Using cached STT ({len(stt_segments)} segments)")
             else:
-                print(f"  [SubTest] No STT cache - using approximate timing (fast mode)")
+                print(f"  [SubTest] Running Gemini Audio STT (first time, will cache)...")
+                project.current_step = "음성 인식 중 (첫 테스트만 소요)..."
+                self._save_manifest(project, project_dir)
+                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
+                    project.music_file_path
+                )
+                if stt_segments:
+                    project.stt_segments = stt_segments
+                    print(f"  [SubTest] Got {len(stt_segments)} STT segments (cached)")
+                else:
+                    print(f"  [SubTest] STT failed - falling back to approximate timing")
 
             # 2. 앵커 추정
             segments = None
@@ -3392,6 +3402,8 @@ class MVPipeline:
             force_style = "FontSize=48,Outline=2,Shadow=1,MarginV=60,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000"
 
             timeout = max(120, int(audio_duration * 3))
+            project.current_step = "자막 영상 렌더링 중..."
+            self._save_manifest(project, project_dir)
             print(f"  [SubTest] SRT: {srt_abs} (exists={os.path.exists(srt_abs)})")
             print(f"  [SubTest] Audio: {audio_abs} (exists={os.path.exists(audio_abs)})")
 
