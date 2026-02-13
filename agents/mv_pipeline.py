@@ -3381,10 +3381,19 @@ class MVPipeline:
                 matched = sum(1 for a in aligned if a.confidence > 0)
                 print(f"  [SubTest] STT alignment: {len(aligned)} lines, matched={matched}, avg_conf={avg_conf:.0f}")
 
-                # STT 매칭이 나쁘면 균등 분배로 폴백
+                # STT 매칭 품질 체크
                 if avg_conf < 40 or matched < len(aligned) * 0.3:
                     print(f"  [SubTest] Poor STT match (conf={avg_conf:.0f}, matched={matched}/{len(aligned)}) -> uniform fallback")
                     use_uniform = True
+                elif len(aligned) >= 2:
+                    # 타이밍 품질 체크: 최대 갭이 너무 크면 균등 분배로 폴백
+                    gaps = [aligned[i+1].start - aligned[i].end for i in range(len(aligned)-1)]
+                    max_gap = max(gaps) if gaps else 0
+                    avg_gap = sum(gaps) / len(gaps) if gaps else 0
+                    print(f"  [SubTest] Timing gaps: max={max_gap:.1f}s, avg={avg_gap:.1f}s")
+                    if max_gap > 15.0:
+                        print(f"  [SubTest] Max gap {max_gap:.1f}s > 15s -> uniform fallback")
+                        use_uniform = True
             else:
                 use_uniform = True
 

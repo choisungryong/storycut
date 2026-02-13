@@ -317,20 +317,36 @@ def align_lyrics_with_stt(
 
     # 시간순 정렬
     sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
-    used_indices = set()
-    result: List[AlignedSubtitle] = []
+    n_lines = len(user_lyrics_lines)
+    total_dur = anchor_end - anchor_start
+    # 가사 한 줄당 예상 시간 (시간 윈도우 계산용)
+    expected_line_dur = total_dur / max(1, n_lines)
+    # 탐색 윈도우: 예상 위치 ± 3배 (반복 가사/간주 구간 커버)
+    time_window = max(10.0, expected_line_dur * 3)
 
-    for line in user_lyrics_lines:
+    result: List[AlignedSubtitle] = []
+    search_start = 0  # 시간순 전진만 허용 (뒤로 돌아가지 않음)
+
+    for line_idx, line in enumerate(user_lyrics_lines):
         clean_line = re.sub(r'[\s\-.,!?~]+', '', line).lower()
         if not clean_line:
             continue
 
+        # 이 줄의 예상 시간 위치
+        expected_time = anchor_start + (line_idx / max(1, n_lines)) * total_dur
+        max_search_time = expected_time + time_window
+
         best_score = 0.0
         best_idx = -1
 
-        for si, seg in enumerate(sorted_stt):
-            if si in used_indices:
-                continue
+        for si in range(search_start, len(sorted_stt)):
+            seg = sorted_stt[si]
+            seg_start = float(seg.get("start", 0))
+
+            # 시간 윈도우 초과 시 탐색 중단
+            if seg_start > max_search_time:
+                break
+
             seg_text = re.sub(r'[\s\-.,!?~]+', '', seg.get("text", "")).lower()
             if not seg_text:
                 continue
@@ -341,7 +357,8 @@ def align_lyrics_with_stt(
 
         if best_score >= min_confidence and best_idx >= 0:
             seg = sorted_stt[best_idx]
-            used_indices.add(best_idx)
+            # 전진: 다음 줄은 이 매칭 이후부터 탐색
+            search_start = best_idx + 1
             result.append(AlignedSubtitle(
                 start=float(seg["start"]),
                 end=float(seg["end"]),
@@ -349,14 +366,12 @@ def align_lyrics_with_stt(
                 confidence=best_score,
             ))
         else:
-            # 매칭 실패: 이전 줄의 end + 0.3초부터 보간
+            # 매칭 실패: 예상 위치 기반 보간 (이전 줄 end가 있으면 그 뒤부터)
             if result:
-                prev_end = result[-1].end
-                interp_start = prev_end + 0.3
-                interp_end = interp_start + 2.0
+                interp_start = max(result[-1].end + 0.1, expected_time)
             else:
-                interp_start = anchor_start
-                interp_end = interp_start + 2.0
+                interp_start = expected_time
+            interp_end = interp_start + min(expected_line_dur, max_dur)
             result.append(AlignedSubtitle(
                 start=interp_start,
                 end=interp_end,
