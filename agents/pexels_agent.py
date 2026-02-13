@@ -40,7 +40,7 @@ Rules:
 - role is always "broll" (never "hero"). Avoid identity-specific queries (no character names, no celebrity).
 - Prefer environment/texture/detail shots over faces.
 - Include variety: (place/object) + (time/weather) + (camera/style) combos.
-- CRITICAL: If concept or era_setting is given, ALL queries MUST match that setting. Medieval = castles, stone, candlelight. Futuristic = neon, cyber, hologram. Do NOT use tropical/palm trees for European/medieval settings.
+- CRITICAL: If concept or era_setting is given, ALL queries MUST match that setting. For example, a medieval concept should use castles/stone/candlelight, a futuristic concept should use neon/cyber/hologram, a tropical concept should use beaches/palm trees. Always match the given context.
 
 Return ONLY valid JSON, no markdown:
 {"stock_query":[...],"notes":"brief reasoning"}"""
