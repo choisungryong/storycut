@@ -3392,13 +3392,12 @@ class MVPipeline:
             project.current_step = "자막 영상 렌더링 중..."
             self._save_manifest(project, project_dir)
 
-            # SRT 생성 (subtitles 필터용)
+            # SRT 생성
             srt_path = f"{project_dir}/media/subtitles/lyrics_test.srt"
             write_srt(
                 [SubtitleLine(a.start, a.end, a.text) for a in aligned],
                 srt_path,
             )
-            # /tmp에 복사 (경로 문제 방지)
             import shutil
             tmp_srt = "/tmp/subtitle_test.srt"
             shutil.copy2(srt_path, tmp_srt)
@@ -3406,32 +3405,52 @@ class MVPipeline:
             print(f"  [SubTest] SRT: {len(aligned)} lines")
             print(f"  [SubTest] Audio: {audio_abs} (exists={os.path.exists(audio_abs)})")
 
+            # 사용 가능한 필터 사전 체크 (빠름)
+            has_subtitles_filter = False
+            has_drawtext_filter = False
+            try:
+                probe = subprocess.run(
+                    ["ffmpeg", "-filters"], capture_output=True, text=True,
+                    encoding='utf-8', errors='replace', timeout=10,
+                )
+                filters_out = probe.stdout
+                has_subtitles_filter = "subtitles" in filters_out
+                has_drawtext_filter = "drawtext" in filters_out
+                print(f"  [SubTest] Filters: subtitles={has_subtitles_filter}, drawtext={has_drawtext_filter}")
+            except Exception as e:
+                print(f"  [SubTest] Filter probe failed: {e}")
+
             render_ok = False
+            per_attempt_timeout = min(90, timeout)
 
             # --- 시도 1: subtitles= 필터 (libass) ---
-            force_style = "FontSize=48,Outline=2,Shadow=1,MarginV=60,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000"
-            cmd1 = [
-                "ffmpeg", "-y",
-                "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
-                "-i", audio_abs,
-                "-vf", f"subtitles={tmp_srt}:force_style='{force_style}'",
-                "-map", "0:v", "-map", "1:a",
-                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
-                "-shortest",
-                out_abs,
-            ]
-            print(f"  [SubTest] Try 1: subtitles= filter ({audio_duration:.0f}s)...")
-            r1 = subprocess.run(cmd1, capture_output=True, text=True,
-                                encoding='utf-8', errors='replace', timeout=timeout)
-            if r1.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                print(f"  [SubTest] subtitles= OK ({os.path.getsize(out_abs):,} bytes)")
-                render_ok = True
-            else:
-                print(f"  [SubTest] subtitles= failed: {r1.stderr[-500:]}")
+            if not render_ok and has_subtitles_filter:
+                force_style = "FontSize=48,Outline=2,Shadow=1,MarginV=60,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000"
+                cmd1 = [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
+                    "-i", audio_abs,
+                    "-vf", f"subtitles={tmp_srt}:force_style='{force_style}'",
+                    "-map", "0:v", "-map", "1:a",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
+                    "-shortest",
+                    out_abs,
+                ]
+                print(f"  [SubTest] Try subtitles= filter...")
+                try:
+                    r1 = subprocess.run(cmd1, capture_output=True, text=True,
+                                        encoding='utf-8', errors='replace', timeout=per_attempt_timeout)
+                    if r1.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                        print(f"  [SubTest] subtitles= OK ({os.path.getsize(out_abs):,} bytes)")
+                        render_ok = True
+                    else:
+                        print(f"  [SubTest] subtitles= failed: {r1.stderr[-300:]}")
+                except subprocess.TimeoutExpired:
+                    print(f"  [SubTest] subtitles= timed out ({per_attempt_timeout}s)")
 
             # --- 시도 2: drawtext 필터 (fontconfig) ---
-            if not render_ok:
+            if not render_ok and has_drawtext_filter:
                 drawtext_filters = []
                 for sub in aligned:
                     escaped = sub.text.replace("'", "\u2019").replace("\\", "\\\\")
@@ -3458,16 +3477,19 @@ class MVPipeline:
                     "-shortest",
                     out_abs,
                 ]
-                print(f"  [SubTest] Try 2: drawtext filter ({len(drawtext_filters)} lines)...")
-                r2 = subprocess.run(cmd2, capture_output=True, text=True,
-                                    encoding='utf-8', errors='replace', timeout=timeout)
-                if r2.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                    print(f"  [SubTest] drawtext OK ({os.path.getsize(out_abs):,} bytes)")
-                    render_ok = True
-                else:
-                    print(f"  [SubTest] drawtext failed: {r2.stderr[-500:]}")
+                print(f"  [SubTest] Try drawtext filter ({len(drawtext_filters)} lines)...")
+                try:
+                    r2 = subprocess.run(cmd2, capture_output=True, text=True,
+                                        encoding='utf-8', errors='replace', timeout=per_attempt_timeout)
+                    if r2.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                        print(f"  [SubTest] drawtext OK ({os.path.getsize(out_abs):,} bytes)")
+                        render_ok = True
+                    else:
+                        print(f"  [SubTest] drawtext failed: {r2.stderr[-300:]}")
+                except subprocess.TimeoutExpired:
+                    print(f"  [SubTest] drawtext timed out ({per_attempt_timeout}s)")
 
-            # --- 시도 3: 자막 없이 (음악만) ---
+            # --- 폴백: 자막 없이 (음악만) ---
             if not render_ok:
                 cmd3 = [
                     "ffmpeg", "-y",
@@ -3479,15 +3501,18 @@ class MVPipeline:
                     "-shortest",
                     out_abs,
                 ]
-                print(f"  [SubTest] Try 3: no subtitles (audio only)...")
-                r3 = subprocess.run(cmd3, capture_output=True, text=True,
-                                    encoding='utf-8', errors='replace', timeout=timeout)
-                if r3.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                    print(f"  [SubTest] audio-only OK")
-                    project.current_step = "자막 테스트 완료"
-                    project.error_message = "Warning: subtitle filters unavailable, audio-only"
-                else:
-                    project.error_message = f"Subtitle test render failed: FFmpeg error"
+                print(f"  [SubTest] Fallback: no subtitles...")
+                try:
+                    r3 = subprocess.run(cmd3, capture_output=True, text=True,
+                                        encoding='utf-8', errors='replace', timeout=per_attempt_timeout)
+                    if r3.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                        print(f"  [SubTest] audio-only OK")
+                        project.current_step = "자막 테스트 완료"
+                        project.error_message = "Warning: subtitle filters unavailable, audio-only"
+                    else:
+                        project.error_message = f"Subtitle test render failed"
+                except subprocess.TimeoutExpired:
+                    project.error_message = "Subtitle test timed out"
 
             if render_ok:
                 print(f"  [SubTest] Test video: {out_abs} ({os.path.getsize(out_abs):,} bytes)")

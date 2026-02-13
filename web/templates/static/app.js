@@ -3342,8 +3342,8 @@ class StorycutApp {
 
             this.showToast('자막 테스트 생성 중... 완료되면 자동으로 미리보기가 열립니다.', 'success');
 
-            // 폴링으로 완료 대기 (5초 간격, 최대 3분)
-            const maxAttempts = 36;
+            // 폴링으로 완료 대기 (5초 간격, 최대 5분)
+            const maxAttempts = 60;
             let attempt = 0;
             const pollInterval = setInterval(async () => {
                 attempt++;
@@ -3367,7 +3367,7 @@ class StorycutApp {
                             return;
                         }
                         if (attempt >= maxAttempts && !isDone) {
-                            this.showToast('자막 테스트 시간 초과 (3분)', 'error');
+                            this.showToast('자막 테스트 시간 초과 (5분)', 'error');
                             return;
                         }
 
