@@ -2895,6 +2895,58 @@ async def mv_subtitle_test(project_id: str):
     }
 
 
+@app.get("/api/mv/subtitle-debug/{project_id}")
+async def mv_subtitle_debug(project_id: str):
+    """자막 테스트 디버그: 정렬 데이터 + ASS 파일 상태 확인"""
+    validate_project_id(project_id)
+    import json as _json
+
+    project_dir = f"outputs/{project_id}"
+    result = {"project_id": project_id}
+
+    # manifest에서 lyrics, aligned_lyrics 가져오기
+    manifest_path = f"{project_dir}/manifest.json"
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = _json.load(f)
+        lyrics = manifest.get("lyrics", "")
+        result["lyrics_length"] = len(lyrics)
+        result["lyrics_lines"] = lyrics.count("\n") + 1 if lyrics else 0
+        result["lyrics_preview"] = lyrics[:200] if lyrics else ""
+        result["aligned_lyrics"] = manifest.get("aligned_lyrics", [])
+        result["current_step"] = manifest.get("current_step", "")
+        result["error_message"] = manifest.get("error_message", "")
+    else:
+        result["error"] = "manifest.json not found"
+
+    # alignment.json
+    align_path = f"{project_dir}/media/subtitles/alignment.json"
+    if os.path.exists(align_path):
+        with open(align_path, "r", encoding="utf-8") as f:
+            result["alignment_file"] = _json.load(f)
+
+    # ASS 파일 상태
+    ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
+    if os.path.exists(ass_path):
+        result["ass_file_size"] = os.path.getsize(ass_path)
+        with open(ass_path, "r", encoding="utf-8-sig") as f:
+            content = f.read()
+        result["ass_dialogue_count"] = content.count("Dialogue:")
+        # 마지막 10줄
+        result["ass_tail"] = content.strip().split("\n")[-10:]
+    else:
+        result["ass_file"] = "not found"
+
+    # 테스트 영상 상태
+    video_path = f"{project_dir}/final_mv_subtitle_test.mp4"
+    if os.path.exists(video_path):
+        result["test_video_size"] = os.path.getsize(video_path)
+    else:
+        result["test_video"] = "not found"
+
+    return result
+
+
 class UpdateLyricsTimelineRequest(BaseModel):
     timed_lyrics: List[Dict[str, Any]]  # [{t: float, text: str}, ...]
 

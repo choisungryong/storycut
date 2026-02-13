@@ -3360,6 +3360,12 @@ class MVPipeline:
             # ── Step 3: 가사 정렬 ──
             lines = split_lyrics_lines(user_lyrics_text)
             print(f"  [SubTest] Lyrics: {len(lines)} lines (after filtering)")
+            if not lines:
+                project.error_message = "No lyrics lines after filtering"
+                self._save_manifest(project, project_dir)
+                return project
+
+            use_uniform = False
 
             if stt_segments:
                 aligned = align_lyrics_with_stt(
@@ -3367,22 +3373,26 @@ class MVPipeline:
                     anchor_info.anchor_start, anchor_info.anchor_end,
                 )
                 avg_conf = sum(a.confidence for a in aligned) / len(aligned) if aligned else 0
-                print(f"  [SubTest] STT alignment: {len(aligned)} lines, avg_conf={avg_conf:.0f}")
+                matched = sum(1 for a in aligned if a.confidence > 0)
+                print(f"  [SubTest] STT alignment: {len(aligned)} lines, matched={matched}, avg_conf={avg_conf:.0f}")
+
+                # STT 매칭이 나쁘면 균등 분배로 폴백
+                if avg_conf < 40 or matched < len(aligned) * 0.3:
+                    print(f"  [SubTest] Poor STT match (conf={avg_conf:.0f}, matched={matched}/{len(aligned)}) -> uniform fallback")
+                    use_uniform = True
             else:
+                use_uniform = True
+
+            if use_uniform:
                 timeline = clamp_timeline_anchored(
                     lines, anchor_info.anchor_start, anchor_info.anchor_end
                 )
                 aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
-                print(f"  [SubTest] Uniform alignment: {len(aligned)} lines")
+                print(f"  [SubTest] Uniform distribution: {len(aligned)} lines over {anchor_info.anchor_start:.0f}s-{anchor_info.anchor_end:.0f}s")
 
-            # 디버그: 처음/마지막 몇 줄 출력
-            for ai, a in enumerate(aligned[:3]):
-                print(f"    [{ai}] {a.start:.1f}s-{a.end:.1f}s conf={a.confidence:.0f} '{a.text[:40]}'")
-            if len(aligned) > 6:
-                print(f"    ... ({len(aligned) - 6} more)")
-            for ai in range(max(3, len(aligned) - 3), len(aligned)):
-                a = aligned[ai]
-                print(f"    [{ai}] {a.start:.1f}s-{a.end:.1f}s conf={a.confidence:.0f} '{a.text[:40]}'")
+            # 디버그: 전체 정렬 결과 출력
+            for ai, a in enumerate(aligned):
+                print(f"    [{ai:2d}] {a.start:6.1f}s - {a.end:6.1f}s  conf={a.confidence:3.0f}  '{a.text[:50]}'")
 
             # alignment.json 저장
             project.aligned_lyrics = [
@@ -3396,7 +3406,21 @@ class MVPipeline:
             # ── Step 4: ASS 자막 파일 생성 (compose_video와 동일 방식) ──
             ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
             write_ass(aligned, ass_path)
-            print(f"  [SubTest] ASS file: {len(aligned)} events -> {ass_path}")
+            ass_size = os.path.getsize(ass_path) if os.path.exists(ass_path) else 0
+            print(f"  [SubTest] ASS file: {len(aligned)} events, {ass_size:,} bytes -> {ass_path}")
+
+            # ASS 내용 미리보기 (디버그)
+            try:
+                with open(ass_path, 'r', encoding='utf-8-sig') as af:
+                    ass_content = af.read()
+                    dialogue_count = ass_content.count("Dialogue:")
+                    print(f"  [SubTest] ASS Dialogue count: {dialogue_count}")
+                    # 마지막 5줄 출력
+                    ass_lines = ass_content.strip().split('\n')
+                    for line in ass_lines[-5:]:
+                        print(f"    ASS> {line[:120]}")
+            except Exception as e:
+                print(f"  [SubTest] ASS read error: {e}")
 
             # ── Step 5: 검은 배경 + 음악 + 자막 렌더링 ──
             audio_duration = ffprobe_duration_sec(project.music_file_path)
