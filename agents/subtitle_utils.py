@@ -53,7 +53,7 @@ def split_lyrics_lines(user_lyrics_text: str) -> List[str]:
         re.IGNORECASE
     )
     raw = user_lyrics_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    lines = [ln.strip() for ln in raw]
+    lines = [ln.strip().strip('"\'""\u201c\u201d\u2018\u2019') for ln in raw]
     return [ln for ln in lines if ln and not section_marker.match(ln)]
 
 
