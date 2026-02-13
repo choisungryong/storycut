@@ -146,6 +146,21 @@ class MVPipeline:
             print(f"  Segments: {len(project.music_analysis.segments)}")
             print(f"  Lyrics: {'YES (' + str(len(extracted_lyrics)) + ' chars)' if extracted_lyrics else 'NONE'}")
 
+            # STT 사전 캐싱: 자막 테스트 시 2-3분 대기 방지
+            # (subtitle_test/compose_video에서 캐시된 stt_segments를 바로 사용)
+            try:
+                print(f"\n[Step 1.8] Pre-caching Gemini Audio STT...")
+                project.current_step = "음성 인식 중..."
+                self._save_manifest(project, project_dir)
+                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(stored_music_path)
+                if stt_segments:
+                    project.stt_segments = stt_segments
+                    print(f"  [STT Cache] {len(stt_segments)} segments cached for subtitle use")
+                else:
+                    print(f"  [STT Cache] STT failed, will retry at subtitle/compose time")
+            except Exception as stt_err:
+                print(f"  [STT Cache] Non-critical error: {stt_err}")
+
         except Exception as e:
             project.status = MVProjectStatus.FAILED
             project.error_message = f"Music analysis failed: {str(e)}"
@@ -3384,52 +3399,59 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # STT 세그먼트로 실제 보컬 구간 감지 + 구간별 가사 밀도 기반 배분
-            # (music_analysis.segments는 템플릿 패턴이라 instrumental 정보 없음)
-            vocal_ranges = []  # [(start, end, stt_count), ...]
-            if stt_segments:
+            # ── 보컬 타임라인 기반 균등 분배 ──
+            # 원리: STT 세그먼트의 총 보컬 시간을 계산하고, 가사를 보컬 시간 기준으로
+            # 균등 배분한 뒤 실제 클럭 타임으로 변환. 간주 구간은 자동으로 건너뜀.
+            if stt_segments and len(stt_segments) >= 2:
                 sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
-                # 인접 STT 세그먼트를 병합 (5초 이내 갭은 같은 보컬 구간)
-                GAP_TOLERANCE = 5.0
+                # 각 STT 세그먼트의 보컬 구간 시간 계산
+                seg_durations = []
                 for seg in sorted_stt:
                     s = float(seg.get("start", 0))
                     e = float(seg.get("end", 0))
-                    if vocal_ranges and s - vocal_ranges[-1][1] < GAP_TOLERANCE:
-                        vocal_ranges[-1] = (vocal_ranges[-1][0], max(vocal_ranges[-1][1], e), vocal_ranges[-1][2] + 1)
-                    else:
-                        vocal_ranges.append((s, e, 1))
-                print(f"  [SubTest] STT vocal ranges ({len(vocal_ranges)}):")
-                for vi, (vs, ve, cnt) in enumerate(vocal_ranges):
-                    print(f"    [{vi}] {vs:.1f}s ~ {ve:.1f}s ({ve-vs:.1f}s, {cnt} STT segments)")
+                    seg_durations.append((s, e, max(0.1, e - s)))
+                total_vocal_dur = sum(d for _, _, d in seg_durations)
 
-            if vocal_ranges and len(vocal_ranges) >= 2:
-                # STT 세그먼트 COUNT 기반 비례 배분 (시간이 아닌 가창 밀도 반영)
-                total_stt_count = sum(cnt for _, _, cnt in vocal_ranges)
-                n = len(lines)
-                timeline = []
-                line_idx = 0
-                for vi, (vstart, vend, cnt) in enumerate(vocal_ranges):
-                    if line_idx >= n:
-                        break
-                    seg_dur = vend - vstart
-                    # STT 세그먼트 수 비례로 가사 줄 배분
-                    seg_lines = max(1, round(n * cnt / total_stt_count))
-                    if vi == len(vocal_ranges) - 1:
-                        seg_lines = n - line_idx
+                print(f"  [SubTest] STT: {len(sorted_stt)} segments, total vocal={total_vocal_dur:.1f}s")
+                # 보컬 구간 로그 (갭 기준으로 그룹핑하여 표시)
+                GAP_TOLERANCE = 5.0
+                vocal_groups = []
+                for s, e, d in seg_durations:
+                    if vocal_groups and s - vocal_groups[-1][1] < GAP_TOLERANCE:
+                        vocal_groups[-1] = (vocal_groups[-1][0], max(vocal_groups[-1][1], e))
                     else:
-                        seg_lines = min(seg_lines, n - line_idx)
-                    # 구간 내 균등 분배
-                    sub = lines[line_idx:line_idx + seg_lines]
-                    sub_dur = seg_dur / max(1, len(sub))
-                    for si, txt in enumerate(sub):
-                        t_start = vstart + si * sub_dur
-                        t_end = min(vstart + (si + 1) * sub_dur, vend)
-                        timeline.append(SubtitleLine(t_start, t_end, txt))
-                    line_idx += seg_lines
-                    print(f"    Section [{vi}]: {len(sub)} lines assigned ({cnt} STT segs)")
-                print(f"  [SubTest] STT count-based distribution: {len(lines)} lines, {total_stt_count} STT segments across {len(vocal_ranges)} sections")
+                        vocal_groups.append((s, e))
+                for gi, (gs, ge) in enumerate(vocal_groups):
+                    print(f"    Vocal group [{gi}] {gs:.1f}s ~ {ge:.1f}s ({ge-gs:.1f}s)")
+
+                n = len(lines)
+                dur_per_line = total_vocal_dur / n
+
+                # 보컬 시간 -> 클럭 시간 변환 함수
+                def vocal_to_clock(t_vocal):
+                    """보컬 전용 시간을 실제 클럭 시간으로 변환"""
+                    elapsed = 0.0
+                    for s, e, d in seg_durations:
+                        if elapsed + d >= t_vocal:
+                            offset = t_vocal - elapsed
+                            return s + offset
+                        elapsed += d
+                    return seg_durations[-1][1]  # 마지막 세그먼트 끝
+
+                timeline = []
+                for i, txt in enumerate(lines):
+                    t_start_vocal = i * dur_per_line
+                    t_end_vocal = (i + 1) * dur_per_line
+                    t_start = vocal_to_clock(t_start_vocal)
+                    t_end = vocal_to_clock(t_end_vocal)
+                    # 최소 표시 시간 보장 (0.3초)
+                    if t_end - t_start < 0.3:
+                        t_end = t_start + 0.3
+                    timeline.append(SubtitleLine(t_start, t_end, txt))
+
+                print(f"  [SubTest] Vocal-time distribution: {n} lines, {dur_per_line:.2f}s/line")
             else:
-                # STT 없거나 단일 구간이면 전체 균등 분배
+                # STT 없으면 전체 균등 분배
                 actual_start = anchor_info.anchor_start
                 actual_end = anchor_info.anchor_end
                 if stt_segments:

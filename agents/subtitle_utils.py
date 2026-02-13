@@ -53,8 +53,16 @@ def split_lyrics_lines(user_lyrics_text: str) -> List[str]:
         re.IGNORECASE
     )
     raw = user_lyrics_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    lines = [ln.strip().strip('"\'""\u201c\u201d\u2018\u2019') for ln in raw]
-    return [ln for ln in lines if ln and not section_marker.match(ln)]
+    # 모든 따옴표 문자 완전 제거 (strip은 가장자리만 제거하므로 replace 사용)
+    quote_chars = '"\'\u201c\u201d\u2018\u2019\u201e\u201f\u00ab\u00bb\uff02\uff07'
+    cleaned = []
+    for ln in raw:
+        txt = ln.strip()
+        for ch in quote_chars:
+            txt = txt.replace(ch, '')
+        txt = txt.strip()
+        cleaned.append(txt)
+    return [ln for ln in cleaned if ln and not section_marker.match(ln)]
 
 
 # ── 앵커 추정 ─────────────────────────────────────────────
