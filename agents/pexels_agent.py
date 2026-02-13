@@ -40,6 +40,7 @@ Rules:
 - role is always "broll" (never "hero"). Avoid identity-specific queries (no character names, no celebrity).
 - Prefer environment/texture/detail shots over faces.
 - Include variety: (place/object) + (time/weather) + (camera/style) combos.
+- CRITICAL: If concept or era_setting is given, ALL queries MUST match that setting. Medieval = castles, stone, candlelight. Futuristic = neon, cyber, hologram. Do NOT use tropical/palm trees for European/medieval settings.
 
 Return ONLY valid JSON, no markdown:
 {"stock_query":[...],"notes":"brief reasoning"}"""
@@ -174,6 +175,9 @@ class PexelsAgent:
         segment_type: str = "intro",
         genre: str = "drama",
         mood: str = "epic",
+        concept: str = None,
+        era_setting: str = None,
+        color_palette: List[str] = None,
     ) -> List[str]:
         """Gemini LLM으로 Pexels 검색 쿼리 3-8개 생성
 
@@ -183,6 +187,9 @@ class PexelsAgent:
             segment_type: intro/outro/bridge
             genre: 장르
             mood: 분위기
+            concept: 비주얼 컨셉 (예: "중세 유럽 성", "네온 도시")
+            era_setting: 시대/배경 (예: "medieval", "futuristic")
+            color_palette: 색상 팔레트 (예: ["deep blue", "gold"])
 
         Returns:
             검색 쿼리 리스트 (실패 시 폴백 쿼리)
@@ -197,6 +204,15 @@ class PexelsAgent:
 
             client = genai.Client(api_key=api_key)
 
+            context_lines = []
+            if concept:
+                context_lines.append(f"concept={concept}")
+            if era_setting:
+                context_lines.append(f"era_setting={era_setting}")
+            if color_palette:
+                context_lines.append(f"color_palette={', '.join(color_palette[:4])}")
+            context_str = "\n".join(context_lines)
+
             user_prompt = (
                 f"role=broll\n"
                 f"lyric={lyrics_text or '(instrumental)'}\n"
@@ -205,6 +221,8 @@ class PexelsAgent:
                 f"mood={mood}\n"
                 f"segment={segment_type}"
             )
+            if context_str:
+                user_prompt += f"\n{context_str}"
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",

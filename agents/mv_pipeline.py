@@ -1648,12 +1648,16 @@ class MVPipeline:
             _EMOTIONAL_SEGMENTS = {"chorus", "hook", "pre_chorus"}
             is_emotional = seg_type in _EMOTIONAL_SEGMENTS
             if (pexels and not scene.characters_in_scene and not is_emotional):
+                _vb = project.visual_bible
                 queries = pexels.generate_stock_queries(
                     scene_prompt=scene.image_prompt,
                     lyrics_text=scene.lyrics_text,
                     segment_type=seg_type,
                     genre=project.genre.value,
                     mood=project.mood.value,
+                    concept=project.concept or None,
+                    era_setting=era_prefix or None,
+                    color_palette=_vb.color_palette if _vb and _vb.color_palette else None,
                 )
                 broll_path = f"{project_dir}/media/video/broll_{scene.scene_id:02d}.mp4"
                 os.makedirs(os.path.dirname(broll_path), exist_ok=True)
