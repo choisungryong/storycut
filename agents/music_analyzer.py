@@ -802,9 +802,9 @@ class MusicAnalyzer:
         """
         가사 추출 (타임스탬프 포함)
 
-        1순위: Google Cloud STT (word-level 타임스탬프)
-        2순위: Gemini 2.5 Flash
-        3순위: Whisper 하이브리드
+        1순위: Gemini 2.5 Flash (빠름)
+        2순위: Whisper 하이브리드
+        (Google Cloud STT는 compose 시점 Gemini Audio STT로 대체)
 
         Args:
             audio_path: 음악 파일 경로
@@ -813,20 +813,7 @@ class MusicAnalyzer:
             추출된 가사 텍스트 (실패 시 None)
         """
         print(f"[MusicAnalyzer] Extracting lyrics...")
-
-        # Step 0: Google Cloud STT 우선 시도
-        stt_words = self.transcribe_with_google_stt(audio_path)
-        if stt_words and len(stt_words) >= 5:
-            result = self._stt_words_to_timed_lyrics(stt_words)
-            # Raw STT 문장 보존 (타이밍 에디터용)
-            self._last_stt_sentences = list(result) if result else None
-            if result and len(result) >= 3:
-                self._last_timed_lyrics = result
-                plain = "\n".join(e["text"] for e in result if e.get("text"))
-                print(f"  [STT] Extracted: {len(result)} lines, {len(plain)} chars")
-                return plain
-        else:
-            self._last_stt_sentences = None
+        self._last_stt_sentences = None
 
         # Step 1: Gemini 2.5 Flash로 시도
         gemini_result = self._extract_with_gemini_25(audio_path)

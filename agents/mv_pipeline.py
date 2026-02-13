@@ -117,20 +117,11 @@ class MVPipeline:
             print(f"\n[Step 1] Analyzing music...")
             analysis_result = self.music_analyzer.analyze(stored_music_path)
 
-            # 가사 처리: 사용자 가사 있으면 타이밍만 싱크, 없으면 Gemini 추출
+            # 가사 처리: 사용자 가사 있으면 저장만 (STT 싱크는 compose 시점으로 지연)
             if user_lyrics and user_lyrics.strip():
-                print(f"\n[Step 1.5] Syncing user lyrics with music timing...")
-                synced_lyrics = self.music_analyzer.sync_user_lyrics_with_gemini(stored_music_path, user_lyrics.strip())
-                if synced_lyrics:
-                    analysis_result["extracted_lyrics"] = synced_lyrics
-                    timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
-                    if timed_lyrics:
-                        analysis_result["timed_lyrics"] = timed_lyrics
-                # Raw STT 문장 보존 (타이밍 에디터용)
-                stt_sentences = getattr(self.music_analyzer, '_last_stt_sentences', None)
-                if stt_sentences:
-                    analysis_result["stt_sentences"] = stt_sentences
-                extracted_lyrics = synced_lyrics
+                print(f"\n[Step 1.5] User lyrics received ({len(user_lyrics.strip())} chars) - timing sync deferred to compose")
+                analysis_result["extracted_lyrics"] = user_lyrics.strip()
+                extracted_lyrics = user_lyrics.strip()
             else:
                 print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
                 extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
