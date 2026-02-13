@@ -3382,37 +3382,48 @@ class MVPipeline:
             with open(alignment_path, "w", encoding="utf-8") as af:
                 json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
 
-            # 4. SRT 생성 (ASS보다 호환성 높음)
-            srt_path = f"{project_dir}/media/subtitles/lyrics_test.srt"
-            write_srt(
-                [SubtitleLine(a.start, a.end, a.text) for a in aligned],
-                srt_path,
-            )
-            print(f"  [SubTest] SRT: {len(aligned)} lines -> {srt_path}")
-
-            # 5. 검은 배경 영상 + 음악 + 자막 -> 테스트 영상
+            # 4. 검은 배경 영상 + 음악 + 자막 -> 테스트 영상
             audio_duration = ffprobe_duration_sec(project.music_file_path)
             audio_abs = os.path.abspath(project.music_file_path)
-            srt_abs = os.path.abspath(srt_path)
-            srt_escaped = srt_abs.replace("\\", "/").replace(":", "\\:")
             out_path = f"{project_dir}/final_mv_subtitle_test.mp4"
             out_abs = os.path.abspath(out_path)
-
-            # 자막 스타일 (SRT + subtitles= 필터)
-            force_style = "FontSize=48,Outline=2,Shadow=1,MarginV=60,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000"
 
             timeout = max(120, int(audio_duration * 3))
             project.current_step = "자막 영상 렌더링 중..."
             self._save_manifest(project, project_dir)
-            print(f"  [SubTest] SRT: {srt_abs} (exists={os.path.exists(srt_abs)})")
+
+            # drawtext 필터 체인 생성 (libass 불필요, 호환성 높음)
+            font_path = self._find_cjk_font()
+            drawtext_filters = []
+            for sub in aligned:
+                # FFmpeg drawtext 텍스트 이스케이핑
+                escaped = sub.text.replace("\\", "\\\\").replace("'", "\u2019")
+                escaped = escaped.replace(":", "\\:").replace("%", "%%")
+                escaped = escaped.replace("[", "\\[").replace("]", "\\]")
+                dt = (
+                    f"drawtext=text='{escaped}'"
+                    f":enable='between(t,{sub.start:.2f},{sub.end:.2f})'"
+                    f":fontfile={font_path}"
+                    f":fontsize=36:fontcolor=white:borderw=2:bordercolor=black"
+                    f":x=(w-tw)/2:y=h-80"
+                )
+                drawtext_filters.append(dt)
+
+            # 필터 스크립트 파일로 저장 (커맨드라인 길이 제한 방지)
+            vf_str = ",".join(drawtext_filters) if drawtext_filters else "null"
+            filter_script_path = f"{project_dir}/media/subtitles/filter_script.txt"
+            with open(filter_script_path, "w", encoding="utf-8") as fs:
+                fs.write(vf_str)
+            filter_script_abs = os.path.abspath(filter_script_path)
+
+            print(f"  [SubTest] drawtext filters: {len(drawtext_filters)} lines")
             print(f"  [SubTest] Audio: {audio_abs} (exists={os.path.exists(audio_abs)})")
 
-            # 시도 1: subtitles= 필터 (SRT) - 테스트용 720p + ultrafast
             cmd = [
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                 "-i", audio_abs,
-                "-vf", f"subtitles={srt_escaped}:force_style='{force_style}'",
+                "-filter_complex_script", filter_script_abs,
                 "-map", "0:v", "-map", "1:a",
                 "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
@@ -3426,10 +3437,9 @@ class MVPipeline:
                 encoding='utf-8', errors='replace', timeout=timeout,
             )
 
-            # subtitles= 실패 시 자막 없이 시도 (음악만이라도 확인 가능)
             if result.returncode != 0:
-                print(f"  [SubTest] subtitles= filter failed, trying without subtitles...")
-                print(f"  [SubTest] stderr: {result.stderr[-800:]}")
+                print(f"  [SubTest] drawtext failed: {result.stderr[-800:]}")
+                # 폴백: 자막 없이 렌더 (음악만이라도 확인)
                 cmd_nosub = [
                     "ffmpeg", "-y",
                     "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
@@ -3445,9 +3455,9 @@ class MVPipeline:
                     encoding='utf-8', errors='replace', timeout=timeout,
                 )
                 if result.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                    print(f"  [SubTest] Rendered WITHOUT subtitles (filter not available)")
+                    print(f"  [SubTest] Rendered WITHOUT subtitles (drawtext failed)")
                     project.current_step = "자막 테스트 완료"
-                    project.error_message = "Warning: subtitles filter unavailable, rendered audio-only test"
+                    project.error_message = "Warning: drawtext failed, rendered audio-only"
                 else:
                     print(f"  [SubTest] FFmpeg completely failed: {result.stderr[-500:]}")
                     project.error_message = f"Subtitle test render failed: {result.stderr[-300:]}"
@@ -4031,6 +4041,28 @@ class MVPipeline:
         secs = int(seconds % 60)
         millis = int((seconds % 1) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    def _find_cjk_font(self) -> str:
+        """한국어/CJK 지원 폰트 경로 찾기 (drawtext용)"""
+        candidates = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                return path.replace("\\", "/").replace(":", "\\:")
+        # fc-match로 한국어 폰트 자동 탐색
+        try:
+            import subprocess as _sp
+            r = _sp.run(["fc-match", "--format=%{file}", ":lang=ko"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip().replace("\\", "/").replace(":", "\\:")
+        except Exception:
+            pass
+        return "Sans"
 
     def _save_manifest(self, project: MVProject, project_dir: str):
         """매니페스트 저장 (atomic write로 손상 방지)"""
