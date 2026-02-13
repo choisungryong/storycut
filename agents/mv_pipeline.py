@@ -3392,56 +3392,84 @@ class MVPipeline:
             project.current_step = "자막 영상 렌더링 중..."
             self._save_manifest(project, project_dir)
 
-            # drawtext 필터 체인 생성 (libass 불필요, 호환성 높음)
-            font_path = self._find_cjk_font()
-            drawtext_filters = []
-            for sub in aligned:
-                # FFmpeg drawtext 텍스트 이스케이핑
-                escaped = sub.text.replace("\\", "\\\\").replace("'", "\u2019")
-                escaped = escaped.replace(":", "\\:").replace("%", "%%")
-                escaped = escaped.replace("[", "\\[").replace("]", "\\]")
-                dt = (
-                    f"drawtext=text='{escaped}'"
-                    f":enable='between(t,{sub.start:.2f},{sub.end:.2f})'"
-                    f":fontfile={font_path}"
-                    f":fontsize=36:fontcolor=white:borderw=2:bordercolor=black"
-                    f":x=(w-tw)/2:y=h-80"
-                )
-                drawtext_filters.append(dt)
+            # SRT 생성 (subtitles 필터용)
+            srt_path = f"{project_dir}/media/subtitles/lyrics_test.srt"
+            write_srt(
+                [SubtitleLine(a.start, a.end, a.text) for a in aligned],
+                srt_path,
+            )
+            # /tmp에 복사 (경로 문제 방지)
+            import shutil
+            tmp_srt = "/tmp/subtitle_test.srt"
+            shutil.copy2(srt_path, tmp_srt)
 
-            # 필터 스크립트 파일로 저장 (패드 라벨 포함)
-            vf_chain = ",".join(drawtext_filters) if drawtext_filters else "null"
-            filter_graph = f"[0:v]{vf_chain}[vout]"
-            filter_script_path = f"{project_dir}/media/subtitles/filter_script.txt"
-            with open(filter_script_path, "w", encoding="utf-8") as fs:
-                fs.write(filter_graph)
-            filter_script_abs = os.path.abspath(filter_script_path)
-
-            print(f"  [SubTest] drawtext filters: {len(drawtext_filters)} lines")
+            print(f"  [SubTest] SRT: {len(aligned)} lines")
             print(f"  [SubTest] Audio: {audio_abs} (exists={os.path.exists(audio_abs)})")
 
-            cmd = [
+            render_ok = False
+
+            # --- 시도 1: subtitles= 필터 (libass) ---
+            force_style = "FontSize=48,Outline=2,Shadow=1,MarginV=60,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000"
+            cmd1 = [
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                 "-i", audio_abs,
-                "-filter_complex_script", filter_script_abs,
-                "-map", "[vout]", "-map", "1:a",
+                "-vf", f"subtitles={tmp_srt}:force_style='{force_style}'",
+                "-map", "0:v", "-map", "1:a",
                 "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
                 "-shortest",
                 out_abs,
             ]
+            print(f"  [SubTest] Try 1: subtitles= filter ({audio_duration:.0f}s)...")
+            r1 = subprocess.run(cmd1, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=timeout)
+            if r1.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                print(f"  [SubTest] subtitles= OK ({os.path.getsize(out_abs):,} bytes)")
+                render_ok = True
+            else:
+                print(f"  [SubTest] subtitles= failed: {r1.stderr[-500:]}")
 
-            print(f"  [SubTest] Rendering ({audio_duration:.0f}s, timeout={timeout}s)...")
-            result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                encoding='utf-8', errors='replace', timeout=timeout,
-            )
+            # --- 시도 2: drawtext 필터 (fontconfig) ---
+            if not render_ok:
+                drawtext_filters = []
+                for sub in aligned:
+                    escaped = sub.text.replace("'", "\u2019").replace("\\", "\\\\")
+                    escaped = escaped.replace(":", "\\:").replace("%", "%%")
+                    escaped = escaped.replace("[", "\\[").replace("]", "\\]")
+                    dt = (
+                        f"drawtext=text='{escaped}'"
+                        f":enable='between(t\\,{sub.start:.2f}\\,{sub.end:.2f})'"
+                        f":font='Noto Sans CJK KR'"
+                        f":fontsize=36:fontcolor=white:borderw=2:bordercolor=black"
+                        f":x=(w-tw)/2:y=h-80"
+                    )
+                    drawtext_filters.append(dt)
 
-            if result.returncode != 0:
-                print(f"  [SubTest] drawtext failed: {result.stderr[-800:]}")
-                # 폴백: 자막 없이 렌더 (음악만이라도 확인)
-                cmd_nosub = [
+                vf_str = ",".join(drawtext_filters) if drawtext_filters else "null"
+                cmd2 = [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
+                    "-i", audio_abs,
+                    "-vf", vf_str,
+                    "-map", "0:v", "-map", "1:a",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
+                    "-shortest",
+                    out_abs,
+                ]
+                print(f"  [SubTest] Try 2: drawtext filter ({len(drawtext_filters)} lines)...")
+                r2 = subprocess.run(cmd2, capture_output=True, text=True,
+                                    encoding='utf-8', errors='replace', timeout=timeout)
+                if r2.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                    print(f"  [SubTest] drawtext OK ({os.path.getsize(out_abs):,} bytes)")
+                    render_ok = True
+                else:
+                    print(f"  [SubTest] drawtext failed: {r2.stderr[-500:]}")
+
+            # --- 시도 3: 자막 없이 (음악만) ---
+            if not render_ok:
+                cmd3 = [
                     "ffmpeg", "-y",
                     "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                     "-i", audio_abs,
@@ -3451,18 +3479,17 @@ class MVPipeline:
                     "-shortest",
                     out_abs,
                 ]
-                result = subprocess.run(
-                    cmd_nosub, capture_output=True, text=True,
-                    encoding='utf-8', errors='replace', timeout=timeout,
-                )
-                if result.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                    print(f"  [SubTest] Rendered WITHOUT subtitles (drawtext failed)")
+                print(f"  [SubTest] Try 3: no subtitles (audio only)...")
+                r3 = subprocess.run(cmd3, capture_output=True, text=True,
+                                    encoding='utf-8', errors='replace', timeout=timeout)
+                if r3.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                    print(f"  [SubTest] audio-only OK")
                     project.current_step = "자막 테스트 완료"
-                    project.error_message = "Warning: drawtext failed, rendered audio-only"
+                    project.error_message = "Warning: subtitle filters unavailable, audio-only"
                 else:
-                    print(f"  [SubTest] FFmpeg completely failed: {result.stderr[-500:]}")
-                    project.error_message = f"Subtitle test render failed: {result.stderr[-300:]}"
-            elif os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                    project.error_message = f"Subtitle test render failed: FFmpeg error"
+
+            if render_ok:
                 print(f"  [SubTest] Test video: {out_abs} ({os.path.getsize(out_abs):,} bytes)")
                 project.current_step = "자막 테스트 완료"
             else:
