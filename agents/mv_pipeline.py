@@ -3389,9 +3389,8 @@ class MVPipeline:
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", f"color=c=black:s=1920x1080:d={audio_duration}:r=30",
                 "-i", audio_abs,
-                "-filter_complex",
-                f"[0:v]ass='{ass_escaped}'[v];[1:a]aresample=48000[a]",
-                "-map", "[v]", "-map", "[a]",
+                "-vf", f"ass={ass_escaped}",
+                "-map", "0:v", "-map", "1:a",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
                 "-shortest",
@@ -3400,6 +3399,9 @@ class MVPipeline:
 
             timeout = max(120, int(audio_duration * 3))
             print(f"  [SubTest] Rendering test video ({audio_duration:.0f}s, timeout={timeout}s)...")
+            print(f"  [SubTest] ASS path: {ass_abs} (exists={os.path.exists(ass_abs)})")
+            print(f"  [SubTest] Audio path: {audio_abs} (exists={os.path.exists(audio_abs)})")
+            print(f"  [SubTest] FFmpeg cmd: {' '.join(cmd[:8])}...")
 
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
