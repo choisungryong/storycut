@@ -3382,36 +3382,36 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # STT 세그먼트로 실제 보컬 구간 감지
-            # (music_analysis.segments는 템플릿 패턴이라 instrumental 구간 정보가 없음)
-            vocal_ranges = []
+            # STT 세그먼트로 실제 보컬 구간 감지 + 구간별 가사 밀도 기반 배분
+            # (music_analysis.segments는 템플릿 패턴이라 instrumental 정보 없음)
+            vocal_ranges = []  # [(start, end, stt_count), ...]
             if stt_segments:
                 sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
-                # 인접 STT 세그먼트를 병합 (5초 이내 갭은 같은 보컬 구간으로 취급)
+                # 인접 STT 세그먼트를 병합 (5초 이내 갭은 같은 보컬 구간)
                 GAP_TOLERANCE = 5.0
                 for seg in sorted_stt:
                     s = float(seg.get("start", 0))
                     e = float(seg.get("end", 0))
                     if vocal_ranges and s - vocal_ranges[-1][1] < GAP_TOLERANCE:
-                        vocal_ranges[-1] = (vocal_ranges[-1][0], max(vocal_ranges[-1][1], e))
+                        vocal_ranges[-1] = (vocal_ranges[-1][0], max(vocal_ranges[-1][1], e), vocal_ranges[-1][2] + 1)
                     else:
-                        vocal_ranges.append((s, e))
+                        vocal_ranges.append((s, e, 1))
                 print(f"  [SubTest] STT vocal ranges ({len(vocal_ranges)}):")
-                for vi, (vs, ve) in enumerate(vocal_ranges):
-                    print(f"    [{vi}] {vs:.1f}s ~ {ve:.1f}s ({ve-vs:.1f}s)")
+                for vi, (vs, ve, cnt) in enumerate(vocal_ranges):
+                    print(f"    [{vi}] {vs:.1f}s ~ {ve:.1f}s ({ve-vs:.1f}s, {cnt} STT segments)")
 
             if vocal_ranges and len(vocal_ranges) >= 2:
-                # 보컬 구간에만 가사 배치 (간주 건너뜀)
-                total_vocal_dur = sum(e - s for s, e in vocal_ranges)
+                # STT 세그먼트 COUNT 기반 비례 배분 (시간이 아닌 가창 밀도 반영)
+                total_stt_count = sum(cnt for _, _, cnt in vocal_ranges)
                 n = len(lines)
                 timeline = []
                 line_idx = 0
-                for vi, (vstart, vend) in enumerate(vocal_ranges):
+                for vi, (vstart, vend, cnt) in enumerate(vocal_ranges):
                     if line_idx >= n:
                         break
                     seg_dur = vend - vstart
-                    # 비례 배분
-                    seg_lines = max(1, round(n * seg_dur / total_vocal_dur))
+                    # STT 세그먼트 수 비례로 가사 줄 배분
+                    seg_lines = max(1, round(n * cnt / total_stt_count))
                     if vi == len(vocal_ranges) - 1:
                         seg_lines = n - line_idx
                     else:
@@ -3424,7 +3424,8 @@ class MVPipeline:
                         t_end = min(vstart + (si + 1) * sub_dur, vend)
                         timeline.append(SubtitleLine(t_start, t_end, txt))
                     line_idx += seg_lines
-                print(f"  [SubTest] STT vocal distribution: {len(lines)} lines across {len(vocal_ranges)} vocal sections ({total_vocal_dur:.0f}s vocal)")
+                    print(f"    Section [{vi}]: {len(sub)} lines assigned ({cnt} STT segs)")
+                print(f"  [SubTest] STT count-based distribution: {len(lines)} lines, {total_stt_count} STT segments across {len(vocal_ranges)} sections")
             else:
                 # STT 없거나 단일 구간이면 전체 균등 분배
                 actual_start = anchor_info.anchor_start
