@@ -3311,8 +3311,8 @@ class MVPipeline:
 
     def subtitle_test(self, project: MVProject) -> MVProject:
         """
-        이미지 생성 없이 음악 + ASS 자막만 프리뷰하는 테스트 모드.
-        검은 배경 영상에 자막을 burn-in하여 빠른 싱크 확인.
+        이미지 생성 없이 음악 + 자막만 프리뷰하는 테스트 모드.
+        compose_video와 동일한 ASS(pysubs2) + subtitles= 방식 사용.
         """
         import subprocess
 
@@ -3328,24 +3328,24 @@ class MVPipeline:
         self._save_manifest(project, project_dir)
 
         try:
-            # 1. 캐시된 STT가 있으면 사용, 없으면 STT 실행 후 캐시
+            # ── Step 1: STT (캐시 또는 실행) ──
             stt_segments = getattr(project, 'stt_segments', None)
             if stt_segments:
                 print(f"  [SubTest] Using cached STT ({len(stt_segments)} segments)")
             else:
-                print(f"  [SubTest] Running Gemini Audio STT (first time, will cache)...")
-                project.current_step = "음성 인식 중 (첫 테스트만 소요)..."
+                print(f"  [SubTest] Running Gemini Audio STT...")
+                project.current_step = "음성 인식 중..."
                 self._save_manifest(project, project_dir)
                 stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
                     project.music_file_path
                 )
                 if stt_segments:
                     project.stt_segments = stt_segments
-                    print(f"  [SubTest] Got {len(stt_segments)} STT segments (cached)")
+                    print(f"  [SubTest] STT: {len(stt_segments)} segments")
                 else:
-                    print(f"  [SubTest] STT failed - falling back to approximate timing")
+                    print(f"  [SubTest] STT failed, using approximate timing")
 
-            # 2. 앵커 추정
+            # ── Step 2: 앵커 추정 ──
             segments = None
             if project.music_analysis and project.music_analysis.segments:
                 segments = project.music_analysis.segments
@@ -3357,25 +3357,32 @@ class MVPipeline:
             )
             print(f"  [SubTest] Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s]")
 
-            # 3. 정렬
+            # ── Step 3: 가사 정렬 ──
             lines = split_lyrics_lines(user_lyrics_text)
+            print(f"  [SubTest] Lyrics: {len(lines)} lines (after filtering)")
+
             if stt_segments:
                 aligned = align_lyrics_with_stt(
                     lines, stt_segments,
                     anchor_info.anchor_start, anchor_info.anchor_end,
                 )
+                avg_conf = sum(a.confidence for a in aligned) / len(aligned) if aligned else 0
+                print(f"  [SubTest] STT alignment: {len(aligned)} lines, avg_conf={avg_conf:.0f}")
             else:
-                # STT 없이 근사 타이밍 (가사를 균등 분배)
                 timeline = clamp_timeline_anchored(
                     lines, anchor_info.anchor_start, anchor_info.anchor_end
                 )
                 aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+                print(f"  [SubTest] Uniform alignment: {len(aligned)} lines")
 
-            print(f"  [SubTest] Aligned {len(aligned)} lines:")
-            for ai, a in enumerate(aligned[:5]):
-                print(f"    [{ai}] {a.start:.1f}s-{a.end:.1f}s conf={a.confidence:.0f} '{a.text[:30]}'")
-            if len(aligned) > 5:
-                print(f"    ... ({len(aligned) - 5} more)")
+            # 디버그: 처음/마지막 몇 줄 출력
+            for ai, a in enumerate(aligned[:3]):
+                print(f"    [{ai}] {a.start:.1f}s-{a.end:.1f}s conf={a.confidence:.0f} '{a.text[:40]}'")
+            if len(aligned) > 6:
+                print(f"    ... ({len(aligned) - 6} more)")
+            for ai in range(max(3, len(aligned) - 3), len(aligned)):
+                a = aligned[ai]
+                print(f"    [{ai}] {a.start:.1f}s-{a.end:.1f}s conf={a.confidence:.0f} '{a.text[:40]}'")
 
             # alignment.json 저장
             project.aligned_lyrics = [
@@ -3386,135 +3393,88 @@ class MVPipeline:
             with open(alignment_path, "w", encoding="utf-8") as af:
                 json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
 
-            # 4. 검은 배경 영상 + 음악 + 자막 -> 테스트 영상
+            # ── Step 4: ASS 자막 파일 생성 (compose_video와 동일 방식) ──
+            ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
+            write_ass(aligned, ass_path)
+            print(f"  [SubTest] ASS file: {len(aligned)} events -> {ass_path}")
+
+            # ── Step 5: 검은 배경 + 음악 + 자막 렌더링 ──
             audio_duration = ffprobe_duration_sec(project.music_file_path)
             audio_abs = os.path.abspath(project.music_file_path)
             out_path = f"{project_dir}/final_mv_subtitle_test.mp4"
             out_abs = os.path.abspath(out_path)
 
-            timeout = max(120, int(audio_duration * 3))
+            # 먼저 검은 배경 + 음악만 있는 베이스 영상 생성
+            base_path = f"{project_dir}/media/subtitles/_base_black.mp4"
+            base_abs = os.path.abspath(base_path)
+
             project.current_step = "자막 영상 렌더링 중..."
             self._save_manifest(project, project_dir)
 
-            print(f"  [SubTest] Audio: {audio_abs} (exists={os.path.exists(audio_abs)})")
-
-            render_ok = False
-            per_attempt_timeout = min(90, timeout)
-
-            # --- drawtext 필터로 자막 렌더링 (filter_script 파일 사용) ---
-            font_path = self._find_cjk_font()
-            drawtext_filters = []
-            for sub in aligned:
-                # drawtext 텍스트 이스케이핑 (FFmpeg filter syntax)
-                escaped = sub.text
-                escaped = escaped.replace("\\", "\\\\\\\\")  # \ -> \\\\
-                escaped = escaped.replace("'", "\u2019")       # ' -> 유니코드 대체
-                escaped = escaped.replace(";", "\\;")
-                escaped = escaped.replace(":", "\\:")
-                escaped = escaped.replace("%", "%%%%")
-                dt = (
-                    f"drawtext=text='{escaped}'"
-                    f":enable='between(t,{sub.start:.2f},{sub.end:.2f})'"
-                    f":fontfile='{font_path}'"
-                    f":fontsize=36:fontcolor=white:borderw=2:bordercolor=black"
-                    f":x=(w-tw)/2:y=h-80"
-                )
-                drawtext_filters.append(dt)
-
-            # filter_complex_script 파일로 저장 (커맨드라인 길이 + 이스케이핑 문제 방지)
-            vf_chain = ",\n".join(drawtext_filters) if drawtext_filters else "null"
-            filter_graph = f"[0:v]{vf_chain}[vout]"
-            filter_script_path = f"{project_dir}/media/subtitles/filter_script.txt"
-            with open(filter_script_path, "w", encoding="utf-8") as fs:
-                fs.write(filter_graph)
-
-            print(f"  [SubTest] drawtext: {len(drawtext_filters)} lines, font={font_path}")
-
-            cmd = [
+            timeout = max(120, int(audio_duration * 3))
+            cmd_base = [
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                 "-i", audio_abs,
-                "-filter_complex_script", os.path.abspath(filter_script_path),
-                "-map", "[vout]", "-map", "1:a",
+                "-map", "0:v", "-map", "1:a",
                 "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
                 "-shortest",
+                base_abs,
+            ]
+            print(f"  [SubTest] Creating base video ({audio_duration:.0f}s)...")
+            r_base = subprocess.run(cmd_base, capture_output=True, text=True,
+                                    encoding='utf-8', errors='replace', timeout=timeout)
+            if r_base.returncode != 0:
+                project.error_message = f"Base video creation failed: {r_base.stderr[-200:]}"
+                self._save_manifest(project, project_dir)
+                return project
+
+            # overlay_subtitles와 동일한 방식으로 자막 burn-in
+            ass_path_abs = os.path.abspath(ass_path)
+            ass_escaped = ass_path_abs.replace("\\", "/").replace(":", "\\:")
+
+            import platform as _pf
+            if _pf.system() == "Linux":
+                default_font = "Noto Sans CJK KR"
+            else:
+                default_font = "Malgun Gothic"
+
+            force_style = (
+                f"FontName={default_font},"
+                f"FontSize=42,"
+                f"PrimaryColour=&HFFFFFF,"
+                f"OutlineColour=&H000000,"
+                f"Outline=2,"
+                f"Shadow=1,"
+                f"MarginV=40"
+            )
+            vf_filter = f"subtitles='{ass_escaped}':force_style='{force_style}'"
+
+            cmd_sub = [
+                "ffmpeg", "-y",
+                "-loglevel", "warning",
+                "-i", base_abs,
+                "-vf", vf_filter,
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                "-c:a", "copy",
                 out_abs,
             ]
-            print(f"  [SubTest] Rendering ({audio_duration:.0f}s)...")
-            try:
-                r = subprocess.run(cmd, capture_output=True, text=True,
-                                   encoding='utf-8', errors='replace', timeout=per_attempt_timeout)
-                if r.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                    print(f"  [SubTest] drawtext OK ({os.path.getsize(out_abs):,} bytes)")
-                    render_ok = True
-                else:
-                    print(f"  [SubTest] drawtext FAILED: {r.stderr[-500:]}")
-            except subprocess.TimeoutExpired:
-                print(f"  [SubTest] drawtext timed out")
+            print(f"  [SubTest] Burning subtitles (ASS + subtitles= filter)...")
+            print(f"  [SubTest] Filter: {vf_filter[:100]}...")
+            r_sub = subprocess.run(cmd_sub, capture_output=True, text=True,
+                                   encoding='utf-8', errors='replace', timeout=timeout)
 
-            # --- 폴백: subtitles= 필터 (SRT) ---
-            if not render_ok:
-                srt_path = f"{project_dir}/media/subtitles/lyrics_test.srt"
-                write_srt(
-                    [SubtitleLine(a.start, a.end, a.text) for a in aligned],
-                    srt_path,
-                )
-                import shutil
-                tmp_srt = "/tmp/subtitle_test.srt"
-                shutil.copy2(srt_path, tmp_srt)
-                cmd2 = [
-                    "ffmpeg", "-y",
-                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
-                    "-i", audio_abs,
-                    "-vf", f"subtitles={tmp_srt}",
-                    "-map", "0:v", "-map", "1:a",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
-                    "-shortest",
-                    out_abs,
-                ]
-                print(f"  [SubTest] Fallback: subtitles= filter...")
-                try:
-                    r2 = subprocess.run(cmd2, capture_output=True, text=True,
-                                        encoding='utf-8', errors='replace', timeout=per_attempt_timeout)
-                    if r2.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                        print(f"  [SubTest] subtitles= OK ({os.path.getsize(out_abs):,} bytes)")
-                        render_ok = True
-                    else:
-                        print(f"  [SubTest] subtitles= FAILED: {r2.stderr[-300:]}")
-                except subprocess.TimeoutExpired:
-                    print(f"  [SubTest] subtitles= timed out")
-
-            # --- 최후 폴백: 자막 없이 ---
-            if not render_ok:
-                cmd3 = [
-                    "ffmpeg", "-y",
-                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
-                    "-i", audio_abs,
-                    "-map", "0:v", "-map", "1:a",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
-                    "-shortest",
-                    out_abs,
-                ]
-                print(f"  [SubTest] Last fallback: audio only...")
-                try:
-                    r3 = subprocess.run(cmd3, capture_output=True, text=True,
-                                        encoding='utf-8', errors='replace', timeout=per_attempt_timeout)
-                    if r3.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                        project.current_step = "자막 테스트 완료"
-                        project.error_message = "Warning: subtitle render failed, audio-only"
-                    else:
-                        project.error_message = "Subtitle test render failed"
-                except subprocess.TimeoutExpired:
-                    project.error_message = "Subtitle test timed out"
-
-            if render_ok:
-                print(f"  [SubTest] Test video: {out_abs} ({os.path.getsize(out_abs):,} bytes)")
+            if r_sub.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                print(f"  [SubTest] Subtitle burn-in OK ({os.path.getsize(out_abs):,} bytes)")
                 project.current_step = "자막 테스트 완료"
             else:
-                project.error_message = "Subtitle test output too small or missing"
+                print(f"  [SubTest] Subtitle burn-in FAILED: {r_sub.stderr[-500:]}")
+                # 폴백: 자막 없이 베이스 영상 사용
+                import shutil
+                shutil.copy2(base_abs, out_abs)
+                project.current_step = "자막 테스트 완료"
+                project.error_message = f"Subtitle rendering failed, audio-only: {r_sub.stderr[-200:]}"
 
         except Exception as e:
             project.error_message = f"Subtitle test failed: {str(e)}"
