@@ -2569,9 +2569,17 @@ class StorycutApp {
                 subtitle_enabled: document.getElementById('mv-subtitle-enabled')?.checked !== false
             };
 
-            // 분석 결과 저장 (나중에 필요할 수 있으므로)
+            // 분석 결과 저장
             this.renderMVAnalysisResult(result);
-            // 분석 페이지 스킵 → 바로 생성 시작
+
+            // 자막만 테스트 모드: 이미지 생성 없이 자막 테스트 실행
+            if (document.getElementById('mv-subtitle-only')?.checked) {
+                this.showSection('mv-analysis');
+                this.mvSubtitleTest();
+                return;
+            }
+
+            // 일반 모드: 바로 생성 시작
             this.startMVGeneration();
 
         } catch (error) {
