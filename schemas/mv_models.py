@@ -303,6 +303,9 @@ class MVProject(BaseModel):
     # 사용자 편집 가사 타이밍 (timed_lyrics보다 우선)
     edited_timed_lyrics: Optional[List[Dict[str, Any]]] = Field(None, description="사용자 편집 타임스탬프 가사 [{t: 초, text: 가사}]")
 
+    # 원본 가사 + Gemini 타이밍 매칭 결과 (subtitle_test/compose에서 최우선 사용)
+    synced_lyrics: Optional[List[Dict[str, Any]]] = Field(None, description="원본 가사+Gemini 타이밍 매칭 [{t: 초, text: 원본가사}]")
+
     # STT 정렬 데이터
     stt_segments: Optional[List[Dict[str, Any]]] = Field(None, description="Gemini STT 세그먼트 [{start, end, text}]")
     aligned_lyrics: Optional[List[Dict[str, Any]]] = Field(None, description="정렬된 가사 [{t, end, text, confidence}]")

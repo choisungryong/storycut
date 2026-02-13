@@ -3362,95 +3362,93 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # ── Step 2: STT 기반 직접 매핑 ──
-            # STT 세그먼트는 보컬 구간만 포함 (간주에는 없음)
-            # 가사를 STT 세그먼트에 순서대로 매핑하면 간주 자동 건너뜀
-            project.current_step = "음성 인식 중..."
+            # ── Step 2: timed_lyrics(Gemini 타이밍) + 원본 가사 매칭 ──
+            # Gemini가 추출한 timed_lyrics: 타이밍 정확, 텍스트 부정확
+            # 사용자 원본 가사(lines): 텍스트 정확, 타이밍 없음
+            # → 텍스트 유사도로 매칭하여 synced_lyrics 생성
+            project.current_step = "가사 싱크 매칭 중..."
             self._save_manifest(project, project_dir)
 
-            stt_segments = getattr(project, 'stt_segments', None)
-            if not stt_segments:
-                print(f"  [SubTest] Running Gemini Audio STT...")
-                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
-                    project.music_file_path
-                )
-                if stt_segments:
-                    project.stt_segments = stt_segments
-                    self._save_manifest(project, project_dir)
-                    print(f"  [SubTest] STT: {len(stt_segments)} segments")
-            else:
-                print(f"  [SubTest] Using cached STT ({len(stt_segments)} segments)")
+            timed = None
+            if project.music_analysis and project.music_analysis.timed_lyrics:
+                timed = project.music_analysis.timed_lyrics
+                print(f"  [SubTest] timed_lyrics: {len(timed)} entries")
 
-            if stt_segments and len(stt_segments) >= 2:
-                sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
+            if timed and len(timed) >= 2:
+                import difflib
 
-                # ── 글자 수 기반 타임라인 매핑 ──
-                # STT 텍스트의 각 글자에 시간을 부여하고,
-                # 가사 글자 수에 비례하여 타임라인을 결정.
-                # 한글 1글자 = 약 1음절이므로 노래 길이와 잘 대응됨.
+                def norm(text):
+                    return text.replace(" ", "").replace(",", "").replace(".", "").lower()
 
-                # 1) STT 글자별 타임스탬프 생성
-                stt_char_times = []  # [(time, seg_idx), ...]
-                for si, seg in enumerate(sorted_stt):
-                    text = seg.get("text", "").strip().replace(" ", "")
-                    s = float(seg["start"])
-                    e = float(seg["end"])
-                    n_ch = max(1, len(text))
-                    for ci in range(n_ch):
-                        t = s + (e - s) * ci / n_ch
-                        stt_char_times.append(t)
-                    # 세그먼트 끝 시간도 추가 (마지막 글자의 끝)
-                stt_total_chars = len(stt_char_times)
+                # timed_lyrics 엔트리 정리 (빈 텍스트 제거, 시간순 정렬)
+                timed_clean = [
+                    {"t": float(e.get("t", 0)), "text": e.get("text", "").strip()}
+                    for e in timed if e.get("text", "").strip()
+                ]
+                timed_clean.sort(key=lambda e: e["t"])
 
-                # 2) 가사 글자 수 계산 (공백 제외)
-                lyrics_char_counts = [len(line.replace(" ", "")) for line in lines]
-                lyrics_total_chars = sum(lyrics_char_counts)
+                n_lines = len(lines)
+                n_timed = len(timed_clean)
+                print(f"  [SubTest] Matching {n_lines} lyrics lines -> {n_timed} timed entries")
 
-                print(f"  [SubTest] STT chars: {stt_total_chars}, Lyrics chars: {lyrics_total_chars}")
-                print(f"  [SubTest] STT segments: {len(sorted_stt)}, range: {sorted_stt[0]['start']}s ~ {sorted_stt[-1]['end']}s")
-
-                # 3) 글자 비율로 타임라인 매핑
-                ratio = stt_total_chars / max(1, lyrics_total_chars)
+                # 순방향 매칭: 각 원본 가사 줄을 timed 엔트리에 매칭
                 timeline = []
-                char_pos = 0
+                timed_cursor = 0
 
-                for i, txt in enumerate(lines):
-                    line_chars = lyrics_char_counts[i]
-                    start_idx = int(char_pos * ratio)
-                    end_idx = int((char_pos + line_chars) * ratio) - 1
+                for li, lyric_line in enumerate(lines):
+                    norm_lyric = norm(lyric_line)
+                    best_score = -1
+                    best_idx = timed_cursor
 
-                    start_idx = max(0, min(start_idx, stt_total_chars - 1))
-                    end_idx = max(start_idx, min(end_idx, stt_total_chars - 1))
+                    # 탐색 범위: 현재 커서부터 적절한 범위
+                    search_end = min(n_timed, timed_cursor + max(5, (n_timed - timed_cursor) // max(1, n_lines - li) * 3 + 3))
 
-                    t_start = stt_char_times[start_idx]
-                    t_end = stt_char_times[end_idx]
+                    # 단일 엔트리 매칭
+                    for ti in range(timed_cursor, search_end):
+                        score = difflib.SequenceMatcher(None, norm_lyric, norm(timed_clean[ti]["text"])).ratio()
+                        if score > best_score:
+                            best_score = score
+                            best_idx = ti
 
-                    # end를 해당 STT 세그먼트의 실제 끝 시간으로 확장
-                    # (글자 중간이 아닌 세그먼트 끝까지)
-                    for seg in sorted_stt:
-                        seg_e = float(seg["end"])
-                        if seg_e >= t_end:
-                            t_end = min(seg_e, t_end + 1.0)
-                            break
+                    # 연속 2개 엔트리 합쳐서 매칭 (한 가사 줄이 2개 timed로 나뉜 경우)
+                    for ti in range(timed_cursor, min(search_end - 1, n_timed - 1)):
+                        combined = timed_clean[ti]["text"] + timed_clean[ti + 1]["text"]
+                        score = difflib.SequenceMatcher(None, norm_lyric, norm(combined)).ratio()
+                        if score > best_score:
+                            best_score = score
+                            best_idx = ti
+
+                    t_start = timed_clean[best_idx]["t"]
+                    # 끝 시간: 다음 엔트리 시작 또는 +3초
+                    if best_idx + 1 < n_timed:
+                        t_end = timed_clean[best_idx + 1]["t"]
+                    else:
+                        t_end = t_start + 3.0
 
                     # 최소 표시 시간
-                    if t_end - t_start < 0.5:
+                    if t_end - t_start < 0.3:
                         t_end = t_start + 0.5
 
-                    timeline.append(SubtitleLine(t_start, t_end, txt))
-                    char_pos += line_chars
+                    timeline.append(SubtitleLine(t_start, t_end, lyric_line))
+                    timed_cursor = best_idx + 1
 
-                print(f"  [SubTest] Char-based mapping: {len(lines)} lines, ratio={ratio:.2f}")
-                print(f"  [SubTest] Time range: {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
+                    print(f"    [{li:2d}] {t_start:6.1f}s-{t_end:6.1f}s  score={best_score:.2f}  '{lyric_line[:30]}' <- '{timed_clean[best_idx]['text'][:30]}'")
 
-                # 간주 갭 진단
+                # synced_lyrics 저장 (캐시)
+                project.synced_lyrics = [
+                    {"t": s.start, "text": s.text} for s in timeline
+                ]
+                self._save_manifest(project, project_dir)
+
+                print(f"  [SubTest] Sync complete: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
                 for ti in range(1, len(timeline)):
                     gap = timeline[ti].start - timeline[ti-1].end
                     if gap > 3.0:
-                        print(f"    [GAP] {gap:.1f}s break before line {ti} ({timeline[ti-1].end:.1f}s -> {timeline[ti].start:.1f}s)")
+                        print(f"    [GAP] {gap:.1f}s instrumental before line {ti}")
             else:
-                # STT 실패 시 균등 분배 fallback
-                print(f"  [SubTest] STT unavailable, falling back to uniform distribution")
+                # timed_lyrics 없으면 균등 분배 fallback
+                print(f"  [SubTest] No timed_lyrics available, falling back to uniform distribution")
+                audio_duration = ffprobe_duration_sec(project.music_file_path)
                 segments = None
                 if project.music_analysis and project.music_analysis.segments:
                     segments = project.music_analysis.segments
