@@ -3361,7 +3361,18 @@ class MVPipeline:
                 user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
                 user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
             )
-            print(f"  [SubTest] Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s]")
+            print(f"  [SubTest] Anchor (music analysis): [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s] method={anchor_info.method}")
+
+            # STT 앵커 보정: STT가 실제 보컬 타이밍을 더 정확히 감지
+            if stt_segments:
+                stt_start = min(float(s.get("start", 9999)) for s in stt_segments)
+                stt_end = max(float(s.get("end", 0)) for s in stt_segments)
+                # STT가 더 넓은 범위를 감지하면 앵커 확장 (1초 버퍼 포함)
+                new_start = min(anchor_info.anchor_start, max(0, stt_start - 1.0))
+                new_end = max(anchor_info.anchor_end, stt_end + 1.0)
+                if new_start != anchor_info.anchor_start or new_end != anchor_info.anchor_end:
+                    print(f"  [SubTest] STT anchor correction: [{new_start:.1f}s ~ {new_end:.1f}s] (stt: {stt_start:.1f}-{stt_end:.1f})")
+                    anchor_info = AnchorResult(new_start, new_end, anchor_info.method + "+stt")
 
             # ── Step 3: 가사 정렬 ──
             lines = split_lyrics_lines(user_lyrics_text)
@@ -3399,30 +3410,13 @@ class MVPipeline:
                 use_uniform = True
 
             if use_uniform:
-                # 보컬 세그먼트 정보가 있으면 간주 구간을 건너뛰고 분배
-                seg_data = None
-                if project.music_analysis and project.music_analysis.segments:
-                    seg_data = project.music_analysis.segments
-                if seg_data:
-                    timeline = clamp_timeline_vocal_segments(
-                        lines, seg_data,
-                        anchor_info.anchor_start, anchor_info.anchor_end
-                    )
-                    print(f"  [SubTest] Vocal-segment distribution: {len(timeline)} lines (skipping instrumentals)")
-                else:
-                    timeline = clamp_timeline_anchored(
-                        lines, anchor_info.anchor_start, anchor_info.anchor_end
-                    )
-                    print(f"  [SubTest] Uniform distribution (no segment data)")
+                # 균등 분배: 전체 앵커 범위에 걸쳐 분배 (세그먼트 정확도를 신뢰하지 않음)
+                timeline = clamp_timeline_anchored(
+                    lines, anchor_info.anchor_start, anchor_info.anchor_end
+                )
                 aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
-            else:
-                # STT 정렬 결과도 간주 구간 보정 적용
-                if project.music_analysis and project.music_analysis.segments:
-                    aligned = snap_away_from_instrumental(
-                        aligned, project.music_analysis.segments,
-                        anchor_info.anchor_start, anchor_info.anchor_end,
-                    )
-                    print(f"  [SubTest] Snapped STT alignment away from instrumental sections")
+                print(f"  [SubTest] Uniform distribution: {len(aligned)} lines over {anchor_info.anchor_start:.1f}s-{anchor_info.anchor_end:.1f}s")
+            # STT 정렬 결과는 그대로 신뢰 (snap 하지 않음 - STT가 실제 보컬 타이밍을 가장 정확히 앎)
 
             # 디버그: 전체 정렬 결과 출력
             for ai, a in enumerate(aligned):
