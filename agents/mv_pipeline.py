@@ -3347,7 +3347,9 @@ class MVPipeline:
                 )
                 if stt_segments:
                     project.stt_segments = stt_segments
-                    print(f"  [SubTest] STT: {len(stt_segments)} segments")
+                    # STT 완료 즉시 매니페스트 저장 (이후 단계 실패해도 캐시 유지)
+                    self._save_manifest(project, project_dir)
+                    print(f"  [SubTest] STT: {len(stt_segments)} segments (cached)")
                 else:
                     print(f"  [SubTest] STT failed, using approximate timing")
 
