@@ -138,6 +138,21 @@ function renderUserHeader(user) {
     header.insertBefore(userInfo, header.firstChild);
 }
 
+// 글로벌 토스트 (auth.js 독립 사용)
+function _authToast(message, type = 'error') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+}
+
 async function fetchCreditBalance() {
     const token = localStorage.getItem('token');
     if (!token) return null;
@@ -152,6 +167,11 @@ async function fetchCreditBalance() {
                 // 토큰 만료 → 로그아웃
                 logout();
                 return null;
+            }
+            // 세션당 1회만 알림 (반복 방지)
+            if (!window._creditErrorShown) {
+                window._creditErrorShown = true;
+                _authToast(`크레딧 서비스 연결 실패 (${res.status}). 크레딧 차감 없이 진행됩니다.`, 'error');
             }
             return null;
         }
@@ -170,7 +190,10 @@ async function fetchCreditBalance() {
 
         return data;
     } catch (err) {
-        console.warn('Failed to fetch credit balance:', err);
+        if (!window._creditErrorShown) {
+            window._creditErrorShown = true;
+            _authToast('크레딧 서비스에 연결할 수 없습니다. 크레딧 차감 없이 진행됩니다.', 'error');
+        }
         return null;
     }
 }
