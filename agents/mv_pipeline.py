@@ -3377,19 +3377,35 @@ class MVPipeline:
             with open(alignment_path, "w", encoding="utf-8") as af:
                 json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
 
-            # 4. 검은 배경 영상 + 음악 + ASS 자막 -> 테스트 영상
+            # 4. SRT 생성 (ASS보다 호환성 높음)
+            srt_path = f"{project_dir}/media/subtitles/lyrics_test.srt"
+            write_srt(
+                [SubtitleLine(a.start, a.end, a.text) for a in aligned],
+                srt_path,
+            )
+            print(f"  [SubTest] SRT: {len(aligned)} lines -> {srt_path}")
+
+            # 5. 검은 배경 영상 + 음악 + 자막 -> 테스트 영상
             audio_duration = ffprobe_duration_sec(project.music_file_path)
             audio_abs = os.path.abspath(project.music_file_path)
-            ass_abs = os.path.abspath(ass_path)
-            ass_escaped = ass_abs.replace("\\", "/").replace(":", "\\:")
+            srt_abs = os.path.abspath(srt_path)
+            srt_escaped = srt_abs.replace("\\", "/").replace(":", "\\:")
             out_path = f"{project_dir}/final_mv_subtitle_test.mp4"
             out_abs = os.path.abspath(out_path)
 
+            # 자막 스타일 (SRT + subtitles= 필터)
+            force_style = "FontSize=48,Outline=2,Shadow=1,MarginV=60,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000"
+
+            timeout = max(120, int(audio_duration * 3))
+            print(f"  [SubTest] SRT: {srt_abs} (exists={os.path.exists(srt_abs)})")
+            print(f"  [SubTest] Audio: {audio_abs} (exists={os.path.exists(audio_abs)})")
+
+            # 시도 1: subtitles= 필터 (SRT)
             cmd = [
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", f"color=c=black:s=1920x1080:d={audio_duration}:r=30",
                 "-i", audio_abs,
-                "-vf", f"ass={ass_escaped}",
+                "-vf", f"subtitles={srt_escaped}:force_style='{force_style}'",
                 "-map", "0:v", "-map", "1:a",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
@@ -3397,20 +3413,37 @@ class MVPipeline:
                 out_abs,
             ]
 
-            timeout = max(120, int(audio_duration * 3))
-            print(f"  [SubTest] Rendering test video ({audio_duration:.0f}s, timeout={timeout}s)...")
-            print(f"  [SubTest] ASS path: {ass_abs} (exists={os.path.exists(ass_abs)})")
-            print(f"  [SubTest] Audio path: {audio_abs} (exists={os.path.exists(audio_abs)})")
-            print(f"  [SubTest] FFmpeg cmd: {' '.join(cmd[:8])}...")
-
+            print(f"  [SubTest] Rendering ({audio_duration:.0f}s, timeout={timeout}s)...")
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 encoding='utf-8', errors='replace', timeout=timeout,
             )
 
+            # subtitles= 실패 시 자막 없이 시도 (음악만이라도 확인 가능)
             if result.returncode != 0:
-                print(f"  [SubTest] FFmpeg failed: {result.stderr[-500:]}")
-                project.error_message = f"Subtitle test render failed: {result.stderr[-200:]}"
+                print(f"  [SubTest] subtitles= filter failed, trying without subtitles...")
+                print(f"  [SubTest] stderr: {result.stderr[-800:]}")
+                cmd_nosub = [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi", "-i", f"color=c=black:s=1920x1080:d={audio_duration}:r=30",
+                    "-i", audio_abs,
+                    "-map", "0:v", "-map", "1:a",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+                    "-shortest",
+                    out_abs,
+                ]
+                result = subprocess.run(
+                    cmd_nosub, capture_output=True, text=True,
+                    encoding='utf-8', errors='replace', timeout=timeout,
+                )
+                if result.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                    print(f"  [SubTest] Rendered WITHOUT subtitles (filter not available)")
+                    project.current_step = "자막 테스트 완료"
+                    project.error_message = "Warning: subtitles filter unavailable, rendered audio-only test"
+                else:
+                    print(f"  [SubTest] FFmpeg completely failed: {result.stderr[-500:]}")
+                    project.error_message = f"Subtitle test render failed: {result.stderr[-300:]}"
             elif os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
                 print(f"  [SubTest] Test video: {out_abs} ({os.path.getsize(out_abs):,} bytes)")
                 project.current_step = "자막 테스트 완료"
