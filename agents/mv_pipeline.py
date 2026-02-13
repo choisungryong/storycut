@@ -3362,51 +3362,59 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # ── Step 2: Forced Alignment (가사+오디오 → 줄별 정확한 타이밍) ──
-            project.current_step = "가사 싱크 분석 중..."
+            # ── Step 2: STT 기반 직접 매핑 ──
+            # STT 세그먼트는 보컬 구간만 포함 (간주에는 없음)
+            # 가사를 STT 세그먼트에 순서대로 매핑하면 간주 자동 건너뜀
+            project.current_step = "음성 인식 중..."
             self._save_manifest(project, project_dir)
 
-            alignment_result = self.music_analyzer.align_lyrics_to_audio(
-                project.music_file_path, lines
-            )
+            stt_segments = getattr(project, 'stt_segments', None)
+            if not stt_segments:
+                print(f"  [SubTest] Running Gemini Audio STT...")
+                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
+                    project.music_file_path
+                )
+                if stt_segments:
+                    project.stt_segments = stt_segments
+                    self._save_manifest(project, project_dir)
+                    print(f"  [SubTest] STT: {len(stt_segments)} segments")
+            else:
+                print(f"  [SubTest] Using cached STT ({len(stt_segments)} segments)")
 
-            if alignment_result and len(alignment_result) >= len(lines) * 0.7:
-                # Forced alignment 성공 (70% 이상 매칭)
-                # 누락된 줄이 있으면 인접 타이밍으로 보간
-                aligned_map = {entry["index"]: entry for entry in alignment_result}
+            if stt_segments and len(stt_segments) >= 2:
+                sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
+                n_lines = len(lines)
+                n_stt = len(sorted_stt)
+
+                # STT 세그먼트를 가사 줄에 순서대로 매핑
+                # n_stt개 세그먼트 → n_lines개 줄 (비례 배분)
                 timeline = []
                 for i, txt in enumerate(lines):
-                    if i in aligned_map:
-                        entry = aligned_map[i]
-                        timeline.append(SubtitleLine(entry["start"], entry["end"], txt))
-                    else:
-                        # 인접 줄의 타이밍으로 보간
-                        prev_end = timeline[-1].end if timeline else 0
-                        next_entry = None
-                        for j in range(i + 1, len(lines)):
-                            if j in aligned_map:
-                                next_entry = aligned_map[j]
-                                break
-                        if next_entry:
-                            gap = next_entry["start"] - prev_end
-                            t_start = prev_end
-                            t_end = prev_end + max(0.5, gap * 0.5)
-                        else:
-                            t_start = prev_end
-                            t_end = prev_end + 2.0
-                        timeline.append(SubtitleLine(t_start, t_end, txt))
+                    # 이 가사 줄이 커버하는 STT 세그먼트 범위
+                    seg_start_idx = int(i * n_stt / n_lines)
+                    seg_end_idx = max(seg_start_idx, int((i + 1) * n_stt / n_lines) - 1)
+                    seg_end_idx = min(seg_end_idx, n_stt - 1)
 
-                print(f"  [SubTest] Forced alignment: {len(alignment_result)}/{len(lines)} lines matched")
+                    t_start = float(sorted_stt[seg_start_idx]["start"])
+                    t_end = float(sorted_stt[seg_end_idx]["end"])
+
+                    # 최소 표시 시간 보장
+                    if t_end - t_start < 0.3:
+                        t_end = t_start + max(0.5, float(sorted_stt[seg_start_idx]["end"]) - t_start)
+
+                    timeline.append(SubtitleLine(t_start, t_end, txt))
+
+                print(f"  [SubTest] STT direct mapping: {n_lines} lines -> {n_stt} STT segments")
+                print(f"  [SubTest] Time range: {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
+
                 # 간주 갭 진단
                 for ti in range(1, len(timeline)):
                     gap = timeline[ti].start - timeline[ti-1].end
                     if gap > 3.0:
-                        print(f"    [GAP] {gap:.1f}s instrumental break between line {ti-1} ({timeline[ti-1].end:.1f}s) and line {ti} ({timeline[ti].start:.1f}s)")
+                        print(f"    [GAP] {gap:.1f}s break between line {ti-1} ({timeline[ti-1].end:.1f}s) and line {ti} ({timeline[ti].start:.1f}s)")
             else:
-                # Fallback: 균등 분배
-                print(f"  [SubTest] Forced alignment failed or insufficient, falling back to uniform")
-                audio_duration = ffprobe_duration_sec(project.music_file_path)
-                # 앵커 추정
+                # STT 실패 시 균등 분배 fallback
+                print(f"  [SubTest] STT unavailable, falling back to uniform distribution")
                 segments = None
                 if project.music_analysis and project.music_analysis.segments:
                     segments = project.music_analysis.segments
