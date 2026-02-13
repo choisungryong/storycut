@@ -3354,49 +3354,7 @@ class MVPipeline:
         self._save_manifest(project, project_dir)
 
         try:
-            # ── Step 1: STT (캐시 또는 실행) ──
-            stt_segments = getattr(project, 'stt_segments', None)
-            if stt_segments:
-                print(f"  [SubTest] Using cached STT ({len(stt_segments)} segments)")
-            else:
-                print(f"  [SubTest] Running Gemini Audio STT...")
-                project.current_step = "음성 인식 중..."
-                self._save_manifest(project, project_dir)
-                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
-                    project.music_file_path
-                )
-                if stt_segments:
-                    project.stt_segments = stt_segments
-                    # STT 완료 즉시 매니페스트 저장 (이후 단계 실패해도 캐시 유지)
-                    self._save_manifest(project, project_dir)
-                    print(f"  [SubTest] STT: {len(stt_segments)} segments (cached)")
-                else:
-                    print(f"  [SubTest] STT failed, using approximate timing")
-
-            # ── Step 2: 앵커 추정 ──
-            segments = None
-            if project.music_analysis and project.music_analysis.segments:
-                segments = project.music_analysis.segments
-            anchor_info = detect_anchors(
-                media_path=project.music_file_path,
-                segments=segments,
-                user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
-                user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
-            )
-            print(f"  [SubTest] Anchor (music analysis): [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s] method={anchor_info.method}")
-
-            # STT 앵커 보정: STT가 실제 보컬 타이밍을 더 정확히 감지
-            if stt_segments:
-                stt_start = min(float(s.get("start", 9999)) for s in stt_segments)
-                stt_end = max(float(s.get("end", 0)) for s in stt_segments)
-                # STT가 더 넓은 범위를 감지하면 앵커 확장 (1초 버퍼 포함)
-                new_start = min(anchor_info.anchor_start, max(0, stt_start - 1.0))
-                new_end = max(anchor_info.anchor_end, stt_end + 1.0)
-                if new_start != anchor_info.anchor_start or new_end != anchor_info.anchor_end:
-                    print(f"  [SubTest] STT anchor correction: [{new_start:.1f}s ~ {new_end:.1f}s] (stt: {stt_start:.1f}-{stt_end:.1f})")
-                    anchor_info = AnchorResult(new_start, new_end, anchor_info.method + "+stt")
-
-            # ── Step 3: 가사 정렬 ──
+            # ── Step 1: 가사 파싱 ──
             lines = split_lyrics_lines(user_lyrics_text)
             print(f"  [SubTest] Lyrics: {len(lines)} lines (after filtering)")
             if not lines:
@@ -3404,66 +3362,57 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # ── 보컬 타임라인 기반 균등 분배 ──
-            # 원리: STT 세그먼트의 총 보컬 시간을 계산하고, 가사를 보컬 시간 기준으로
-            # 균등 배분한 뒤 실제 클럭 타임으로 변환. 간주 구간은 자동으로 건너뜀.
-            if stt_segments and len(stt_segments) >= 2:
-                sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
-                # 각 STT 세그먼트의 보컬 구간 시간 계산
-                seg_durations = []
-                for seg in sorted_stt:
-                    s = float(seg.get("start", 0))
-                    e = float(seg.get("end", 0))
-                    seg_durations.append((s, e, max(0.1, e - s)))
-                total_vocal_dur = sum(d for _, _, d in seg_durations)
+            # ── Step 2: Forced Alignment (가사+오디오 → 줄별 정확한 타이밍) ──
+            project.current_step = "가사 싱크 분석 중..."
+            self._save_manifest(project, project_dir)
 
-                print(f"  [SubTest] STT: {len(sorted_stt)} segments, total vocal={total_vocal_dur:.1f}s")
-                # 보컬 구간 로그 (갭 기준으로 그룹핑하여 표시)
-                GAP_TOLERANCE = 5.0
-                vocal_groups = []
-                for s, e, d in seg_durations:
-                    if vocal_groups and s - vocal_groups[-1][1] < GAP_TOLERANCE:
-                        vocal_groups[-1] = (vocal_groups[-1][0], max(vocal_groups[-1][1], e))
-                    else:
-                        vocal_groups.append((s, e))
-                for gi, (gs, ge) in enumerate(vocal_groups):
-                    print(f"    Vocal group [{gi}] {gs:.1f}s ~ {ge:.1f}s ({ge-gs:.1f}s)")
+            alignment_result = self.music_analyzer.align_lyrics_to_audio(
+                project.music_file_path, lines
+            )
 
-                n = len(lines)
-                dur_per_line = total_vocal_dur / n
-
-                # 보컬 시간 -> 클럭 시간 변환 함수
-                def vocal_to_clock(t_vocal):
-                    """보컬 전용 시간을 실제 클럭 시간으로 변환"""
-                    elapsed = 0.0
-                    for s, e, d in seg_durations:
-                        if elapsed + d >= t_vocal:
-                            offset = t_vocal - elapsed
-                            return s + offset
-                        elapsed += d
-                    return seg_durations[-1][1]  # 마지막 세그먼트 끝
-
+            if alignment_result and len(alignment_result) >= len(lines) * 0.7:
+                # Forced alignment 성공 (70% 이상 매칭)
+                # 누락된 줄이 있으면 인접 타이밍으로 보간
+                aligned_map = {entry["index"]: entry for entry in alignment_result}
                 timeline = []
                 for i, txt in enumerate(lines):
-                    t_start_vocal = i * dur_per_line
-                    t_end_vocal = (i + 1) * dur_per_line
-                    t_start = vocal_to_clock(t_start_vocal)
-                    t_end = vocal_to_clock(t_end_vocal)
-                    # 최소 표시 시간 보장 (0.3초)
-                    if t_end - t_start < 0.3:
-                        t_end = t_start + 0.3
-                    timeline.append(SubtitleLine(t_start, t_end, txt))
+                    if i in aligned_map:
+                        entry = aligned_map[i]
+                        timeline.append(SubtitleLine(entry["start"], entry["end"], txt))
+                    else:
+                        # 인접 줄의 타이밍으로 보간
+                        prev_end = timeline[-1].end if timeline else 0
+                        next_entry = None
+                        for j in range(i + 1, len(lines)):
+                            if j in aligned_map:
+                                next_entry = aligned_map[j]
+                                break
+                        if next_entry:
+                            gap = next_entry["start"] - prev_end
+                            t_start = prev_end
+                            t_end = prev_end + max(0.5, gap * 0.5)
+                        else:
+                            t_start = prev_end
+                            t_end = prev_end + 2.0
+                        timeline.append(SubtitleLine(t_start, t_end, txt))
 
-                print(f"  [SubTest] Vocal-time distribution: {n} lines, {dur_per_line:.2f}s/line")
+                print(f"  [SubTest] Forced alignment: {len(alignment_result)}/{len(lines)} lines matched")
             else:
-                # STT 없으면 전체 균등 분배
-                actual_start = anchor_info.anchor_start
-                actual_end = anchor_info.anchor_end
-                if stt_segments:
-                    actual_start = min(actual_start, float(min(s.get("start", 9999) for s in stt_segments)))
-                    actual_end = max(actual_end, float(max(s.get("end", 0) for s in stt_segments)))
-                timeline = clamp_timeline_anchored(lines, actual_start, actual_end)
-                print(f"  [SubTest] Uniform distribution: {len(lines)} lines over {actual_start:.1f}s-{actual_end:.1f}s")
+                # Fallback: 균등 분배
+                print(f"  [SubTest] Forced alignment failed or insufficient, falling back to uniform")
+                audio_duration = ffprobe_duration_sec(project.music_file_path)
+                # 앵커 추정
+                segments = None
+                if project.music_analysis and project.music_analysis.segments:
+                    segments = project.music_analysis.segments
+                anchor_info = detect_anchors(
+                    media_path=project.music_file_path,
+                    segments=segments,
+                    user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
+                    user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
+                )
+                timeline = clamp_timeline_anchored(lines, anchor_info.anchor_start, anchor_info.anchor_end)
+                print(f"  [SubTest] Uniform fallback: {len(lines)} lines over {anchor_info.anchor_start:.1f}s-{anchor_info.anchor_end:.1f}s")
 
             aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
 

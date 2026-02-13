@@ -287,6 +287,122 @@ class MusicAnalyzer:
             traceback.print_exc()
             return None
 
+    def align_lyrics_to_audio(self, audio_path: str, lyrics_lines: list) -> Optional[list]:
+        """
+        Forced Alignment: 가사 원문 + 오디오를 Gemini에 함께 전달하여
+        각 줄의 정확한 시작/끝 타임스탬프를 받는다.
+
+        Args:
+            audio_path: 음악 파일 경로
+            lyrics_lines: 가사 줄 리스트 ["첫번째 줄", "두번째 줄", ...]
+
+        Returns:
+            [{"index": 0, "start": 12.5, "end": 16.2, "text": "첫번째 줄"}, ...] 또는 None
+        """
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("  [Lyrics-Align] GOOGLE_API_KEY not set")
+            return None
+
+        if not lyrics_lines:
+            return None
+
+        try:
+            from google import genai
+            from google.genai import types
+            import shutil
+            import tempfile
+            import json
+
+            client = genai.Client(api_key=api_key)
+
+            # non-ASCII 파일명 대응
+            ext = Path(audio_path).suffix
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, f"gemini_align_upload{ext}")
+            shutil.copy2(audio_path, temp_path)
+
+            try:
+                audio_file = client.files.upload(file=temp_path)
+                print(f"  [Lyrics-Align] File uploaded: {audio_file.name}")
+            finally:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+            # 가사 줄 번호 포맷
+            numbered_lyrics = "\n".join(
+                f"{i}: {line}" for i, line in enumerate(lyrics_lines)
+            )
+
+            prompt_text = (
+                "You are a professional lyrics timing specialist.\n"
+                "Listen to this music and align each numbered lyric line to its EXACT singing time.\n\n"
+                "## LYRICS (numbered)\n"
+                f"{numbered_lyrics}\n\n"
+                "## RULES\n"
+                "1. For EACH line above, output the EXACT start/end time (in seconds) when that line is SUNG.\n"
+                "2. 'start' = the moment the first syllable of that line begins being sung.\n"
+                "3. 'end' = the moment the last syllable of that line finishes being sung.\n"
+                "4. Lines must be in chronological order. start < end for every entry.\n"
+                "5. Instrumental/non-vocal gaps: NO lyrics should be placed during instrumental sections.\n"
+                "   If there is a long gap between vocal sections, the timestamps should reflect that gap.\n"
+                "6. Do NOT skip any line. Every line number (0 to " + str(len(lyrics_lines) - 1) + ") must appear exactly once.\n"
+                "7. Be as precise as possible (0.1 second accuracy).\n\n"
+                "## OUTPUT FORMAT\n"
+                "JSON array only, one object per line:\n"
+                '[{"index": 0, "start": 12.5, "end": 16.2, "text": "first line"}, ...]\n'
+            )
+
+            print(f"  [Lyrics-Align] Aligning {len(lyrics_lines)} lines to audio...")
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[audio_file, prompt_text],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                )
+            )
+
+            result = json.loads(response.text.strip())
+            if not isinstance(result, list):
+                print(f"  [Lyrics-Align] Invalid response format: {type(result)}")
+                return None
+
+            # Validate + sort by index
+            valid = []
+            for entry in result:
+                idx = int(entry.get("index", -1))
+                start = float(entry.get("start", 0))
+                end = float(entry.get("end", 0))
+                text = str(entry.get("text", "")).strip()
+                if 0 <= idx < len(lyrics_lines) and start < end:
+                    valid.append({
+                        "index": idx,
+                        "start": round(start, 2),
+                        "end": round(end, 2),
+                        "text": text or lyrics_lines[idx]
+                    })
+
+            valid.sort(key=lambda x: x["start"])
+
+            if valid:
+                coverage = len(valid) / len(lyrics_lines) * 100
+                print(f"  [Lyrics-Align] Aligned {len(valid)}/{len(lyrics_lines)} lines ({coverage:.0f}%), "
+                      f"range: {valid[0]['start']}s ~ {valid[-1]['end']}s")
+            else:
+                print(f"  [Lyrics-Align] No valid alignments returned")
+                return None
+
+            return valid
+
+        except Exception as e:
+            print(f"  [Lyrics-Align] Failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def transcribe_with_google_stt(self, audio_path: str, language: str = "ko-KR") -> Optional[list]:
         """
         Google Cloud Speech-to-Text V1 API로 단어 단위 타임스탬프 추출
