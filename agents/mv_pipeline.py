@@ -27,7 +27,7 @@ from agents.image_agent import ImageAgent
 from agents.subtitle_utils import (
     ffprobe_duration_sec, split_lyrics_lines,
     clamp_timeline_anchored, detect_anchors, write_srt,
-    SubtitleLine, AlignedSubtitle, align_lyrics_with_stt, write_ass,
+    SubtitleLine, AlignedSubtitle, AnchorResult, align_lyrics_with_stt, write_ass,
     clamp_timeline_vocal_segments, snap_away_from_instrumental,
 )
 from utils.ffmpeg_utils import FFmpegComposer
