@@ -3418,6 +3418,13 @@ class MVPipeline:
                 print(f"  [SubTest] Uniform distribution: {len(aligned)} lines over {anchor_info.anchor_start:.1f}s-{anchor_info.anchor_end:.1f}s")
             # STT 정렬 결과는 그대로 신뢰 (snap 하지 않음 - STT가 실제 보컬 타이밍을 가장 정확히 앎)
 
+            # 자막 선행 오프셋: 자막이 노래보다 약간 먼저 표시 (가독성 향상, 업계 표준)
+            SUBTITLE_LEAD = -0.5  # 0.5초 앞당김
+            for a in aligned:
+                a.start = max(0, a.start + SUBTITLE_LEAD)
+                a.end = max(a.start + 0.3, a.end + SUBTITLE_LEAD)
+            print(f"  [SubTest] Applied {SUBTITLE_LEAD}s lead offset to all lines")
+
             # 디버그: 전체 정렬 결과 출력
             for ai, a in enumerate(aligned):
                 print(f"    [{ai:2d}] {a.start:6.1f}s - {a.end:6.1f}s  conf={a.confidence:3.0f}  '{a.text[:50]}'")
