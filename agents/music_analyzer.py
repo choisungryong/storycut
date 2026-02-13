@@ -199,6 +199,94 @@ class MusicAnalyzer:
     # Google Cloud Speech-to-Text (Chirp 3) - word-level timestamps
     # ================================================================
 
+    def transcribe_with_gemini_audio(self, audio_path: str) -> Optional[list]:
+        """
+        Gemini 2.5 Flash Audio API로 보컬 구간 문장 단위 타임스탬프 추출.
+
+        Returns:
+            [{"start": float, "end": float, "text": str}, ...] 또는 None
+        """
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("  [Gemini-STT] GOOGLE_API_KEY not set")
+            return None
+
+        try:
+            from google import genai
+            from google.genai import types
+            import shutil
+            import tempfile
+            import json
+
+            client = genai.Client(api_key=api_key)
+
+            # non-ASCII 파일명 대응: temp ASCII 파일로 복사
+            ext = Path(audio_path).suffix
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, f"gemini_stt_upload{ext}")
+            shutil.copy2(audio_path, temp_path)
+
+            try:
+                audio_file = client.files.upload(file=temp_path)
+                print(f"  [Gemini-STT] File uploaded: {audio_file.name}")
+            finally:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+            prompt_text = (
+                "Listen to this music carefully and detect all vocal (singing) segments.\n"
+                "For each sung sentence/phrase, output the start time, end time, and the sung text.\n\n"
+                "Rules:\n"
+                "1. 'start' = time in seconds when the vocal phrase begins\n"
+                "2. 'end' = time in seconds when the vocal phrase ends\n"
+                "3. start < end, and entries must be in chronological order\n"
+                "4. Skip instrumental/non-vocal sections entirely\n"
+                "5. Transcribe the actual sung words (Korean, English, etc.)\n"
+                "6. Group words into natural sentence-level phrases (not single words)\n\n"
+                "Output: JSON array only\n"
+                '[{"start": 12.5, "end": 16.2, "text": "sung phrase"}, ...]'
+            )
+
+            print(f"  [Gemini-STT] Extracting vocal segments...")
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[audio_file, prompt_text],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                )
+            )
+
+            result = json.loads(response.text.strip())
+            if not isinstance(result, list):
+                print(f"  [Gemini-STT] Invalid response format")
+                return None
+
+            # Validate entries
+            valid = []
+            for entry in result:
+                start = float(entry.get("start", 0))
+                end = float(entry.get("end", 0))
+                text = str(entry.get("text", "")).strip()
+                if start < end and text:
+                    valid.append({"start": round(start, 2), "end": round(end, 2), "text": text})
+
+            if valid:
+                print(f"  [Gemini-STT] Got {len(valid)} segments: {valid[0]['start']}s ~ {valid[-1]['end']}s")
+            else:
+                print(f"  [Gemini-STT] No valid segments")
+                return None
+
+            return valid
+
+        except Exception as e:
+            print(f"  [Gemini-STT] Failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def transcribe_with_google_stt(self, audio_path: str, language: str = "ko-KR") -> Optional[list]:
         """
         Google Cloud Speech-to-Text V1 API로 단어 단위 타임스탬프 추출

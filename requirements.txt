@@ -18,6 +18,8 @@ boto3>=1.34.0  # R2/S3 Storage
 ffmpeg-python>=0.2.0
 Pillow>=10.0.0
 pydub>=0.25.0  # Music Video Mode - audio analysis
+pysubs2>=1.7.0  # ASS subtitle generation
+rapidfuzz>=3.0.0  # Fuzzy matching for STT-lyrics alignment
 # face_recognition>=1.3.0  # CharacterQA - optional, requires dlib/cmake build tools
 
 # API and web requests

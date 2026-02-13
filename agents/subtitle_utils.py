@@ -1,4 +1,5 @@
 import re
+import platform
 import subprocess
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
@@ -246,3 +247,161 @@ def write_srt(timeline: List[SubtitleLine], out_path: str) -> None:
         buf.append("")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(buf))
+
+
+# ── STT 정렬 + ASS 출력 ──────────────────────────────────
+
+@dataclass
+class AlignedSubtitle:
+    start: float
+    end: float
+    text: str
+    confidence: float  # 0-100
+
+
+def align_lyrics_with_stt(
+    user_lyrics_lines: List[str],
+    stt_segments: List[dict],
+    anchor_start: float,
+    anchor_end: float,
+    min_confidence: float = 55.0,
+    min_dur: float = 0.8,
+    max_dur: float = 5.0,
+) -> List[AlignedSubtitle]:
+    """
+    사용자 가사와 STT 세그먼트를 fuzzy matching으로 정렬.
+
+    Args:
+        user_lyrics_lines: 사용자 가사 줄 리스트 (빈줄/섹션 마커 제거 후)
+        stt_segments: [{start, end, text}, ...] Gemini STT 결과
+        anchor_start: 보컬 시작 시간
+        anchor_end: 보컬 종료 시간
+        min_confidence: 매칭 최소 confidence (0-100)
+        min_dur: 최소 자막 표시 시간
+        max_dur: 최대 자막 표시 시간
+
+    Returns:
+        정렬된 AlignedSubtitle 리스트
+    """
+    from rapidfuzz import fuzz
+
+    if not user_lyrics_lines:
+        return []
+
+    # STT 없으면 균등 분배 fallback
+    if not stt_segments:
+        timeline = clamp_timeline_anchored(user_lyrics_lines, anchor_start, anchor_end)
+        return [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+
+    # 시간순 정렬
+    sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
+    used_indices = set()
+    result: List[AlignedSubtitle] = []
+
+    for line in user_lyrics_lines:
+        clean_line = re.sub(r'[\s\-.,!?~]+', '', line).lower()
+        if not clean_line:
+            continue
+
+        best_score = 0.0
+        best_idx = -1
+
+        for si, seg in enumerate(sorted_stt):
+            if si in used_indices:
+                continue
+            seg_text = re.sub(r'[\s\-.,!?~]+', '', seg.get("text", "")).lower()
+            if not seg_text:
+                continue
+            score = fuzz.partial_ratio(clean_line, seg_text)
+            if score > best_score:
+                best_score = score
+                best_idx = si
+
+        if best_score >= min_confidence and best_idx >= 0:
+            seg = sorted_stt[best_idx]
+            used_indices.add(best_idx)
+            result.append(AlignedSubtitle(
+                start=float(seg["start"]),
+                end=float(seg["end"]),
+                text=line,
+                confidence=best_score,
+            ))
+        else:
+            # 매칭 실패: 이전 줄의 end + 0.3초부터 보간
+            if result:
+                prev_end = result[-1].end
+                interp_start = prev_end + 0.3
+                interp_end = interp_start + 2.0
+            else:
+                interp_start = anchor_start
+                interp_end = interp_start + 2.0
+            result.append(AlignedSubtitle(
+                start=interp_start,
+                end=interp_end,
+                text=line,
+                confidence=0.0,
+            ))
+
+    # 후처리: 단조 증가 강제 + dur 클램핑 + anchor 범위 클램핑
+    for i in range(len(result)):
+        # 단조 증가 강제
+        if i > 0 and result[i].start <= result[i - 1].start:
+            result[i].start = result[i - 1].end + 0.1
+
+        # dur 클램핑
+        dur = result[i].end - result[i].start
+        if dur < min_dur:
+            result[i].end = result[i].start + min_dur
+        elif dur > max_dur:
+            result[i].end = result[i].start + max_dur
+
+        # anchor 범위 클램핑
+        result[i].start = max(anchor_start, min(anchor_end - 0.5, result[i].start))
+        result[i].end = max(result[i].start + 0.3, min(anchor_end, result[i].end))
+
+    return result
+
+
+def write_ass(
+    timeline: List[AlignedSubtitle],
+    out_path: str,
+    font_name: Optional[str] = None,
+) -> None:
+    """
+    ASS 자막 파일 생성 (pysubs2 사용).
+
+    Args:
+        timeline: AlignedSubtitle 리스트
+        out_path: 출력 .ass 파일 경로
+        font_name: 폰트명 (None이면 플랫폼별 자동 선택)
+    """
+    import pysubs2
+
+    if font_name is None:
+        system = platform.system()
+        font_name = "Malgun Gothic" if system == "Windows" else "Noto Sans CJK KR"
+
+    subs = pysubs2.SSAFile()
+
+    # 기본 스타일 설정
+    style = pysubs2.SSAStyle()
+    style.fontname = font_name
+    style.fontsize = 42
+    style.outline = 2.5
+    style.shadow = 1.5
+    style.marginv = 60
+    style.alignment = pysubs2.Alignment.BOTTOM_CENTER
+    style.primarycolor = pysubs2.Color(255, 255, 255, 0)  # white
+    style.outlinecolor = pysubs2.Color(0, 0, 0, 0)  # black outline
+    style.backcolor = pysubs2.Color(0, 0, 0, 128)  # semi-transparent shadow
+    subs.styles["Default"] = style
+
+    for entry in timeline:
+        event = pysubs2.SSAEvent()
+        event.start = int(entry.start * 1000)  # ms
+        event.end = int(entry.end * 1000)
+        event.text = entry.text.replace("\n", "\\N")
+        event.style = "Default"
+        subs.events.append(event)
+
+    subs.save(out_path, encoding="utf-8-sig")

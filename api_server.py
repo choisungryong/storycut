@@ -2847,6 +2847,46 @@ async def mv_compose(project_id: str):
     return {"status": "composing", "project_id": project_id}
 
 
+@app.post("/api/mv/subtitle-test/{project_id}")
+async def mv_subtitle_test(project_id: str):
+    """
+    이미지 생성 없이 음악 + 자막만 프리뷰하는 테스트 모드.
+    기존 프로젝트의 가사 + 음악으로 STT 정렬 -> ASS 자막 -> 검은 배경 영상 생성.
+    소요: ~30초 (STT + FFmpeg only)
+    """
+    validate_project_id(project_id)
+    from agents.mv_pipeline import MVPipeline
+    import threading
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if not (project.lyrics and project.lyrics.strip()):
+        raise HTTPException(status_code=400, detail="No lyrics in this project")
+
+    def run_subtitle_test():
+        try:
+            print(f"[Subtitle Test Thread] Starting for {project_id}")
+            pipeline.subtitle_test(project)
+            print(f"[Subtitle Test Thread] Complete for {project_id}")
+        except Exception as e:
+            print(f"[Subtitle Test Thread] Error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    thread = threading.Thread(target=run_subtitle_test, daemon=True)
+    thread.start()
+
+    return {
+        "project_id": project_id,
+        "status": "generating",
+        "message": "Subtitle test started. Check outputs/{project_id}/final_mv_subtitle_test.mp4",
+    }
+
+
 class UpdateLyricsTimelineRequest(BaseModel):
     timed_lyrics: List[Dict[str, Any]]  # [{t: float, text: str}, ...]
 

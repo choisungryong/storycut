@@ -26,7 +26,8 @@ from agents.music_analyzer import MusicAnalyzer
 from agents.image_agent import ImageAgent
 from agents.subtitle_utils import (
     ffprobe_duration_sec, split_lyrics_lines,
-    clamp_timeline_anchored, detect_anchors, write_srt
+    clamp_timeline_anchored, detect_anchors, write_srt,
+    SubtitleLine, AlignedSubtitle, align_lyrics_with_stt, write_ass,
 )
 from utils.ffmpeg_utils import FFmpegComposer
 
@@ -130,6 +131,15 @@ class MVPipeline:
                 if stt_sentences:
                     analysis_result["stt_sentences"] = stt_sentences
                 extracted_lyrics = synced_lyrics
+
+                # Gemini Audio STT (자막 타이밍 힌트)
+                print(f"\n[Step 1.6] Gemini Audio STT for subtitle alignment...")
+                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(stored_music_path)
+                if stt_segments:
+                    print(f"  [Gemini-STT] {len(stt_segments)} segments stored for subtitle alignment")
+                else:
+                    print(f"  [Gemini-STT] No segments (will fallback to uniform distribution)")
+                    stt_segments = None
             else:
                 print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
                 extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
@@ -144,6 +154,9 @@ class MVPipeline:
                     analysis_result["stt_sentences"] = stt_sentences
 
             project.music_analysis = MusicAnalysis(**analysis_result)
+            # STT 세그먼트를 프로젝트에 저장 (자막 정렬용)
+            if user_lyrics and user_lyrics.strip():
+                project.stt_segments = stt_segments
             project.status = MVProjectStatus.READY
             project.progress = 10
 
@@ -3007,7 +3020,7 @@ class MVPipeline:
             project.current_step = "자막 처리 중..."
             self._save_manifest(project, project_dir)
 
-            # 3. 가사 자막 SRT 생성 (앵커 기반 분배 - intro/outro 자막 방지)
+            # 3. 가사 자막 생성 (STT 정렬 -> 균등 분배 fallback)
             user_lyrics_text = project.lyrics or ""
             subtitle_on = getattr(project, 'subtitle_enabled', True)
             has_lyrics = bool(user_lyrics_text.strip()) and subtitle_on
@@ -3016,11 +3029,11 @@ class MVPipeline:
             n_lines = 0
             audio_duration = 0.0
             anchor_info = None
+            timeline_mode = "none"
 
             if has_lyrics:
-                print(f"  Generating lyrics SRT from user input ({len(user_lyrics_text)} chars)...")
-                srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
-                os.makedirs(os.path.dirname(srt_path), exist_ok=True)
+                print(f"  Generating lyrics subtitle from user input ({len(user_lyrics_text)} chars)...")
+                os.makedirs(f"{project_dir}/media/subtitles", exist_ok=True)
 
                 audio_duration = ffprobe_duration_sec(project.music_file_path)
 
@@ -3038,11 +3051,47 @@ class MVPipeline:
 
                 lines = split_lyrics_lines(user_lyrics_text)
                 n_lines = len(lines)
-                timeline = clamp_timeline_anchored(
-                    lines, anchor_info.anchor_start, anchor_info.anchor_end
-                )
-                write_srt(timeline, srt_path)
-                print(f"    SRT: {n_lines} lines, audio={audio_duration:.1f}s, path={srt_path}")
+
+                # STT 정렬 시도
+                stt_segments = getattr(project, 'stt_segments', None)
+                if stt_segments:
+                    print(f"    [STT-Align] Using {len(stt_segments)} STT segments for alignment...")
+                    aligned = align_lyrics_with_stt(
+                        lines, stt_segments,
+                        anchor_info.anchor_start, anchor_info.anchor_end,
+                    )
+                    timeline_mode = "stt_aligned"
+                    avg_conf = sum(a.confidence for a in aligned) / len(aligned) if aligned else 0
+                    print(f"    [STT-Align] {len(aligned)} lines aligned, avg confidence={avg_conf:.1f}")
+                else:
+                    print(f"    [Fallback] No STT segments, using uniform distribution...")
+                    timeline = clamp_timeline_anchored(
+                        lines, anchor_info.anchor_start, anchor_info.anchor_end
+                    )
+                    aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+                    timeline_mode = "uniform_fallback"
+
+                # ASS 출력 (pysubs2) -> SRT fallback
+                try:
+                    srt_path = f"{project_dir}/media/subtitles/lyrics.ass"
+                    write_ass(aligned, srt_path)
+                    print(f"    ASS: {n_lines} lines -> {srt_path}")
+                except Exception as ass_err:
+                    print(f"    [ASS Error] {ass_err}, falling back to SRT...")
+                    srt_path = f"{project_dir}/media/subtitles/lyrics.srt"
+                    srt_timeline = [SubtitleLine(a.start, a.end, a.text) for a in aligned]
+                    write_srt(srt_timeline, srt_path)
+                    timeline_mode += "+srt_fallback"
+                    print(f"    SRT: {n_lines} lines -> {srt_path}")
+
+                # alignment.json 저장 (디버깅용)
+                project.aligned_lyrics = [
+                    {"t": a.start, "end": a.end, "text": a.text, "confidence": a.confidence}
+                    for a in aligned
+                ]
+                alignment_path = f"{project_dir}/media/subtitles/alignment.json"
+                with open(alignment_path, "w", encoding="utf-8") as af:
+                    json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
             else:
                 print(f"  [Lyrics Check] No user lyrics or subtitle disabled (subtitle_enabled={subtitle_on})")
 
@@ -3066,14 +3115,14 @@ class MVPipeline:
             with open(render_log_path, "a", encoding="utf-8") as log:
                 log.write(f"--- compose_video {datetime.now().isoformat()} ---\n")
                 log.write(f"lyrics_source=user_input_only\n")
-                log.write(f"timeline_mode=anchored_uniform\n")
+                log.write(f"timeline_mode={timeline_mode}\n")
                 log.write(f"N_lines={n_lines}\n")
                 log.write(f"audio_duration={audio_duration:.2f}\n")
                 if anchor_info:
                     log.write(f"anchor_start={anchor_info.anchor_start:.2f}\n")
                     log.write(f"anchor_end={anchor_info.anchor_end:.2f}\n")
                     log.write(f"anchor_method={anchor_info.method}\n")
-                log.write(f"srt_path={srt_path}\n")
+                log.write(f"subtitle_path={srt_path}\n")
                 log.write(f"\n")
 
             project.final_video_path = final_video
@@ -3092,6 +3141,123 @@ class MVPipeline:
         project.updated_at = datetime.now()
         self._save_manifest(project, project_dir)
 
+        return project
+
+    # ================================================================
+    # 자막 테스트 (이미지 생성 없이 음악 + 자막 프리뷰)
+    # ================================================================
+
+    def subtitle_test(self, project: MVProject) -> MVProject:
+        """
+        이미지 생성 없이 음악 + ASS 자막만 프리뷰하는 테스트 모드.
+        검은 배경 영상에 자막을 burn-in하여 빠른 싱크 확인.
+        """
+        import subprocess
+
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        os.makedirs(f"{project_dir}/media/subtitles", exist_ok=True)
+
+        user_lyrics_text = project.lyrics or ""
+        if not user_lyrics_text.strip():
+            project.error_message = "No lyrics to test"
+            return project
+
+        project.current_step = "자막 테스트 생성 중..."
+        self._save_manifest(project, project_dir)
+
+        try:
+            # 1. STT 미실행 상태면 Gemini Audio STT 호출
+            stt_segments = getattr(project, 'stt_segments', None)
+            if not stt_segments:
+                print(f"  [SubTest] Running Gemini Audio STT...")
+                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
+                    project.music_file_path
+                )
+                if stt_segments:
+                    project.stt_segments = stt_segments
+                    print(f"  [SubTest] Got {len(stt_segments)} STT segments")
+
+            # 2. 앵커 추정
+            segments = None
+            if project.music_analysis and project.music_analysis.segments:
+                segments = project.music_analysis.segments
+            anchor_info = detect_anchors(
+                media_path=project.music_file_path,
+                segments=segments,
+                user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
+                user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
+            )
+            print(f"  [SubTest] Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s]")
+
+            # 3. 정렬 + ASS 생성
+            lines = split_lyrics_lines(user_lyrics_text)
+            if stt_segments:
+                aligned = align_lyrics_with_stt(
+                    lines, stt_segments,
+                    anchor_info.anchor_start, anchor_info.anchor_end,
+                )
+            else:
+                timeline = clamp_timeline_anchored(
+                    lines, anchor_info.anchor_start, anchor_info.anchor_end
+                )
+                aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+
+            ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
+            write_ass(aligned, ass_path)
+            print(f"  [SubTest] ASS: {len(aligned)} lines -> {ass_path}")
+
+            # alignment.json 저장
+            project.aligned_lyrics = [
+                {"t": a.start, "end": a.end, "text": a.text, "confidence": a.confidence}
+                for a in aligned
+            ]
+            alignment_path = f"{project_dir}/media/subtitles/alignment.json"
+            with open(alignment_path, "w", encoding="utf-8") as af:
+                json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
+
+            # 4. 검은 배경 영상 + 음악 + ASS 자막 -> 테스트 영상
+            audio_duration = ffprobe_duration_sec(project.music_file_path)
+            audio_abs = os.path.abspath(project.music_file_path)
+            ass_abs = os.path.abspath(ass_path)
+            ass_escaped = ass_abs.replace("\\", "/").replace(":", "\\:")
+            out_path = f"{project_dir}/final_mv_subtitle_test.mp4"
+            out_abs = os.path.abspath(out_path)
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-f", "lavfi", "-i", f"color=c=black:s=1920x1080:d={audio_duration}:r=30",
+                "-i", audio_abs,
+                "-filter_complex",
+                f"[0:v]ass='{ass_escaped}'[v];[1:a]aresample=48000[a]",
+                "-map", "[v]", "-map", "[a]",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+                "-shortest",
+                out_abs,
+            ]
+
+            timeout = max(120, int(audio_duration * 3))
+            print(f"  [SubTest] Rendering test video ({audio_duration:.0f}s, timeout={timeout}s)...")
+
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                encoding='utf-8', errors='replace', timeout=timeout,
+            )
+
+            if result.returncode != 0:
+                print(f"  [SubTest] FFmpeg failed: {result.stderr[-500:]}")
+                project.error_message = f"Subtitle test render failed: {result.stderr[-200:]}"
+            elif os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                print(f"  [SubTest] Test video: {out_abs} ({os.path.getsize(out_abs):,} bytes)")
+                project.current_step = "자막 테스트 완료"
+            else:
+                project.error_message = "Subtitle test output too small or missing"
+
+        except Exception as e:
+            project.error_message = f"Subtitle test failed: {str(e)}"
+            print(f"  [SubTest ERROR] {project.error_message}")
+
+        self._save_manifest(project, project_dir)
         return project
 
     # ================================================================
@@ -3341,17 +3507,21 @@ class MVPipeline:
         vf_parts = ["fps=30"]
 
         if srt_path and os.path.exists(srt_path):
-            srt_abs = os.path.abspath(srt_path)
-            # FFmpeg subtitles 필터: 백슬래시→슬래시, 콜론 이스케이프
-            srt_escaped = srt_abs.replace("\\", "/").replace(":", "\\:")
-            force_style = (
-                f"FontName={font_name},"
-                f"FontSize=42,"
-                f"Outline=2,"
-                f"Shadow=1,"
-                f"MarginV=60"
-            )
-            vf_parts.append(f"subtitles='{srt_escaped}':force_style='{force_style}'")
+            sub_abs = os.path.abspath(srt_path)
+            sub_escaped = sub_abs.replace("\\", "/").replace(":", "\\:")
+            if srt_path.endswith(".ass"):
+                # ASS: 스타일이 파일에 내장되어 있으므로 ass= 필터 사용
+                vf_parts.append(f"ass='{sub_escaped}'")
+            else:
+                # SRT: force_style로 폰트/크기 지정
+                force_style = (
+                    f"FontName={font_name},"
+                    f"FontSize=42,"
+                    f"Outline=2,"
+                    f"Shadow=1,"
+                    f"MarginV=60"
+                )
+                vf_parts.append(f"subtitles='{sub_escaped}':force_style='{force_style}'")
 
         if watermark_text:
             opacity_hex = f"{watermark_opacity:.2f}"
