@@ -3491,7 +3491,11 @@ class MVPipeline:
 
         # 플랫폼별 폰트
         system = platform.system()
-        font_name = "Malgun Gothic" if system == "Windows" else "Noto Sans CJK KR"
+        if system == "Windows":
+            font_name = "Malgun Gothic"
+        else:
+            from agents.subtitle_utils import _detect_linux_font
+            font_name = _detect_linux_font()
 
         # --- 비디오 필터 체인 구성 ---
         vf_parts = ["fps=30"]

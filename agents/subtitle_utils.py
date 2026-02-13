@@ -20,6 +20,22 @@ class AnchorResult:
     method: str  # "segments", "vad", "fallback", "user_override"
 
 
+def _detect_linux_font() -> str:
+    """Linux에서 사용 가능한 CJK 폰트 탐색"""
+    try:
+        result = subprocess.run(
+            ["fc-list", ":lang=ko", "family"],
+            capture_output=True, text=True, timeout=5
+        )
+        families = result.stdout.strip()
+        for preferred in ["Noto Sans CJK KR", "Noto Sans CJK", "NanumGothic", "NanumBarunGothic"]:
+            if preferred in families:
+                return preferred
+    except Exception:
+        pass
+    return "Noto Sans CJK KR"
+
+
 # ── 기본 유틸 ──────────────────────────────────────────────
 
 def ffprobe_duration_sec(media_path: str) -> float:
@@ -379,7 +395,11 @@ def write_ass(
 
     if font_name is None:
         system = platform.system()
-        font_name = "Malgun Gothic" if system == "Windows" else "Noto Sans CJK KR"
+        if system == "Windows":
+            font_name = "Malgun Gothic"
+        else:
+            # Docker/Linux: Noto Sans CJK 우선, 없으면 NanumGothic fallback
+            font_name = _detect_linux_font()
 
     subs = pysubs2.SSAFile()
 

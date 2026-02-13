@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     git \
     fonts-liberation \
     fonts-nanum \
+    fonts-noto-cjk \
     fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
