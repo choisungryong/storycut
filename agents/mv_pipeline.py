@@ -3397,6 +3397,11 @@ class MVPipeline:
                         timeline.append(SubtitleLine(t_start, t_end, txt))
 
                 print(f"  [SubTest] Forced alignment: {len(alignment_result)}/{len(lines)} lines matched")
+                # 간주 갭 진단
+                for ti in range(1, len(timeline)):
+                    gap = timeline[ti].start - timeline[ti-1].end
+                    if gap > 3.0:
+                        print(f"    [GAP] {gap:.1f}s instrumental break between line {ti-1} ({timeline[ti-1].end:.1f}s) and line {ti} ({timeline[ti].start:.1f}s)")
             else:
                 # Fallback: 균등 분배
                 print(f"  [SubTest] Forced alignment failed or insufficient, falling back to uniform")
