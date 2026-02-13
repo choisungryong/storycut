@@ -146,20 +146,25 @@ class MVPipeline:
             print(f"  Segments: {len(project.music_analysis.segments)}")
             print(f"  Lyrics: {'YES (' + str(len(extracted_lyrics)) + ' chars)' if extracted_lyrics else 'NONE'}")
 
-            # STT 사전 캐싱: 자막 테스트 시 2-3분 대기 방지
-            # (subtitle_test/compose_video에서 캐시된 stt_segments를 바로 사용)
-            try:
-                print(f"\n[Step 1.8] Pre-caching Gemini Audio STT...")
-                project.current_step = "음성 인식 중..."
-                self._save_manifest(project, project_dir)
-                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(stored_music_path)
-                if stt_segments:
-                    project.stt_segments = stt_segments
-                    print(f"  [STT Cache] {len(stt_segments)} segments cached for subtitle use")
-                else:
-                    print(f"  [STT Cache] STT failed, will retry at subtitle/compose time")
-            except Exception as stt_err:
-                print(f"  [STT Cache] Non-critical error: {stt_err}")
+            # STT 사전 캐싱: 백그라운드 스레드로 실행 (업로드 응답 차단 방지)
+            import threading
+            def _bg_stt(pipeline, proj, proj_dir, audio_path):
+                try:
+                    print(f"\n[BG-STT] Pre-caching Gemini Audio STT...")
+                    segs = pipeline.music_analyzer.transcribe_with_gemini_audio(audio_path)
+                    if segs:
+                        proj.stt_segments = segs
+                        pipeline._save_manifest(proj, proj_dir)
+                        print(f"  [BG-STT] {len(segs)} segments cached")
+                    else:
+                        print(f"  [BG-STT] STT failed, will retry at subtitle/compose time")
+                except Exception as e:
+                    print(f"  [BG-STT] Non-critical error: {e}")
+            threading.Thread(
+                target=_bg_stt,
+                args=(self, project, project_dir, stored_music_path),
+                daemon=True
+            ).start()
 
         except Exception as e:
             project.status = MVProjectStatus.FAILED
