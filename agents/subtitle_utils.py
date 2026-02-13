@@ -46,9 +46,15 @@ def ffprobe_duration_sec(media_path: str) -> float:
 
 
 def split_lyrics_lines(user_lyrics_text: str) -> List[str]:
+    """가사 텍스트를 줄 단위로 분리하고, 섹션 마커/빈 줄 제거."""
+    # 섹션 마커 패턴: [intro], [verse 1], [chorus], [bridge], [outro] 등
+    section_marker = re.compile(
+        r'^\[(?:intro|verse|chorus|pre[- ]?chorus|hook|bridge|outro|interlude|rap|instrumental|repeat|refrain)[\s\d]*\]$',
+        re.IGNORECASE
+    )
     raw = user_lyrics_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = [ln.strip() for ln in raw]
-    return [ln for ln in lines if ln]
+    return [ln for ln in lines if ln and not section_marker.match(ln)]
 
 
 # ── 앵커 추정 ─────────────────────────────────────────────
