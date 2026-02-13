@@ -3312,7 +3312,7 @@ class MVPipeline:
     def subtitle_test(self, project: MVProject) -> MVProject:
         """
         이미지 생성 없이 음악 + 자막만 프리뷰하는 테스트 모드.
-        compose_video와 동일한 ASS(pysubs2) + subtitles= 방식 사용.
+        프로덕션 _final_render와 동일한 ASS(pysubs2) + ass= 필터 사용.
         """
         import subprocess
 
@@ -3323,6 +3323,11 @@ class MVPipeline:
         if not user_lyrics_text.strip():
             project.error_message = "No lyrics to test"
             return project
+
+        # 디버그: 원본 가사 데이터 확인 (줄바꿈 포함 여부)
+        print(f"  [SubTest] Raw lyrics length: {len(user_lyrics_text)} chars")
+        print(f"  [SubTest] Raw lyrics newlines: {user_lyrics_text.count(chr(10))} LF, {user_lyrics_text.count(chr(13))} CR")
+        print(f"  [SubTest] Raw lyrics preview (repr): {repr(user_lyrics_text[:300])}")
 
         project.current_step = "자막 테스트 생성 중..."
         self._save_manifest(project, project_dir)
@@ -3422,83 +3427,87 @@ class MVPipeline:
             except Exception as e:
                 print(f"  [SubTest] ASS read error: {e}")
 
-            # ── Step 5: 검은 배경 + 음악 + 자막 렌더링 ──
+            # ── Step 5: 단일 패스 렌더링 (프로덕션 _final_render와 동일한 ass= 필터) ──
             audio_duration = ffprobe_duration_sec(project.music_file_path)
             audio_abs = os.path.abspath(project.music_file_path)
             out_path = f"{project_dir}/final_mv_subtitle_test.mp4"
             out_abs = os.path.abspath(out_path)
 
-            # 먼저 검은 배경 + 음악만 있는 베이스 영상 생성
-            base_path = f"{project_dir}/media/subtitles/_base_black.mp4"
-            base_abs = os.path.abspath(base_path)
+            ass_abs = os.path.abspath(ass_path)
+            ass_escaped = ass_abs.replace("\\", "/").replace(":", "\\:")
 
             project.current_step = "자막 영상 렌더링 중..."
             self._save_manifest(project, project_dir)
 
             timeout = max(120, int(audio_duration * 3))
-            cmd_base = [
+
+            # 프로덕션 _final_render와 동일: ASS 파일은 ass= 필터 사용 (force_style 없음)
+            # subtitles= + force_style은 ASS 내장 스타일을 덮어써서 렌더링 오류 발생
+            cmd = [
                 "ffmpeg", "-y",
                 "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                 "-i", audio_abs,
-                "-map", "0:v", "-map", "1:a",
+                "-filter_complex",
+                f"[0:v]ass='{ass_escaped}'[v];[1:a]aresample=44100[a]",
+                "-map", "[v]", "-map", "[a]",
                 "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
                 "-shortest",
-                base_abs,
-            ]
-            print(f"  [SubTest] Creating base video ({audio_duration:.0f}s)...")
-            r_base = subprocess.run(cmd_base, capture_output=True, text=True,
-                                    encoding='utf-8', errors='replace', timeout=timeout)
-            if r_base.returncode != 0:
-                project.error_message = f"Base video creation failed: {r_base.stderr[-200:]}"
-                self._save_manifest(project, project_dir)
-                return project
-
-            # overlay_subtitles와 동일한 방식으로 자막 burn-in
-            ass_path_abs = os.path.abspath(ass_path)
-            ass_escaped = ass_path_abs.replace("\\", "/").replace(":", "\\:")
-
-            import platform as _pf
-            if _pf.system() == "Linux":
-                default_font = "Noto Sans CJK KR"
-            else:
-                default_font = "Malgun Gothic"
-
-            force_style = (
-                f"FontName={default_font},"
-                f"FontSize=42,"
-                f"PrimaryColour=&HFFFFFF,"
-                f"OutlineColour=&H000000,"
-                f"Outline=2,"
-                f"Shadow=1,"
-                f"MarginV=40"
-            )
-            vf_filter = f"subtitles='{ass_escaped}':force_style='{force_style}'"
-
-            cmd_sub = [
-                "ffmpeg", "-y",
-                "-loglevel", "warning",
-                "-i", base_abs,
-                "-vf", vf_filter,
-                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-                "-c:a", "copy",
                 out_abs,
             ]
-            print(f"  [SubTest] Burning subtitles (ASS + subtitles= filter)...")
-            print(f"  [SubTest] Filter: {vf_filter[:100]}...")
-            r_sub = subprocess.run(cmd_sub, capture_output=True, text=True,
-                                   encoding='utf-8', errors='replace', timeout=timeout)
+            print(f"  [SubTest] Single-pass render ({audio_duration:.0f}s, ass= filter)...")
+            print(f"  [SubTest] ASS: {ass_abs}")
+            result = subprocess.run(cmd, capture_output=True, text=True,
+                                    encoding='utf-8', errors='replace', timeout=timeout)
 
-            if r_sub.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                print(f"  [SubTest] Subtitle burn-in OK ({os.path.getsize(out_abs):,} bytes)")
+            if result.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                print(f"  [SubTest] Render OK ({os.path.getsize(out_abs):,} bytes)")
                 project.current_step = "자막 테스트 완료"
             else:
-                print(f"  [SubTest] Subtitle burn-in FAILED: {r_sub.stderr[-500:]}")
-                # 폴백: 자막 없이 베이스 영상 사용
-                import shutil
-                shutil.copy2(base_abs, out_abs)
-                project.current_step = "자막 테스트 완료"
-                project.error_message = f"Subtitle rendering failed, audio-only: {r_sub.stderr[-200:]}"
+                stderr_tail = result.stderr[-500:] if result.stderr else "(empty)"
+                print(f"  [SubTest] ass= filter FAILED (rc={result.returncode}): {stderr_tail}")
+
+                # Fallback: SRT + subtitles= 필터로 재시도
+                print(f"  [SubTest] Fallback: SRT + subtitles= filter...")
+                srt_fallback = f"{project_dir}/media/subtitles/lyrics_test.srt"
+                srt_timeline = [SubtitleLine(a.start, a.end, a.text) for a in aligned]
+                write_srt(srt_timeline, srt_fallback)
+                srt_abs = os.path.abspath(srt_fallback)
+                srt_escaped = srt_abs.replace("\\", "/").replace(":", "\\:")
+
+                cmd2 = [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
+                    "-i", audio_abs,
+                    "-filter_complex",
+                    f"[0:v]subtitles='{srt_escaped}'[v];[1:a]aresample=44100[a]",
+                    "-map", "[v]", "-map", "[a]",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
+                    "-shortest",
+                    out_abs,
+                ]
+                r2 = subprocess.run(cmd2, capture_output=True, text=True,
+                                    encoding='utf-8', errors='replace', timeout=timeout)
+                if r2.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
+                    print(f"  [SubTest] SRT fallback OK ({os.path.getsize(out_abs):,} bytes)")
+                    project.current_step = "자막 테스트 완료"
+                else:
+                    print(f"  [SubTest] SRT fallback also FAILED: {r2.stderr[-300:] if r2.stderr else '(empty)'}")
+                    # 최종 fallback: 자막 없이 오디오만
+                    cmd3 = [
+                        "ffmpeg", "-y",
+                        "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
+                        "-i", audio_abs,
+                        "-map", "0:v", "-map", "1:a",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
+                        "-shortest", out_abs,
+                    ]
+                    subprocess.run(cmd3, capture_output=True, text=True,
+                                   encoding='utf-8', errors='replace', timeout=timeout)
+                    project.current_step = "자막 테스트 완료"
+                    project.error_message = "Subtitle rendering failed, audio-only output"
 
         except Exception as e:
             project.error_message = f"Subtitle test failed: {str(e)}"
