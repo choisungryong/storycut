@@ -3391,84 +3391,96 @@ class MVPipeline:
                 n_timed = len(timed_clean)
                 print(f"  [SubTest] Matching {n_lines} lyrics lines -> {n_timed} timed entries")
 
-                # ── Pass 1: 앵커 포인트 탐색 ──
-                # 텍스트 유사도가 높은 (line, entry) 쌍을 앵커로 확정
-                # 경계 앵커: 첫 줄→첫 엔트리, 마지막 줄→마지막 엔트리 (무조건)
-                ANCHOR_THRESHOLD = 0.4
-                anchors = [(0, 0)]  # (line_idx, timed_idx)
+                # ── Step A: 보컬 구간 분리 ──
+                # timed 엔트리 간 갭이 VOCAL_GAP 이상이면 간주(instrumental)로 판단
+                VOCAL_GAP = 3.0
+                vocal_sections = []  # [(start_idx, end_idx), ...]
+                sec_start = 0
+                for i in range(1, n_timed):
+                    if timed_clean[i]["t"] - timed_clean[i - 1]["t"] >= VOCAL_GAP:
+                        vocal_sections.append((sec_start, i - 1))
+                        sec_start = i
+                vocal_sections.append((sec_start, n_timed - 1))
 
-                timed_cursor = 1
-                for li in range(1, n_lines - 1):
-                    norm_lyric = norm(lines[li])
-                    best_score = 0
-                    best_ti = -1
+                print(f"  [SubTest] Vocal sections: {len(vocal_sections)}")
+                for si, (vs, ve) in enumerate(vocal_sections):
+                    dur = timed_clean[ve]["t"] - timed_clean[vs]["t"]
+                    print(f"    Sec {si}: entries {vs}-{ve}, {timed_clean[vs]['t']:.1f}s ~ {timed_clean[ve]['t']:.1f}s ({ve - vs + 1} entries, {dur:.1f}s)")
 
-                    # 탐색 범위: 커서부터 남은 비율의 3배 + 5
-                    remaining_lines = n_lines - li
-                    remaining_timed = n_timed - timed_cursor
-                    search_range = max(5, remaining_timed * 3 // max(1, remaining_lines))
-                    search_end = min(n_timed - 1, timed_cursor + search_range)
+                # ── Step B: 가사를 보컬 구간에 배분 ──
+                # 각 구간의 엔트리 수에 비례하여 가사 줄 할당
+                total_entries = n_timed
+                alloc = []
+                for vs, ve in vocal_sections:
+                    alloc.append((ve - vs + 1) / total_entries * n_lines)
 
-                    for ti in range(timed_cursor, search_end):
-                        # 단일 매칭
-                        score = difflib.SequenceMatcher(None, norm_lyric, norm(timed_clean[ti]["text"])).ratio()
-                        if score > best_score:
-                            best_score = score
-                            best_ti = ti
-                        # 2개 합쳐서 매칭 (Gemini가 한 줄을 2개로 쪼갠 경우)
-                        if ti + 1 < n_timed:
-                            combined = timed_clean[ti]["text"] + timed_clean[ti + 1]["text"]
-                            score2 = difflib.SequenceMatcher(None, norm_lyric, norm(combined)).ratio()
-                            if score2 > best_score:
-                                best_score = score2
-                                best_ti = ti
+                # 반올림 + 총합 보정
+                int_alloc = [max(1, round(a)) for a in alloc]
+                # 총합이 n_lines와 다르면 마지막 구간에서 보정
+                diff = n_lines - sum(int_alloc)
+                int_alloc[-1] = max(1, int_alloc[-1] + diff)
 
-                    if best_score >= ANCHOR_THRESHOLD and best_ti >= 0:
-                        anchors.append((li, best_ti))
-                        timed_cursor = best_ti + 1
-                        print(f"    [ANCHOR] line {li} -> entry {best_ti} (score={best_score:.2f}) '{lines[li][:25]}' = '{timed_clean[best_ti]['text'][:25]}'")
+                # 구간별 가사 범위
+                line_cursor = 0
+                section_assignments = []  # (line_start, line_end, vocal_sec_idx)
+                for si, n_sec in enumerate(int_alloc):
+                    if line_cursor >= n_lines:
+                        break
+                    le = min(line_cursor + n_sec - 1, n_lines - 1)
+                    section_assignments.append((line_cursor, le, si))
+                    line_cursor = le + 1
 
-                anchors.append((n_lines - 1, n_timed - 1))  # 경계 앵커
-                print(f"  [SubTest] Found {len(anchors)} anchors (including boundaries)")
-
-                # ── Pass 2: 앵커 사이 보간 ──
-                # 앵커 구간마다 해당 범위의 timed 타임스탬프를 사용하여 줄 배치
+                # ── Step C: 각 보컬 구간 내에서 가사 -> timed 매칭 ──
                 timeline = [None] * n_lines
 
-                for ai in range(len(anchors) - 1):
-                    li_s, ti_s = anchors[ai]
-                    li_e, ti_e = anchors[ai + 1]
+                for (ls, le, si) in section_assignments:
+                    vs, ve = vocal_sections[si]
+                    sec_n_lines = le - ls + 1
+                    sec_n_entries = ve - vs + 1
 
-                    seg_lines = li_e - li_s + 1   # 이 구간의 가사 줄 수
-                    seg_entries = ti_e - ti_s + 1  # 이 구간의 timed 엔트리 수
+                    # 이 구간의 시간 상한 (간주로 넘어가지 않도록)
+                    if si + 1 < len(vocal_sections):
+                        next_start = timed_clean[vocal_sections[si + 1][0]]["t"]
+                        sec_max_t = min(timed_clean[ve]["t"] + 2.0, next_start - 0.5)
+                    else:
+                        sec_max_t = timed_clean[ve]["t"] + 3.0
 
-                    for offset in range(seg_lines):
-                        li = li_s + offset
+                    for offset in range(sec_n_lines):
+                        li = ls + offset
+                        if li >= n_lines:
+                            break
+
                         # 비례 위치로 timed 엔트리 선택
-                        ratio = offset / max(1, seg_lines - 1)
-                        ti = ti_s + round(ratio * (seg_entries - 1))
-                        ti = max(ti_s, min(ti, ti_e))
+                        ratio = offset / max(1, sec_n_lines - 1)
+                        ti = vs + round(ratio * max(0, sec_n_entries - 1))
+                        ti = max(vs, min(ti, ve))
 
                         t_start = timed_clean[ti]["t"]
-                        # 끝 시간: 다음 엔트리 시작 또는 +3초
-                        if ti + 1 < n_timed:
+
+                        # t_end: 같은 구간 내 다음 엔트리, 또는 구간 상한
+                        if ti + 1 <= ve:
                             t_end = timed_clean[ti + 1]["t"]
                         else:
-                            t_end = t_start + 3.0
+                            t_end = sec_max_t
 
-                        # 같은 엔트리에 여러 줄이 배치되면 시간 분할
-                        if timeline[li - 1] is not None and li > li_s:
-                            prev_start = timeline[li - 1].start
-                            if abs(t_start - prev_start) < 0.1:
-                                # 이전 줄과 같은 엔트리 → 시간 분할
+                        # 같은 엔트리에 여러 줄 -> 시간 분할
+                        if offset > 0 and timeline[li - 1] is not None:
+                            if abs(t_start - timeline[li - 1].start) < 0.1:
                                 t_start = timeline[li - 1].end
 
+                        # 구간 상한 적용
+                        t_end = min(t_end, sec_max_t)
                         if t_end <= t_start:
-                            t_end = t_start + max(0.5, (timed_clean[min(ti + 1, n_timed - 1)]["t"] - timed_clean[ti]["t"]) / 2)
+                            t_end = t_start + 0.5
                         if t_end - t_start < 0.3:
+                            t_end = t_start + 0.5
+                        t_end = min(t_end, sec_max_t)
+                        if t_end <= t_start:
                             t_end = t_start + 0.5
 
                         timeline[li] = SubtitleLine(t_start, t_end, lines[li])
+
+                    print(f"    Sec {si}: lines {ls}-{le} ({sec_n_lines}L) -> {timed_clean[vs]['t']:.1f}s ~ {sec_max_t:.1f}s")
 
                 # 빈 슬롯 채우기 (혹시 모를 경우)
                 for i in range(n_lines):
@@ -3485,8 +3497,8 @@ class MVPipeline:
                 print(f"  [SubTest] Sync: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
                 for ti in range(1, len(timeline)):
                     gap = timeline[ti].start - timeline[ti - 1].end
-                    if gap > 3.0:
-                        print(f"    [GAP] {gap:.1f}s instrumental before line {ti}")
+                    if gap > 1.0:
+                        print(f"    [GAP] {gap:.1f}s before line {ti}")
             else:
                 # timed_lyrics 없으면 균등 분배 fallback
                 print(f"  [SubTest] No timed_lyrics available, falling back to uniform distribution")
