@@ -136,6 +136,7 @@ class MVPipeline:
                     analysis_result["stt_sentences"] = stt_sentences
 
             project.music_analysis = MusicAnalysis(**analysis_result)
+            project.lyrics = extracted_lyrics or ""
             project.status = MVProjectStatus.READY
             project.progress = 10
 
