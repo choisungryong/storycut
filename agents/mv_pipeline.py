@@ -123,6 +123,16 @@ class MVPipeline:
                 print(f"\n[Step 1.5] User lyrics received ({len(user_lyrics.strip())} chars) - timing sync deferred to compose")
                 analysis_result["extracted_lyrics"] = user_lyrics.strip()
                 extracted_lyrics = user_lyrics.strip()
+                # 사용자 가사가 있어도 timed_lyrics 추출 (타이밍 정보 필요)
+                try:
+                    print(f"  Extracting timed_lyrics from Gemini for timing info...")
+                    self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
+                    _tl = getattr(self.music_analyzer, '_last_timed_lyrics', None)
+                    if _tl:
+                        analysis_result["timed_lyrics"] = _tl
+                        print(f"  timed_lyrics: {len(_tl)} entries extracted")
+                except Exception as e:
+                    print(f"  timed_lyrics extraction failed (non-critical): {e}")
             else:
                 print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
                 extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
@@ -3372,7 +3382,26 @@ class MVPipeline:
             timed = None
             if project.music_analysis and project.music_analysis.timed_lyrics:
                 timed = project.music_analysis.timed_lyrics
-                print(f"  [SubTest] timed_lyrics: {len(timed)} entries")
+                print(f"  [SubTest] timed_lyrics: {len(timed)} entries (cached)")
+
+            # timed_lyrics 없으면 Gemini에서 실시간 추출
+            if not timed or len(timed) < 2:
+                print(f"  [SubTest] timed_lyrics missing! Extracting from Gemini...")
+                project.current_step = "가사 타이밍 추출 중 (Gemini)..."
+                self._save_manifest(project, project_dir)
+                try:
+                    self.music_analyzer.extract_lyrics_with_gemini(project.music_file_path)
+                    timed = getattr(self.music_analyzer, '_last_timed_lyrics', None)
+                    if timed and len(timed) >= 2:
+                        print(f"  [SubTest] Gemini extracted {len(timed)} timed entries")
+                        # 프로젝트에 캐싱 (다음 실행 시 재사용)
+                        if project.music_analysis:
+                            project.music_analysis.timed_lyrics = timed
+                            self._save_manifest(project, project_dir)
+                    else:
+                        print(f"  [SubTest] Gemini extraction returned no timed_lyrics")
+                except Exception as e:
+                    print(f"  [SubTest] Gemini extraction failed: {e}")
 
             if timed and len(timed) >= 2:
                 import difflib
