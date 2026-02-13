@@ -3383,35 +3383,71 @@ class MVPipeline:
 
             if stt_segments and len(stt_segments) >= 2:
                 sorted_stt = sorted(stt_segments, key=lambda s: float(s.get("start", 0)))
-                n_lines = len(lines)
-                n_stt = len(sorted_stt)
 
-                # STT 세그먼트를 가사 줄에 순서대로 매핑
-                # n_stt개 세그먼트 → n_lines개 줄 (비례 배분)
+                # ── 글자 수 기반 타임라인 매핑 ──
+                # STT 텍스트의 각 글자에 시간을 부여하고,
+                # 가사 글자 수에 비례하여 타임라인을 결정.
+                # 한글 1글자 = 약 1음절이므로 노래 길이와 잘 대응됨.
+
+                # 1) STT 글자별 타임스탬프 생성
+                stt_char_times = []  # [(time, seg_idx), ...]
+                for si, seg in enumerate(sorted_stt):
+                    text = seg.get("text", "").strip().replace(" ", "")
+                    s = float(seg["start"])
+                    e = float(seg["end"])
+                    n_ch = max(1, len(text))
+                    for ci in range(n_ch):
+                        t = s + (e - s) * ci / n_ch
+                        stt_char_times.append(t)
+                    # 세그먼트 끝 시간도 추가 (마지막 글자의 끝)
+                stt_total_chars = len(stt_char_times)
+
+                # 2) 가사 글자 수 계산 (공백 제외)
+                lyrics_char_counts = [len(line.replace(" ", "")) for line in lines]
+                lyrics_total_chars = sum(lyrics_char_counts)
+
+                print(f"  [SubTest] STT chars: {stt_total_chars}, Lyrics chars: {lyrics_total_chars}")
+                print(f"  [SubTest] STT segments: {len(sorted_stt)}, range: {sorted_stt[0]['start']}s ~ {sorted_stt[-1]['end']}s")
+
+                # 3) 글자 비율로 타임라인 매핑
+                ratio = stt_total_chars / max(1, lyrics_total_chars)
                 timeline = []
+                char_pos = 0
+
                 for i, txt in enumerate(lines):
-                    # 이 가사 줄이 커버하는 STT 세그먼트 범위
-                    seg_start_idx = int(i * n_stt / n_lines)
-                    seg_end_idx = max(seg_start_idx, int((i + 1) * n_stt / n_lines) - 1)
-                    seg_end_idx = min(seg_end_idx, n_stt - 1)
+                    line_chars = lyrics_char_counts[i]
+                    start_idx = int(char_pos * ratio)
+                    end_idx = int((char_pos + line_chars) * ratio) - 1
 
-                    t_start = float(sorted_stt[seg_start_idx]["start"])
-                    t_end = float(sorted_stt[seg_end_idx]["end"])
+                    start_idx = max(0, min(start_idx, stt_total_chars - 1))
+                    end_idx = max(start_idx, min(end_idx, stt_total_chars - 1))
 
-                    # 최소 표시 시간 보장
-                    if t_end - t_start < 0.3:
-                        t_end = t_start + max(0.5, float(sorted_stt[seg_start_idx]["end"]) - t_start)
+                    t_start = stt_char_times[start_idx]
+                    t_end = stt_char_times[end_idx]
+
+                    # end를 해당 STT 세그먼트의 실제 끝 시간으로 확장
+                    # (글자 중간이 아닌 세그먼트 끝까지)
+                    for seg in sorted_stt:
+                        seg_e = float(seg["end"])
+                        if seg_e >= t_end:
+                            t_end = min(seg_e, t_end + 1.0)
+                            break
+
+                    # 최소 표시 시간
+                    if t_end - t_start < 0.5:
+                        t_end = t_start + 0.5
 
                     timeline.append(SubtitleLine(t_start, t_end, txt))
+                    char_pos += line_chars
 
-                print(f"  [SubTest] STT direct mapping: {n_lines} lines -> {n_stt} STT segments")
+                print(f"  [SubTest] Char-based mapping: {len(lines)} lines, ratio={ratio:.2f}")
                 print(f"  [SubTest] Time range: {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
 
                 # 간주 갭 진단
                 for ti in range(1, len(timeline)):
                     gap = timeline[ti].start - timeline[ti-1].end
                     if gap > 3.0:
-                        print(f"    [GAP] {gap:.1f}s break between line {ti-1} ({timeline[ti-1].end:.1f}s) and line {ti} ({timeline[ti].start:.1f}s)")
+                        print(f"    [GAP] {gap:.1f}s break before line {ti} ({timeline[ti-1].end:.1f}s -> {timeline[ti].start:.1f}s)")
             else:
                 # STT 실패 시 균등 분배 fallback
                 print(f"  [SubTest] STT unavailable, falling back to uniform distribution")
