@@ -260,6 +260,9 @@ class MVProjectRequest(BaseModel):
     subtitle_enabled: bool = Field(default=True, description="가사 자막 burn-in 여부")
     watermark_enabled: bool = Field(default=True, description="워터마크 표시 여부 (무료=True, 유료=False)")
 
+    # 씬 수 제한 (퀵 테스트: 5컷으로 빠른 스타일 확인)
+    max_scenes: Optional[int] = Field(None, description="최대 씬 수 (None=자동, 5=퀵 테스트)")
+
     # 수동 씬 분할 (Phase 1)
     manual_scenes: Optional[List[Dict[str, Any]]] = Field(
         None,

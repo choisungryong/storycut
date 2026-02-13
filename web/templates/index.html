@@ -1765,18 +1765,24 @@
                     <!-- JS로 씬 카드 동적 생성 -->
                 </div>
 
-                <div style="display: flex; justify-content: center; gap: 15px; margin-top: 30px;">
-                    <button id="mv-back-btn" class="btn btn-secondary">
-                        <span class="btn-icon">⬅️</span>
-                        다시 업로드
-                    </button>
-                    <button id="mv-subtitle-test-btn" class="btn" style="font-size: 1rem; padding: 12px 24px; background: #444; color: #fff; border: 1px solid #666;">
-                        <span class="btn-icon">📝</span> 자막 테스트
-                    </button>
-                    <button id="mv-generate-btn" class="btn btn-primary btn-large">
-                        <span class="btn-icon">🎬</span>
-                        뮤직비디오 생성 시작
-                    </button>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 30px;">
+                    <label style="display: flex; align-items: center; gap: 8px; color: #aaa; font-size: 0.9rem; cursor: pointer;">
+                        <input type="checkbox" id="mv-quick-test" style="accent-color: #00adb5;">
+                        퀵 테스트 (5컷만 생성 - 스타일 확인용)
+                    </label>
+                    <div style="display: flex; justify-content: center; gap: 15px;">
+                        <button id="mv-back-btn" class="btn btn-secondary">
+                            <span class="btn-icon">⬅️</span>
+                            다시 업로드
+                        </button>
+                        <button id="mv-subtitle-test-btn" class="btn" style="font-size: 1rem; padding: 12px 24px; background: #444; color: #fff; border: 1px solid #666;">
+                            <span class="btn-icon">📝</span> 자막 테스트
+                        </button>
+                        <button id="mv-generate-btn" class="btn btn-primary btn-large">
+                            <span class="btn-icon">🎬</span>
+                            뮤직비디오 생성 시작
+                        </button>
+                    </div>
                 </div>
             </div>
 

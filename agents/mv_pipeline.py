@@ -199,6 +199,17 @@ class MVPipeline:
         else:
             scenes = self._create_auto_scenes(project, request)
 
+        # max_scenes 제한 (퀵 테스트 모드: 균등 샘플링)
+        max_scenes = getattr(request, 'max_scenes', None)
+        if max_scenes and len(scenes) > max_scenes:
+            step = len(scenes) / max_scenes
+            sampled = [scenes[int(i * step)] for i in range(max_scenes)]
+            # scene_id 재배정
+            for idx, s in enumerate(sampled):
+                s.scene_id = idx + 1
+            print(f"  Quick test: {len(scenes)} -> {len(sampled)} scenes (sampled)")
+            scenes = sampled
+
         project.scenes = scenes
         project.progress = 20
 
@@ -735,7 +746,7 @@ class MVPipeline:
             "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster",
             "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime proportions, NOT a photograph",
             "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, NOT a photograph",
-            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, NOT anime, NOT cartoon",
+            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin",
             "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, NOT a photograph",
             "abstract": "abstract expressionist art, surreal dreamlike, bold geometric shapes",
             "hoyoverse": "anime game cinematic illustration, HoYoverse Genshin Impact quality, cel-shaded with dramatic lighting, vibrant saturated colors, NOT photorealistic, NOT western cartoon",
@@ -963,7 +974,7 @@ class MVPipeline:
                 "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
                 "anime": "Japanese anime cel-shaded illustration, bold outlines, vibrant saturated colors, anime eyes and proportions, manga-inspired composition",
                 "webtoon": "Korean webtoon digital art style, clean sharp lines, flat color blocks, manhwa character design, vertical scroll composition",
-                "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures",
+                "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, candid feel, 35mm film grain",
                 "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, artstation trending",
                 "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational",
                 "hoyoverse": "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, HoYoverse quality, vibrant saturated colors"
@@ -1290,7 +1301,7 @@ class MVPipeline:
             MVStyle.CINEMATIC: "cinematic film still, dramatic lighting, high contrast",
             MVStyle.ANIME: "Japanese anime cel-shaded illustration, bold black outlines, NOT a photograph",
             MVStyle.WEBTOON: "Korean manhwa webtoon digital art, clean sharp lines, NOT a photograph",
-            MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, NOT anime, NOT cartoon, NOT illustration",
+            MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",
             MVStyle.ILLUSTRATION: "digital painting illustration, painterly brushstrokes, concept art quality",
             MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike, non-representational",
             MVStyle.HOYOVERSE: "anime game cinematic, cel-shaded illustration, dramatic lighting, elemental effects, HoYoverse Genshin Impact quality, vibrant saturated colors, NOT photorealistic",

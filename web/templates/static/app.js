@@ -2672,6 +2672,7 @@ class StorycutApp {
                     style: this.mvRequestParams?.style || 'cinematic',
                     subtitle_enabled: this.mvRequestParams?.subtitle_enabled !== false,
                     watermark_enabled: this._shouldShowWatermark(),
+                    max_scenes: document.getElementById('mv-quick-test')?.checked ? 5 : null,
                     scene_descriptions: sceneDescriptions
                 })
             });

@@ -2556,6 +2556,8 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
         raise HTTPException(status_code=400, detail="Generation already in progress")
 
     total_scenes = len(project.music_analysis.segments) if project.music_analysis else 6
+    if request.max_scenes and total_scenes > request.max_scenes:
+        total_scenes = request.max_scenes
     estimated_time = total_scenes * 30  # 씬당 약 30초
 
     def run_mv_generation():

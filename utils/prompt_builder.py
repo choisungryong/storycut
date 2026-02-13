@@ -306,8 +306,8 @@ class MultimodalPromptBuilder:
         # 스타일별 강력한 이미지 생성 지시 (positive + negative)
         style_directives = {
             "cinematic": {
-                "positive": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster.",
-                "negative": ""
+                "positive": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster. Natural skin texture, real-world imperfections.",
+                "negative": "NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT airbrushed, NOT uncanny valley."
             },
             "anime": {
                 "positive": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art.",
@@ -318,8 +318,8 @@ class MultimodalPromptBuilder:
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
             },
             "realistic": {
-                "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting, sharp focus, real-world textures, photojournalistic quality. This MUST be indistinguishable from a real photograph.",
-                "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized."
+                "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting with subtle imperfections, sharp focus, real-world textures, photojournalistic quality. Visible skin texture (pores, fine lines, subtle blemishes), natural asymmetry, candid photography feel. Shot on 35mm film grain. This MUST be indistinguishable from a real photograph.",
+                "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT symmetrical face, NOT glowing eyes, NOT airbrushed, NOT uncanny valley, NOT stock photo, NOT oversaturated."
             },
             "illustration": {
                 "positive": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork.",
