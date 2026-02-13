@@ -2911,12 +2911,16 @@ async def get_mv_lyrics_timeline(project_id: str):
         timed_lyrics = project.music_analysis.timed_lyrics
         duration_sec = project.music_analysis.duration_sec
 
-    # edited_timed_lyrics가 있으면 has_edits=True
+    # aligned_lyrics (자막 테스트 또는 compose에서 생성된 정렬 결과)
+    aligned = getattr(project, 'aligned_lyrics', None) or []
+
+    # 우선순위: edited > aligned > timed_lyrics
     has_edits = bool(project.edited_timed_lyrics)
+    best_lyrics = project.edited_timed_lyrics or aligned or timed_lyrics or []
 
     return {
         "stt_sentences": stt_sentences or [],
-        "timed_lyrics": project.edited_timed_lyrics or timed_lyrics or [],
+        "timed_lyrics": best_lyrics,
         "duration_sec": duration_sec,
         "has_edits": has_edits,
     }

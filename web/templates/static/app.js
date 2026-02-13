@@ -3652,7 +3652,7 @@ class StorycutApp {
     // ================================================================
 
     async openLyricsTimeline() {
-        const projectId = this._currentMVResultProjectId;
+        const projectId = this.mvProjectId || this._currentMVResultProjectId;
         if (!projectId) {
             this.showToast('프로젝트 ID를 찾을 수 없습니다', 'error');
             return;
@@ -3763,7 +3763,7 @@ class StorycutApp {
     }
 
     async timelineSave() {
-        const projectId = this._currentMVResultProjectId;
+        const projectId = this.mvProjectId || this._currentMVResultProjectId;
         if (!projectId) return;
 
         const tbody = document.getElementById('lyrics-timeline-tbody');

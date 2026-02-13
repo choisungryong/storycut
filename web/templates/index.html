@@ -1854,61 +1854,14 @@
                 </p>
                 <div id="mv-image-review-grid" class="result-scene-grid"></div>
                 <div style="margin-top: 1.5rem; text-align: center; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                    <button id="mv-lyrics-timeline-btn" class="btn btn-secondary"
+                            onclick="app.openLyricsTimeline()">
+                        <span class="btn-icon">🎤</span>
+                        가사 타이밍 편집
+                    </button>
                     <button id="mv-compose-btn" class="btn btn-primary" style="font-size: 1.1rem; padding: 14px 32px;">
                         <span class="btn-icon">🎬</span> 최종 뮤직비디오 생성
                     </button>
-                </div>
-            </div>
-
-            <!-- 뮤직비디오 결과 섹션 -->
-            <div id="mv-result-section" class="section hidden">
-                <h2 id="mv-result-header">🎉 뮤직비디오 완성!</h2>
-
-                <div class="result-container">
-                    <div class="result-info">
-                        <p><strong>프로젝트 ID:</strong> <code id="mv-result-project-id"></code></p>
-                        <p><strong>길이:</strong> <span id="mv-result-duration"></span></p>
-                        <p><strong>씬 수:</strong> <span id="mv-result-scene-count"></span></p>
-                    </div>
-
-                    <div class="video-player" id="mv-result-video-container">
-                        <video id="mv-result-video" controls style="width: 100%; border-radius: 8px;"></video>
-                    </div>
-
-                    <div class="result-actions">
-                        <a id="mv-download-btn" class="btn btn-primary" download>
-                            <span class="btn-icon">📥</span>
-                            뮤직비디오 다운로드
-                        </a>
-                        <label id="mv-music-upload-btn" class="btn btn-secondary" style="display:none;">
-                            <span class="btn-icon">🎵</span>
-                            음악 파일 재업로드
-                            <input type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" style="display:none;"
-                                   onchange="app.mvUploadMusicForRecompose(this.files[0])">
-                        </label>
-                        <button id="mv-recompose-btn" class="btn btn-secondary" style="display:none;"
-                                onclick="app.mvRecompose()">
-                            <span class="btn-icon">🔄</span>
-                            영상 재합성 (수정 반영)
-                        </button>
-                        <button id="mv-lyrics-timeline-btn" class="btn btn-secondary"
-                                onclick="app.openLyricsTimeline()">
-                            <span class="btn-icon">🎤</span>
-                            가사 타이밍 편집
-                        </button>
-                        <button id="mv-new-btn" class="btn btn-secondary">
-                            <span class="btn-icon">➕</span>
-                            새 뮤직비디오 만들기
-                        </button>
-                    </div>
-
-                    <!-- 씬 썸네일 그리드 -->
-                    <div style="margin-top: 30px;">
-                        <h3 style="color: #00adb5; margin-bottom: 15px;">🎨 생성된 씬</h3>
-                        <div id="mv-result-scene-grid" class="scene-grid">
-                            <!-- JS로 동적 생성 -->
-                        </div>
-                    </div>
                 </div>
 
                 <!-- 가사 타이밍 에디터 모달 -->
@@ -1944,7 +1897,53 @@
                         </div>
                     </div>
                 </div>
+            </div>
 
+            <!-- 뮤직비디오 결과 섹션 -->
+            <div id="mv-result-section" class="section hidden">
+                <h2 id="mv-result-header">🎉 뮤직비디오 완성!</h2>
+
+                <div class="result-container">
+                    <div class="result-info">
+                        <p><strong>프로젝트 ID:</strong> <code id="mv-result-project-id"></code></p>
+                        <p><strong>길이:</strong> <span id="mv-result-duration"></span></p>
+                        <p><strong>씬 수:</strong> <span id="mv-result-scene-count"></span></p>
+                    </div>
+
+                    <div class="video-player" id="mv-result-video-container">
+                        <video id="mv-result-video" controls style="width: 100%; border-radius: 8px;"></video>
+                    </div>
+
+                    <div class="result-actions">
+                        <a id="mv-download-btn" class="btn btn-primary" download>
+                            <span class="btn-icon">📥</span>
+                            뮤직비디오 다운로드
+                        </a>
+                        <label id="mv-music-upload-btn" class="btn btn-secondary" style="display:none;">
+                            <span class="btn-icon">🎵</span>
+                            음악 파일 재업로드
+                            <input type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" style="display:none;"
+                                   onchange="app.mvUploadMusicForRecompose(this.files[0])">
+                        </label>
+                        <button id="mv-recompose-btn" class="btn btn-secondary" style="display:none;"
+                                onclick="app.mvRecompose()">
+                            <span class="btn-icon">🔄</span>
+                            영상 재합성 (수정 반영)
+                        </button>
+                        <button id="mv-new-btn" class="btn btn-secondary">
+                            <span class="btn-icon">➕</span>
+                            새 뮤직비디오 만들기
+                        </button>
+                    </div>
+
+                    <!-- 씬 썸네일 그리드 -->
+                    <div style="margin-top: 30px;">
+                        <h3 style="color: #00adb5; margin-bottom: 15px;">🎨 생성된 씬</h3>
+                        <div id="mv-result-scene-grid" class="scene-grid">
+                            <!-- JS로 동적 생성 -->
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- History 섹션 (내 비디오) -->
