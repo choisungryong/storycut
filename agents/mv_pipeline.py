@@ -3382,48 +3382,22 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            use_uniform = False
-
+            # STT는 앵커(시작/끝) 보정에만 사용, 줄 배치는 균등 분배
+            # (STT fuzzy matching은 누적 밀림 발생 → 균등 분배가 가장 안정적)
+            #
+            # STT 첫 세그먼트로 정확한 시작 시간 결정
+            actual_start = anchor_info.anchor_start
             if stt_segments:
-                aligned = align_lyrics_with_stt(
-                    lines, stt_segments,
-                    anchor_info.anchor_start, anchor_info.anchor_end,
-                )
-                avg_conf = sum(a.confidence for a in aligned) / len(aligned) if aligned else 0
-                matched = sum(1 for a in aligned if a.confidence > 0)
-                print(f"  [SubTest] STT alignment: {len(aligned)} lines, matched={matched}, avg_conf={avg_conf:.0f}")
+                first_stt_start = min(float(s.get("start", 9999)) for s in stt_segments)
+                if first_stt_start < actual_start:
+                    actual_start = first_stt_start
+                print(f"  [SubTest] First vocal detected at {first_stt_start:.1f}s (anchor was {anchor_info.anchor_start:.1f}s)")
 
-                # STT 매칭 품질 체크
-                if avg_conf < 40 or matched < len(aligned) * 0.3:
-                    print(f"  [SubTest] Poor STT match (conf={avg_conf:.0f}, matched={matched}/{len(aligned)}) -> uniform fallback")
-                    use_uniform = True
-                elif len(aligned) >= 2:
-                    # 타이밍 품질 체크: 최대 갭이 너무 크면 균등 분배로 폴백
-                    gaps = [aligned[i+1].start - aligned[i].end for i in range(len(aligned)-1)]
-                    max_gap = max(gaps) if gaps else 0
-                    avg_gap = sum(gaps) / len(gaps) if gaps else 0
-                    print(f"  [SubTest] Timing gaps: max={max_gap:.1f}s, avg={avg_gap:.1f}s")
-                    if max_gap > 15.0:
-                        print(f"  [SubTest] Max gap {max_gap:.1f}s > 15s -> uniform fallback")
-                        use_uniform = True
-            else:
-                use_uniform = True
-
-            if use_uniform:
-                # 균등 분배: 전체 앵커 범위에 걸쳐 분배 (세그먼트 정확도를 신뢰하지 않음)
-                timeline = clamp_timeline_anchored(
-                    lines, anchor_info.anchor_start, anchor_info.anchor_end
-                )
-                aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
-                print(f"  [SubTest] Uniform distribution: {len(aligned)} lines over {anchor_info.anchor_start:.1f}s-{anchor_info.anchor_end:.1f}s")
-            # STT 정렬 결과는 그대로 신뢰 (snap 하지 않음 - STT가 실제 보컬 타이밍을 가장 정확히 앎)
-
-            # 자막 선행 오프셋: 자막이 노래보다 약간 먼저 표시 (가독성 향상, 업계 표준)
-            SUBTITLE_LEAD = -0.5  # 0.5초 앞당김
-            for a in aligned:
-                a.start = max(0, a.start + SUBTITLE_LEAD)
-                a.end = max(a.start + 0.3, a.end + SUBTITLE_LEAD)
-            print(f"  [SubTest] Applied {SUBTITLE_LEAD}s lead offset to all lines")
+            timeline = clamp_timeline_anchored(
+                lines, actual_start, anchor_info.anchor_end
+            )
+            aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+            print(f"  [SubTest] Uniform distribution: {len(aligned)} lines over {actual_start:.1f}s-{anchor_info.anchor_end:.1f}s")
 
             # 디버그: 전체 정렬 결과 출력
             for ai, a in enumerate(aligned):
