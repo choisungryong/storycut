@@ -131,15 +131,6 @@ class MVPipeline:
                 if stt_sentences:
                     analysis_result["stt_sentences"] = stt_sentences
                 extracted_lyrics = synced_lyrics
-
-                # Gemini Audio STT (자막 타이밍 힌트)
-                print(f"\n[Step 1.6] Gemini Audio STT for subtitle alignment...")
-                stt_segments = self.music_analyzer.transcribe_with_gemini_audio(stored_music_path)
-                if stt_segments:
-                    print(f"  [Gemini-STT] {len(stt_segments)} segments stored for subtitle alignment")
-                else:
-                    print(f"  [Gemini-STT] No segments (will fallback to uniform distribution)")
-                    stt_segments = None
             else:
                 print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
                 extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
@@ -154,9 +145,6 @@ class MVPipeline:
                     analysis_result["stt_sentences"] = stt_sentences
 
             project.music_analysis = MusicAnalysis(**analysis_result)
-            # STT 세그먼트를 프로젝트에 저장 (자막 정렬용)
-            if user_lyrics and user_lyrics.strip():
-                project.stt_segments = stt_segments
             project.status = MVProjectStatus.READY
             project.progress = 10
 
@@ -3052,8 +3040,19 @@ class MVPipeline:
                 lines = split_lyrics_lines(user_lyrics_text)
                 n_lines = len(lines)
 
-                # STT 정렬 시도
+                # STT 정렬 시도 (lazy: compose 시점에 Gemini Audio STT 호출)
                 stt_segments = getattr(project, 'stt_segments', None)
+                if not stt_segments:
+                    print(f"    [Gemini-STT] Running audio STT for subtitle alignment...")
+                    stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
+                        project.music_file_path
+                    )
+                    if stt_segments:
+                        project.stt_segments = stt_segments
+                        print(f"    [Gemini-STT] Got {len(stt_segments)} segments")
+                    else:
+                        print(f"    [Gemini-STT] Failed, will use uniform distribution")
+
                 if stt_segments:
                     print(f"    [STT-Align] Using {len(stt_segments)} STT segments for alignment...")
                     aligned = align_lyrics_with_stt(
