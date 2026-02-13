@@ -3409,11 +3409,12 @@ class MVPipeline:
                 )
                 drawtext_filters.append(dt)
 
-            # 필터 스크립트 파일로 저장 (커맨드라인 길이 제한 방지)
-            vf_str = ",".join(drawtext_filters) if drawtext_filters else "null"
+            # 필터 스크립트 파일로 저장 (패드 라벨 포함)
+            vf_chain = ",".join(drawtext_filters) if drawtext_filters else "null"
+            filter_graph = f"[0:v]{vf_chain}[vout]"
             filter_script_path = f"{project_dir}/media/subtitles/filter_script.txt"
             with open(filter_script_path, "w", encoding="utf-8") as fs:
-                fs.write(vf_str)
+                fs.write(filter_graph)
             filter_script_abs = os.path.abspath(filter_script_path)
 
             print(f"  [SubTest] drawtext filters: {len(drawtext_filters)} lines")
@@ -3424,7 +3425,7 @@ class MVPipeline:
                 "-f", "lavfi", "-i", f"color=c=black:s=1280x720:d={audio_duration}:r=24",
                 "-i", audio_abs,
                 "-filter_complex_script", filter_script_abs,
-                "-map", "0:v", "-map", "1:a",
+                "-map", "[vout]", "-map", "1:a",
                 "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100", "-b:a", "128k",
                 "-shortest",
