@@ -3391,80 +3391,65 @@ class MVPipeline:
                 n_timed = len(timed_clean)
                 print(f"  [SubTest] Matching {n_lines} lyrics lines -> {n_timed} timed entries")
 
-                # ── Step A: 보컬 구간 분리 ──
-                # timed 엔트리 간 갭이 VOCAL_GAP 이상이면 간주(instrumental)로 판단
-                VOCAL_GAP = 3.0
-                vocal_sections = []  # [(start_idx, end_idx), ...]
-                sec_start = 0
-                for i in range(1, n_timed):
-                    if timed_clean[i]["t"] - timed_clean[i - 1]["t"] >= VOCAL_GAP:
-                        vocal_sections.append((sec_start, i - 1))
-                        sec_start = i
-                vocal_sections.append((sec_start, n_timed - 1))
+                # ── 가사 -> timed 엔트리 직접 매핑 ──
+                # 핵심: timed 엔트리 타임스탬프를 직접 사용
+                # 간주에는 엔트리가 없으므로 자막도 자동으로 없음
 
-                print(f"  [SubTest] Vocal sections: {len(vocal_sections)}")
-                for si, (vs, ve) in enumerate(vocal_sections):
-                    dur = timed_clean[ve]["t"] - timed_clean[vs]["t"]
-                    print(f"    Sec {si}: entries {vs}-{ve}, {timed_clean[vs]['t']:.1f}s ~ {timed_clean[ve]['t']:.1f}s ({ve - vs + 1} entries, {dur:.1f}s)")
+                # Step 1: 가사를 timed 엔트리에 비례 매핑
+                mapped_ti = []  # 각 가사 줄이 매핑된 timed 인덱스
+                for li in range(n_lines):
+                    ti = round(li / max(1, n_lines - 1) * (n_timed - 1))
+                    mapped_ti.append(max(0, min(ti, n_timed - 1)))
 
-                # ── Step B: 보컬 구간별 시간 범위 계산 ──
-                sections = []
-                for si, (vs, ve) in enumerate(vocal_sections):
-                    t_start = timed_clean[vs]["t"]
-                    t_last = timed_clean[ve]["t"]
-                    if si + 1 < len(vocal_sections):
-                        next_t = timed_clean[vocal_sections[si + 1][0]]["t"]
-                        t_end = min(t_last + 2.0, next_t - 0.5)
+                # Step 2: 같은 엔트리에 매핑된 가사를 그룹핑
+                groups = []  # [(timed_idx, [line_indices])]
+                for li, ti in enumerate(mapped_ti):
+                    if not groups or groups[-1][0] != ti:
+                        groups.append((ti, [li]))
                     else:
-                        t_end = t_last + 3.0
-                    dur = max(0.5, t_end - t_start)
-                    sections.append({"t_start": t_start, "t_end": t_end, "dur": dur})
+                        groups[-1][1].append(li)
 
-                total_vocal_dur = sum(s["dur"] for s in sections)
+                print(f"  [SubTest] {len(groups)} groups from {n_lines} lines -> {n_timed} entries")
 
-                # ── Step C: 가사를 보컬 구간에 시간 비례 배분 + 균등 시간 분할 ──
-                # 엔트리 인덱스 매핑 없이, 각 구간의 시간을 가사 줄 수로 나눔
-                # -> 구간을 절대 넘을 수 없음
-                alloc_float = [s["dur"] / total_vocal_dur * n_lines for s in sections]
-                int_alloc = [round(a) for a in alloc_float]
-                # 최소 1줄 보장 (구간이 존재하면)
-                for i in range(len(int_alloc)):
-                    if int_alloc[i] < 1 and sections[i]["dur"] > 0.5:
-                        int_alloc[i] = 1
-                # 총합 보정
-                diff = n_lines - sum(int_alloc)
-                if diff != 0:
-                    # 가장 긴 구간에서 보정
-                    longest = max(range(len(sections)), key=lambda i: sections[i]["dur"])
-                    int_alloc[longest] = max(1, int_alloc[longest] + diff)
-
+                # Step 3: 각 그룹의 시간 윈도우 계산 + 가사 배치
+                INSTRUMENTAL_GAP = 4.0  # 이 이상 갭이면 간주로 판단
+                MAX_DISPLAY = 3.0       # 간주 앞 마지막 자막 최대 표시 시간
                 timeline = [None] * n_lines
-                line_cursor = 0
 
-                for si, sec in enumerate(sections):
-                    n_sec = int_alloc[si] if si < len(int_alloc) else 0
-                    if n_sec <= 0 or line_cursor >= n_lines:
-                        continue
+                for gi, (ti, line_indices) in enumerate(groups):
+                    t_start = timed_clean[ti]["t"]
 
-                    sec_start = sec["t_start"]
-                    sec_end = sec["t_end"]
-                    sec_dur = sec["dur"]
+                    # 다음 그룹의 시작 시간
+                    if gi + 1 < len(groups):
+                        next_t = timed_clean[groups[gi + 1][0]]["t"]
+                    else:
+                        next_t = t_start + MAX_DISPLAY
 
-                    for offset in range(n_sec):
-                        li = line_cursor + offset
-                        if li >= n_lines:
-                            break
+                    gap = next_t - t_start
 
-                        # 균등 시간 분할: 각 줄이 구간 내 동일한 시간을 차지
-                        t_start = sec_start + (offset / n_sec) * sec_dur
-                        t_end = sec_start + ((offset + 1) / n_sec) * sec_dur
+                    # 간주 갭이면 표시 시간을 짧게 제한
+                    if gap > INSTRUMENTAL_GAP:
+                        window_end = t_start + min(MAX_DISPLAY, len(line_indices) * 1.5)
+                    else:
+                        window_end = next_t
 
-                        timeline[li] = SubtitleLine(t_start, t_end, lines[li])
+                    window_dur = max(0.5, window_end - t_start)
+                    n_group = len(line_indices)
 
-                    print(f"    Sec {si}: lines {line_cursor}-{line_cursor + n_sec - 1} ({n_sec}L) -> {sec_start:.1f}s ~ {sec_end:.1f}s (dur={sec_dur:.1f}s)")
-                    line_cursor += n_sec
+                    for offset, li in enumerate(line_indices):
+                        ls = t_start + (offset / n_group) * window_dur
+                        le = t_start + ((offset + 1) / n_group) * window_dur
+                        timeline[li] = SubtitleLine(ls, le, lines[li])
 
-                # 미할당 줄 처리 (구간 수 < 줄 수 극단 케이스)
+                # 디버그: 간주 갭 로그
+                for gi in range(len(groups) - 1):
+                    t_cur = timed_clean[groups[gi][0]]["t"]
+                    t_next = timed_clean[groups[gi + 1][0]]["t"]
+                    if t_next - t_cur > INSTRUMENTAL_GAP:
+                        last_li = groups[gi][1][-1]
+                        print(f"    [INSTRUMENTAL] {t_cur:.1f}s ~ {t_next:.1f}s (gap={t_next - t_cur:.1f}s) after line {last_li}: '{lines[last_li][:30]}'")
+
+                # 미할당 줄 처리 (극단 케이스)
                 for i in range(n_lines):
                     if timeline[i] is None:
                         prev_end = timeline[i - 1].end if i > 0 and timeline[i - 1] else 0
