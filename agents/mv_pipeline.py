@@ -70,17 +70,11 @@ class MVPipeline:
 
     def _separate_vocals(self, music_path: str, project_dir: str) -> Optional[str]:
         """
-        Demucs로 보컬 트랙을 분리하여 가사 추출 정확도 향상.
-        실패 시 None 반환 (원본 fallback).
+        보컬 트랙 분리 (3-tier fallback):
+        1. 로컬 GPU Demucs (가장 빠름)
+        2. Replicate API Demucs (클라우드 GPU, ~30-60초)
+        3. None (풀 믹스 fallback)
         """
-        try:
-            import torch
-            from demucs.pretrained import get_model
-            from demucs.separate import load_track, apply_model, save_audio
-        except ImportError:
-            print("  [Demucs] Not installed, skipping vocal separation")
-            return None
-
         vocals_dir = os.path.join(project_dir, "music")
         vocals_path = os.path.join(vocals_dir, "vocals.wav")
 
@@ -88,9 +82,33 @@ class MVPipeline:
             print(f"  [Demucs] Using cached vocals: {vocals_path}")
             return vocals_path
 
+        # ── Tier 1: 로컬 GPU Demucs ──
+        result = self._separate_vocals_local(music_path, vocals_path)
+        if result:
+            return result
+
+        # ── Tier 2: Replicate API Demucs ──
+        result = self._separate_vocals_replicate(music_path, vocals_path)
+        if result:
+            return result
+
+        # ── Tier 3: fallback (풀 믹스) ──
+        print("  [Demucs] All separation methods failed - using full mix")
+        return None
+
+    def _separate_vocals_local(self, music_path: str, vocals_path: str) -> Optional[str]:
+        """로컬 GPU/CPU Demucs 보컬 분리."""
+        try:
+            import torch
+            from demucs.pretrained import get_model
+            from demucs.separate import load_track, apply_model
+        except ImportError:
+            print("  [Demucs-Local] Not installed, skipping")
+            return None
+
         try:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"  [Demucs] Separating vocals from: {os.path.basename(music_path)} (device={device})")
+            print(f"  [Demucs-Local] Separating vocals from: {os.path.basename(music_path)} (device={device})")
 
             model = get_model("htdemucs")
             model.to(device)
@@ -102,30 +120,93 @@ class MVPipeline:
             sources = apply_model(model, wav[None], device=device)[0]
             sources = sources * ref.std() + ref.mean()
 
-            # htdemucs sources order: drums, bass, other, vocals
             vocals_idx = model.sources.index("vocals")
             vocals_tensor = sources[vocals_idx]
 
-            # scipy.io.wavfile로 직접 저장 (torchaudio backend 문제 회피)
             import numpy as np
             from scipy.io import wavfile
             vocals_np = vocals_tensor.cpu().numpy()
-            # (channels, samples) → (samples, channels), float32 → int16
             if vocals_np.ndim == 2:
                 vocals_np = vocals_np.T
             vocals_int16 = np.clip(vocals_np * 32767, -32768, 32767).astype(np.int16)
+            os.makedirs(os.path.dirname(vocals_path), exist_ok=True)
             wavfile.write(vocals_path, model.samplerate, vocals_int16)
-            print(f"  [Demucs] Vocals saved: {vocals_path}")
+            print(f"  [Demucs-Local] Vocals saved: {vocals_path}")
             return vocals_path
 
         except Exception as e:
-            print(f"  [Demucs] Vocal separation failed (falling back to full mix): {e}")
-            # Clean up partial file
+            print(f"  [Demucs-Local] Failed: {e}")
             if os.path.exists(vocals_path):
-                try:
-                    os.remove(vocals_path)
-                except OSError:
-                    pass
+                try: os.remove(vocals_path)
+                except OSError: pass
+            return None
+
+    def _separate_vocals_replicate(self, music_path: str, vocals_path: str) -> Optional[str]:
+        """Replicate API Demucs 보컬 분리 (클라우드 GPU)."""
+        api_token = os.getenv("REPLICATE_API_TOKEN")
+        if not api_token:
+            print("  [Demucs-Replicate] REPLICATE_API_TOKEN not set, skipping")
+            return None
+
+        try:
+            import replicate
+            import requests
+            import time
+
+            print(f"  [Demucs-Replicate] Uploading {os.path.basename(music_path)} to Replicate...")
+            start_t = time.time()
+
+            # 파일 업로드 + Demucs 실행
+            with open(music_path, "rb") as f:
+                output = replicate.run(
+                    "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81571f6571d6c1df",
+                    input={
+                        "audio": f,
+                        "stem": "vocals",
+                    },
+                    timeout=300,
+                )
+
+            # output은 vocals URL (문자열) 또는 dict
+            vocals_url = None
+            if isinstance(output, str):
+                vocals_url = output
+            elif isinstance(output, dict):
+                vocals_url = output.get("vocals") or output.get("output")
+            elif hasattr(output, '__iter__'):
+                # FileOutput 등 iterable인 경우
+                for item in output:
+                    if isinstance(item, str) and item.startswith("http"):
+                        vocals_url = item
+                        break
+
+            if not vocals_url:
+                print(f"  [Demucs-Replicate] Unexpected output format: {type(output)} = {str(output)[:200]}")
+                return None
+
+            # 보컬 파일 다운로드
+            print(f"  [Demucs-Replicate] Downloading vocals...")
+            resp = requests.get(vocals_url, timeout=120)
+            if not resp.ok:
+                print(f"  [Demucs-Replicate] Download failed: {resp.status_code}")
+                return None
+
+            os.makedirs(os.path.dirname(vocals_path), exist_ok=True)
+            with open(vocals_path, "wb") as f:
+                f.write(resp.content)
+
+            elapsed = time.time() - start_t
+            size_mb = len(resp.content) / (1024 * 1024)
+            print(f"  [Demucs-Replicate] Vocals saved: {vocals_path} ({size_mb:.1f}MB, {elapsed:.1f}s)")
+            return vocals_path
+
+        except Exception as e:
+            print(f"  [Demucs-Replicate] Failed: {e}")
+            import traceback
+            traceback.print_exc()
+            if os.path.exists(vocals_path):
+                try: os.remove(vocals_path)
+                except OSError: pass
             return None
 
     # ================================================================
