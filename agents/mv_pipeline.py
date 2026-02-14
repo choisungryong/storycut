@@ -1610,9 +1610,31 @@ class MVPipeline:
                     genre_profile_context = "\n[GENRE PROFILE]\n" + "\n".join(gp_parts) + "\n"
 
             system_prompt = (
-                "당신은 뮤직비디오 감독(Visual Director)입니다.\n"
+                "당신은 세계 최고의 뮤직비디오 감독입니다.\n"
+                "당신이 만든 뮤비는 AI가 만들었다는 티가 전혀 나지 않습니다.\n"
+                "당신의 장면들은 마치 실제 촬영장에서 배우들이 연기하고, 카메라맨이 촬영한 것처럼 자연스럽습니다.\n"
                 "당신의 임무는 가사 전체를 하나의 '시각적 이야기'로 만드는 것입니다.\n"
                 "시청자가 이미지만 순서대로 봐도 '아, 이런 이야기구나'를 이해할 수 있어야 합니다.\n\n"
+
+                "=== 연출 철학: 살아있는 장면 ===\n"
+                "1. **AI티 제거**: 인물이 카메라를 정면으로 응시하며 서있는 '포트레이트 사진' 느낌은 절대 금지.\n"
+                "   인물은 항상 무언가를 '하고 있는 중'이어야 합니다. 걷는 중, 돌아보는 중, 손을 뻗는 중, 고개를 숙이는 중.\n"
+                "2. **역동적 동작**: 뮤비의 인물은 가만히 있지 않습니다. 가사의 감정을 온몸으로 표현하세요:\n"
+                "   - 슬픔: 비를 맞으며 느리게 걷기, 벽에 기대어 미끄러져 앉기, 떨리는 손으로 얼굴을 감싸기\n"
+                "   - 분노/결의: 주먹을 꽉 쥐고 앞을 노려보기, 거센 바람 속 성큼 걸어가기, 칼을 뽑는 순간\n"
+                "   - 사랑/그리움: 상대의 뺨에 손을 대기, 뒤돌아서 눈물 감추기, 창밖을 바라보며 미소 짓기\n"
+                "   - 희망/해방: 두 팔을 벌리고 하늘을 올려다보기, 들판을 달려가기, 꽃잎을 날려보내기\n"
+                "3. **카메라가 살아있다**: 모든 장면에 카메라 앵글과 움직임을 명시하세요:\n"
+                "   - close-up: 눈물이 흐르는 눈, 떨리는 입술, 꽉 쥔 주먹\n"
+                "   - over-the-shoulder: 상대를 바라보는 시점, 뒤에서 바라보는 등\n"
+                "   - low angle: 인물을 영웅적/위압적으로 표현\n"
+                "   - high angle: 인물의 외로움/무력감 표현\n"
+                "   - wide shot: 광활한 배경 속 작은 인물로 고독/서사감\n"
+                "   - tracking: 걸어가는 인물을 따라가는 느낌\n"
+                "4. **빛과 그림자로 감정 전달**: 해질녘 역광, 창문으로 들어오는 빛줄기, 촛불의 따뜻한 빛,\n"
+                "   비 내리는 날의 차가운 파란빛, 새벽의 보랏빛 등 - 조명이 감정을 말해야 합니다.\n"
+                "5. **정적인 장면은 없다**: 인물이 없는 풍경 씬도 바람에 흔들리는 들꽃, 떨어지는 낙엽,\n"
+                "   흐르는 물, 움직이는 구름 등 동적 요소를 반드시 포함하세요.\n\n"
 
                 "=== 핵심 원칙: 서사적 개연성 ===\n"
                 "1. 먼저 가사 전체를 읽고 '이 노래가 말하는 이야기'를 파악하세요.\n"
@@ -1667,11 +1689,18 @@ class MVPipeline:
                 "  표정은 가사의 감정을 직접 반영해야 합니다. 슬픈 가사=슬픈 표정, 격한 가사=격한 표정.\n"
                 "  예시: 'tearful eyes looking down', 'joyful bright smile', 'fierce determined expression', "
                 "'peaceful serene face with closed eyes', 'anguished screaming expression'\n"
-                "- ACTION 필드의 동작/포즈를 프롬프트에 반드시 포함. 단순 서있기 금지.\n"
-                "  예시: 'walking down rainy street', 'sitting on bench looking up at sky', "
-                "'dancing mid-spin with flowing dress', 'leaning on railing gazing at city lights'\n"
+                "- ACTION 필드의 동작/포즈를 프롬프트에 반드시 포함. 단순 서있기/정면 응시 절대 금지.\n"
+                "  좋은 예시: 'walking down rainy street, looking back over shoulder', "
+                "'sitting on stone steps, burying face in hands', "
+                "'mid-spin with flowing dress, hair caught in wind', "
+                "'running through field, reaching hand forward', "
+                "'kneeling on ground, clutching a flower to chest'\n"
+                "  나쁜 예시: 'standing in a field' (너무 정적), 'woman posing' (AI 포트레이트), "
+                "'character looking at camera' (뮤비답지 않음)\n"
                 "- 가사의 은유적 표현을 절대 문자 그대로 묘사하지 마세요. "
-                "현실적이고 자연스러운 인간 동작으로 변환하세요.\n\n"
+                "현실적이고 자연스러운 인간 동작으로 변환하세요.\n"
+                "- 모든 인물 씬에 '동작의 순간(moment of action)'을 포착하세요. "
+                "사진이 아니라 영화의 한 프레임처럼 - 무언가가 막 일어나려는, 또는 일어나고 있는 순간.\n\n"
 
                 "=== B-ROLL 씬 규칙 ===\n"
                 "- [B-ROLL: 스톡 영상 사용]으로 표시된 씬은 Pexels 스톡 영상으로 대체됩니다.\n"
@@ -1970,7 +1999,8 @@ class MVPipeline:
         if not project.visual_bible or not project.visual_bible.characters:
             return prompt
         if not scene.characters_in_scene:
-            return prompt
+            # 캐릭터 없는 씬: 프롬프트에서 인물 키워드 강제 제거 + 풍경 강제
+            return self._strip_people_from_prompt(prompt)
 
         char_map = {c.role: c for c in project.visual_bible.characters}
         char_descs = []
@@ -2028,6 +2058,33 @@ class MVPipeline:
         prefix_parts.append(char_block)
 
         return f"{'. '.join(prefix_parts)}. {prompt}"
+
+    # ── 인물 키워드 제거 (캐릭터 없는 씬용) ──
+    _PEOPLE_PATTERNS = re.compile(
+        r'\b(?:woman|man|girl|boy|lady|gentleman|person|people|figure|silhouette|'
+        r'elder(?:ly)?|old\s*(?:man|woman)|young\s*(?:man|woman)|'
+        r'stranger|bystander|crowd|couple|lover|soldier|warrior|knight|'
+        r'여(?:자|인|성)|남(?:자|인|성)|사람|노인|소녀|소년|청년|'
+        r'할머니|할아버지|아이|아기|군인|기사|전사|연인|'
+        r'he\b|she\b|his\b|her\b|him\b|그녀|그가|그의|그는)\b',
+        re.IGNORECASE
+    )
+
+    def _strip_people_from_prompt(self, prompt: str) -> str:
+        """캐릭터 없는 씬의 프롬프트에서 인물 관련 표현을 제거하고 풍경 프리픽스 추가."""
+        cleaned = self._PEOPLE_PATTERNS.sub('', prompt)
+        # 연속 공백/콤마 정리
+        cleaned = re.sub(r',\s*,', ',', cleaned)
+        cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip(' ,.')
+
+        if cleaned != prompt:
+            print(f"  [AntiPeople] Stripped people keywords from prompt")
+            print(f"    Before: {prompt[:100]}...")
+            print(f"    After:  {cleaned[:100]}...")
+
+        # 풍경/환경 강제 프리픽스
+        prefix = "ONLY landscape, scenery, environment, architecture, nature. NO people, NO human figures. "
+        return f"{prefix}{cleaned}"
 
     # 인종 키워드 매핑 (중복 정의 방지용 공용 상수)
     _ETH_KEYWORD_MAP = {
@@ -2223,7 +2280,7 @@ class MVPipeline:
 
                 # 캐릭터 미등장 씬: 정의 안 된 인물 등장 방지
                 if not scene.characters_in_scene:
-                    _no_people = "random person, unnamed person, elderly man, old man, bystander, stranger, human figure"
+                    _no_people = "random person, unnamed person, elderly man, old man, old woman, middle-aged woman, middle-aged man, young woman, young man, bystander, stranger, human figure, person standing, woman standing, man standing, silhouette of person, crowd"
                     _scene_neg = f"{_no_people}, {_scene_neg}" if _scene_neg else _no_people
 
                 # 시대/배경 키워드 자동 주입 (concept에서 추출)
@@ -2369,10 +2426,10 @@ class MVPipeline:
         (0.48, 0.25), (0.52, 0.35),
     ]
 
-    # 전환 타입별 duration (초)
+    # 전환 타입별 duration (초) - 자연스러운 전환을 위해 넉넉하게 설정
     _TRANSITION_DURATIONS = {
-        "cut": 0.0, "xfade": 0.3, "fadeblack": 0.5,
-        "whiteflash": 0.25, "filmburn": 0.7, "glitch": 0.2,
+        "cut": 0.0, "xfade": 0.6, "fadeblack": 0.8,
+        "whiteflash": 0.35, "filmburn": 1.0, "glitch": 0.3,
     }
 
     def _generate_cut_plan(self, scenes: List[MVScene], project=None) -> List[dict]:
@@ -3240,13 +3297,14 @@ class MVPipeline:
             elif delta_y > 60 or delta_s > 0.3:
                 transition_type = "fadeblack"
                 reason = f"R4:palette_clash(dY={delta_y:.0f},dS={delta_s:.2f})"
-            # Rule 5: 같은 캐릭터 연속 -> cut
+            # Rule 5: 같은 캐릭터 연속 -> 부드러운 전환 (하드컷 대신)
             elif shared_chars and cur_seg == nxt_seg:
-                transition_type = "cut"
+                transition_type = "xfade"
+                custom_frames = int(0.4 * fps)  # 짧은 크로스페이드
                 reason = f"R5:same_char({list(shared_chars)[:2]})"
-            # xfade 제한: hero↔hero -> xfade 금지 (얼굴 겹침/ghosting)
+            # hero↔hero -> fadeblack (ghosting 방지, 하드컷 대신)
             elif cur_is_hero and nxt_is_hero:
-                transition_type = "fadeblack" if delta_y > 30 else "cut"
+                transition_type = "fadeblack"
                 reason = f"R-hero2hero(dY={delta_y:.0f})"
             # xfade 제한: hero↔broll -> fadeblack/filmburn 우선
             elif (cur_is_hero and nxt_is_broll) or (cur_is_broll and nxt_is_hero):
@@ -3510,7 +3568,7 @@ class MVPipeline:
                 concat_result = self.ffmpeg_composer.concatenate_with_crossfade(
                     scene_groups=scene_groups,
                     output_path=concat_video,
-                    fade_duration=0.3,
+                    fade_duration=0.6,
                     transition_plan=boundary_transitions if boundary_transitions else None,
                 )
             else:
