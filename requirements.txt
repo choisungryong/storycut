@@ -19,8 +19,8 @@ ffmpeg-python>=0.2.0
 Pillow>=10.0.0
 pydub>=0.25.0  # Music Video Mode - audio analysis
 pysubs2>=1.7.0  # ASS subtitle generation
-demucs>=4.0.0  # Vocal separation for lyrics extraction accuracy
-whisperx>=3.8.0  # Forced alignment for accurate lyrics timestamps
+# demucs, whisperx: GPU 전용 (로컬에서만 설치, Railway 제외)
+# pip install demucs whisperx  ← 로컬 설치 명령
 rapidfuzz>=3.0.0  # Fuzzy matching for STT-lyrics alignment
 # face_recognition>=1.3.0  # CharacterQA - optional, requires dlib/cmake build tools
 
