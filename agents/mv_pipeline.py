@@ -447,12 +447,12 @@ class MVPipeline:
                 )
 
                 if gemini_aligned:
-                    # Gemini aligned → ASS/SRT 직접 생성
+                    # Gemini aligned → ASS/SRT 직접 생성 (별도 파일명으로 보존)
                     from utils.lyrics_aligner import generate_from_gemini_alignment
                     sub_dir = os.path.join(project_dir, "media", "subtitles")
                     os.makedirs(sub_dir, exist_ok=True)
-                    ass_path = os.path.join(sub_dir, "lyrics.ass")
-                    srt_path = os.path.join(sub_dir, "lyrics.srt")
+                    ass_path = os.path.join(sub_dir, "lyrics_gemini.ass")
+                    srt_path = os.path.join(sub_dir, "lyrics_gemini.srt")
 
                     captions, _, _ = generate_from_gemini_alignment(
                         gemini_aligned, lyrics_lines, ass_path, srt_path
@@ -2194,25 +2194,24 @@ class MVPipeline:
 
         BROLL_SEGMENTS = {"intro", "outro", "bridge"}
 
-        # 모든 씬에 고유 이미지 생성
-        print(f"  Generating {total_scenes} unique images")
+        # 모든 씬에 고유 이미지 생성 (병렬 처리)
+        print(f"  Generating {total_scenes} unique images (parallel, max_workers=4)")
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        for i, scene in enumerate(project.scenes):
+        _manifest_lock = threading.Lock()
+        _completed_count = [0]  # mutable counter for threads
+
+        def _process_scene(i, scene):
+            """단일 씬 이미지 생성 (스레드에서 실행)"""
+            nonlocal style_anchor_path
+
             # 취소 체크
             cancel_path = os.path.join(project_dir, ".cancel")
             if os.path.exists(cancel_path):
-                try:
-                    os.remove(cancel_path)
-                except OSError:
-                    pass
-                print(f"\n  [CANCELLED] Generation stopped at scene {i+1}/{total_scenes}")
-                project.status = MVProjectStatus.CANCELLED
-                project.current_step = f"이미지 생성 중단됨 ({i}/{total_scenes})"
-                self._save_manifest(project, project_dir)
-                return project
+                return "cancelled"
 
             # B-roll 시도: 캐릭터 미등장 + 감정적으로 중요하지 않은 세그먼트만 스톡 사용
-            # chorus/hook/pre_chorus는 감정 절정 구간이므로 AI 이미지 강제
             seg_type = self._extract_segment_type(scene)
             _EMOTIONAL_SEGMENTS = {"chorus", "hook", "pre_chorus"}
             is_emotional = seg_type in _EMOTIONAL_SEGMENTS
@@ -2235,20 +2234,20 @@ class MVPipeline:
                     scene.video_path = video
                     scene.is_broll = True
                     scene.status = MVSceneStatus.COMPLETED
-                    # 첫 프레임을 썸네일로 추출
                     thumb_path = f"{image_dir}/scene_{scene.scene_id:02d}.png"
                     self._extract_thumbnail(video, thumb_path)
                     scene.image_path = thumb_path
                     print(f"\n  [Scene {scene.scene_id}/{total_scenes}] B-roll from Pexels ({seg_type})")
-                    progress_per_scene = 50 / total_scenes
-                    project.progress = int(20 + (i + 1) * progress_per_scene)
-                    self._save_manifest(project, project_dir)
+                    with _manifest_lock:
+                        _completed_count[0] += 1
+                        project.progress = int(20 + _completed_count[0] * (50 / total_scenes))
+                        self._save_manifest(project, project_dir)
                     if on_scene_complete:
                         try:
-                            on_scene_complete(scene, i + 1, total_scenes)
+                            on_scene_complete(scene, _completed_count[0], total_scenes)
                         except Exception:
                             pass
-                    continue
+                    return "broll"
                 else:
                     print(f"    [Pexels] B-roll failed for {seg_type}, falling back to image gen")
 
@@ -2258,19 +2257,15 @@ class MVPipeline:
             scene.status = MVSceneStatus.GENERATING
 
             try:
-                # 캐릭터 앵커 이미지 조회
                 char_anchor_paths = self._get_character_anchors_for_scene(project, scene)
                 if char_anchor_paths:
                     print(f"    [Characters] {len(char_anchor_paths)} anchor(s) for scene {scene.scene_id}")
 
-                # 캐릭터 외형+의상 설명 주입 (Visual Bible 기준, LLM 생략/변경 방지)
                 final_prompt = self._inject_character_descriptions(project, scene, scene.image_prompt)
 
-                # 인종 키워드 자동 주입 (프롬프트에 없으면 앞에 추가)
                 if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
                     final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
-                # 캐릭터 등장 씬: 렌즈 왜곡 + 손 기형 negative
                 _scene_neg = scene.negative_prompt or ""
                 if scene.characters_in_scene:
                     _lens_neg = "wide-angle distortion, fisheye, exaggerated facial features"
@@ -2278,19 +2273,15 @@ class MVPipeline:
                     _char_neg = f"{_lens_neg}, {_hand_neg}"
                     _scene_neg = f"{_char_neg}, {_scene_neg}" if _scene_neg else _char_neg
 
-                # 캐릭터 미등장 씬: 정의 안 된 인물 등장 방지
                 if not scene.characters_in_scene:
                     _no_people = "random person, unnamed person, elderly man, old man, old woman, middle-aged woman, middle-aged man, young woman, young man, bystander, stranger, human figure, person standing, woman standing, man standing, silhouette of person, crowd"
                     _scene_neg = f"{_no_people}, {_scene_neg}" if _scene_neg else _no_people
 
-                # 시대/배경 키워드 자동 주입 (concept에서 추출)
                 if era_prefix and era_prefix.lower() not in final_prompt.lower():
                     final_prompt = f"{era_prefix}, {final_prompt}"
-                # 시대 부정 키워드 (negative_prompt에 추가)
                 if era_negative:
                     _scene_neg = f"{era_negative}, {_scene_neg}" if _scene_neg else era_negative
 
-                # Pass 4: 풀 컨텍스트 이미지 생성
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
                     prompt=final_prompt,
@@ -2309,7 +2300,6 @@ class MVPipeline:
                 scene.image_path = image_path
                 scene.status = MVSceneStatus.COMPLETED
 
-                # CharacterQA: 생성 이미지 vs 앵커 임베딩 검증
                 if hasattr(self, '_character_qa') and self._character_qa and scene.characters_in_scene:
                     try:
                         qa_results = self._character_qa.verify_scene_image(
@@ -2324,39 +2314,53 @@ class MVPipeline:
                             else:
                                 sim_str = f"{qr['similarity']:.3f}" if qr['similarity'] >= 0 else "n/a"
                                 print(f"    [CharacterQA] OK scene {scene.scene_id} role={role}: sim={sim_str}")
-                        # QA 결과를 씬에 저장 (compose_video에서 derived cut 제외 판단용)
                         scene.qa_results = qa_results
                     except Exception as qa_e:
                         print(f"    [CharacterQA] Error: {qa_e}")
 
-                # fallback: 전용 앵커 없으면 첫 번째 성공 이미지를 스타일 앵커로 설정
                 if fallback_anchor and style_anchor_path is None and image_path and os.path.exists(image_path):
                     style_anchor_path = image_path
                     print(f"    [Anchor] Fallback style anchor set: {os.path.basename(image_path)}")
 
                 print(f"    Image saved: {image_path}")
 
-                # 진행률 업데이트
-                progress_per_scene = 50 / total_scenes
-                project.progress = int(20 + (i + 1) * progress_per_scene)
-
             except Exception as e:
                 scene.status = MVSceneStatus.FAILED
-                print(f"    [ERROR] Image generation failed: {e}")
+                print(f"    [ERROR] Image generation failed for scene {scene.scene_id}: {e}")
 
-                # 실패해도 진행률은 업데이트 (멈춤 방지)
-                progress_per_scene = 50 / total_scenes
-                project.progress = int(20 + (i + 1) * progress_per_scene)
+            with _manifest_lock:
+                _completed_count[0] += 1
+                project.progress = int(20 + _completed_count[0] * (50 / total_scenes))
+                self._save_manifest(project, project_dir)
 
-            # 콜백 호출
             if on_scene_complete:
                 try:
-                    on_scene_complete(scene, i + 1, total_scenes)
+                    on_scene_complete(scene, _completed_count[0], total_scenes)
                 except Exception as cb_e:
                     print(f"    [WARNING] Callback failed: {cb_e}")
 
-            # 매니페스트 저장 (각 씬마다)
-            self._save_manifest(project, project_dir)
+            return "ok"
+
+        # Scene 1: 직렬 처리 (style anchor fallback 확보)
+        if project.scenes:
+            _process_scene(0, project.scenes[0])
+
+        # Scene 2+: 병렬 처리
+        if len(project.scenes) > 1:
+            remaining = list(enumerate(project.scenes[1:], start=1))
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {
+                    executor.submit(_process_scene, i, scene): scene
+                    for i, scene in remaining
+                }
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result == "cancelled":
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        project.status = MVProjectStatus.CANCELLED
+                        project.current_step = f"이미지 생성 중단됨"
+                        self._save_manifest(project, project_dir)
+                        return project
 
         self._save_manifest(project, project_dir)
 
@@ -3434,31 +3438,32 @@ class MVPipeline:
             scene_groups = []
             current_scene_id = None
 
+            # 컷 순서 보존을 위한 슬롯 + 씬 그룹 매핑
+            cut_slots = [None] * len(cut_plan)  # 순서 보존
+            scene_group_map = {}  # scene_id -> group index
+
             for ci, cut in enumerate(cut_plan):
+                sid = cut['parent_scene_id']
+                if sid not in scene_group_map:
+                    scene_group_map[sid] = len(scene_groups)
+                    scene_groups.append([])
+
+            def _render_cut(ci, cut):
+                """단일 derived cut 렌더링 (스레드에서 실행)"""
                 clip_path = f"{project_dir}/media/video/cut_{cut['parent_scene_id']:02d}_{cut['cut_index']:02d}.mp4"
 
-                # 씬 전환 감지 → 새 그룹 시작
-                if cut['parent_scene_id'] != current_scene_id:
-                    scene_groups.append([])
-                    current_scene_id = cut['parent_scene_id']
-
-                # I2V / B-roll 씬은 이미 비디오가 있음
                 if cut.get("video_path"):
                     if cut.get("is_broll"):
-                        # B-roll만 정규화 (해상도/FPS/코덱 통일 + 오디오 제거 + 트림)
                         norm_path = f"{project_dir}/media/video/norm_{cut['parent_scene_id']:02d}.mp4"
                         normalized = self._normalize_broll(cut["video_path"], cut["duration_sec"], norm_path)
                         resolved = normalized or cut["video_path"]
                     else:
-                        # I2V: 이미 올바른 포맷이므로 그대로 사용
                         resolved = cut["video_path"]
-                    video_clips.append(resolved)
-                    scene_groups[-1].append(resolved)
                     print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} ({'B-roll' if cut.get('is_broll') else 'I2V'})")
-                    continue
+                    return ci, resolved
 
                 if not cut.get("image_path"):
-                    continue
+                    return ci, None
 
                 try:
                     self.ffmpeg_composer.derived_cut_clip(
@@ -3470,25 +3475,43 @@ class MVPipeline:
                         effect_type=cut["effect_type"],
                         zoom_range=cut["zoom_range"],
                     )
-                    video_clips.append(clip_path)
-                    scene_groups[-1].append(clip_path)
+                    return ci, clip_path
                 except Exception as cut_err:
                     print(f"    [WARNING] Derived cut failed (scene {cut['parent_scene_id']}, cut {cut['cut_index']}): {str(cut_err)[-200:]}")
-                    # Fallback: 정적 이미지
                     try:
                         self.ffmpeg_composer._image_to_static_video(
                             image_path=cut["image_path"],
                             duration_sec=cut["duration_sec"],
                             output_path=clip_path
                         )
-                        video_clips.append(clip_path)
-                        scene_groups[-1].append(clip_path)
+                        return ci, clip_path
                     except Exception:
-                        continue
+                        return ci, None
 
-                # 진행률: 컷 기준
-                clip_progress = 75 + int((ci + 1) / len(cut_plan) * 10)
-                project.progress = max(project.progress, clip_progress)
+            # 병렬 derived cut 렌더링 (FFmpeg는 CPU 바운드이므로 적절한 워커 수)
+            import threading
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            _cut_done = [0]
+            _cut_lock = threading.Lock()
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_render_cut, ci, cut): ci for ci, cut in enumerate(cut_plan)}
+                for future in as_completed(futures):
+                    ci, clip = future.result()
+                    cut_slots[ci] = clip
+                    with _cut_lock:
+                        _cut_done[0] += 1
+                        clip_progress = 75 + int(_cut_done[0] / len(cut_plan) * 10)
+                        project.progress = max(project.progress, clip_progress)
+
+            # 순서 보존하여 video_clips / scene_groups 구성
+            for ci, cut in enumerate(cut_plan):
+                clip = cut_slots[ci]
+                if clip is None:
+                    continue
+                video_clips.append(clip)
+                gidx = scene_group_map[cut['parent_scene_id']]
+                scene_groups[gidx].append(clip)
 
             project.progress = 85
             project.current_step = "영상 클립 생성 완료, 이어붙이는 중..."
@@ -3604,9 +3627,9 @@ class MVPipeline:
                 lines = split_lyrics_lines(user_lyrics_text)
                 n_lines = len(lines)
 
-                # upload_and_analyze()에서 Gemini 정렬로 만든 ASS가 있으면 재사용
-                gemini_ass = f"{project_dir}/media/subtitles/lyrics.ass"
-                gemini_srt = f"{project_dir}/media/subtitles/lyrics.srt"
+                # upload_and_analyze()에서 Gemini 정렬로 만든 전용 파일 우선 재사용
+                gemini_ass = f"{project_dir}/media/subtitles/lyrics_gemini.ass"
+                gemini_srt = f"{project_dir}/media/subtitles/lyrics_gemini.srt"
 
                 if os.path.exists(gemini_ass) and os.path.getsize(gemini_ass) > 100:
                     srt_path = gemini_ass
@@ -3774,16 +3797,18 @@ class MVPipeline:
                 return project
 
             # ── Step 2: Demucs 보컬 분리 + Gemini 가사 정렬 ──
-            # 이미 lyrics.ass가 존재하면 재실행 스킵
-            aligner_ass = os.path.join(project_dir, "media", "subtitles", "lyrics.ass")
-            aligner_srt = os.path.join(project_dir, "media", "subtitles", "lyrics.srt")
+            # Gemini 정렬 전용 파일 우선, 없으면 일반 lyrics.ass
+            gemini_ass = os.path.join(project_dir, "media", "subtitles", "lyrics_gemini.ass")
+            gemini_srt = os.path.join(project_dir, "media", "subtitles", "lyrics_gemini.srt")
+            aligner_ass = gemini_ass if os.path.exists(gemini_ass) else os.path.join(project_dir, "media", "subtitles", "lyrics.ass")
+            aligner_srt = gemini_srt if os.path.exists(gemini_srt) else os.path.join(project_dir, "media", "subtitles", "lyrics.srt")
             cached_timed = getattr(project, 'music_analysis', None)
             cached_timed_lyrics = None
             if cached_timed and hasattr(cached_timed, 'timed_lyrics') and cached_timed.timed_lyrics:
                 cached_timed_lyrics = cached_timed.timed_lyrics
 
             if os.path.exists(aligner_ass) and cached_timed_lyrics and len(cached_timed_lyrics) >= 2:
-                print(f"  [SubTest] Reusing cached aligner ASS + timed_lyrics ({len(cached_timed_lyrics)} entries)")
+                print(f"  [SubTest] Reusing cached aligner ASS + timed_lyrics ({len(cached_timed_lyrics)} entries) -> {aligner_ass}")
                 timed = cached_timed_lyrics
             else:
                 project.current_step = "보컬 분리 + Gemini 가사 정렬 중..."
@@ -3806,8 +3831,9 @@ class MVPipeline:
                 )
                 if gemini_aligned:
                     captions, _, _ = generate_from_gemini_alignment(
-                        gemini_aligned, lines, aligner_ass, aligner_srt
+                        gemini_aligned, lines, gemini_ass, gemini_srt
                     )
+                    aligner_ass = gemini_ass  # 이후 참조용 갱신
                     if captions:
                         timed = [
                             {"t": round(c.start_sec, 2), "text": c.text}
