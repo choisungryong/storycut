@@ -59,6 +59,62 @@ class MVPipeline:
         return self._genre_profiles
 
     # ================================================================
+    # Vocal separation (Demucs)
+    # ================================================================
+
+    def _separate_vocals(self, music_path: str, project_dir: str) -> Optional[str]:
+        """
+        Demucs로 보컬 트랙을 분리하여 가사 추출 정확도 향상.
+        실패 시 None 반환 (원본 fallback).
+        """
+        try:
+            import torch
+            from demucs.pretrained import get_model
+            from demucs.separate import load_track, apply_model, save_audio
+        except ImportError:
+            print("  [Demucs] Not installed, skipping vocal separation")
+            return None
+
+        vocals_dir = os.path.join(project_dir, "music")
+        vocals_path = os.path.join(vocals_dir, "vocals.wav")
+
+        if os.path.exists(vocals_path):
+            print(f"  [Demucs] Using cached vocals: {vocals_path}")
+            return vocals_path
+
+        try:
+            print(f"  [Demucs] Separating vocals from: {os.path.basename(music_path)}")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+            model = get_model("htdemucs")
+            model.to(device)
+
+            wav = load_track(music_path, model.audio_channels, model.samplerate)
+            ref = wav.mean(0)
+            wav = (wav - ref.mean()) / ref.std()
+
+            sources = apply_model(model, wav[None], device=device)[0]
+            sources = sources * ref.std() + ref.mean()
+
+            # htdemucs sources order: drums, bass, other, vocals
+            vocals_idx = model.sources.index("vocals")
+            vocals_tensor = sources[vocals_idx]
+
+            save_audio(vocals_tensor, vocals_path, samplerate=model.samplerate)
+            print(f"  [Demucs] Vocals saved: {vocals_path}")
+            return vocals_path
+
+        except Exception as e:
+            print(f"  [Demucs] Vocal separation failed (falling back to full mix): {e}")
+            # Clean up partial file
+            if os.path.exists(vocals_path):
+                try:
+                    os.remove(vocals_path)
+                except OSError:
+                    pass
+            return None
+
+    # ================================================================
     # Step 1: 음악 업로드 & 분석
     # ================================================================
 
@@ -118,6 +174,11 @@ class MVPipeline:
             print(f"\n[Step 1] Analyzing music...")
             analysis_result = self.music_analyzer.analyze(stored_music_path)
 
+            # Demucs 보컬 분리 (가사 추출 정확도 향상)
+            print(f"\n[Step 1.1] Separating vocals with Demucs...")
+            vocals_path = self._separate_vocals(stored_music_path, project_dir)
+            lyrics_audio_path = vocals_path or stored_music_path
+
             # 가사 처리: 사용자 가사 있으면 저장만 (STT 싱크는 compose 시점으로 지연)
             if user_lyrics and user_lyrics.strip():
                 print(f"\n[Step 1.5] User lyrics received ({len(user_lyrics.strip())} chars) - timing sync deferred to compose")
@@ -126,7 +187,7 @@ class MVPipeline:
                 # 사용자 가사가 있어도 timed_lyrics 추출 (타이밍 정보 필요)
                 try:
                     print(f"  Extracting timed_lyrics from Gemini for timing info...")
-                    self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
+                    self.music_analyzer.extract_lyrics_with_gemini(lyrics_audio_path)
                     _tl = getattr(self.music_analyzer, '_last_timed_lyrics', None)
                     if _tl:
                         analysis_result["timed_lyrics"] = _tl
@@ -135,7 +196,7 @@ class MVPipeline:
                     print(f"  timed_lyrics extraction failed (non-critical): {e}")
             else:
                 print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
-                extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(stored_music_path)
+                extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(lyrics_audio_path)
                 if extracted_lyrics:
                     analysis_result["extracted_lyrics"] = extracted_lyrics
                     timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
@@ -3500,35 +3561,17 @@ class MVPipeline:
                     else:
                         sec_end_t = sec_last_t + 3.0
 
-                    # 구간 내 가사를 timed 엔트리에 비례 매핑
+                    # 구간 시간을 가사 줄 수로 균등 분배
+                    sec_dur = sec_end_t - sec_start_t
                     for offset in range(sec_n_lines):
                         li = ls + offset
 
-                        # 비례 위치로 timed 엔트리 선택
-                        ratio = offset / max(1, sec_n_lines - 1) if sec_n_lines > 1 else 0
-                        ti = ts + round(ratio * (sec_n_timed - 1))
-                        ti = max(ts, min(ti, te - 1))
+                        t_start = sec_start_t + (offset / sec_n_lines) * sec_dur
+                        t_end = sec_start_t + ((offset + 1) / sec_n_lines) * sec_dur
 
-                        t_start = timed_clean[ti]["t"]
-
-                        # t_end: 같은 구간 내 다음 엔트리, 또는 구간 끝
-                        if ti + 1 < te:
-                            t_end = timed_clean[ti + 1]["t"]
-                        else:
-                            t_end = sec_end_t
-
-                        # 이전 줄과 겹치면 밀어내기
-                        if li > ls and timeline[li - 1] is not None:
-                            if t_start < timeline[li - 1].end:
-                                t_start = timeline[li - 1].end
-
-                        # 최소 표시 시간 + 구간 상한
-                        t_end = min(t_end, sec_end_t)
-                        if t_end - t_start < 0.5:
-                            t_end = t_start + 0.5
-                        t_end = min(t_end, sec_end_t)
-                        if t_end <= t_start:
-                            t_end = t_start + 0.5
+                        # 최소 표시 시간 보장
+                        if t_end - t_start < 0.3:
+                            t_end = t_start + 0.3
 
                         timeline[li] = SubtitleLine(t_start, t_end, lines[li])
 

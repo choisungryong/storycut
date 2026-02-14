@@ -9,6 +9,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
+    libsndfile1 \
     fonts-liberation \
     fonts-nanum \
     fonts-noto-cjk \
