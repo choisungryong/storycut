@@ -1,0 +1,18 @@
+# Python backend (Railway only, not needed for Cloudflare Worker)
+requirements.txt
+Dockerfile
+*.py
+agents/
+schemas/
+utils/
+config/
+outputs/
+cli/
+__pycache__/
+*.pyc
+.env
+
+# Large ML model caches
+*.pt
+*.bin
+*.safetensors

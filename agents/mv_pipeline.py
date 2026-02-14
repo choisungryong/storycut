@@ -115,6 +115,115 @@ class MVPipeline:
             return None
 
     # ================================================================
+    # WhisperX Forced Alignment
+    # ================================================================
+
+    def _normalize_lyrics(self, lyrics: str) -> str:
+        """자막용 가사 정규화: 섹션 태그, 따옴표, 괄호, 불필요 기호 제거"""
+        lines = []
+        for line in lyrics.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            # 섹션 마커 제거 [Chorus], [Verse 1] 등
+            if _SECTION_MARKER_RE.match(line):
+                continue
+            # 따옴표류 제거
+            line = re.sub(r'["""\u201c\u201d\u2018\u2019\'`]', '', line)
+            # 괄호류 제거
+            line = re.sub(r'[(){}\[\]<>]', '', line)
+            # 양쪽 끝 구두점 제거
+            line = line.strip(',').strip('.').strip(';').strip('~').strip()
+            if line:
+                lines.append(line)
+        return '\n'.join(lines)
+
+    def _forced_align_whisperx(
+        self, audio_path: str, lyrics: str, language: str = "ko"
+    ) -> Optional[list]:
+        """
+        WhisperX 강제 정렬: 정답 가사를 보컬 오디오에 정렬하여 timed_lyrics 생성.
+
+        Args:
+            audio_path: 보컬 분리된 오디오 (또는 원본)
+            lyrics: 정규화된 가사 텍스트
+            language: 언어 코드 (ko, en, ja 등)
+
+        Returns:
+            [{"t": float, "text": str}, ...] 또는 None
+        """
+        try:
+            import whisperx
+            import torch
+        except ImportError:
+            print("  [WhisperX] Not installed, skipping forced alignment")
+            return None
+
+        if not lyrics or not lyrics.strip():
+            print("  [WhisperX] No lyrics to align")
+            return None
+
+        try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"  [WhisperX] Loading alignment model (lang={language}, device={device})...")
+
+            align_model, align_metadata = whisperx.load_align_model(
+                language_code=language, device=device
+            )
+
+            # 가사를 WhisperX SingleSegment 형식으로 변환
+            # 각 줄을 하나의 세그먼트로 취급, 임시 타임스탬프 부여
+            audio = whisperx.load_audio(audio_path)
+            duration = len(audio) / 16000  # WhisperX SAMPLE_RATE = 16000
+
+            lines = [l.strip() for l in lyrics.strip().split('\n') if l.strip()]
+            if not lines:
+                print("  [WhisperX] No valid lyrics lines after cleanup")
+                return None
+
+            # 균등 분배로 임시 세그먼트 생성 (WhisperX가 실제 정렬함)
+            seg_duration = duration / len(lines)
+            transcript_segments = []
+            for i, line in enumerate(lines):
+                transcript_segments.append({
+                    "start": i * seg_duration,
+                    "end": (i + 1) * seg_duration,
+                    "text": line,
+                })
+
+            print(f"  [WhisperX] Aligning {len(lines)} lines to {duration:.1f}s audio...")
+            result = whisperx.align(
+                transcript_segments,
+                align_model,
+                align_metadata,
+                audio,
+                device,
+                return_char_alignments=False,
+            )
+
+            # 세그먼트 단위 timed_lyrics 생성
+            timed_lyrics = []
+            for seg in result.get("segments", []):
+                text = seg.get("text", "").strip()
+                start = seg.get("start")
+                if text and start is not None:
+                    timed_lyrics.append({"t": round(start, 2), "text": text})
+
+            if timed_lyrics:
+                print(f"  [WhisperX] Aligned: {len(timed_lyrics)} entries, "
+                      f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
+                return timed_lyrics
+            else:
+                print("  [WhisperX] Alignment produced no results")
+                return None
+
+        except Exception as e:
+            print(f"  [WhisperX] Forced alignment failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    # ================================================================
     # Step 1: 음악 업로드 & 분석
     # ================================================================
 
@@ -179,33 +288,25 @@ class MVPipeline:
             vocals_path = self._separate_vocals(stored_music_path, project_dir)
             lyrics_audio_path = vocals_path or stored_music_path
 
-            # 가사 처리: 사용자 가사 있으면 저장만 (STT 싱크는 compose 시점으로 지연)
+            # Step 1.5: 가사 확보 (사용자 입력만)
+            extracted_lyrics = ""
             if user_lyrics and user_lyrics.strip():
-                print(f"\n[Step 1.5] User lyrics received ({len(user_lyrics.strip())} chars) - timing sync deferred to compose")
-                analysis_result["extracted_lyrics"] = user_lyrics.strip()
                 extracted_lyrics = user_lyrics.strip()
-                # 사용자 가사가 있어도 timed_lyrics 추출 (타이밍 정보 필요)
-                try:
-                    print(f"  Extracting timed_lyrics from Gemini for timing info...")
-                    self.music_analyzer.extract_lyrics_with_gemini(lyrics_audio_path)
-                    _tl = getattr(self.music_analyzer, '_last_timed_lyrics', None)
-                    if _tl:
-                        analysis_result["timed_lyrics"] = _tl
-                        print(f"  timed_lyrics: {len(_tl)} entries extracted")
-                except Exception as e:
-                    print(f"  timed_lyrics extraction failed (non-critical): {e}")
+                analysis_result["extracted_lyrics"] = extracted_lyrics
+                print(f"\n[Step 1.5] User lyrics received ({len(extracted_lyrics)} chars)")
+
+                # Step 1.6: 가사 정규화 + WhisperX 강제 정렬
+                normalized = self._normalize_lyrics(extracted_lyrics)
+                print(f"\n[Step 1.6] WhisperX forced alignment...")
+                timed_lyrics = self._forced_align_whisperx(
+                    lyrics_audio_path, normalized, language="ko"
+                )
+                if timed_lyrics:
+                    analysis_result["timed_lyrics"] = timed_lyrics
+                else:
+                    print("  [WhisperX] Alignment failed - subtitles will use even distribution")
             else:
-                print(f"\n[Step 1.5] Extracting lyrics with Gemini...")
-                extracted_lyrics = self.music_analyzer.extract_lyrics_with_gemini(lyrics_audio_path)
-                if extracted_lyrics:
-                    analysis_result["extracted_lyrics"] = extracted_lyrics
-                    timed_lyrics = getattr(self.music_analyzer, '_last_timed_lyrics', None)
-                    if timed_lyrics:
-                        analysis_result["timed_lyrics"] = timed_lyrics
-                # Raw STT 문장 보존 (타이밍 에디터용)
-                stt_sentences = getattr(self.music_analyzer, '_last_stt_sentences', None)
-                if stt_sentences:
-                    analysis_result["stt_sentences"] = stt_sentences
+                print(f"\n[Step 1.5] No user lyrics provided - skipping subtitle alignment")
 
             project.music_analysis = MusicAnalysis(**analysis_result)
             project.lyrics = extracted_lyrics or ""
@@ -4198,8 +4299,11 @@ class MVPipeline:
                 end_sec = start_sec + 4
             end_sec = max(end_sec, start_sec + 1.0)
 
-            # 따옴표 제거 (가사 대사 표현 "..." → 깔끔한 자막)
-            text = text.strip('"').strip('\u201c').strip('\u201d')
+            # 자막에 불필요한 기호 제거 (따옴표, 괄호, 쉼표 등)
+            text = re.sub(r'["""\u201c\u201d\u2018\u2019\'`]', '', text)  # 따옴표류
+            text = re.sub(r'[(){}\[\]<>]', '', text)  # 괄호류
+            text = text.strip(',').strip('.').strip(';').strip('~')
+            text = text.strip()
 
             srt_lines.append(str(i + 1))
             srt_lines.append(f"{self._sec_to_srt_timecode(start_sec)} --> {self._sec_to_srt_timecode(end_sec)}")
