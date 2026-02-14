@@ -47,9 +47,15 @@ class MVPipeline:
     def __init__(self, output_base_dir: str = "outputs"):
         self.output_base_dir = output_base_dir
         self.music_analyzer = MusicAnalyzer()
-        self.image_agent = ImageAgent()
+        self._image_agent = None  # lazy init - 자막 테스트 등에서 불필요한 로드 방지
         self.ffmpeg_composer = FFmpegComposer()
         self._genre_profiles = None  # lazy cache
+
+    @property
+    def image_agent(self):
+        if self._image_agent is None:
+            self._image_agent = ImageAgent()
+        return self._image_agent
 
     @property
     def genre_profiles(self) -> Dict[str, Any]:
@@ -83,8 +89,8 @@ class MVPipeline:
             return vocals_path
 
         try:
-            print(f"  [Demucs] Separating vocals from: {os.path.basename(music_path)}")
             device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"  [Demucs] Separating vocals from: {os.path.basename(music_path)} (device={device})")
 
             model = get_model("htdemucs")
             model.to(device)
@@ -100,7 +106,15 @@ class MVPipeline:
             vocals_idx = model.sources.index("vocals")
             vocals_tensor = sources[vocals_idx]
 
-            save_audio(vocals_tensor, vocals_path, samplerate=model.samplerate)
+            # scipy.io.wavfile로 직접 저장 (torchaudio backend 문제 회피)
+            import numpy as np
+            from scipy.io import wavfile
+            vocals_np = vocals_tensor.cpu().numpy()
+            # (channels, samples) → (samples, channels), float32 → int16
+            if vocals_np.ndim == 2:
+                vocals_np = vocals_np.T
+            vocals_int16 = np.clip(vocals_np * 32767, -32768, 32767).astype(np.int16)
+            wavfile.write(vocals_path, model.samplerate, vocals_int16)
             print(f"  [Demucs] Vocals saved: {vocals_path}")
             return vocals_path
 
@@ -139,15 +153,18 @@ class MVPipeline:
         return '\n'.join(lines)
 
     def _forced_align_whisperx(
-        self, audio_path: str, lyrics: str, language: str = "ko"
+        self, audio_path: str, lyrics: str, language: str = "ko",
+        project_dir: Optional[str] = None,
     ) -> Optional[list]:
         """
-        WhisperX 강제 정렬: 정답 가사를 보컬 오디오에 정렬하여 timed_lyrics 생성.
+        WhisperX 강제 정렬: WhisperX로 word timestamps 추출 후
+        lyrics_aligner (DP Needleman-Wunsch)로 정밀 정렬.
 
         Args:
             audio_path: 보컬 분리된 오디오 (또는 원본)
             lyrics: 정규화된 가사 텍스트
             language: 언어 코드 (ko, en, ja 등)
+            project_dir: 프로젝트 디렉토리 (ASS/SRT 저장용)
 
         Returns:
             [{"t": float, "text": str}, ...] 또는 None
@@ -163,143 +180,101 @@ class MVPipeline:
             print("  [WhisperX] No lyrics to align")
             return None
 
-        try:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"  [WhisperX] Loading alignment model (lang={language}, device={device})...")
-
-            align_model, align_metadata = whisperx.load_align_model(
-                language_code=language, device=device
-            )
-
-            # 가사를 WhisperX SingleSegment 형식으로 변환
+        def _run_whisperx(device: str, audio_path: str, language: str):
+            """Run WhisperX STT + alignment on given device. Returns (whisperx_result, audio_duration_sec)."""
+            print(f"  [WhisperX] Device: {device}")
+            print(f"  [WhisperX] Step 1: Whisper STT...")
             audio = whisperx.load_audio(audio_path)
-            duration = len(audio) / 16000  # WhisperX SAMPLE_RATE = 16000
-
-            lines = [l.strip() for l in lyrics.strip().split('\n') if l.strip()]
-            if not lines:
-                print("  [WhisperX] No valid lyrics lines after cleanup")
-                return None
-
-            # Step 1: Whisper STT로 대략적 세그먼트 추출 (보컬 타이밍 확보)
-            print(f"  [WhisperX] Step 1: Whisper STT for rough timestamps...")
-            stt_model = whisperx.load_model("base", device, compute_type="int8", language=language)
+            audio_duration_sec = len(audio) / 16000.0  # whisperx loads at 16kHz
+            print(f"  [WhisperX] Audio duration: {audio_duration_sec:.1f}s")
+            compute = "int8" if device == "cpu" else "int8"
+            stt_model = whisperx.load_model("base", device, compute_type=compute, language=language)
             stt_result = stt_model.transcribe(audio, language=language, batch_size=16)
             stt_segments = stt_result.get("segments", [])
-            print(f"  [WhisperX] STT: {len(stt_segments)} segments detected")
+            print(f"  [WhisperX] STT: {len(stt_segments)} segments")
 
-            # 디버그: STT 세그먼트 전체 출력
             for i, seg in enumerate(stt_segments[:10]):
                 print(f"    STT[{i}] {seg['start']:.1f}s ~ {seg['end']:.1f}s: '{seg.get('text', '')[:40]}'")
             if len(stt_segments) > 10:
                 print(f"    ... ({len(stt_segments) - 10} more)")
 
             if not stt_segments:
-                print("  [WhisperX] No speech segments detected in audio")
-                return None
+                raise RuntimeError("No speech detected")
 
-            # 가사 시작점 탐색: STT 텍스트와 첫 가사 줄을 매칭하여
-            # 보컬라이즈(아~, 우~) 구간을 건너뛰고 실제 가사 시작 세그먼트를 찾음
-            from difflib import SequenceMatcher
-            first_line_norm = re.sub(r'\s+', '', lines[0]).lower()
-            best_match_idx = 0
-            best_score = 0
-            for si, seg in enumerate(stt_segments):
-                stt_text_norm = re.sub(r'\s+', '', seg.get("text", "")).lower()
-                score = SequenceMatcher(None, first_line_norm, stt_text_norm).ratio()
-                if score > best_score:
-                    best_score = score
-                    best_match_idx = si
-
-            # 매칭 점수가 낮으면 (가사와 STT가 아예 안 맞으면) 첫 세그먼트 사용
-            if best_score < 0.3:
-                # fallback: 짧은 보컬라이즈 세그먼트 건너뛰기
-                # "아", "우", "라" 등 1~2음절 반복은 가사가 아닌 보컬라이즈
-                skip_count = 0
-                for seg in stt_segments:
-                    stt_text = re.sub(r'\s+', '', seg.get("text", ""))
-                    if len(stt_text) <= 4:  # 4글자 이하 = 보컬라이즈 가능성
-                        skip_count += 1
-                    else:
-                        break
-                best_match_idx = skip_count
-                print(f"  [WhisperX] Low text match (score={best_score:.2f}), skipping {skip_count} short segments")
-
-            if best_match_idx > 0:
-                skipped = stt_segments[:best_match_idx]
-                for s in skipped:
-                    print(f"  [WhisperX] Skip pre-lyrics: {s['start']:.1f}s~{s['end']:.1f}s '{s.get('text', '')[:30]}'")
-                stt_segments = stt_segments[best_match_idx:]
-                print(f"  [WhisperX] Lyrics start at STT segment {best_match_idx} ({stt_segments[0]['start']:.1f}s), match score={best_score:.2f}")
-            else:
-                print(f"  [WhisperX] First STT segment matches lyrics (score={best_score:.2f})")
-
-            # Step 2: STT 세그먼트의 타이밍은 유지, 텍스트를 정답 가사로 교체
-            n_stt = len(stt_segments)
-            n_lines = len(lines)
-
-            replaced_segments = []
-            if n_lines <= n_stt:
-                # 가사 줄 <= STT 세그먼트: 각 줄을 비례 배치
-                ratio = n_stt / n_lines
-                for i, line in enumerate(lines):
-                    seg_idx = min(int(i * ratio), n_stt - 1)
-                    replaced_segments.append({
-                        "start": stt_segments[seg_idx]["start"],
-                        "end": stt_segments[seg_idx]["end"],
-                        "text": line,
-                    })
-            else:
-                # 가사 줄 > STT 세그먼트: STT 세그먼트 기준으로 가사 묶기
-                ratio = n_lines / n_stt
-                for seg_idx, seg in enumerate(stt_segments):
-                    line_start = int(seg_idx * ratio)
-                    line_end = int((seg_idx + 1) * ratio)
-                    combined = " ".join(lines[line_start:line_end])
-                    replaced_segments.append({
-                        "start": seg["start"],
-                        "end": seg["end"],
-                        "text": combined,
-                    })
-
-            print(f"  [WhisperX] Step 2: {len(replaced_segments)} segments with correct lyrics")
-
-            # Step 3: WhisperX 강제 정렬 (정답 텍스트 + STT 타이밍)
-            print(f"  [WhisperX] Step 3: Forced alignment...")
+            print(f"  [WhisperX] Step 2: Word-level alignment...")
+            align_model, align_metadata = whisperx.load_align_model(
+                language_code=language, device=device
+            )
             result = whisperx.align(
-                replaced_segments,
-                align_model,
-                align_metadata,
-                audio,
-                device,
-                return_char_alignments=False,
+                stt_segments, align_model, align_metadata,
+                audio, device, return_char_alignments=False,
+            )
+            total_words = sum(len(seg.get("words", [])) for seg in result.get("segments", []))
+            print(f"  [WhisperX] Got {total_words} word timestamps")
+            return result, audio_duration_sec
+
+        try:
+            # Try CUDA first, fallback to CPU on DLL/runtime errors
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                whisperx_result, audio_dur = _run_whisperx(device, audio_path, language)
+            except RuntimeError as cuda_err:
+                if device == "cuda":
+                    print(f"  [WhisperX] CUDA failed: {cuda_err}")
+                    print(f"  [WhisperX] Retrying on CPU...")
+                    whisperx_result, audio_dur = _run_whisperx("cpu", audio_path, language)
+                else:
+                    raise
+
+            # Step 3: timing-based aligner (VAD on vocals + whisper word times)
+            from utils.lyrics_aligner import generate_synced_subtitles, preprocess_lyrics
+
+            if project_dir:
+                sub_dir = os.path.join(project_dir, "media", "subtitles")
+            else:
+                sub_dir = os.path.join(os.path.dirname(audio_path), "subtitles")
+            os.makedirs(sub_dir, exist_ok=True)
+            ass_path = os.path.join(sub_dir, "lyrics.ass")
+            srt_path = os.path.join(sub_dir, "lyrics.srt")
+
+            # Extract segment-level timing (preferred anchor) and word timestamps
+            whisperx_segments = []
+            whisper_words = []
+            for seg in whisperx_result.get("segments", []):
+                ss = seg.get("start")
+                se = seg.get("end")
+                if ss is not None and se is not None:
+                    whisperx_segments.append({"start": float(ss), "end": float(se)})
+                for w in seg.get("words", []):
+                    ws = w.get("start")
+                    we = w.get("end")
+                    if ws is not None and we is not None:
+                        whisper_words.append({"start": float(ws), "end": float(we)})
+
+            lyrics_lines = preprocess_lyrics(lyrics)
+
+            captions, ass_path, srt_path = generate_synced_subtitles(
+                vocals_wav_path=audio_path,  # vocals.wav from Demucs
+                lyrics_lines=lyrics_lines,
+                audio_duration_sec=audio_dur,
+                ass_path=ass_path,
+                srt_path=srt_path,
+                whisperx_segments=whisperx_segments if whisperx_segments else None,
+                whisper_words=whisper_words if whisper_words else None,
             )
 
-            # word-level timestamps에서 줄별 시작 시간 추출
-            # (세그먼트 start는 STT 원본이라 부정확, word start가 실제 정렬 결과)
-            timed_lyrics = []
-            for seg in result.get("segments", []):
-                text = seg.get("text", "").strip()
-                if not text:
-                    continue
-                # 세그먼트 내 첫 번째 유효 word의 start 사용
-                words = seg.get("words", [])
-                word_start = None
-                for w in words:
-                    if w.get("start") is not None:
-                        word_start = w["start"]
-                        break
-                # word 타임스탬프 없으면 세그먼트 start fallback
-                start = word_start if word_start is not None else seg.get("start")
-                if start is not None:
-                    timed_lyrics.append({"t": round(start, 2), "text": text})
-
-            if timed_lyrics:
-                print(f"  [WhisperX] Aligned: {len(timed_lyrics)} entries, "
-                      f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
-                return timed_lyrics
-            else:
-                print("  [WhisperX] Alignment produced no results")
+            if not captions:
+                print("  [WhisperX] Aligner produced no captions")
                 return None
+
+            timed_lyrics = [
+                {"t": round(cap.start_sec, 2), "text": cap.text}
+                for cap in captions
+            ]
+
+            print(f"  [WhisperX] Final: {len(timed_lyrics)} entries, "
+                  f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
+            return timed_lyrics
 
         except Exception as e:
             print(f"  [WhisperX] Forced alignment failed: {e}")
@@ -379,16 +354,40 @@ class MVPipeline:
                 analysis_result["extracted_lyrics"] = extracted_lyrics
                 print(f"\n[Step 1.5] User lyrics received ({len(extracted_lyrics)} chars)")
 
-                # Step 1.6: 가사 정규화 + WhisperX 강제 정렬
-                normalized = self._normalize_lyrics(extracted_lyrics)
-                print(f"\n[Step 1.6] WhisperX forced alignment...")
-                timed_lyrics = self._forced_align_whisperx(
-                    lyrics_audio_path, normalized, language="ko"
+                # Step 1.6: Gemini 가사-오디오 정렬 (보컬 분리 파일 사용)
+                # split_lyrics_lines: 섹션 태그 + 따옴표 + 괄호 + 구두점 제거
+                lyrics_lines = split_lyrics_lines(extracted_lyrics)
+                print(f"\n[Step 1.6] Gemini lyrics alignment ({len(lyrics_lines)} lines)...")
+
+                # 곡 길이를 분석 결과에서 가져옴
+                _dur = analysis_result.get("duration_sec", 0.0)
+                gemini_aligned = self.music_analyzer.align_lyrics_to_audio(
+                    lyrics_audio_path, lyrics_lines, audio_duration_sec=_dur
                 )
-                if timed_lyrics:
-                    analysis_result["timed_lyrics"] = timed_lyrics
+
+                if gemini_aligned:
+                    # Gemini aligned → ASS/SRT 직접 생성
+                    from utils.lyrics_aligner import generate_from_gemini_alignment
+                    sub_dir = os.path.join(project_dir, "media", "subtitles")
+                    os.makedirs(sub_dir, exist_ok=True)
+                    ass_path = os.path.join(sub_dir, "lyrics.ass")
+                    srt_path = os.path.join(sub_dir, "lyrics.srt")
+
+                    captions, _, _ = generate_from_gemini_alignment(
+                        gemini_aligned, lyrics_lines, ass_path, srt_path
+                    )
+                    if captions:
+                        timed_lyrics = [
+                            {"t": round(c.start_sec, 2), "text": c.text}
+                            for c in captions
+                        ]
+                        analysis_result["timed_lyrics"] = timed_lyrics
+                        print(f"  [Gemini-Align] {len(timed_lyrics)} entries, "
+                              f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
+                    else:
+                        print("  [Gemini-Align] No captions generated")
                 else:
-                    print("  [WhisperX] Alignment failed - subtitles will use even distribution")
+                    print("  [Gemini-Align] Alignment failed - subtitles will use even distribution")
             else:
                 print(f"\n[Step 1.5] No user lyrics provided - skipping subtitle alignment")
 
@@ -3610,6 +3609,8 @@ class MVPipeline:
         self._save_manifest(project, project_dir)
 
         try:
+            from agents.subtitle_utils import ffprobe_duration_sec
+
             # ── Step 1: 가사 파싱 ──
             lines = split_lyrics_lines(user_lyrics_text)
             print(f"  [SubTest] Lyrics: {len(lines)} lines (after filtering)")
@@ -3618,40 +3619,71 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # ── Step 2: Demucs 보컬 분리 + WhisperX 강제 정렬 ──
-            project.current_step = "보컬 분리 + WhisperX 강제 정렬 중..."
-            self._save_manifest(project, project_dir)
+            # ── Step 2: Demucs 보컬 분리 + Gemini 가사 정렬 ──
+            # 이미 lyrics.ass가 존재하면 재실행 스킵
+            aligner_ass = os.path.join(project_dir, "media", "subtitles", "lyrics.ass")
+            aligner_srt = os.path.join(project_dir, "media", "subtitles", "lyrics.srt")
+            cached_timed = getattr(project, 'music_analysis', None)
+            cached_timed_lyrics = None
+            if cached_timed and hasattr(cached_timed, 'timed_lyrics') and cached_timed.timed_lyrics:
+                cached_timed_lyrics = cached_timed.timed_lyrics
 
-            vocals_path = os.path.join(project_dir, "music", "vocals.wav")
-            if not os.path.exists(vocals_path):
-                vocals_path = self._separate_vocals(project.music_file_path, project_dir)
-            audio_for_align = vocals_path or project.music_file_path
+            if os.path.exists(aligner_ass) and cached_timed_lyrics and len(cached_timed_lyrics) >= 2:
+                print(f"  [SubTest] Reusing cached aligner ASS + timed_lyrics ({len(cached_timed_lyrics)} entries)")
+                timed = cached_timed_lyrics
+            else:
+                project.current_step = "보컬 분리 + Gemini 가사 정렬 중..."
+                self._save_manifest(project, project_dir)
 
-            normalized = self._normalize_lyrics(user_lyrics_text)
-            timed = self._forced_align_whisperx(audio_for_align, normalized, language="ko")
+                vocals_path = os.path.join(project_dir, "music", "vocals.wav")
+                if not os.path.exists(vocals_path):
+                    vocals_path = self._separate_vocals(project.music_file_path, project_dir)
+                audio_for_align = vocals_path or project.music_file_path
 
-            if timed and len(timed) >= 2:
-                # ── WhisperX 직접 타임라인: timed_lyrics를 그대로 사용 ──
-                timed_clean = [
-                    {"t": float(e.get("t", 0)), "text": e.get("text", "").strip()}
-                    for e in timed if e.get("text", "").strip()
-                ]
-                timed_clean.sort(key=lambda e: e["t"])
-                print(f"  [SubTest] WhisperX timed_lyrics: {len(timed_clean)} entries -> direct timeline")
-
-                audio_duration = ffprobe_duration_sec(project.music_file_path)
-                timeline = []
-                for i, entry in enumerate(timed_clean):
-                    t_start = entry["t"]
-                    # end = 다음 엔트리 시작 - 0.05s, 또는 마지막이면 +4s (오디오 끝 초과 방지)
-                    if i + 1 < len(timed_clean):
-                        t_end = min(timed_clean[i + 1]["t"] - 0.05, t_start + 6.0)
+                # Gemini alignment (보컬 분리 파일 + 가사 원문)
+                from utils.lyrics_aligner import generate_from_gemini_alignment
+                _sub_dur = 0.0
+                if hasattr(project, 'music_analysis') and project.music_analysis:
+                    _sub_dur = getattr(project.music_analysis, 'duration_sec', 0.0)
+                if _sub_dur <= 0:
+                    _sub_dur = ffprobe_duration_sec(project.music_file_path)
+                gemini_aligned = self.music_analyzer.align_lyrics_to_audio(
+                    audio_for_align, lines, audio_duration_sec=_sub_dur
+                )
+                if gemini_aligned:
+                    captions, _, _ = generate_from_gemini_alignment(
+                        gemini_aligned, lines, aligner_ass, aligner_srt
+                    )
+                    if captions:
+                        timed = [
+                            {"t": round(c.start_sec, 2), "text": c.text}
+                            for c in captions
+                        ]
                     else:
-                        t_end = min(t_start + 4.0, audio_duration)
-                    t_end = max(t_end, t_start + 0.5)  # 최소 0.5s 표시
-                    timeline.append(SubtitleLine(t_start, t_end, entry["text"]))
+                        timed = None
+                else:
+                    timed = None
 
-                # synced_lyrics 저장
+            # lyrics_aligner가 생성한 ASS를 직접 사용 (timed에는 start만 있지만
+            # aligner가 이미 start+end로 정밀 ASS를 생성함)
+            if timed and len(timed) >= 2 and os.path.exists(aligner_ass):
+                # ── 새 aligner가 생성한 ASS 직접 사용 ──
+                print(f"  [SubTest] Using aligner-generated ASS: {aligner_ass}")
+
+                # timed_lyrics에서 timeline 구성 (디버그 + manifest 저장용)
+                timeline = []
+                for i, entry in enumerate(timed):
+                    t_start = float(entry.get("t", 0))
+                    text = entry.get("text", "").strip()
+                    if not text:
+                        continue
+                    # end 추정: 다음 줄 시작 or +3s
+                    if i + 1 < len(timed):
+                        t_end = max(float(timed[i + 1].get("t", t_start + 3.0)) - 0.05, t_start + 0.5)
+                    else:
+                        t_end = t_start + 3.0
+                    timeline.append(SubtitleLine(t_start, t_end, text))
+
                 project.synced_lyrics = [
                     {"t": s.start, "text": s.text} for s in timeline
                 ]
@@ -3662,19 +3694,51 @@ class MVPipeline:
                     gap = timeline[ti].start - timeline[ti - 1].end
                     if gap > 3.0:
                         print(f"    [GAP] {gap:.1f}s before line {ti}")
-            else:
-                # timed_lyrics 없으면 균등 분배 fallback
-                print(f"  [SubTest] No timed_lyrics available, falling back to uniform distribution")
-                audio_duration = ffprobe_duration_sec(project.music_file_path)
-                seg_dur = audio_duration / max(1, len(lines))
-                timeline = []
-                for i, line in enumerate(lines):
-                    t_start = i * seg_dur
-                    t_end = (i + 1) * seg_dur
-                    timeline.append(SubtitleLine(t_start, t_end, line))
-                print(f"  [SubTest] Uniform: {len(lines)} lines over {audio_duration:.1f}s")
 
-            aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+                # aligner ASS를 lyrics_test.ass로 복사
+                import shutil
+                ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
+                shutil.copy2(aligner_ass, ass_path)
+                ass_size = os.path.getsize(ass_path)
+                print(f"  [SubTest] ASS file: {ass_size:,} bytes -> {ass_path}")
+
+                aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+            else:
+                if timed and len(timed) >= 2:
+                    # aligner ASS 없지만 timed는 있음 - fallback으로 timeline 생성
+                    print(f"  [SubTest] Aligner ASS not found, building timeline from timed_lyrics")
+                    audio_duration = ffprobe_duration_sec(project.music_file_path)
+                    timeline = []
+                    for i, entry in enumerate(timed):
+                        t_start = float(entry.get("t", 0))
+                        text = entry.get("text", "").strip()
+                        if not text:
+                            continue
+                        if i + 1 < len(timed):
+                            t_end = min(float(timed[i + 1].get("t", t_start + 6.0)) - 0.05, t_start + 6.0)
+                        else:
+                            t_end = min(t_start + 4.0, audio_duration)
+                        t_end = max(t_end, t_start + 0.5)
+                        timeline.append(SubtitleLine(t_start, t_end, text))
+                else:
+                    # timed_lyrics 없으면 균등 분배 fallback
+                    print(f"  [SubTest] No timed_lyrics, falling back to uniform distribution")
+                    audio_duration = ffprobe_duration_sec(project.music_file_path)
+                    seg_dur = audio_duration / max(1, len(lines))
+                    timeline = []
+                    for i, line in enumerate(lines):
+                        t_start = i * seg_dur
+                        t_end = (i + 1) * seg_dur
+                        timeline.append(SubtitleLine(t_start, t_end, line))
+
+                aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+                project.synced_lyrics = [{"t": s.start, "text": s.text} for s in timeline]
+                self._save_manifest(project, project_dir)
+
+                ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
+                write_ass(aligned, ass_path)
+                ass_size = os.path.getsize(ass_path) if os.path.exists(ass_path) else 0
+                print(f"  [SubTest] ASS file: {len(aligned)} events, {ass_size:,} bytes -> {ass_path}")
 
             # 디버그: 전체 정렬 결과 출력
             for ai, a in enumerate(aligned):
@@ -3688,12 +3752,6 @@ class MVPipeline:
             alignment_path = f"{project_dir}/media/subtitles/alignment.json"
             with open(alignment_path, "w", encoding="utf-8") as af:
                 json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
-
-            # ── Step 4: ASS 자막 파일 생성 (compose_video와 동일 방식) ──
-            ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
-            write_ass(aligned, ass_path)
-            ass_size = os.path.getsize(ass_path) if os.path.exists(ass_path) else 0
-            print(f"  [SubTest] ASS file: {len(aligned)} events, {ass_size:,} bytes -> {ass_path}")
 
             # ASS 내용 미리보기 (디버그)
             try:

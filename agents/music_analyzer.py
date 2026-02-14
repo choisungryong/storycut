@@ -287,7 +287,7 @@ class MusicAnalyzer:
             traceback.print_exc()
             return None
 
-    def align_lyrics_to_audio(self, audio_path: str, lyrics_lines: list) -> Optional[list]:
+    def align_lyrics_to_audio(self, audio_path: str, lyrics_lines: list, audio_duration_sec: float = 0.0) -> Optional[list]:
         """
         Forced Alignment: 가사 원문 + 오디오를 Gemini에 함께 전달하여
         각 줄의 정확한 시작/끝 타임스탬프를 받는다.
@@ -295,6 +295,7 @@ class MusicAnalyzer:
         Args:
             audio_path: 음악 파일 경로
             lyrics_lines: 가사 줄 리스트 ["첫번째 줄", "두번째 줄", ...]
+            audio_duration_sec: 곡 전체 길이 (초). 0이면 자동 감지
 
         Returns:
             [{"index": 0, "start": 12.5, "end": 16.2, "text": "첫번째 줄"}, ...] 또는 None
@@ -336,18 +337,44 @@ class MusicAnalyzer:
                 f"{i}: {line}" for i, line in enumerate(lyrics_lines)
             )
 
+            # 곡 길이 자동 감지 (전달 안 된 경우)
+            if audio_duration_sec <= 0:
+                try:
+                    import subprocess
+                    probe = subprocess.run(
+                        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                         "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    audio_duration_sec = float(probe.stdout.strip())
+                except Exception:
+                    audio_duration_sec = 0.0
+
+            dur_hint = ""
+            if audio_duration_sec > 0:
+                dur_hint = (
+                    f"\n## AUDIO INFO\n"
+                    f"- Total audio duration: {audio_duration_sec:.1f} seconds ({audio_duration_sec/60:.1f} minutes)\n"
+                    f"- The lyrics span the ENTIRE song from beginning to end.\n"
+                    f"- Your timestamps MUST cover the full song duration. The last lyric should end near {audio_duration_sec:.0f}s.\n"
+                    f"- If the last lyric ends before {audio_duration_sec * 0.5:.0f}s, your alignment is WRONG.\n\n"
+                )
+
             prompt_text = (
                 "You are a professional lyrics timing specialist for karaoke/subtitle systems.\n"
-                "Listen to this music VERY carefully and align each lyric line to the EXACT moment it is sung.\n\n"
+                "Listen to this music VERY carefully and align each lyric line to the EXACT moment it is sung.\n"
+                f"{dur_hint}"
                 "## LYRICS (numbered)\n"
                 f"{numbered_lyrics}\n\n"
                 "## CRITICAL RULES\n"
-                "1. LISTEN to the audio. Each line's start/end must match EXACTLY when the singer sings those words.\n"
+                "1. LISTEN to the audio carefully from start to finish. Each line's start/end must match EXACTLY when the singer sings those words.\n"
                 "2. 'start' = the moment the first syllable of that line begins being sung.\n"
                 "3. 'end' = the moment the last syllable of that line finishes being sung.\n"
                 "4. Lines must be in chronological order. start < end for every entry.\n"
                 "5. Do NOT skip any line. Every index (0 to " + str(len(lyrics_lines) - 1) + ") must appear exactly once.\n"
-                "6. Be as precise as possible (0.1 second accuracy).\n\n"
+                "6. Be as precise as possible (0.1 second accuracy).\n"
+                "7. Timestamps are in SECONDS from the start of the audio file.\n"
+                "8. The song has vocals spread across its FULL duration. Do NOT compress all lyrics into the first few seconds.\n\n"
                 "## INSTRUMENTAL BREAKS (VERY IMPORTANT)\n"
                 "- If there is an instrumental break (no singing), there MUST be a TIME GAP in your output.\n"
                 "- Do NOT assign lyrics to instrumental sections. Lyrics ONLY appear when the voice is singing.\n"
@@ -392,10 +419,33 @@ class MusicAnalyzer:
 
             valid.sort(key=lambda x: x["start"])
 
+            # ── Raw Gemini timestamps log (per-line) ──
+            print(f"  [Lyrics-Align] === Gemini Raw Timestamps ({len(valid)} lines) ===")
+            prev_end = 0.0
+            for v in valid:
+                gap = v["start"] - prev_end
+                gap_str = f"  [GAP {gap:.1f}s]" if gap > 2.0 else ""
+                dur = v["end"] - v["start"]
+                print(f"    [{v['index']:2d}] {v['start']:6.1f}s ~ {v['end']:6.1f}s ({dur:.1f}s) '{v['text'][:35]}'{gap_str}")
+                prev_end = v["end"]
+            print(f"  [Lyrics-Align] === End Timestamps ===")
+
             if valid:
+                time_range = valid[-1]["end"] - valid[0]["start"]
                 coverage = len(valid) / len(lyrics_lines) * 100
                 print(f"  [Lyrics-Align] Aligned {len(valid)}/{len(lyrics_lines)} lines ({coverage:.0f}%), "
-                      f"range: {valid[0]['start']}s ~ {valid[-1]['end']}s")
+                      f"range: {valid[0]['start']}s ~ {valid[-1]['end']}s (span: {time_range:.1f}s)")
+
+                # Sanity check: timestamps should cover a reasonable portion of the song
+                if audio_duration_sec > 30 and valid[-1]["end"] < audio_duration_sec * 0.3:
+                    print(f"  [Lyrics-Align] REJECTED: timestamps end at {valid[-1]['end']:.1f}s "
+                          f"but song is {audio_duration_sec:.1f}s - Gemini compressed all lyrics into early section")
+                    return None
+
+                # Check for compression: if all 72 lines fit in <30s, something is wrong
+                if len(valid) > 10 and time_range < 30.0:
+                    print(f"  [Lyrics-Align] REJECTED: {len(valid)} lines crammed into {time_range:.1f}s span")
+                    return None
             else:
                 print(f"  [Lyrics-Align] No valid alignments returned")
                 return None
