@@ -232,12 +232,23 @@ class MVPipeline:
                 return_char_alignments=False,
             )
 
-            # 세그먼트 단위 timed_lyrics 생성
+            # word-level timestamps에서 줄별 시작 시간 추출
+            # (세그먼트 start는 STT 원본이라 부정확, word start가 실제 정렬 결과)
             timed_lyrics = []
             for seg in result.get("segments", []):
                 text = seg.get("text", "").strip()
-                start = seg.get("start")
-                if text and start is not None:
+                if not text:
+                    continue
+                # 세그먼트 내 첫 번째 유효 word의 start 사용
+                words = seg.get("words", [])
+                word_start = None
+                for w in words:
+                    if w.get("start") is not None:
+                        word_start = w["start"]
+                        break
+                # word 타임스탬프 없으면 세그먼트 start fallback
+                start = word_start if word_start is not None else seg.get("start")
+                if start is not None:
                     timed_lyrics.append({"t": round(start, 2), "text": text})
 
             if timed_lyrics:
