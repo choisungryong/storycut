@@ -3534,155 +3534,38 @@ class MVPipeline:
                 self._save_manifest(project, project_dir)
                 return project
 
-            # ── Step 2: timed_lyrics(Gemini 타이밍) + 원본 가사 매칭 ──
-            # Gemini가 추출한 timed_lyrics: 타이밍 정확, 텍스트 부정확
-            # 사용자 원본 가사(lines): 텍스트 정확, 타이밍 없음
-            # → 텍스트 유사도로 매칭하여 synced_lyrics 생성
-            project.current_step = "가사 싱크 매칭 중..."
+            # ── Step 2: Demucs 보컬 분리 + WhisperX 강제 정렬 ──
+            project.current_step = "보컬 분리 + WhisperX 강제 정렬 중..."
             self._save_manifest(project, project_dir)
 
-            timed = None
-            if project.music_analysis and project.music_analysis.timed_lyrics:
-                timed = project.music_analysis.timed_lyrics
-                print(f"  [SubTest] timed_lyrics: {len(timed)} entries (cached)")
+            vocals_path = os.path.join(project_dir, "music", "vocals.wav")
+            if not os.path.exists(vocals_path):
+                vocals_path = self._separate_vocals(project.music_file_path, project_dir)
+            audio_for_align = vocals_path or project.music_file_path
 
-            # timed_lyrics 없으면 Gemini에서 실시간 추출
-            if not timed or len(timed) < 2:
-                print(f"  [SubTest] timed_lyrics missing! Extracting from Gemini...")
-                project.current_step = "가사 타이밍 추출 중 (Gemini)..."
-                self._save_manifest(project, project_dir)
-                try:
-                    self.music_analyzer.extract_lyrics_with_gemini(project.music_file_path)
-                    timed = getattr(self.music_analyzer, '_last_timed_lyrics', None)
-                    if timed and len(timed) >= 2:
-                        print(f"  [SubTest] Gemini extracted {len(timed)} timed entries")
-                        # 프로젝트에 캐싱 (다음 실행 시 재사용)
-                        if project.music_analysis:
-                            project.music_analysis.timed_lyrics = timed
-                            self._save_manifest(project, project_dir)
-                    else:
-                        print(f"  [SubTest] Gemini extraction returned no timed_lyrics")
-                except Exception as e:
-                    print(f"  [SubTest] Gemini extraction failed: {e}")
+            normalized = self._normalize_lyrics(user_lyrics_text)
+            timed = self._forced_align_whisperx(audio_for_align, normalized, language="ko")
 
             if timed and len(timed) >= 2:
-                import difflib
-
-                def norm(text):
-                    return text.replace(" ", "").replace(",", "").replace(".", "").replace("~", "").replace("!", "").replace("?", "").lower()
-
-                # timed_lyrics 엔트리 정리
+                # ── WhisperX 직접 타임라인: timed_lyrics를 그대로 사용 ──
                 timed_clean = [
                     {"t": float(e.get("t", 0)), "text": e.get("text", "").strip()}
                     for e in timed if e.get("text", "").strip()
                 ]
                 timed_clean.sort(key=lambda e: e["t"])
+                print(f"  [SubTest] WhisperX timed_lyrics: {len(timed_clean)} entries -> direct timeline")
 
-                n_lines = len(lines)
-                n_timed = len(timed_clean)
-                print(f"  [SubTest] Matching {n_lines} lyrics lines -> {n_timed} timed entries")
-
-                # ── Step A: 간주 경계 감지 (timed 엔트리 갭) ──
-                VOCAL_GAP = 5.0
-                gap_indices = []  # timed 엔트리에서 간주가 시작되는 인덱스
-                for i in range(1, n_timed):
-                    if timed_clean[i]["t"] - timed_clean[i - 1]["t"] >= VOCAL_GAP:
-                        gap_indices.append(i)
-
-                print(f"  [SubTest] Instrumental gaps (>={VOCAL_GAP}s): {len(gap_indices)}")
-                for gi in gap_indices:
-                    print(f"    {timed_clean[gi - 1]['t']:.1f}s -> {timed_clean[gi]['t']:.1f}s (gap={timed_clean[gi]['t'] - timed_clean[gi - 1]['t']:.1f}s)")
-
-                # ── Step B: 간주 경계에서 가사 분할점 탐색 (텍스트 매칭) ──
-                # 각 간주 직전 timed 엔트리의 텍스트와 가사 줄을 매칭하여
-                # "이 가사 줄까지가 간주 전" 분할점을 찾음
-                lyrics_splits = [0]  # 각 보컬 구간의 시작 가사 인덱스
-                timed_splits = [0]   # 각 보컬 구간의 시작 timed 인덱스
-
-                for gi in gap_indices:
-                    # 간주 직전 마지막 timed 엔트리
-                    boundary_text = norm(timed_clean[gi - 1]["text"])
-                    # 간주 직후 첫 timed 엔트리
-                    after_text = norm(timed_clean[gi]["text"])
-
-                    # 예상 가사 위치 (비례)
-                    expected_li = round((gi - 1) / max(1, n_timed - 1) * (n_lines - 1))
-                    search_start = max(lyrics_splits[-1] + 1, expected_li - 15)
-                    search_end = min(n_lines, expected_li + 15)
-
-                    # 간주 직전 텍스트와 가장 유사한 가사 줄 찾기
-                    best_score = -1
-                    best_li = expected_li
-                    for li in range(search_start, search_end):
-                        score = difflib.SequenceMatcher(None, boundary_text, norm(lines[li])).ratio()
-                        if score > best_score:
-                            best_score = score
-                            best_li = li
-
-                    # 간주 직후 텍스트도 체크 (분할 정확도 향상)
-                    after_best_li = best_li + 1
-                    if after_best_li < n_lines:
-                        after_score = difflib.SequenceMatcher(None, after_text, norm(lines[after_best_li])).ratio()
+                audio_duration = ffprobe_duration_sec(project.music_file_path)
+                timeline = []
+                for i, entry in enumerate(timed_clean):
+                    t_start = entry["t"]
+                    # end = 다음 엔트리 시작 - 0.05s, 또는 마지막이면 +4s (오디오 끝 초과 방지)
+                    if i + 1 < len(timed_clean):
+                        t_end = min(timed_clean[i + 1]["t"] - 0.05, t_start + 6.0)
                     else:
-                        after_score = 0
-
-                    split_li = best_li + 1  # 이 줄부터 다음 구간
-                    if split_li > lyrics_splits[-1] and split_li < n_lines:
-                        lyrics_splits.append(split_li)
-                        timed_splits.append(gi)
-                        print(f"    Split: lyrics line {split_li} (before='{lines[best_li][:30]}' score={best_score:.2f}, after='{lines[min(split_li, n_lines - 1)][:30]}' score={after_score:.2f})")
-
-                lyrics_splits.append(n_lines)
-                timed_splits.append(n_timed)
-
-                n_sections = len(lyrics_splits) - 1
-                print(f"  [SubTest] {n_sections} vocal sections")
-
-                # ── Step C: 각 보컬 구간 내 가사 -> timed 매핑 ──
-                timeline = [None] * n_lines
-
-                for si in range(n_sections):
-                    ls = lyrics_splits[si]      # 이 구간 가사 시작
-                    le = lyrics_splits[si + 1]   # 이 구간 가사 끝 (exclusive)
-                    ts = timed_splits[si]        # 이 구간 timed 시작
-                    te = timed_splits[si + 1]    # 이 구간 timed 끝 (exclusive)
-
-                    sec_n_lines = le - ls
-                    sec_n_timed = te - ts
-                    if sec_n_lines <= 0 or sec_n_timed <= 0:
-                        continue
-
-                    # 구간 시간 범위
-                    sec_start_t = timed_clean[ts]["t"]
-                    sec_last_t = timed_clean[te - 1]["t"]
-                    # 구간 끝: 마지막 엔트리 + 여유, 단 다음 구간 침범 금지
-                    if si + 1 < n_sections:
-                        next_sec_t = timed_clean[timed_splits[si + 1]]["t"]
-                        sec_end_t = min(sec_last_t + 3.0, next_sec_t - 0.5)
-                    else:
-                        sec_end_t = sec_last_t + 3.0
-
-                    # 구간 시간을 가사 줄 수로 균등 분배
-                    sec_dur = sec_end_t - sec_start_t
-                    for offset in range(sec_n_lines):
-                        li = ls + offset
-
-                        t_start = sec_start_t + (offset / sec_n_lines) * sec_dur
-                        t_end = sec_start_t + ((offset + 1) / sec_n_lines) * sec_dur
-
-                        # 최소 표시 시간 보장
-                        if t_end - t_start < 0.3:
-                            t_end = t_start + 0.3
-
-                        timeline[li] = SubtitleLine(t_start, t_end, lines[li])
-
-                    print(f"    Sec {si}: lyrics [{ls}-{le - 1}] ({sec_n_lines}L) -> timed [{ts}-{te - 1}] ({sec_n_timed}E) {sec_start_t:.1f}s~{sec_end_t:.1f}s")
-
-                # 미할당 줄 처리
-                for i in range(n_lines):
-                    if timeline[i] is None:
-                        prev_end = timeline[i - 1].end if i > 0 and timeline[i - 1] else 0
-                        timeline[i] = SubtitleLine(prev_end, prev_end + 2.0, lines[i])
+                        t_end = min(t_start + 4.0, audio_duration)
+                    t_end = max(t_end, t_start + 0.5)  # 최소 0.5s 표시
+                    timeline.append(SubtitleLine(t_start, t_end, entry["text"]))
 
                 # synced_lyrics 저장
                 project.synced_lyrics = [
@@ -3690,26 +3573,22 @@ class MVPipeline:
                 ]
                 self._save_manifest(project, project_dir)
 
-                print(f"  [SubTest] Sync: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
+                print(f"  [SubTest] Timeline: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
                 for ti in range(1, len(timeline)):
                     gap = timeline[ti].start - timeline[ti - 1].end
-                    if gap > 1.0:
+                    if gap > 3.0:
                         print(f"    [GAP] {gap:.1f}s before line {ti}")
             else:
                 # timed_lyrics 없으면 균등 분배 fallback
                 print(f"  [SubTest] No timed_lyrics available, falling back to uniform distribution")
                 audio_duration = ffprobe_duration_sec(project.music_file_path)
-                segments = None
-                if project.music_analysis and project.music_analysis.segments:
-                    segments = project.music_analysis.segments
-                anchor_info = detect_anchors(
-                    media_path=project.music_file_path,
-                    segments=segments,
-                    user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
-                    user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
-                )
-                timeline = clamp_timeline_anchored(lines, anchor_info.anchor_start, anchor_info.anchor_end)
-                print(f"  [SubTest] Uniform fallback: {len(lines)} lines over {anchor_info.anchor_start:.1f}s-{anchor_info.anchor_end:.1f}s")
+                seg_dur = audio_duration / max(1, len(lines))
+                timeline = []
+                for i, line in enumerate(lines):
+                    t_start = i * seg_dur
+                    t_end = (i + 1) * seg_dur
+                    timeline.append(SubtitleLine(t_start, t_end, line))
+                print(f"  [SubTest] Uniform: {len(lines)} lines over {audio_duration:.1f}s")
 
             aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
 
