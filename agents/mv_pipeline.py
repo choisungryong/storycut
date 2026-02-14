@@ -187,9 +187,51 @@ class MVPipeline:
             stt_segments = stt_result.get("segments", [])
             print(f"  [WhisperX] STT: {len(stt_segments)} segments detected")
 
+            # 디버그: STT 세그먼트 전체 출력
+            for i, seg in enumerate(stt_segments[:10]):
+                print(f"    STT[{i}] {seg['start']:.1f}s ~ {seg['end']:.1f}s: '{seg.get('text', '')[:40]}'")
+            if len(stt_segments) > 10:
+                print(f"    ... ({len(stt_segments) - 10} more)")
+
             if not stt_segments:
                 print("  [WhisperX] No speech segments detected in audio")
                 return None
+
+            # 가사 시작점 탐색: STT 텍스트와 첫 가사 줄을 매칭하여
+            # 보컬라이즈(아~, 우~) 구간을 건너뛰고 실제 가사 시작 세그먼트를 찾음
+            from difflib import SequenceMatcher
+            first_line_norm = re.sub(r'\s+', '', lines[0]).lower()
+            best_match_idx = 0
+            best_score = 0
+            for si, seg in enumerate(stt_segments):
+                stt_text_norm = re.sub(r'\s+', '', seg.get("text", "")).lower()
+                score = SequenceMatcher(None, first_line_norm, stt_text_norm).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_match_idx = si
+
+            # 매칭 점수가 낮으면 (가사와 STT가 아예 안 맞으면) 첫 세그먼트 사용
+            if best_score < 0.3:
+                # fallback: 짧은 보컬라이즈 세그먼트 건너뛰기
+                # "아", "우", "라" 등 1~2음절 반복은 가사가 아닌 보컬라이즈
+                skip_count = 0
+                for seg in stt_segments:
+                    stt_text = re.sub(r'\s+', '', seg.get("text", ""))
+                    if len(stt_text) <= 4:  # 4글자 이하 = 보컬라이즈 가능성
+                        skip_count += 1
+                    else:
+                        break
+                best_match_idx = skip_count
+                print(f"  [WhisperX] Low text match (score={best_score:.2f}), skipping {skip_count} short segments")
+
+            if best_match_idx > 0:
+                skipped = stt_segments[:best_match_idx]
+                for s in skipped:
+                    print(f"  [WhisperX] Skip pre-lyrics: {s['start']:.1f}s~{s['end']:.1f}s '{s.get('text', '')[:30]}'")
+                stt_segments = stt_segments[best_match_idx:]
+                print(f"  [WhisperX] Lyrics start at STT segment {best_match_idx} ({stt_segments[0]['start']:.1f}s), match score={best_score:.2f}")
+            else:
+                print(f"  [WhisperX] First STT segment matches lyrics (score={best_score:.2f})")
 
             # Step 2: STT 세그먼트의 타이밍은 유지, 텍스트를 정답 가사로 교체
             n_stt = len(stt_segments)
