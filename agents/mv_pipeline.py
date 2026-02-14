@@ -172,7 +172,6 @@ class MVPipeline:
             )
 
             # 가사를 WhisperX SingleSegment 형식으로 변환
-            # 각 줄을 하나의 세그먼트로 취급, 임시 타임스탬프 부여
             audio = whisperx.load_audio(audio_path)
             duration = len(audio) / 16000  # WhisperX SAMPLE_RATE = 16000
 
@@ -181,19 +180,51 @@ class MVPipeline:
                 print("  [WhisperX] No valid lyrics lines after cleanup")
                 return None
 
-            # 균등 분배로 임시 세그먼트 생성 (WhisperX가 실제 정렬함)
-            seg_duration = duration / len(lines)
-            transcript_segments = []
-            for i, line in enumerate(lines):
-                transcript_segments.append({
-                    "start": i * seg_duration,
-                    "end": (i + 1) * seg_duration,
-                    "text": line,
-                })
+            # Step 1: Whisper STT로 대략적 세그먼트 추출 (보컬 타이밍 확보)
+            print(f"  [WhisperX] Step 1: Whisper STT for rough timestamps...")
+            stt_model = whisperx.load_model("base", device, compute_type="int8", language=language)
+            stt_result = stt_model.transcribe(audio, language=language, batch_size=16)
+            stt_segments = stt_result.get("segments", [])
+            print(f"  [WhisperX] STT: {len(stt_segments)} segments detected")
 
-            print(f"  [WhisperX] Aligning {len(lines)} lines to {duration:.1f}s audio...")
+            if not stt_segments:
+                print("  [WhisperX] No speech segments detected in audio")
+                return None
+
+            # Step 2: STT 세그먼트의 타이밍은 유지, 텍스트를 정답 가사로 교체
+            n_stt = len(stt_segments)
+            n_lines = len(lines)
+
+            replaced_segments = []
+            if n_lines <= n_stt:
+                # 가사 줄 <= STT 세그먼트: 각 줄을 비례 배치
+                ratio = n_stt / n_lines
+                for i, line in enumerate(lines):
+                    seg_idx = min(int(i * ratio), n_stt - 1)
+                    replaced_segments.append({
+                        "start": stt_segments[seg_idx]["start"],
+                        "end": stt_segments[seg_idx]["end"],
+                        "text": line,
+                    })
+            else:
+                # 가사 줄 > STT 세그먼트: STT 세그먼트 기준으로 가사 묶기
+                ratio = n_lines / n_stt
+                for seg_idx, seg in enumerate(stt_segments):
+                    line_start = int(seg_idx * ratio)
+                    line_end = int((seg_idx + 1) * ratio)
+                    combined = " ".join(lines[line_start:line_end])
+                    replaced_segments.append({
+                        "start": seg["start"],
+                        "end": seg["end"],
+                        "text": combined,
+                    })
+
+            print(f"  [WhisperX] Step 2: {len(replaced_segments)} segments with correct lyrics")
+
+            # Step 3: WhisperX 강제 정렬 (정답 텍스트 + STT 타이밍)
+            print(f"  [WhisperX] Step 3: Forced alignment...")
             result = whisperx.align(
-                transcript_segments,
+                replaced_segments,
                 align_model,
                 align_metadata,
                 audio,
