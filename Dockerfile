@@ -19,7 +19,10 @@ RUN apt-get update && apt-get install -y \
 # 폰트 캐시 갱신 (선택사항, 자막 폰트용)
 RUN fc-cache -f -v
 
-# 의존성 파일 복사 및 설치
+# CPU-only PyTorch 먼저 설치 (CUDA 패키지 제외 → ~200MB vs ~2GB+)
+RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 나머지 의존성 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
