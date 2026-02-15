@@ -1626,7 +1626,7 @@ class StorycutApp {
             card.innerHTML = `
                 <div class="history-thumb" style="background: #1a1a2e;">
                     ${typeBadge}
-                    ${project.thumbnail_url ? `<img src="${project.thumbnail_url}" alt="${project.title}">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
+                    ${project.thumbnail_url ? `<img src="${this.getApiBaseUrl()}${project.thumbnail_url}" alt="${project.title}" onerror="this.style.display='none'">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
                 </div>
                 <div class="history-info">
                     <p class="history-title">${project.title}</p>
