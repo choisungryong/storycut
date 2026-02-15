@@ -1837,12 +1837,13 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     # asset_type 화이트리스트 검증
-    if asset_type not in ["image", "audio", "video"]:
+    if asset_type not in ["image", "images", "audio", "video"]:
         raise HTTPException(status_code=400, detail="Invalid asset_type")
-    
+
     # 4. 로컬 파일 경로 생성
     type_to_dir = {
         "image": "scenes",
+        "images": "media/images",
         "audio": "audio",
         "video": ""
     }
@@ -1866,6 +1867,7 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     if os.path.exists(local_path):
         media_types = {
             "image": "image/png",
+            "images": "image/png",
             "audio": "audio/mpeg",
             "video": "video/mp4"
         }
@@ -1874,6 +1876,7 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     # 6. R2에서 가져오기
     r2_type_map = {
         "image": "images",
+        "images": "images",
         "audio": "audio",
         "video": "videos"
     }
@@ -1885,6 +1888,7 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
         from fastapi.responses import Response
         media_types = {
             "image": "image/png",
+            "images": "image/png",
             "audio": "audio/mpeg",
             "video": "video/mp4"
         }
@@ -1977,7 +1981,7 @@ async def get_history_list():
                     else:
                         for sc in lm.get("scenes", []):
                             img_p = sc.get("image_path", "")
-                            if img_p and os.path.exists(img_p):
+                            if img_p:
                                 p["thumbnail_url"] = f"/api/asset/{pid}/images/{os.path.basename(img_p)}"
                                 break
                 # MV 추가 정보
@@ -2031,7 +2035,7 @@ async def get_history_list():
                             else:
                                 for sc in scenes:
                                     img_p = sc.get("image_path", "")
-                                    if img_p and os.path.exists(img_p):
+                                    if img_p:
                                         thumb_url = f"/api/asset/{pid}/images/{os.path.basename(img_p)}"
                                         break
 
