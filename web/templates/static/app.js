@@ -1673,7 +1673,7 @@ class StorycutApp {
                 const scenes = manifest.scenes || [];
                 const hasImages = scenes.some(s => s.image_path);
 
-                if (manifest.status === 'completed' || (hasImages && manifest.status === 'failed')) {
+                if (manifest.status === 'completed' || (hasImages && (manifest.status === 'failed' || manifest.status === 'images_ready'))) {
                     const resultData = {
                         project_id: projectId,
                         duration_sec: manifest.music_analysis?.duration_sec || 0,
@@ -1684,9 +1684,12 @@ class StorycutApp {
                     this.showMVResult(resultData);
                     this.setNavActive('nav-history');
 
-                    // 실패한 프로젝트: 헤더 변경 + 음악 업로드/리컴포즈 버튼 표시
-                    if (manifest.status === 'failed') {
-                        document.getElementById('mv-result-header').textContent = '⚠️ 영상 합성 실패 - 음악 재업로드 후 재합성으로 복구';
+                    // 실패/미합성 프로젝트: 헤더 변경 + 재합성 버튼 표시 + 비디오 숨김
+                    if (manifest.status === 'failed' || manifest.status === 'images_ready') {
+                        const headerText = manifest.status === 'images_ready'
+                            ? '🎨 씬 이미지 준비 완료 - 수정 후 영상 재합성하세요'
+                            : '⚠️ 영상 합성 실패 - 음악 재업로드 후 재합성으로 복구';
+                        document.getElementById('mv-result-header').textContent = headerText;
                         const recomposeBtn = document.getElementById('mv-recompose-btn');
                         if (recomposeBtn) recomposeBtn.style.display = 'inline-flex';
                         const musicBtn = document.getElementById('mv-music-upload-btn');
@@ -1694,6 +1697,9 @@ class StorycutApp {
                         // 비디오 플레이어 숨김
                         const videoContainer = document.getElementById('mv-result-video-container');
                         if (videoContainer) videoContainer.style.display = 'none';
+                        // 다운로드 버튼 숨김
+                        const dlBtn = document.getElementById('mv-download-btn');
+                        if (dlBtn) dlBtn.style.display = 'none';
                     }
                 } else if (manifest.status === 'processing' || manifest.status === 'composing' || manifest.status === 'generating') {
                     this.showSection('result');

@@ -1322,7 +1322,7 @@ class MVPipeline:
             text = entry.get("text", "").strip()
             if not text:
                 continue
-            if start_sec <= t < end_sec:
+            if start_sec <= t <= end_sec:
                 lines.append(text)
         return "\n".join(lines)
 
@@ -2263,7 +2263,7 @@ class MVPipeline:
 
                 final_prompt = self._inject_character_descriptions(project, scene, scene.image_prompt)
 
-                if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
+                if ethnicity_keyword and scene.characters_in_scene and ethnicity_keyword.lower() not in final_prompt.lower():
                     final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
                 _scene_neg = scene.negative_prompt or ""
@@ -2282,12 +2282,15 @@ class MVPipeline:
                 if era_negative:
                     _scene_neg = f"{era_negative}, {_scene_neg}" if _scene_neg else era_negative
 
+                # 캐릭터 미등장 씬: 스타일 앵커 제외 (앵커에 인물이 있으면 복제됨)
+                _scene_style_anchor = style_anchor_path if scene.characters_in_scene else None
+
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
                     prompt=final_prompt,
                     style=project.style.value,
                     output_dir=image_dir,
-                    style_anchor_path=style_anchor_path,
+                    style_anchor_path=_scene_style_anchor,
                     genre=project.genre.value,
                     mood=project.mood.value,
                     negative_prompt=_scene_neg or scene.negative_prompt,
@@ -4133,13 +4136,16 @@ class MVPipeline:
         print(f"[MV Regenerate] Scene {scene_id} image regeneration...")
 
         # v3.0: 전용 스타일 앵커 우선 사용, 없으면 scene_01 fallback
-        style_anchor_path = project.style_anchor_path
-        if style_anchor_path and not os.path.exists(style_anchor_path):
-            style_anchor_path = None
-        if not style_anchor_path and scene_id > 1:
-            first_scene = project.scenes[0]
-            if first_scene.image_path and os.path.exists(first_scene.image_path):
-                style_anchor_path = first_scene.image_path
+        # 캐릭터 미등장 씬에서는 스타일 앵커 사용 안 함 (앵커에 인물이 있으면 복제됨)
+        style_anchor_path = None
+        if scene.characters_in_scene:
+            style_anchor_path = project.style_anchor_path
+            if style_anchor_path and not os.path.exists(style_anchor_path):
+                style_anchor_path = None
+            if not style_anchor_path and scene_id > 1:
+                first_scene = project.scenes[0]
+                if first_scene.image_path and os.path.exists(first_scene.image_path):
+                    style_anchor_path = first_scene.image_path
 
         # Visual Bible dict
         vb_dict = project.visual_bible.model_dump() if project.visual_bible else None
@@ -4161,7 +4167,7 @@ class MVPipeline:
             "black": "Black", "hispanic": "Hispanic",
         }
         ethnicity_keyword = _ETH_KW.get(_eth_v, "")
-        if ethnicity_keyword and ethnicity_keyword.lower() not in final_prompt.lower():
+        if ethnicity_keyword and scene.characters_in_scene and ethnicity_keyword.lower() not in final_prompt.lower():
             final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
         # 캐릭터 미등장 씬: 정의 안 된 인물 등장 방지
@@ -4280,6 +4286,34 @@ class MVPipeline:
         audio_abs = os.path.abspath(audio_path)
         out_abs = os.path.abspath(out_path)
 
+        # 음악 길이 확보 - 영상보다 길면 마지막 프레임 freeze
+        try:
+            video_dur = self.ffmpeg_composer.get_video_duration(video_abs)
+            audio_dur = ffprobe_duration_sec(audio_abs)
+            if audio_dur and video_dur and audio_dur > video_dur + 0.5:
+                gap = audio_dur - video_dur
+                print(f"  [Final Render] Video ({video_dur:.1f}s) shorter than audio ({audio_dur:.1f}s) by {gap:.1f}s - extending with tpad freeze")
+                # tpad: 마지막 프레임을 stop_duration만큼 freeze
+                extended_path = video_abs.rsplit(".", 1)[0] + "_extended.mp4"
+                pad_cmd = [
+                    "ffmpeg", "-y",
+                    "-i", video_abs,
+                    "-vf", f"tpad=stop_mode=clone:stop_duration={gap + 1:.1f}",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-an", extended_path
+                ]
+                pad_result = subprocess.run(
+                    pad_cmd, capture_output=True, text=True,
+                    encoding='utf-8', errors='replace', timeout=300
+                )
+                if pad_result.returncode == 0:
+                    video_abs = extended_path
+                    print(f"  [Final Render] Extended video to {audio_dur + 1:.1f}s")
+                else:
+                    print(f"  [Final Render] tpad failed, proceeding with original video: {pad_result.stderr[-200:]}")
+        except Exception as e:
+            print(f"  [Final Render] Duration check skipped: {e}")
+
         # 플랫폼별 폰트
         system = platform.system()
         if system == "Windows":
@@ -4329,7 +4363,6 @@ class MVPipeline:
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-profile:v", "high", "-level", "4.1", "-r", "30",
             "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
-            "-shortest",
             out_abs
         ]
 
