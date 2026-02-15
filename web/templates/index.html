@@ -675,107 +675,6 @@
             font-weight: bold;
         }
 
-        /* MV 결과 씬 그리드 (더 넓은 카드) */
-        #mv-result-scene-grid {
-            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-        }
-
-        /* MV 결과 씬 카드 (가사 편집/재생성 지원) */
-        .mv-result-card {
-            background: #16213e;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid #393e46;
-            transition: border-color 0.2s;
-        }
-        .mv-result-card:hover { border-color: #00adb5; }
-        .mv-result-card .mv-result-img-wrap {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 16 / 9;
-            overflow: hidden;
-            background: #0f0f23;
-        }
-        .mv-result-card .mv-result-img-wrap img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .mv-result-card .mv-result-info {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 10px 0;
-            font-size: 0.85rem;
-            color: #ccc;
-        }
-        .mv-result-card .mv-result-time { color: #00adb5; font-size: 0.75rem; }
-        .mv-result-card .mv-result-lyrics {
-            padding: 6px 10px;
-            font-size: 0.8rem;
-            color: #aaa;
-            display: flex;
-            align-items: flex-start;
-            gap: 6px;
-        }
-        .mv-result-card .mv-result-lyrics .lyrics-text {
-            flex: 1;
-            word-break: break-word;
-        }
-        .mv-result-card .btn-edit-lyrics {
-            background: none;
-            border: none;
-            color: #00adb5;
-            cursor: pointer;
-            font-size: 0.85rem;
-            padding: 0 4px;
-            flex-shrink: 0;
-        }
-        .mv-result-card .btn-edit-lyrics:hover { text-decoration: underline; }
-        .mv-result-card .lyrics-edit-area {
-            width: 100%;
-            min-height: 50px;
-            background: #1a1a2e;
-            color: #fff;
-            border: 1px solid #00adb5;
-            border-radius: 6px;
-            padding: 6px;
-            font-size: 0.8rem;
-            resize: vertical;
-            font-family: inherit;
-        }
-        .mv-result-card .lyrics-edit-actions {
-            display: flex;
-            gap: 6px;
-            margin-top: 4px;
-        }
-        .mv-result-card .lyrics-edit-actions button {
-            padding: 3px 10px;
-            border-radius: 4px;
-            border: none;
-            cursor: pointer;
-            font-size: 0.75rem;
-        }
-        .mv-result-card .btn-lyrics-save { background: #00adb5; color: #fff; }
-        .mv-result-card .btn-lyrics-cancel { background: #393e46; color: #ccc; }
-        .mv-result-card .mv-result-actions {
-            display: flex;
-            gap: 8px;
-            padding: 6px 10px 10px;
-        }
-        .mv-result-card .mv-result-regen-btn {
-            flex: 1;
-            padding: 6px 10px;
-            border: 1px solid #393e46;
-            border-radius: 6px;
-            background: #16213e;
-            color: #eee;
-            cursor: pointer;
-            font-size: 0.8rem;
-            transition: background 0.2s;
-        }
-        .mv-result-card .mv-result-regen-btn:hover { background: #1a1a40; border-color: #00adb5; }
-        .mv-result-card .mv-result-regen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         /* 토스트 알림 */
         .toast-container {
@@ -1870,14 +1769,41 @@
                 </div>
             </div>
 
-            <!-- 뮤직비디오 이미지 리뷰 섹션 -->
+            <!-- 뮤직비디오 통합 에디터 섹션 -->
             <div id="mv-image-review-section" class="section hidden">
-                <h2>🎨 씬 이미지 확인</h2>
-                <p style="color: #999; margin-bottom: 1.5rem;">
+                <h2 id="mv-editor-header">🎨 씬 이미지 확인</h2>
+
+                <!-- 비디오 영역 (완성 시 표시) -->
+                <div id="mv-editor-video-area" style="display: none; margin-bottom: 1.5rem;">
+                    <div class="result-container">
+                        <div class="video-player">
+                            <video id="mv-editor-video" controls style="width: 100%; border-radius: 8px;"></video>
+                        </div>
+                        <div class="result-actions" style="margin-top: 12px;">
+                            <a id="mv-editor-download-btn" class="btn btn-primary" download>
+                                <span class="btn-icon">📥</span>
+                                뮤직비디오 다운로드
+                            </a>
+                            <label id="mv-editor-music-upload-btn" class="btn btn-secondary" style="display:none;">
+                                <span class="btn-icon">🎵</span>
+                                음악 파일 재업로드
+                                <input type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" style="display:none;"
+                                       onchange="app.mvUploadMusicForRecompose(this.files[0])">
+                            </label>
+                            <button id="mv-editor-recompose-btn" class="btn btn-secondary" style="display:none;"
+                                    onclick="app.mvRecompose()">
+                                <span class="btn-icon">🔄</span>
+                                영상 재합성 (수정 반영)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <p id="mv-editor-description" style="color: #999; margin-bottom: 1.5rem;">
                     씬 이미지를 확인하고, 마음에 안 드는 씬은 재생성하세요. I2V로 영상 클립을 만들 수도 있습니다.
                 </p>
                 <div id="mv-image-review-grid" class="result-scene-grid"></div>
-                <div style="margin-top: 1.5rem; text-align: center; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                <div id="mv-editor-bottom-actions" style="margin-top: 1.5rem; text-align: center; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
                     <button id="mv-lyrics-timeline-btn" class="btn btn-secondary"
                             onclick="app.openLyricsTimeline()">
                         <span class="btn-icon">🎤</span>
@@ -1885,6 +1811,10 @@
                     </button>
                     <button id="mv-compose-btn" class="btn btn-primary" style="font-size: 1.1rem; padding: 14px 32px;">
                         <span class="btn-icon">🎬</span> 최종 뮤직비디오 생성
+                    </button>
+                    <button class="btn btn-secondary" onclick="app.resetMVUI()">
+                        <span class="btn-icon">➕</span>
+                        새 뮤직비디오 만들기
                     </button>
                 </div>
 
@@ -1923,52 +1853,6 @@
                 </div>
             </div>
 
-            <!-- 뮤직비디오 결과 섹션 -->
-            <div id="mv-result-section" class="section hidden">
-                <h2 id="mv-result-header">🎉 뮤직비디오 완성!</h2>
-
-                <div class="result-container">
-                    <div class="result-info">
-                        <p><strong>프로젝트 ID:</strong> <code id="mv-result-project-id"></code></p>
-                        <p><strong>길이:</strong> <span id="mv-result-duration"></span></p>
-                        <p><strong>씬 수:</strong> <span id="mv-result-scene-count"></span></p>
-                    </div>
-
-                    <div class="video-player" id="mv-result-video-container">
-                        <video id="mv-result-video" controls style="width: 100%; border-radius: 8px;"></video>
-                    </div>
-
-                    <div class="result-actions">
-                        <a id="mv-download-btn" class="btn btn-primary" download>
-                            <span class="btn-icon">📥</span>
-                            뮤직비디오 다운로드
-                        </a>
-                        <label id="mv-music-upload-btn" class="btn btn-secondary" style="display:none;">
-                            <span class="btn-icon">🎵</span>
-                            음악 파일 재업로드
-                            <input type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" style="display:none;"
-                                   onchange="app.mvUploadMusicForRecompose(this.files[0])">
-                        </label>
-                        <button id="mv-recompose-btn" class="btn btn-secondary" style="display:none;"
-                                onclick="app.mvRecompose()">
-                            <span class="btn-icon">🔄</span>
-                            영상 재합성 (수정 반영)
-                        </button>
-                        <button id="mv-new-btn" class="btn btn-secondary">
-                            <span class="btn-icon">➕</span>
-                            새 뮤직비디오 만들기
-                        </button>
-                    </div>
-
-                    <!-- 씬 썸네일 그리드 -->
-                    <div style="margin-top: 30px;">
-                        <h3 style="color: #00adb5; margin-bottom: 15px;">🎨 생성된 씬</h3>
-                        <div id="mv-result-scene-grid" class="scene-grid">
-                            <!-- JS로 동적 생성 -->
-                        </div>
-                    </div>
-                </div>
-            </div>
 
             <!-- History 섹션 (내 비디오) -->
             <div id="history-section" class="section hidden">
@@ -2006,7 +1890,7 @@
         </footer>
     </div>
 
-    <script src="/static/app.js?v=20260215_1400"></script>
+    <script src="/static/app.js?v=20260215_1800"></script>
 </body>
 
 </html>
