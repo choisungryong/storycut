@@ -1940,7 +1940,7 @@ async def get_history_list():
     # R2에서 프로젝트 목록 가져오기
     r2_projects = storage.list_projects() or []
 
-    # R2 프로젝트에 type 필드 보강
+    # R2 프로젝트에 type/썸네일/타이틀 보강 (로컬 manifest 활용)
     seen_ids = set()
     for p in r2_projects:
         pid = p.get("project_id", "")
@@ -1953,6 +1953,46 @@ async def get_history_list():
                 p["video_url"] = f"/api/mv/stream/{pid}"
             if p.get("download_url") and "/api/download/" in p["download_url"] and "/api/mv/" not in p["download_url"]:
                 p["download_url"] = f"/api/mv/download/{pid}"
+
+        # 로컬 manifest에서 썸네일/타이틀 보강
+        local_manifest = os.path.join(outputs_dir, pid, "manifest.json")
+        if os.path.exists(local_manifest):
+            try:
+                with open(local_manifest, "r", encoding="utf-8") as f:
+                    lm = json.load(f)
+                # 제목 보강
+                if p.get("title") in (None, "", "제목 없음"):
+                    concept = lm.get("concept", "")
+                    music_path = lm.get("music_analysis", {}).get("file_path", "")
+                    p["title"] = concept or (os.path.splitext(os.path.basename(music_path))[0] if music_path else "") or p.get("title", "제목 없음")
+                # 상태 보강 (R2 manifest가 오래됐을 수 있음)
+                local_status = lm.get("status")
+                if local_status and local_status != p.get("status"):
+                    p["status"] = local_status
+                # 썸네일 보강
+                if not p.get("thumbnail_url"):
+                    thumb_path = os.path.join(outputs_dir, pid, "thumbnail.png")
+                    if os.path.exists(thumb_path):
+                        p["thumbnail_url"] = f"/media/{pid}/thumbnail.png"
+                    else:
+                        for sc in lm.get("scenes", []):
+                            img_p = sc.get("image_path", "")
+                            if img_p and os.path.exists(img_p):
+                                p["thumbnail_url"] = f"/api/asset/{pid}/images/{os.path.basename(img_p)}"
+                                break
+                # MV 추가 정보
+                if p["type"] == "mv":
+                    ma = lm.get("music_analysis", {})
+                    if not p.get("duration_sec"):
+                        p["duration_sec"] = ma.get("duration_sec")
+                    if not p.get("genre"):
+                        p["genre"] = ma.get("genre")
+                    if not p.get("style"):
+                        p["style"] = lm.get("style")
+                    if not p.get("scene_count"):
+                        p["scene_count"] = len(lm.get("scenes", []))
+            except Exception:
+                pass
 
     # 로컬 폴더에서 R2에 없는 프로젝트 보충 (특히 MV)
     local_projects = []
