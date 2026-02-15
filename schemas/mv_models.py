@@ -104,6 +104,7 @@ class VisualBible(BaseModel):
     characters: List[MVCharacter] = Field(default_factory=list)
     scene_blocking: List[MVSceneBlocking] = Field(default_factory=list)
     narrative_arc: Optional[MVNarrativeArc] = Field(None)
+    location_palette: List[str] = Field(default_factory=list, description="반복 사용할 핵심 장소 3-5개")
 
 
 class MVSceneStatus(str, Enum):
@@ -329,6 +330,7 @@ class MVProject(BaseModel):
     # Visual Bible (Pass 1에서 생성)
     visual_bible: Optional[VisualBible] = Field(None, description="비주얼 바이블")
     style_anchor_path: Optional[str] = Field(None, description="전용 스타일 앵커 이미지 경로")
+    era_setting: Optional[str] = Field(None, description="LLM이 판단한 시대/배경 설정 (e.g. 'joseon_dynasty', 'medieval_europe')")
 
 
 class MVUploadResponse(BaseModel):

@@ -250,6 +250,23 @@ class CharacterManager:
                 if eth_keyword and eth_keyword.lower() not in appearance.lower():
                     appearance = f"{eth_keyword}, {appearance}"
 
+            # Era/time period injection for character appearance
+            era_setting = getattr(project, 'era_setting', '')
+            if era_setting:
+                era_lower = era_setting.lower()
+                if 'joseon' in era_lower:
+                    appearance = f"Joseon dynasty era, {appearance}"
+                    if char.outfit and 'hanbok' not in char.outfit.lower():
+                        char.outfit = f"traditional hanbok, {char.outfit}"
+                elif 'medieval' in era_lower:
+                    appearance = f"medieval European era, {appearance}"
+                elif 'victorian' in era_lower:
+                    appearance = f"Victorian era, {appearance}"
+                elif 'ancient' in era_lower or 'roman' in era_lower or 'greek' in era_lower:
+                    appearance = f"ancient era, {appearance}"
+                elif era_lower not in ('modern', 'contemporary', 'modern_urban'):
+                    appearance = f"{era_setting} era, {appearance}"
+
             sheet = CharacterSheet(
                 name=char.role,
                 gender=gender,

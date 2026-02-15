@@ -2657,6 +2657,18 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
             # compose_video()는 사용자 리뷰 후 /api/mv/compose에서 별도 호출
             print(f"[MV Thread] Images ready, waiting for user review: {project_updated.status}")
 
+            # R2에 매니페스트 업로드 (history 목록 조회용)
+            try:
+                from utils.storage import StorageManager
+                storage = StorageManager()
+                project_dir = f"outputs/{request.project_id}"
+                manifest_path = f"{project_dir}/manifest.json"
+                if os.path.exists(manifest_path):
+                    if storage.upload_file(manifest_path, f"videos/{request.project_id}/manifest.json"):
+                        print(f"[MV Thread] Manifest uploaded to R2 (images_ready)")
+            except Exception as e:
+                print(f"[MV Thread] R2 manifest upload error (non-fatal): {e}")
+
         except Exception as e:
             print(f"[MV Thread] Error: {e}")
             import traceback

@@ -841,6 +841,13 @@ class MVPipeline:
                     "- 'drowning' -> 'curled up on floor in dark room, overwhelmed posture'\n"
                     "NEVER depict metaphors literally (no actual fire-breathing, no literal flying, no supernatural).\n"
                     "Vary poses: sitting, walking, running, dancing, leaning, crouching, reaching, turning away, etc.\n\n"
+                    "=== SETTING & ERA ===\n"
+                    "- era_setting: string describing the time period/world setting (e.g. 'joseon_dynasty', "
+                    "'medieval_europe', 'modern_urban', 'victorian_era', 'ancient_rome', 'fantasy_kingdom', "
+                    "'cyberpunk_future'). Analyze the lyrics to determine the most appropriate setting.\n"
+                    "- location_palette: array of 3-5 key locations that recur throughout the video "
+                    "(e.g. ['abandoned apartment', 'rainy street at night', 'rooftop at sunset']). "
+                    "Reuse these locations across scenes for visual continuity instead of inventing new locations for every scene.\n\n"
                     "=== NARRATIVE ARC ===\n"
                     "- narrative_arc: object with:\n"
                     "  - acts: array of 3 act objects, each with 'scenes' (range like '1-4'), "
@@ -926,6 +933,13 @@ class MVPipeline:
                     "- 'drowning' -> 'curled up on floor in dark room, overwhelmed posture'\n"
                     "NEVER depict metaphors literally (no actual fire-breathing, no literal flying, no supernatural).\n"
                     "Vary poses: sitting, walking, running, dancing, leaning, crouching, reaching, turning away, etc.\n\n"
+                    "=== SETTING & ERA ===\n"
+                    "- era_setting: string describing the time period/world setting (e.g. 'joseon_dynasty', "
+                    "'medieval_europe', 'modern_urban', 'victorian_era', 'ancient_rome', 'fantasy_kingdom', "
+                    "'cyberpunk_future'). Analyze the lyrics to determine the most appropriate setting.\n"
+                    "- location_palette: array of 3-5 key locations that recur throughout the video "
+                    "(e.g. ['abandoned apartment', 'rainy street at night', 'rooftop at sunset']). "
+                    "Reuse these locations across scenes for visual continuity instead of inventing new locations for every scene.\n\n"
                     "=== NARRATIVE ARC ===\n"
                     "- narrative_arc: object with:\n"
                     "  - acts: array of 3 act objects, each with 'scenes' (range like '1-4'), "
@@ -1000,6 +1014,14 @@ class MVPipeline:
             import json as _json
             vb_data = _json.loads(result_text)
 
+            # era_setting / location_palette 추출 (VisualBible 생성 전)
+            era_from_vb = vb_data.pop("era_setting", "")
+            if era_from_vb:
+                project.era_setting = era_from_vb
+                print(f"    Era setting (LLM): {era_from_vb}")
+
+            location_palette = vb_data.pop("location_palette", [])
+
             # Director's Brief 확장 필드 추출 및 변환
             characters_data = vb_data.pop("characters", [])
             scene_blocking_data = vb_data.pop("scene_blocking", [])
@@ -1040,6 +1062,11 @@ class MVPipeline:
             vb_data["narrative_arc"] = mv_arc
 
             project.visual_bible = VisualBible(**vb_data)
+
+            # location_palette를 VisualBible에 저장
+            if location_palette and project.visual_bible:
+                project.visual_bible.location_palette = location_palette
+                print(f"    Location palette: {location_palette}")
 
             # MVScene.characters_in_scene + camera_directive 자동 채우기 (scene_blocking 기반)
             for blocking in mv_blocking:
@@ -1930,7 +1957,7 @@ class MVPipeline:
         return prompt
 
     def _get_character_anchors_for_scene(self, project: MVProject, scene: MVScene) -> List[str]:
-        """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 3개, shot_type 기반 포즈 선택)"""
+        """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 5개, shot_type 기반 포즈 선택)"""
         if not project.visual_bible or not project.visual_bible.characters:
             return []
 
@@ -1952,7 +1979,7 @@ class MVPipeline:
         target_pose = _SHOT_TO_POSE.get(shot_type.lower(), "front")
 
         results = []
-        for role in (scene.characters_in_scene or [])[:3]:
+        for role in (scene.characters_in_scene or [])[:5]:
             char = next((c for c in project.visual_bible.characters if c.role == role), None)
             if not char:
                 continue
@@ -1967,8 +1994,36 @@ class MVPipeline:
                 results.append(char.anchor_image_path)
         return results
 
-    def _extract_era_setting(self, concept: str) -> tuple:
-        """concept에서 시대/배경 키워드를 추출. (era_prefix, era_negative) 반환."""
+    def _extract_era_setting(self, concept: str, project=None) -> tuple:
+        """concept에서 시대/배경 키워드를 추출. (era_prefix, era_negative) 반환.
+        project가 주어지면 LLM이 판단한 era_setting을 우선 사용."""
+        # Priority 1: LLM-determined era from Visual Bible
+        if project and hasattr(project, 'era_setting') and project.era_setting:
+            era = project.era_setting.lower()
+            _LLM_ERA_MAP = {
+                "joseon": ("Joseon dynasty Korea, traditional hanbok, wooden architecture, tiled roofs",
+                           "modern objects, cafe, earphones, smartphone, western clothing, neon, electric light, concrete, asphalt"),
+                "medieval": ("medieval European setting, stone castles, period-accurate props and architecture",
+                             "modern objects, cafe, earphones, headphones, smartphone, laptop, contemporary clothing, hoodie, jeans, sneakers, neon, streetlight, asphalt"),
+                "victorian": ("Victorian era setting, 19th century props and fashion, gaslit streets",
+                              "modern objects, smartphone, earphones, neon, contemporary clothing, electric devices"),
+                "ancient": ("ancient civilization setting, historical architecture, classical era",
+                            "modern objects, cafe, earphones, smartphone, contemporary clothing, neon, electric light"),
+                "modern": ("modern contemporary urban setting", ""),
+                "fantasy": ("fantasy world setting, magical architecture, otherworldly landscapes", ""),
+                "cyberpunk": ("cyberpunk futuristic city, neon-lit streets, high-tech setting", "medieval, ancient, historical"),
+                "renaissance": ("Renaissance era setting, classical architecture, oil painting quality",
+                                "modern objects, smartphone, earphones, neon, contemporary clothing"),
+            }
+            for key, (prefix, negative) in _LLM_ERA_MAP.items():
+                if key in era:
+                    return (prefix, negative)
+            # If era doesn't match known keys but exists, use it as-is
+            if era and era != "modern" and era != "contemporary":
+                return (f"{project.era_setting} setting, period-accurate props and costumes",
+                        "anachronistic objects, wrong time period items")
+
+        # Priority 2: keyword matching on concept
         if not concept:
             return ("", "")
         _c = concept.lower()
@@ -2004,7 +2059,7 @@ class MVPipeline:
 
         char_map = {c.role: c for c in project.visual_bible.characters}
         char_descs = []
-        for role in scene.characters_in_scene[:3]:
+        for role in scene.characters_in_scene[:5]:
             char = char_map.get(role)
             if not char:
                 continue
@@ -2179,8 +2234,8 @@ class MVPipeline:
         }
         ethnicity_keyword = _ETH_KW.get(_eth_v, "")
 
-        # 시대/배경 키워드 (concept에서 추출, 프롬프트에 자동 주입)
-        era_prefix, era_negative = self._extract_era_setting(project.concept)
+        # 시대/배경 키워드 (LLM era_setting 우선, concept fallback)
+        era_prefix, era_negative = self._extract_era_setting(project.concept, project=project)
         if era_prefix:
             print(f"  [Era Lock] Detected historical setting: {era_prefix[:40]}...")
 
@@ -4225,8 +4280,8 @@ class MVPipeline:
             _no_people = "random person, unnamed person, elderly man, old man, bystander, stranger, human figure"
             _regen_neg = f"{_no_people}, {_regen_neg}" if _regen_neg else _no_people
 
-        # 시대/배경 키워드 자동 주입 (concept에서 추출)
-        era_prefix, era_negative = self._extract_era_setting(project.concept)
+        # 시대/배경 키워드 자동 주입 (LLM era_setting 우선, concept fallback)
+        era_prefix, era_negative = self._extract_era_setting(project.concept, project=project)
         if era_prefix and era_prefix.lower() not in final_prompt.lower():
             final_prompt = f"{era_prefix}, {final_prompt}"
         if era_negative:

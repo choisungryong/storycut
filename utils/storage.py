@@ -135,20 +135,25 @@ class StorageManager:
                                     img_p = sc.get("image_path", "")
                                     if img_p:
                                         fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-                                        thumbnail_url = f"/api/asset/{project_id}/images/{fname}"
+                                        thumbnail_url = f"/api/asset/{project_id}/image/{fname}"
                                         break
 
-                                # MV 타이틀: concept > 음악 파일명 > 기본값
-                                title = manifest.get('title', '제목 없음')
+                                # MV 타이틀: title > concept > 음악 파일명 > 기본값
+                                title = manifest.get('title') or ''
                                 if is_mv:
-                                    concept = manifest.get('concept', '')
-                                    if concept:
+                                    concept = manifest.get('concept', '') or ''
+                                    if not title and concept:
                                         title = concept
-                                    elif not title or title == '제목 없음':
-                                        music_path = manifest.get('music_analysis', {}).get('file_path', '')
+                                    if not title:
+                                        # music_analysis.file_path → music_file_path 순으로 폴백
+                                        music_path = (manifest.get('music_analysis') or {}).get('file_path') or ''
+                                        if not music_path:
+                                            music_path = manifest.get('music_file_path') or ''
                                         if music_path:
                                             fname_m = music_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
                                             title = fname_m.rsplit(".", 1)[0] if "." in fname_m else fname_m
+                                if not title:
+                                    title = '제목 없음'
 
                                 proj_info = {
                                     'project_id': project_id,
