@@ -124,16 +124,53 @@ class StorageManager:
                                 
                                 # 프로젝트 정보 추출
                                 project_id = manifest.get('project_id')
-                                projects.append({
+                                is_mv = project_id and project_id.startswith("mv_")
+                                status = manifest.get('status', 'unknown')
+                                is_completed = status == 'completed'
+                                scenes = manifest.get('scenes', [])
+
+                                # 썸네일: 첫 씬 이미지에서 추출
+                                thumbnail_url = None
+                                for sc in scenes:
+                                    img_p = sc.get("image_path", "")
+                                    if img_p:
+                                        fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                                        thumbnail_url = f"/api/asset/{project_id}/images/{fname}"
+                                        break
+
+                                # MV 타이틀: concept > 음악 파일명 > 기본값
+                                title = manifest.get('title', '제목 없음')
+                                if is_mv:
+                                    concept = manifest.get('concept', '')
+                                    if concept:
+                                        title = concept
+                                    elif not title or title == '제목 없음':
+                                        music_path = manifest.get('music_analysis', {}).get('file_path', '')
+                                        if music_path:
+                                            fname_m = music_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                                            title = fname_m.rsplit(".", 1)[0] if "." in fname_m else fname_m
+
+                                proj_info = {
                                     'project_id': project_id,
-                                    'title': manifest.get('title', '제목 없음'),
-                                    'status': manifest.get('status', 'unknown'),
+                                    'title': title,
+                                    'type': 'mv' if is_mv else 'video',
+                                    'status': status,
                                     'created_at': manifest.get('created_at'),
                                     'last_modified': obj['LastModified'].isoformat() if 'LastModified' in obj else None,
-                                    'video_url': f"/api/stream/{project_id}" if manifest.get('status') == 'completed' else None,
-                                    'download_url': f"/api/download/{project_id}" if manifest.get('status') == 'completed' else None,
-                                    'thumbnail_url': None  # R2에서는 썸네일 직접 제공하지 않음
-                                })
+                                    'video_url': (f"/api/mv/stream/{project_id}" if is_mv else f"/api/stream/{project_id}") if is_completed else None,
+                                    'download_url': (f"/api/mv/download/{project_id}" if is_mv else f"/api/download/{project_id}") if is_completed else None,
+                                    'thumbnail_url': thumbnail_url,
+                                    'scene_count': len(scenes),
+                                }
+
+                                # MV 추가 메타데이터
+                                if is_mv:
+                                    ma = manifest.get('music_analysis', {})
+                                    proj_info['duration_sec'] = ma.get('duration_sec')
+                                    proj_info['genre'] = ma.get('genre')
+                                    proj_info['style'] = manifest.get('style')
+
+                                projects.append(proj_info)
                         except Exception as e:
                             print(f"[StorageManager] Error processing {key}: {e}")
                             continue
