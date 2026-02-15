@@ -1983,13 +1983,25 @@ async def get_history_list():
                             music_analysis = data.get("music_analysis", {})
                             scenes = data.get("scenes", [])
 
+                            # 썸네일: thumbnail.png > 첫 씬 이미지
+                            thumb_url = None
+                            thumb_path = os.path.join(outputs_dir, pid, "thumbnail.png")
+                            if os.path.exists(thumb_path):
+                                thumb_url = f"/media/{pid}/thumbnail.png"
+                            else:
+                                for sc in scenes:
+                                    img_p = sc.get("image_path", "")
+                                    if img_p and os.path.exists(img_p):
+                                        thumb_url = f"/api/asset/{pid}/images/{os.path.basename(img_p)}"
+                                        break
+
                             local_projects.append({
                                 "project_id": pid,
                                 "title": mv_title,
                                 "type": "mv",
                                 "status": data.get("status"),
                                 "created_at": data.get("created_at"),
-                                "thumbnail_url": f"/media/{pid}/thumbnail.png" if os.path.exists(os.path.join(outputs_dir, pid, "thumbnail.png")) else None,
+                                "thumbnail_url": thumb_url,
                                 "video_url": f"/api/mv/stream/{pid}" if is_completed else None,
                                 "download_url": f"/api/mv/download/{pid}" if is_completed else None,
                                 "duration_sec": music_analysis.get("duration_sec"),

@@ -1632,7 +1632,7 @@ class StorycutApp {
                     <p class="history-title">${project.title}</p>
                     ${mvInfo}
                     <p class="history-date">${new Date(project.created_at).toLocaleDateString('ko-KR')}</p>
-                    <span class="history-status ${project.status === 'completed' ? 'completed' : ''}">${project.status === 'completed' ? '완료' : '처리 중'}</span>
+                    <span class="history-status ${project.status === 'completed' ? 'completed' : project.status === 'images_ready' ? 'images-ready' : ''}">${project.status === 'completed' ? '완료' : project.status === 'images_ready' ? '이미지 완료' : project.status === 'failed' ? '실패' : '처리 중'}</span>
                 </div>
             `;
 
