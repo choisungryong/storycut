@@ -903,7 +903,7 @@ class FFmpegComposer:
 
             # xfade 필터 체인 구성
             # 씬이 너무 많으면 xfade 체인이 너무 길어지므로 배치 처리
-            MAX_XFADE_BATCH = 15
+            MAX_XFADE_BATCH = 10
             if len(temp_scene_videos) > MAX_XFADE_BATCH:
                 return self._batched_crossfade(
                     temp_scene_videos, durations, output_path,

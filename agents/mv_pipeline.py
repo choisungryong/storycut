@@ -2521,12 +2521,18 @@ class MVPipeline:
             has_chars = bool(scene.characters_in_scene)
             seg_type = self._extract_segment_type(scene)
 
-            # I2V 씬은 분할하지 않음
+            # I2V 씬: 영상 사용 + 남은 시간은 Ken Burns 컷으로 보충
             if scene.video_path and os.path.exists(scene.video_path):
+                try:
+                    i2v_dur = self.ffmpeg_composer.get_video_duration(scene.video_path)
+                except Exception:
+                    i2v_dur = scene.duration_sec
+
+                i2v_use_dur = min(i2v_dur, scene.duration_sec)
                 cut_plan.append({
                     "parent_scene_id": scene.scene_id,
                     "cut_index": 0,
-                    "duration_sec": scene.duration_sec,
+                    "duration_sec": i2v_use_dur,
                     "reframe": "wide",
                     "crop_anchor": (0.5, 0.5),
                     "effect_type": "zoom_in",
@@ -2540,6 +2546,29 @@ class MVPipeline:
                     "segment_type": seg_type,
                     "bbox_source": "none",
                 })
+
+                # I2V가 씬보다 짧으면 남은 시간을 Ken Burns 컷으로 채움
+                remaining = scene.duration_sec - i2v_use_dur
+                if remaining > 0.5 and scene.image_path and os.path.exists(scene.image_path):
+                    print(f"    [I2V+KB] Scene {scene.scene_id}: I2V={i2v_use_dur:.1f}s + Ken Burns={remaining:.1f}s")
+                    cut_plan.append({
+                        "parent_scene_id": scene.scene_id,
+                        "cut_index": 1,
+                        "duration_sec": remaining,
+                        "reframe": "wide",
+                        "crop_anchor": (0.5, 0.4),
+                        "effect_type": "zoom_out",
+                        "zoom_range": (1.08, 1.0),
+                        "image_path": scene.image_path,
+                        "video_path": None,
+                        "is_broll": is_broll,
+                        "shot_type": "wide",
+                        "source": "stock" if is_broll else "ai",
+                        "has_characters": has_chars,
+                        "segment_type": seg_type,
+                        "bbox_source": "none",
+                    })
+
                 prev_reframe = "wide"
                 continue
 
@@ -3461,8 +3490,23 @@ class MVPipeline:
                         normalized = self._normalize_broll(cut["video_path"], cut["duration_sec"], norm_path)
                         resolved = normalized or cut["video_path"]
                     else:
-                        resolved = cut["video_path"]
-                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} ({'B-roll' if cut.get('is_broll') else 'I2V'})")
+                        # I2V: duration에 맞게 트리밍
+                        try:
+                            actual_dur = self.ffmpeg_composer.get_video_duration(cut["video_path"])
+                            if actual_dur > cut["duration_sec"] + 0.3:
+                                trim_path = f"{project_dir}/media/video/i2v_trim_{cut['parent_scene_id']:02d}.mp4"
+                                import subprocess as _sp
+                                _sp.run([
+                                    "ffmpeg", "-y", "-i", cut["video_path"],
+                                    "-t", str(cut["duration_sec"]),
+                                    "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-an", trim_path
+                                ], capture_output=True, timeout=120)
+                                resolved = trim_path if os.path.exists(trim_path) else cut["video_path"]
+                            else:
+                                resolved = cut["video_path"]
+                        except Exception:
+                            resolved = cut["video_path"]
+                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} ({'B-roll' if cut.get('is_broll') else 'I2V'}) {cut['duration_sec']:.1f}s")
                     return ci, resolved
 
                 if not cut.get("image_path"):
@@ -3491,13 +3535,13 @@ class MVPipeline:
                     except Exception:
                         return ci, None
 
-            # 병렬 derived cut 렌더링 (FFmpeg는 CPU 바운드이므로 적절한 워커 수)
+            # 병렬 derived cut 렌더링 (Railway 메모리 제한 고려하여 워커 2개)
             import threading
             from concurrent.futures import ThreadPoolExecutor, as_completed
             _cut_done = [0]
             _cut_lock = threading.Lock()
 
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {executor.submit(_render_cut, ci, cut): ci for ci, cut in enumerate(cut_plan)}
                 for future in as_completed(futures):
                     ci, clip = future.result()
@@ -3506,6 +3550,10 @@ class MVPipeline:
                         _cut_done[0] += 1
                         clip_progress = 75 + int(_cut_done[0] / len(cut_plan) * 10)
                         project.progress = max(project.progress, clip_progress)
+                        project.current_step = f"파생 컷 렌더링 {_cut_done[0]}/{len(cut_plan)}..."
+                        # 매 5컷마다 또는 마지막 컷에서 매니페스트 저장 (프론트엔드 진행률 갱신)
+                        if _cut_done[0] % 5 == 0 or _cut_done[0] == len(cut_plan):
+                            self._save_manifest(project, project_dir)
 
             # 순서 보존하여 video_clips / scene_groups 구성
             for ci, cut in enumerate(cut_plan):
@@ -3579,7 +3627,8 @@ class MVPipeline:
             scene_groups = [g for g in scene_groups if g]
             total_dur = sum(s.duration_sec for s in completed_scenes)
             print(f"  Concatenating {len(video_clips)} clips in {len(scene_groups)} scenes (total ~{total_dur:.0f}s)...")
-            project.current_step = f"영상 {len(scene_groups)}개 씬 전환 합성 중..."
+            project.progress = 86
+            project.current_step = f"영상 {len(scene_groups)}개 씬 전환 합성 중... (시간 소요)"
             self._save_manifest(project, project_dir)
 
             # 씬 경계 전환만 추출 (within-scene "cut" 제거)
@@ -4239,9 +4288,25 @@ class MVPipeline:
         os.makedirs(video_dir, exist_ok=True)
         video_path = f"{video_dir}/scene_{scene_id:02d}_i2v.mp4"
 
+        # 씬 동작 정보를 Veo 프롬프트에 반영
+        i2v_prompt_parts = []
+        if scene.scene_blocking:
+            for blocking in scene.scene_blocking:
+                if blocking.action_pose:
+                    i2v_prompt_parts.append(blocking.action_pose)
+                if blocking.expression:
+                    i2v_prompt_parts.append(f"expression: {blocking.expression}")
+        if scene.camera_directive:
+            i2v_prompt_parts.append(scene.camera_directive)
+        if i2v_prompt_parts:
+            i2v_prompt = f"{', '.join(i2v_prompt_parts)}. {scene.image_prompt}"
+        else:
+            i2v_prompt = scene.image_prompt
+        print(f"  [I2V Prompt] {i2v_prompt[:120]}...")
+
         try:
             result_path = video_agent._call_veo_api(
-                prompt=scene.image_prompt,
+                prompt=i2v_prompt,
                 style=project.style.value,
                 mood=project.mood.value,
                 duration_sec=min(int(scene.duration_sec), 8),  # Veo max ~8s
