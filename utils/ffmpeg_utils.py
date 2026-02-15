@@ -1054,7 +1054,7 @@ class FFmpegComposer:
             "-filter_complex", filter_complex,
             "-map", final_label,
             "-c:v", "libx264",
-            "-preset", "fast",
+            "-preset", "ultrafast",
             "-crf", "23",
             "-pix_fmt", "yuv420p",
             "-r", str(self.fps),
@@ -1694,7 +1694,7 @@ class FFmpegComposer:
                 "-filter_complex", filter_complex,
                 "-map", "[vout]", "-map", "1:a",
                 "-c:v", "libx264", "-profile:v", "high",
-                "-preset", "medium", "-crf", "20",
+                "-preset", "fast", "-crf", "22",
                 "-pix_fmt", "yuv420p", "-r", str(self.fps),
                 "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000",
                 "-shortest",
@@ -1708,7 +1708,7 @@ class FFmpegComposer:
                 "-i", audio_abs,
                 "-map", "0:v", "-map", "1:a",
                 "-c:v", "libx264", "-profile:v", "high",
-                "-preset", "medium", "-crf", "20",
+                "-preset", "fast", "-crf", "22",
                 "-pix_fmt", "yuv420p", "-r", str(self.fps),
                 "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000",
                 "-shortest",
@@ -1722,7 +1722,7 @@ class FFmpegComposer:
         except Exception:
             timeout = 600
 
-        print(f"  Preset: medium, CRF: 20, Audio: AAC {audio_bitrate}")
+        print(f"  Preset: fast, CRF: 22, Audio: AAC {audio_bitrate}")
         print(f"  Watermark: {'Yes - ' + watermark_text if watermark_text else 'None'}")
         print(f"  Timeout: {timeout}s")
 
