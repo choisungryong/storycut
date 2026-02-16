@@ -1,18 +1,18 @@
-// Auth Logic + Credit System + Google OAuth + Profile Modal
+// Auth Logic + Clip System + Google OAuth + Profile Modal
 const API_BASE_URL = window.location.hostname === 'localhost' ? '' : 'https://web-production-bb6bf.up.railway.app';
 const WORKER_URL = window.location.hostname === 'localhost' ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
 
-// ==================== Credit Costs (synced with Worker) ====================
-const CREDIT_COSTS = {
-    video: 5,
-    script_video: 5,
-    mv: 10,
+// ==================== Clip Costs (synced with Worker) ====================
+const CLIP_COSTS = {
+    video: 25,
+    script_video: 25,
+    mv: 15,
     image_regen: 1,
-    i2v: 2,
-    mv_recompose: 2,
+    i2v: 30,
+    mv_recompose: 8,
 };
 
-const CREDIT_LABELS = {
+const CLIP_LABELS = {
     video: 'AI Story Video',
     script_video: 'Script Video',
     mv: 'Music Video',
@@ -177,6 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auth check (index.html)
     if (!loginForm && !signupForm) {
         checkAuth();
+        loadPreferences();
     }
 });
 
@@ -194,7 +195,7 @@ function checkAuth() {
 
     if (user) {
         renderUserHeader(user);
-        fetchCreditBalance();
+        fetchClipBalance();
     }
 }
 
@@ -214,12 +215,12 @@ function renderUserHeader(user) {
     userInfo.id = 'user-header-info';
     userInfo.className = 'nav-user-info';
     userInfo.innerHTML = `
-        <a href="/pricing.html" id="credit-badge" class="nav-credit-badge">
+        <a href="/pricing.html" id="clip-badge" class="nav-clip-badge">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/>
                 <text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor">C</text>
             </svg>
-            <span id="credit-count">${user.credits ?? '...'}</span>
+            <span id="clip-count">${user.clips ?? '...'}</span>
         </a>
         <button class="nav-user-btn" onclick="openProfileModal()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -242,22 +243,49 @@ function openProfileModal() {
     const modal = document.getElementById('profile-modal');
     if (!modal) return;
 
-    // Fill data
+    const displayName = user.username || user.email?.split('@')[0] || 'User';
+    const planName = (user.plan_name || user.plan_id || 'Free').charAt(0).toUpperCase() +
+        (user.plan_name || user.plan_id || 'Free').slice(1);
+    const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A';
+
+    // Header
     const nameEl = document.getElementById('profile-name');
     const emailEl = document.getElementById('profile-email');
-    const creditsEl = document.getElementById('profile-credits');
-    const planEl = document.getElementById('profile-plan');
-    const sinceEl = document.getElementById('profile-since');
-
-    if (nameEl) nameEl.textContent = user.username || user.email?.split('@')[0] || 'User';
+    if (nameEl) nameEl.textContent = displayName;
     if (emailEl) emailEl.textContent = user.email || '';
-    if (creditsEl) creditsEl.textContent = user.credits ?? '...';
-    if (planEl) planEl.textContent = (user.plan_name || user.plan_id || 'Free').charAt(0).toUpperCase() +
-        (user.plan_name || user.plan_id || 'Free').slice(1);
-    if (sinceEl) {
-        const created = user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A';
-        sinceEl.textContent = created;
+
+    // Account tab
+    const accEmail = document.getElementById('profile-account-email');
+    if (accEmail) accEmail.textContent = user.email || '-';
+
+    const googleStatus = document.getElementById('profile-google-status');
+    if (googleStatus) {
+        const isGoogle = user.auth_provider === 'google' || user.google_id;
+        googleStatus.innerHTML = isGoogle
+            ? '<span class="profile-badge profile-badge-connected">Connected</span>'
+            : '<span class="profile-badge profile-badge-disconnected">Not connected</span>';
     }
+
+    const planEl = document.getElementById('profile-plan');
+    if (planEl) planEl.textContent = planName;
+
+    const sinceEl = document.getElementById('profile-since');
+    if (sinceEl) sinceEl.textContent = memberSince;
+
+    // Clips tab
+    const clipsEl = document.getElementById('profile-clips');
+    if (clipsEl) clipsEl.textContent = user.clips ?? '...';
+
+    const clipsPlan = document.getElementById('profile-clips-plan');
+    if (clipsPlan) clipsPlan.textContent = planName;
+
+    // Reset to account tab
+    switchProfileTab('account');
+
+    // Load data async
+    loadProfileStats();
+    loadClipHistory();
+    loadPreferencesToForm();
 
     modal.classList.add('active');
 }
@@ -265,6 +293,169 @@ function openProfileModal() {
 function closeProfileModal() {
     const modal = document.getElementById('profile-modal');
     if (modal) modal.classList.remove('active');
+    // Hide name edit if open
+    const editEl = document.getElementById('profile-name-edit');
+    if (editEl) editEl.style.display = 'none';
+    const nameEl = document.getElementById('profile-name');
+    if (nameEl) nameEl.style.display = '';
+    const editBtn = document.querySelector('.profile-edit-name-btn');
+    if (editBtn) editBtn.style.display = '';
+}
+
+function switchProfileTab(tab) {
+    document.querySelectorAll('.profile-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    document.querySelectorAll('.profile-tab-panel').forEach(p => {
+        p.classList.toggle('active', p.id === `profile-tab-${tab}`);
+    });
+}
+
+function toggleUsernameEdit() {
+    const nameEl = document.getElementById('profile-name');
+    const editEl = document.getElementById('profile-name-edit');
+    const editBtn = document.querySelector('.profile-edit-name-btn');
+    const input = document.getElementById('profile-name-input');
+
+    if (editEl.style.display === 'none') {
+        input.value = nameEl.textContent;
+        nameEl.style.display = 'none';
+        editBtn.style.display = 'none';
+        editEl.style.display = 'flex';
+        input.focus();
+    } else {
+        editEl.style.display = 'none';
+        nameEl.style.display = '';
+        editBtn.style.display = '';
+    }
+}
+
+async function updateUsername() {
+    const input = document.getElementById('profile-name-input');
+    const newName = input.value.trim();
+    if (!newName) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/api/user/profile`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ username: newName })
+        });
+        if (!res.ok) throw new Error('Failed to update');
+
+        // Update local storage
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        user.username = newName;
+        localStorage.setItem('user', JSON.stringify(user));
+
+        // Update UI
+        document.getElementById('profile-name').textContent = newName;
+        toggleUsernameEdit();
+        renderUserHeader(user);
+        _authToast('Name updated', 'success');
+    } catch (err) {
+        _authToast('Failed to update name', 'error');
+    }
+}
+
+async function loadProfileStats() {
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/api/user/stats`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const el = (id) => document.getElementById(id);
+        if (el('profile-stat-videos')) el('profile-stat-videos').textContent = data.total_videos ?? 0;
+        if (el('profile-stat-mvs')) el('profile-stat-mvs').textContent = data.total_mv ?? 0;
+        if (el('profile-stat-clips-used')) el('profile-stat-clips-used').textContent = data.total_clips_used ?? data.total_credits_used ?? 0;
+        if (el('profile-stat-since')) el('profile-stat-since').textContent = data.member_since || 'N/A';
+
+        const extraEl = document.getElementById('profile-stats-extra');
+        if (data.top_style || data.top_genre) {
+            if (extraEl) extraEl.style.display = '';
+            if (el('profile-stat-top-style')) el('profile-stat-top-style').textContent = data.top_style || '-';
+            if (el('profile-stat-top-genre')) el('profile-stat-top-genre').textContent = data.top_genre || '-';
+        }
+    } catch {
+        // Stats unavailable
+    }
+}
+
+async function loadClipHistory() {
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/api/user/history`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const listEl = document.getElementById('profile-history-list');
+        if (!listEl) return;
+
+        const items = data.history || [];
+        if (items.length === 0) {
+            listEl.innerHTML = '<p class="profile-empty-state">No clip usage history yet.</p>';
+            return;
+        }
+
+        listEl.innerHTML = items.map(item => `
+            <div class="profile-history-item">
+                <span class="history-action">${item.action || '-'}</span>
+                <span class="history-date">${item.date || ''}</span>
+                <span class="history-clips">-${item.clips || item.credits || 0}</span>
+            </div>
+        `).join('');
+    } catch {
+        // History unavailable
+    }
+}
+
+// ==================== Preferences ====================
+
+function savePreferences() {
+    const prefs = {
+        style: document.getElementById('pref-style')?.value || '',
+        genre: document.getElementById('pref-genre')?.value || '',
+        language: document.getElementById('pref-language')?.value || '',
+    };
+    localStorage.setItem('klippa_preferences', JSON.stringify(prefs));
+    _authToast('Preferences saved', 'success');
+}
+
+function loadPreferencesToForm() {
+    const prefs = JSON.parse(localStorage.getItem('klippa_preferences') || '{}');
+    const prefStyle = document.getElementById('pref-style');
+    const prefGenre = document.getElementById('pref-genre');
+    const prefLang = document.getElementById('pref-language');
+    if (prefStyle) prefStyle.value = prefs.style || '';
+    if (prefGenre) prefGenre.value = prefs.genre || '';
+    if (prefLang) prefLang.value = prefs.language || '';
+}
+
+function loadPreferences() {
+    const prefs = JSON.parse(localStorage.getItem('klippa_preferences') || '{}');
+    if (prefs.style) {
+        const styleEl = document.getElementById('style');
+        if (styleEl) {
+            const option = Array.from(styleEl.options).find(o => o.value === prefs.style);
+            if (option) styleEl.value = prefs.style;
+        }
+    }
+    if (prefs.genre) {
+        const genreEl = document.getElementById('genre');
+        if (genreEl) {
+            const option = Array.from(genreEl.options).find(o => o.value === prefs.genre);
+            if (option) genreEl.value = prefs.genre;
+        }
+    }
 }
 
 // ==================== Toast ====================
@@ -283,14 +474,14 @@ function _authToast(message, type = 'error') {
     setTimeout(() => toast.remove(), 5000);
 }
 
-// ==================== Credit Functions ====================
+// ==================== Clip Functions ====================
 
-async function fetchCreditBalance() {
+async function fetchClipBalance() {
     const token = localStorage.getItem('token');
     if (!token) return null;
 
     try {
-        const res = await fetch(`${WORKER_URL}/api/credits/balance`, {
+        const res = await fetch(`${WORKER_URL}/api/clips/balance`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -299,9 +490,9 @@ async function fetchCreditBalance() {
                 logout();
                 return null;
             }
-            if (!window._creditErrorShown) {
-                window._creditErrorShown = true;
-                _authToast('Credit service unavailable. Proceeding without credit check.', 'error');
+            if (!window._clipErrorShown) {
+                window._clipErrorShown = true;
+                _authToast('Clip service unavailable. Proceeding without clip check.', 'error');
             }
             return null;
         }
@@ -309,54 +500,55 @@ async function fetchCreditBalance() {
         const data = await res.json();
 
         const user = JSON.parse(localStorage.getItem('user') || '{}');
-        user.credits = data.credits;
+        user.clips = data.clips;
         user.plan_id = data.plan_id;
         user.plan_name = data.plan_name;
+        if (data.gemini3) user.gemini3 = data.gemini3;
         localStorage.setItem('user', JSON.stringify(user));
 
-        updateCreditDisplay(data.credits);
+        updateClipDisplay(data.clips);
 
         return data;
     } catch (err) {
-        if (!window._creditErrorShown) {
-            window._creditErrorShown = true;
-            _authToast('Credit service unavailable. Proceeding without credit check.', 'error');
+        if (!window._clipErrorShown) {
+            window._clipErrorShown = true;
+            _authToast('Clip service unavailable. Proceeding without clip check.', 'error');
         }
         return null;
     }
 }
 
-function updateCreditDisplay(credits) {
-    const el = document.getElementById('credit-count');
-    if (el) el.textContent = credits;
+function updateClipDisplay(clips) {
+    const el = document.getElementById('clip-count');
+    if (el) el.textContent = clips;
 }
 
-async function checkCreditsBeforeAction(action) {
-    const cost = CREDIT_COSTS[action];
+async function checkClipsBeforeAction(action) {
+    const cost = CLIP_COSTS[action];
     if (!cost) return true;
 
     const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-    if (user.credits === undefined || user.credits === null) return true;
+    if (user.clips === undefined || user.clips === null) return true;
 
-    const credits = user.credits;
+    const clips = user.clips;
 
-    if (credits < cost) {
-        showInsufficientCreditsModal(action, cost, credits);
+    if (clips < cost) {
+        showInsufficientClipsModal(action, cost, clips);
         return false;
     }
 
     return true;
 }
 
-function showInsufficientCreditsModal(action, cost, available) {
-    const existing = document.getElementById('credit-modal');
+function showInsufficientClipsModal(action, cost, available) {
+    const existing = document.getElementById('clip-modal');
     if (existing) existing.remove();
 
-    const label = CREDIT_LABELS[action] || action;
+    const label = CLIP_LABELS[action] || action;
 
     const modal = document.createElement('div');
-    modal.id = 'credit-modal';
+    modal.id = 'clip-modal';
     modal.style.cssText = `
         position: fixed; inset: 0; z-index: 10000;
         display: flex; align-items: center; justify-content: center;
@@ -368,20 +560,20 @@ function showInsufficientCreditsModal(action, cost, available) {
             padding: 32px; max-width: 420px; width: 90%; text-align: center;
         ">
             <div style="font-size: 48px; margin-bottom: 16px;">&#x26A0;</div>
-            <h3 style="color: #f59e0b; margin: 0 0 12px;">Credit Insufficient</h3>
+            <h3 style="color: #f59e0b; margin: 0 0 12px;">Clip Insufficient</h3>
             <p style="color: #ccc; margin: 0 0 8px;">
-                <strong>${label}</strong> requires <strong style="color:#f59e0b">${cost}</strong> credits.
+                <strong>${label}</strong> requires <strong style="color:#f59e0b">${cost}</strong> clips.
             </p>
             <p style="color: #888; margin: 0 0 24px;">
-                Current balance: <strong style="color:#ef4444">${available}</strong> credits
+                Current balance: <strong style="color:#ef4444">${available}</strong> clips
             </p>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <a href="/pricing.html" style="
                     padding: 10px 24px; background: linear-gradient(135deg, #f59e0b, #d97706);
                     border: none; border-radius: 8px; color: #000; font-weight: 600;
                     text-decoration: none; cursor: pointer;
-                ">Get Credits</a>
-                <button onclick="document.getElementById('credit-modal').remove()" style="
+                ">Get Clips</a>
+                <button onclick="document.getElementById('clip-modal').remove()" style="
                     padding: 10px 24px; background: #333; border: 1px solid #555;
                     border-radius: 8px; color: #ccc; cursor: pointer;
                 ">Cancel</button>
@@ -394,13 +586,170 @@ function showInsufficientCreditsModal(action, cost, available) {
     });
 }
 
-function deductLocalCredits(action) {
-    const cost = CREDIT_COSTS[action] || 0;
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    user.credits = Math.max(0, (user.credits || 0) - cost);
-    localStorage.setItem('user', JSON.stringify(user));
-    updateCreditDisplay(user.credits);
+function showPlanUpgradeModal(action, message) {
+    const existing = document.getElementById('clip-modal');
+    if (existing) existing.remove();
+
+    const label = CLIP_LABELS[action] || action;
+
+    const modal = document.createElement('div');
+    modal.id = 'clip-modal';
+    modal.style.cssText = `
+        position: fixed; inset: 0; z-index: 10000;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+    `;
+    modal.innerHTML = `
+        <div style="
+            background: #1e1e2e; border: 1px solid #333; border-radius: 16px;
+            padding: 32px; max-width: 420px; width: 90%; text-align: center;
+        ">
+            <div style="font-size: 48px; margin-bottom: 16px;">&#x1F512;</div>
+            <h3 style="color: #a78bfa; margin: 0 0 12px;">Plan Upgrade Required</h3>
+            <p style="color: #ccc; margin: 0 0 8px;">
+                <strong>${label}</strong> is not available on your current plan.
+            </p>
+            <p style="color: #888; margin: 0 0 24px;">
+                ${message || 'Upgrade to a paid plan to unlock this feature.'}
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <a href="/pricing.html" style="
+                    padding: 10px 24px; background: linear-gradient(135deg, #a78bfa, #7c3aed);
+                    border: none; border-radius: 8px; color: #fff; font-weight: 600;
+                    text-decoration: none; cursor: pointer;
+                ">View Plans</a>
+                <button onclick="document.getElementById('clip-modal').remove()" style="
+                    padding: 10px 24px; background: #333; border: 1px solid #555;
+                    border-radius: 8px; color: #ccc; cursor: pointer;
+                ">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
 }
+
+function showGemini3SurchargeModal(action, required, available, surcharge) {
+    const existing = document.getElementById('clip-modal');
+    if (existing) existing.remove();
+
+    const label = CLIP_LABELS[action] || action;
+
+    const modal = document.createElement('div');
+    modal.id = 'clip-modal';
+    modal.style.cssText = `
+        position: fixed; inset: 0; z-index: 10000;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+    `;
+    modal.innerHTML = `
+        <div style="
+            background: #1e1e2e; border: 1px solid #333; border-radius: 16px;
+            padding: 32px; max-width: 440px; width: 90%; text-align: center;
+        ">
+            <div style="font-size: 48px; margin-bottom: 16px;">&#x2728;</div>
+            <h3 style="color: #f59e0b; margin: 0 0 12px;">Gemini 3.0 Surcharge</h3>
+            <p style="color: #ccc; margin: 0 0 8px;">
+                You've used your free Gemini 3.0 quota this month.
+            </p>
+            <p style="color: #ccc; margin: 0 0 8px;">
+                <strong>${label}</strong> with Gemini 3.0 requires
+                <span style="color: #f59e0b; font-weight: 700;">${required} clips</span>
+                (includes +${surcharge} surcharge).
+            </p>
+            <p style="color: #888; margin: 0 0 8px;">
+                Available: <strong>${available} clips</strong>
+            </p>
+            <p style="color: #777; font-size: 13px; margin: 0 0 24px;">
+                Switch to Gemini 2.5 to avoid the surcharge, or purchase more clips.
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <a href="/pricing.html" style="
+                    padding: 10px 24px; background: linear-gradient(135deg, #f59e0b, #d97706);
+                    border: none; border-radius: 8px; color: #fff; font-weight: 600;
+                    text-decoration: none; cursor: pointer;
+                ">Get More Clips</a>
+                <button onclick="document.getElementById('clip-modal').remove()" style="
+                    padding: 10px 24px; background: #333; border: 1px solid #555;
+                    border-radius: 8px; color: #ccc; cursor: pointer;
+                ">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+}
+
+/**
+ * Get Gemini 3.0 status for current user.
+ * Returns { allowed, free_limit, used, surcharge_per_image, willSurcharge }
+ */
+function getGemini3Status() {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const g3 = user.gemini3 || {};
+    return {
+        allowed: g3.allowed || false,
+        freeLimit: g3.free_limit ?? 0,
+        used: g3.used || 0,
+        surchargePerImage: g3.surcharge_per_image || 2,
+        willSurcharge: g3.allowed && g3.free_limit >= 0 && (g3.used || 0) >= (g3.free_limit || 0),
+    };
+}
+
+/**
+ * Central API error handler for 402/403 responses from Worker.
+ * Returns true if the error was handled (modal shown), false otherwise.
+ */
+async function handleApiError(response, action) {
+    if (response.ok) return false;
+
+    if (response.status === 402) {
+        try {
+            const data = await response.json();
+            if (data.gemini3_surcharge > 0) {
+                showGemini3SurchargeModal(action || data.action || 'unknown', data.required || 0, data.available || 0, data.gemini3_surcharge);
+            } else {
+                showInsufficientClipsModal(action || data.action || 'unknown', data.required || 0, data.available || 0);
+            }
+        } catch (e) {
+            showInsufficientClipsModal(action || 'unknown', 0, 0);
+        }
+        return true;
+    }
+
+    if (response.status === 403) {
+        try {
+            const data = await response.json();
+            showPlanUpgradeModal(action || data.action || 'unknown', data.error || '');
+        } catch (e) {
+            showPlanUpgradeModal(action || 'unknown', '');
+        }
+        return true;
+    }
+
+    return false;
+}
+
+function deductLocalClips(action) {
+    const cost = CLIP_COSTS[action] || 0;
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    user.clips = Math.max(0, (user.clips || 0) - cost);
+    localStorage.setItem('user', JSON.stringify(user));
+    updateClipDisplay(user.clips);
+}
+
+// Legacy compatibility aliases
+const CREDIT_COSTS = CLIP_COSTS;
+const CREDIT_LABELS = CLIP_LABELS;
+function fetchCreditBalance() { return fetchClipBalance(); }
+function updateCreditDisplay(v) { return updateClipDisplay(v); }
+function checkCreditsBeforeAction(a) { return checkClipsBeforeAction(a); }
+function showInsufficientCreditsModal(a, c, v) { return showInsufficientClipsModal(a, c, v); }
+function deductLocalCredits(a) { return deductLocalClips(a); }
 
 function logout() {
     localStorage.removeItem('token');

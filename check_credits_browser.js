@@ -1,17 +1,17 @@
-// 크레딧 잔액을 직접 확인하는 스크립트
-// 브라우저 콘솔에서 실행하세요
+// Clip balance check script
+// Run in browser console
 
 (async function () {
     const token = localStorage.getItem('auth_token');
     if (!token) {
-        console.log('❌ 로그인되어 있지 않습니다. 먼저 로그인해주세요.');
+        console.log('Not logged in. Please log in first.');
         return;
     }
 
     const WORKER_URL = 'https://storycut-worker.twinspa0713.workers.dev';
 
     try {
-        const response = await fetch(`${WORKER_URL}/api/credits/balance`, {
+        const response = await fetch(`${WORKER_URL}/api/clips/balance`, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
@@ -19,20 +19,20 @@
         });
 
         if (!response.ok) {
-            throw new Error(`API 오류: ${response.status}`);
+            throw new Error(`API error: ${response.status}`);
         }
 
         const data = await response.json();
-        console.log('📊 크레딧 정보:', data);
-        console.log('💰 현재 크레딧:', data.credits);
+        console.log('Clip info:', data);
+        console.log('Current clips:', data.clips);
 
-        // 화면 업데이트
-        if (typeof fetchCreditBalance === 'function') {
-            fetchCreditBalance();
-            console.log('🔄 화면 크레딧 표시 업데이트 완료');
+        // Update display
+        if (typeof fetchClipBalance === 'function') {
+            fetchClipBalance();
+            console.log('Display updated');
         }
 
     } catch (error) {
-        console.error('❌ 크레딧 조회 실패:', error);
+        console.error('Clip query failed:', error);
     }
 })();

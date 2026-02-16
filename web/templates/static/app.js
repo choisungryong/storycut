@@ -118,6 +118,16 @@ class StorycutApp {
             this.updateDurationDisplay();
         });
 
+        // 이미지 모델 선택 시 Gemini 3.0 안내
+        const imageModelSelect = document.getElementById('image_model');
+        if (imageModelSelect) {
+            imageModelSelect.addEventListener('change', () => {
+                this.updateImageModelHint();
+            });
+            // 초기 상태 업데이트 (로그인 후)
+            setTimeout(() => this.updateImageModelHint(), 500);
+        }
+
         // 로그 클리어
         const clearLogBtn = document.getElementById('clear-log-btn');
         clearLogBtn.addEventListener('click', () => {
@@ -200,16 +210,23 @@ class StorycutApp {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return '';
         }
-        // Railway 백엔드 (영상 생성, 상태 조회 등)
-        return 'https://web-production-bb6bf.up.railway.app';
+        // 모든 API 요청은 Worker 경유 (클립 차감 + 플랜 제한 적용)
+        return 'https://storycut-worker.twinspa0713.workers.dev';
     }
 
     getWorkerUrl() {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return '';
         }
-        // Cloudflare Worker (스토리 생성, 인증)
         return 'https://storycut-worker.twinspa0713.workers.dev';
+    }
+
+    getMediaBaseUrl() {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            return '';
+        }
+        // 미디어 파일(이미지, 영상)은 Railway에서 직접 제공
+        return 'https://web-production-bb6bf.up.railway.app';
     }
 
     _shouldShowWatermark() {
@@ -331,7 +348,10 @@ class StorycutApp {
             clearInterval(progressInterval);
 
             if (!response.ok) {
-                let errorMsg = '스토리 생성 실패';
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'video')) {
+                    return;
+                }
+                let errorMsg = 'Story generation failed';
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.error || errorMsg;
@@ -494,7 +514,10 @@ class StorycutApp {
             clearInterval(progressInterval);
 
             if (!response.ok) {
-                let errorMsg = '스크립트 처리 실패';
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'script_video')) {
+                    return;
+                }
+                let errorMsg = 'Script processing failed';
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.error || errorMsg;
@@ -821,6 +844,45 @@ class StorycutApp {
             row.appendChild(previewBtn);
 
             assignmentsDiv.appendChild(row);
+        }
+    }
+
+    updateImageModelHint() {
+        const select = document.getElementById('image_model');
+        const hint = document.getElementById('image_model_hint');
+        if (!select || !hint) return;
+
+        const isPremium = select.value === 'premium';
+        if (!isPremium) {
+            hint.style.display = 'none';
+            return;
+        }
+
+        // Check Gemini 3.0 status from auth.js
+        if (typeof getGemini3Status === 'function') {
+            const g3 = getGemini3Status();
+            if (!g3.allowed) {
+                hint.style.display = 'block';
+                hint.style.color = '#ef4444';
+                hint.textContent = 'Gemini 3.0 requires a paid plan.';
+                select.value = 'standard';
+                return;
+            }
+            if (g3.willSurcharge) {
+                hint.style.display = 'block';
+                hint.style.color = '#f59e0b';
+                hint.textContent = `Free quota used (${g3.used}/${g3.freeLimit}). +${g3.surchargePerImage} clips/image surcharge applies.`;
+            } else if (g3.freeLimit >= 0) {
+                hint.style.display = 'block';
+                hint.style.color = '#22c55e';
+                hint.textContent = `Free Gemini 3.0: ${g3.used}/${g3.freeLimit} used this month.`;
+            } else {
+                hint.style.display = 'block';
+                hint.style.color = '#22c55e';
+                hint.textContent = 'Gemini 3.0 unlimited on your plan.';
+            }
+        } else {
+            hint.style.display = 'none';
         }
     }
 
@@ -1913,7 +1975,7 @@ class StorycutApp {
             card.innerHTML = `
                 <div class="history-thumb" style="background: #1a1a2e;">
                     ${typeBadge}
-                    ${project.thumbnail_url ? `<img src="${this.getApiBaseUrl()}${project.thumbnail_url}" alt="${project.title}" onerror="this.style.display='none'">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
+                    ${project.thumbnail_url ? `<img src="${this.getMediaBaseUrl()}${project.thumbnail_url}" alt="${project.title}" onerror="this.style.display='none'">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
                 </div>
                 <div class="history-info">
                     <p class="history-title">${project.title}</p>
@@ -2146,12 +2208,12 @@ class StorycutApp {
         if (imagePath.startsWith('http')) return imagePath;
         // outputs/xxx → /media/xxx 변환 (FastAPI StaticFiles 마운트: /media = outputs/)
         if (imagePath.startsWith('outputs/')) {
-            return `${this.getApiBaseUrl()}/media/${imagePath.slice('outputs/'.length)}`;
+            return `${this.getMediaBaseUrl()}/media/${imagePath.slice('outputs/'.length)}`;
         }
         if (imagePath.startsWith('/')) {
-            return `${this.getApiBaseUrl()}${imagePath}`;
+            return `${this.getMediaBaseUrl()}${imagePath}`;
         }
-        return `${this.getApiBaseUrl()}/media/${imagePath}`;
+        return `${this.getMediaBaseUrl()}/media/${imagePath}`;
     }
 
     // ==================== 이미지 생성 워크플로우 ====================
@@ -2492,6 +2554,12 @@ class StorycutApp {
             });
 
             if (!response.ok) {
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'image_regen')) {
+                    // Remove overlay on billing error
+                    const overlay = imgEl?.parentElement?.querySelector('.regen-overlay');
+                    if (overlay) overlay.remove();
+                    return;
+                }
                 let errorDetail = response.statusText;
                 try {
                     const errorBody = await response.json();
@@ -2565,7 +2633,7 @@ class StorycutApp {
                     output += `  테스트 이미지: ${d.test_image_url}\n`;
                     // 테스트 이미지 표시
                     const testImg = document.createElement('img');
-                    testImg.src = `${this.getApiBaseUrl()}${d.test_image_url}?t=${Date.now()}`;
+                    testImg.src = `${this.getMediaBaseUrl()}${d.test_image_url}?t=${Date.now()}`;
                     testImg.style.cssText = 'max-width:200px; margin-top:8px; border-radius:8px;';
                     resultDiv.appendChild(document.createElement('br'));
                     resultDiv.appendChild(testImg);
@@ -2578,7 +2646,7 @@ class StorycutApp {
             const working = data.details?.find(d => d.test_image_url);
             if (working) {
                 const testImg = document.createElement('img');
-                testImg.src = `${this.getApiBaseUrl()}${working.test_image_url}?t=${Date.now()}`;
+                testImg.src = `${this.getMediaBaseUrl()}${working.test_image_url}?t=${Date.now()}`;
                 testImg.style.cssText = 'max-width:200px; margin-top:8px; border-radius:8px;';
                 resultDiv.appendChild(testImg);
             }
@@ -2618,6 +2686,11 @@ class StorycutApp {
             });
 
             if (!response.ok) {
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'i2v')) {
+                    btn.textContent = 'I2V';
+                    btn.disabled = false;
+                    return;
+                }
                 let errorDetail = response.statusText;
                 try {
                     const errorBody = await response.json();
@@ -2628,12 +2701,12 @@ class StorycutApp {
                 throw new Error(`${response.status}: ${errorDetail}`);
             }
 
-            btn.textContent = '✅ I2V';
-            alert(`Scene ${sceneId} I2V 변환 완료!`);
+            btn.textContent = 'I2V';
+            alert(`Scene ${sceneId} I2V complete!`);
 
         } catch (error) {
-            alert(`I2V 실패: ${error.message}`);
-            btn.textContent = '🎬 I2V';
+            alert(`I2V failed: ${error.message}`);
+            btn.textContent = 'I2V';
             btn.disabled = false;
         }
     }
@@ -3021,7 +3094,10 @@ class StorycutApp {
             });
 
             if (!response.ok) {
-                let errorMsg = 'MV 생성 요청 실패';
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'mv')) {
+                    return;
+                }
+                let errorMsg = 'MV generation failed';
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.message || errorMsg;
@@ -3031,8 +3107,8 @@ class StorycutApp {
 
             const result = await response.json();
 
-            // 크레딧 차감 반영
-            if (typeof deductLocalCredits === 'function') deductLocalCredits('mv');
+            // 클립 차감 반영
+            if (typeof deductLocalClips === 'function') deductLocalClips('mv');
 
             // 진행 화면으로 전환 - 이전 데이터 클리어
             const sceneGrid = document.getElementById('mv-scene-grid');
@@ -3522,6 +3598,10 @@ class StorycutApp {
             });
 
             if (!response.ok) {
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'image_regen')) {
+                    if (btn) btn.disabled = false;
+                    return;
+                }
                 const err = await response.json();
                 throw new Error(err.detail || 'Regeneration failed');
             }
@@ -3531,7 +3611,7 @@ class StorycutApp {
             // 이미지 업데이트
             const img = imgWrap.querySelector('img');
             if (img && result.image_url) {
-                const imageUrl = `${this.getApiBaseUrl()}${result.image_url}`;
+                const imageUrl = `${this.getMediaBaseUrl()}${result.image_url}`;
                 img.src = `${imageUrl}?t=${Date.now()}`;
             }
 
@@ -3594,6 +3674,11 @@ class StorycutApp {
             });
 
             if (!response.ok) {
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'i2v')) {
+                    if (btn) btn.disabled = false;
+                    overlay.remove();
+                    return;
+                }
                 const err = await response.json();
                 throw new Error(err.detail || 'I2V failed');
             }
@@ -3818,11 +3903,18 @@ class StorycutApp {
             });
 
             if (!response.ok) {
+                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'mv_recompose')) {
+                    if (recomposeBtn) {
+                        recomposeBtn.disabled = false;
+                        recomposeBtn.innerHTML = '<span class="btn-icon">🔄</span> Recompose';
+                    }
+                    return;
+                }
                 const err = await response.json();
                 throw new Error(err.detail || 'Recompose failed');
             }
 
-            this.showToast('영상 재합성을 시작했습니다. 완료까지 잠시 기다려주세요...', 'info');
+            this.showToast('Recomposing video...', 'info');
 
             // 폴링으로 완료 대기
             this._pollMVRecompose(projectId);

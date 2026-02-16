@@ -5,9 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pricing - Klippa</title>
-    <meta name="description" content="Klippa pricing plans. Start free with 20 credits, or upgrade for more AI video generation power.">
+    <meta name="description" content="Klippa pricing plans. Start free with 30 clips, or upgrade for more AI video generation power.">
     <meta property="og:title" content="Pricing - Klippa">
-    <meta property="og:description" content="Klippa pricing plans. Start free with 20 credits, or upgrade for more AI video generation power.">
+    <meta property="og:description" content="Klippa pricing plans. Start free with 30 clips, or upgrade for more AI video generation power.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="/static/assets/klippa-logo.png">
     <link rel="stylesheet" href="/static/style.css">
@@ -58,7 +58,7 @@
             text-decoration: underline;
         }
 
-        /* 크레딧 잔액 표시 */
+        /* 클립 잔액 표시 */
         .balance-card {
             background: linear-gradient(135deg, #1e1e2e, #252a34);
             border: 1px solid #f59e0b44;
@@ -162,7 +162,7 @@
             color: #888;
         }
 
-        .plan-card .plan-credits {
+        .plan-card .plan-clips {
             color: #f59e0b;
             font-weight: 600;
             font-size: 1rem;
@@ -225,7 +225,7 @@
             cursor: default;
         }
 
-        /* 크레딧 팩 */
+        /* 클립 팩 */
         .packs-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -247,7 +247,7 @@
             transform: translateY(-2px);
         }
 
-        .pack-card .pack-credits {
+        .pack-card .pack-clips {
             font-size: 1.8rem;
             font-weight: 700;
             color: #f59e0b;
@@ -282,7 +282,7 @@
             background: #f59e0b22;
         }
 
-        /* 크레딧 비용 표 */
+        /* 클립 비용 표 */
         .costs-section {
             background: #1e1e2e;
             border: 1px solid #333;
@@ -473,16 +473,16 @@
 
         <div class="pricing-header">
             <h1>요금제 선택</h1>
-            <p>크레딧으로 AI 영상을 만들어 보세요</p>
+            <p>클립으로 AI 영상을 만들어 보세요</p>
         </div>
 
         <!-- 성공 배너 (결제 후) -->
         <div id="success-banner" class="success-banner" style="display:none;"></div>
 
-        <!-- 크레딧 잔액 -->
+        <!-- 클립 잔액 -->
         <div class="balance-card" id="balance-card" style="display:none;">
-            <div class="balance-amount" id="pricing-credit-count">-</div>
-            <div class="balance-label">보유 크레딧</div>
+            <div class="balance-amount" id="pricing-clip-count">-</div>
+            <div class="balance-label">보유 클립</div>
             <div>
                 <span class="plan-badge free" id="pricing-plan-badge">Free</span>
             </div>
@@ -509,11 +509,13 @@
                 <div class="plan-card">
                     <div class="plan-name">Free</div>
                     <div class="plan-price">무료</div>
-                    <div class="plan-credits">20 크레딧 (가입 보너스)</div>
+                    <div class="plan-clips">30 클립 (가입 보너스)</div>
                     <ul class="plan-features">
-                        <li>영상 ~4편</li>
-                        <li>일반 처리</li>
-                        <li>월간 갱신 없음</li>
+                        <li>동시 생성 1건</li>
+                        <li>일일 2건 제한</li>
+                        <li>720p / 워터마크</li>
+                        <li>Gemini 2.5만 사용</li>
+                        <li>7일 보관</li>
                     </ul>
                     <button class="plan-btn secondary" disabled>현재 플랜</button>
                 </div>
@@ -522,11 +524,14 @@
                 <div class="plan-card">
                     <div class="plan-name">Lite</div>
                     <div class="plan-price" data-monthly="11900" data-yearly="9917">&#8361;11,900 <span>/월</span></div>
-                    <div class="plan-credits">월 200 크레딧</div>
+                    <div class="plan-clips">월 150 클립</div>
                     <ul class="plan-features">
-                        <li>영상 ~40편/월</li>
-                        <li>일반 처리</li>
-                        <li>매월 크레딧 충전</li>
+                        <li>동시 생성 2건</li>
+                        <li>일일 10건 제한</li>
+                        <li>1080p / 워터마크 없음</li>
+                        <li>I2V 사용 가능</li>
+                        <li>Gemini 3.0 월 3회 무료 (이후 추가 클립)</li>
+                        <li>30일 보관</li>
                     </ul>
                     <button class="plan-btn primary" onclick="subscribePlan('lite')">Lite 시작</button>
                 </div>
@@ -535,11 +540,14 @@
                 <div class="plan-card popular">
                     <div class="plan-name">Pro</div>
                     <div class="plan-price" data-monthly="29900" data-yearly="24917">&#8361;29,900 <span>/월</span></div>
-                    <div class="plan-credits">월 600 크레딧</div>
+                    <div class="plan-clips">월 500 클립</div>
                     <ul class="plan-features">
-                        <li>영상 ~120편/월</li>
-                        <li>우선 처리</li>
-                        <li>매월 크레딧 충전</li>
+                        <li>동시 생성 3건</li>
+                        <li>무제한 생성</li>
+                        <li>1080p / 워터마크 없음</li>
+                        <li>I2V + 무제한 재생성</li>
+                        <li>Gemini 3.0 월 10회 무료 (이후 추가 클립)</li>
+                        <li>90일 보관</li>
                     </ul>
                     <button class="plan-btn popular" onclick="subscribePlan('pro')">Pro 시작</button>
                 </div>
@@ -547,12 +555,15 @@
                 <!-- Premium -->
                 <div class="plan-card">
                     <div class="plan-name">Premium</div>
-                    <div class="plan-price" data-monthly="139000" data-yearly="115833">&#8361;139,000 <span>/월</span></div>
-                    <div class="plan-credits">월 3,000 크레딧</div>
+                    <div class="plan-price" data-monthly="99000" data-yearly="82500">&#8361;99,000 <span>/월</span></div>
+                    <div class="plan-clips">월 2,000 클립</div>
                     <ul class="plan-features">
-                        <li>영상 ~600편/월</li>
-                        <li>최우선 처리</li>
-                        <li>매월 크레딧 충전</li>
+                        <li>동시 생성 3건</li>
+                        <li>무제한 생성</li>
+                        <li>1080p / 워터마크 없음</li>
+                        <li>I2V + 무제한 재생성</li>
+                        <li>Gemini 3.0 무제한</li>
+                        <li>90일 보관</li>
                     </ul>
                     <button class="plan-btn primary" onclick="subscribePlan('premium')">Premium 시작</button>
                 </div>
@@ -561,27 +572,27 @@
 
         <!-- 크레딧 팩 -->
         <section class="packs-section">
-            <h2>크레딧 팩 (일회성)</h2>
+            <h2>클립 팩 (일회성)</h2>
             <div class="packs-grid">
                 <div class="pack-card">
-                    <div class="pack-credits">50</div>
-                    <div>크레딧</div>
+                    <div class="pack-clips">50</div>
+                    <div>클립</div>
                     <div class="pack-price">&#8361;5,900</div>
-                    <div class="pack-unit">&#8361;118 / 크레딧</div>
+                    <div class="pack-unit">&#8361;118 / 클립</div>
                     <button class="pack-btn" onclick="buyPack('small')">구매</button>
                 </div>
                 <div class="pack-card">
-                    <div class="pack-credits">200</div>
-                    <div>크레딧</div>
+                    <div class="pack-clips">200</div>
+                    <div>클립</div>
                     <div class="pack-price">&#8361;17,900</div>
-                    <div class="pack-unit">&#8361;90 / 크레딧</div>
+                    <div class="pack-unit">&#8361;90 / 클립</div>
                     <button class="pack-btn" onclick="buyPack('medium')">구매</button>
                 </div>
                 <div class="pack-card">
-                    <div class="pack-credits">500</div>
-                    <div>크레딧</div>
+                    <div class="pack-clips">500</div>
+                    <div>클립</div>
                     <div class="pack-price">&#8361;35,900</div>
-                    <div class="pack-unit">&#8361;72 / 크레딧</div>
+                    <div class="pack-unit">&#8361;72 / 클립</div>
                     <button class="pack-btn" onclick="buyPack('large')">구매</button>
                 </div>
             </div>
@@ -589,21 +600,21 @@
 
         <!-- 크레딧 비용 표 -->
         <section class="costs-section">
-            <h2>액션별 크레딧 소비</h2>
+            <h2>액션별 클립 소비</h2>
             <table class="costs-table">
                 <thead>
                     <tr>
                         <th>액션</th>
-                        <th>크레딧</th>
+                        <th>클립</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>AI 스토리 영상</td><td>5</td></tr>
-                    <tr><td>스크립트 직접 영상</td><td>5</td></tr>
-                    <tr><td>뮤직비디오 (MV)</td><td>10</td></tr>
+                    <tr><td>AI 스토리 영상</td><td>25</td></tr>
+                    <tr><td>스크립트 직접 영상</td><td>25</td></tr>
+                    <tr><td>뮤직비디오 (MV)</td><td>15</td></tr>
                     <tr><td>이미지 재생성</td><td>1</td></tr>
-                    <tr><td>I2V 변환</td><td>2</td></tr>
-                    <tr><td>MV 리컴포즈</td><td>2</td></tr>
+                    <tr><td>I2V 변환</td><td>30</td></tr>
+                    <tr><td>MV 리컴포즈</td><td>8</td></tr>
                 </tbody>
             </table>
         </section>
@@ -635,7 +646,7 @@
             const params = new URLSearchParams(window.location.search);
             if (params.get('success') === 'true') {
                 showBanner('결제가 완료되었습니다! 크레딧이 충전되었습니다.', 'success');
-                setTimeout(() => { if (typeof fetchCreditBalance === 'function') fetchCreditBalance(); }, 1000);
+                setTimeout(() => { if (typeof fetchClipBalance === 'function') fetchClipBalance(); }, 1000);
             }
             if (params.get('cancelled') === 'true') {
                 showBanner('결제가 취소되었습니다.', 'warning');
@@ -658,7 +669,7 @@
             if (!token) return;
 
             try {
-                const res = await fetch(`${WORKER}/api/credits/balance`, {
+                const res = await fetch(`${WORKER}/api/clips/balance`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (!res.ok) {
@@ -670,7 +681,7 @@
 
                 // 잔액 카드
                 document.getElementById('balance-card').style.display = 'block';
-                document.getElementById('pricing-credit-count').textContent = data.credits;
+                document.getElementById('pricing-clip-count').textContent = data.clips;
 
                 const badge = document.getElementById('pricing-plan-badge');
                 const planId = data.plan_id || 'free';
@@ -730,7 +741,7 @@
                 const prepareRes = await fetch(`${WORKER}/api/payments/prepare`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ type: 'credit_pack', pack_type: packType })
+                    body: JSON.stringify({ type: 'clip_pack', pack_type: packType })
                 });
                 const prepareData = await prepareRes.json();
                 if (!prepareRes.ok) throw new Error(prepareData.error || '결제 준비 실패');
@@ -763,8 +774,8 @@
                 const completeData = await completeRes.json();
                 if (!completeRes.ok) throw new Error(completeData.error || '결제 검증 실패');
 
-                showBanner(`${completeData.credits_added} 크레딧이 충전되었습니다!`, 'success');
-                if (typeof fetchCreditBalance === 'function') fetchCreditBalance();
+                showBanner(`${completeData.clips_added} 클립이 충전되었습니다!`, 'success');
+                if (typeof fetchClipBalance === 'function') fetchClipBalance();
                 loadPricingData();
 
             } catch (err) {
@@ -818,8 +829,8 @@
                 const subData = await subRes.json();
                 if (!subRes.ok) throw new Error(subData.error || '구독 등록 실패');
 
-                showBanner(`${subData.plan_name} 구독이 시작되었습니다! ${subData.credits_added} 크레딧이 충전되었습니다.`, 'success');
-                if (typeof fetchCreditBalance === 'function') fetchCreditBalance();
+                showBanner(`${subData.plan_name} 구독이 시작되었습니다! ${subData.clips_added} 클립이 충전되었습니다.`, 'success');
+                if (typeof fetchClipBalance === 'function') fetchClipBalance();
                 loadPricingData();
 
             } catch (err) {
@@ -857,7 +868,7 @@
             if (!token) return;
 
             try {
-                const res = await fetch(`${WORKER}/api/credits/history?page=${historyPage}&limit=15`, {
+                const res = await fetch(`${WORKER}/api/clips/history?page=${historyPage}&limit=15`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (!res.ok) return;

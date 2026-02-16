@@ -256,9 +256,10 @@
                                 <label for="image_model">이미지 모델</label>
                                 <div class="select-wrapper">
                                     <select id="image_model" name="image_model" class="form-select">
-                                        <option value="standard" selected>Standard (Gemini Flash) - 빠르고 안정적</option>
-                                        <option value="premium">Premium (Gemini 3 Pro) - 고품질</option>
+                                        <option value="standard" selected>Standard (Gemini 2.5 Flash) - 빠르고 안정적</option>
+                                        <option value="premium">Premium (Gemini 3.0 Pro) - 고품질</option>
                                     </select>
+                                    <small id="image_model_hint" class="form-hint" style="color: #888; font-size: 12px; margin-top: 4px; display: none;"></small>
                                 </div>
                             </div>
 
@@ -953,9 +954,9 @@
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     <span>Account</span>
                 </button>
-                <button class="profile-tab" data-tab="credits" onclick="switchProfileTab('credits')">
+                <button class="profile-tab" data-tab="clips" onclick="switchProfileTab('clips')">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor">C</text></svg>
-                    <span>Credits</span>
+                    <span>Clips</span>
                 </button>
                 <button class="profile-tab" data-tab="stats" onclick="switchProfileTab('stats')">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
@@ -997,23 +998,23 @@
                     </div>
                 </div>
 
-                <!-- Credits Tab -->
-                <div id="profile-tab-credits" class="profile-tab-panel">
-                    <div class="profile-credits-hero">
-                        <span class="profile-credits-big" id="profile-credits">0</span>
-                        <span class="profile-credits-label">Credits Remaining</span>
+                <!-- Clips Tab -->
+                <div id="profile-tab-clips" class="profile-tab-panel">
+                    <div class="profile-clips-hero">
+                        <span class="profile-clips-big" id="profile-clips">0</span>
+                        <span class="profile-clips-label">Clips Remaining</span>
                     </div>
-                    <div class="profile-credits-plan-row">
-                        <span>Current Plan: <strong id="profile-credits-plan">Free</strong></span>
+                    <div class="profile-clips-plan-row">
+                        <span>Current Plan: <strong id="profile-clips-plan">Free</strong></span>
                         <a href="/pricing.html" class="btn-profile-sm btn-profile-primary">Upgrade</a>
                     </div>
-                    <div class="profile-credits-history">
+                    <div class="profile-clips-history">
                         <h4 class="profile-section-title">Usage History</h4>
                         <div id="profile-history-list" class="profile-history-list">
-                            <p class="profile-empty-state">No credit usage history yet.</p>
+                            <p class="profile-empty-state">No clip usage history yet.</p>
                         </div>
                     </div>
-                    <a href="/pricing.html" class="btn-profile btn-profile-primary" style="width:100%; margin-top:var(--space-4)">Get More Credits</a>
+                    <a href="/pricing.html" class="btn-profile btn-profile-primary" style="width:100%; margin-top:var(--space-4)">Get More Clips</a>
                 </div>
 
                 <!-- Stats Tab -->
@@ -1028,8 +1029,8 @@
                             <span class="profile-stat-label">Music Videos</span>
                         </div>
                         <div class="profile-stat-card">
-                            <span class="profile-stat-value" id="profile-stat-credits-used">-</span>
-                            <span class="profile-stat-label">Credits Used</span>
+                            <span class="profile-stat-value" id="profile-stat-clips-used">-</span>
+                            <span class="profile-stat-label">Clips Used</span>
                         </div>
                         <div class="profile-stat-card">
                             <span class="profile-stat-value" id="profile-stat-since">-</span>

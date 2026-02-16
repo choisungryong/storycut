@@ -1841,7 +1841,7 @@ async def login(req: LoginRequest):
             "id": "user_local_mock",
             "username": req.email.split("@")[0],
             "email": req.email,
-            "credits": 1000
+            "clips": 1000
         },
         "_warning": "This is a mock response for local development only"
     }
@@ -1880,7 +1880,7 @@ async def google_auth(request: Request):
             "id": "user_google_mock",
             "username": name,
             "email": email,
-            "credits": 1000,
+            "clips": 1000,
             "plan_id": "free",
         },
         "_warning": "This is a mock response for local development only"
@@ -3765,7 +3765,7 @@ async def get_user_stats():
     return {
         "total_videos": total_videos,
         "total_mv": total_mv,
-        "total_credits_used": (total_videos * 5) + (total_mv * 10),
+        "total_clips_used": (total_videos * 25) + (total_mv * 15),
         "member_since": member_since,
         "top_style": top_style,
         "top_genre": top_genre,
@@ -3784,7 +3784,7 @@ async def update_user_profile(request: Request):
 
 @app.get("/api/user/history")
 async def get_user_history():
-    """Mock credit usage history - derives from local project manifests"""
+    """Mock clip usage history - derives from local project manifests"""
     outputs_dir = "outputs"
     history = []
 
@@ -3807,7 +3807,7 @@ async def get_user_history():
                 entries.append({
                     "date": created[:10] if created else "",
                     "action": f"MV: {title}" if is_mv else f"Video: {title}",
-                    "credits": 10 if is_mv else 5,
+                    "clips": 15 if is_mv else 25,
                     "project_id": d,
                     "sort_key": created,
                 })
@@ -3815,7 +3815,7 @@ async def get_user_history():
                 continue
 
         entries.sort(key=lambda x: x.get("sort_key", ""), reverse=True)
-        history = [{"date": e["date"], "action": e["action"], "credits": e["credits"], "project_id": e["project_id"]} for e in entries[:10]]
+        history = [{"date": e["date"], "action": e["action"], "clips": e["clips"], "project_id": e["project_id"]} for e in entries[:10]]
 
     return {"history": history}
 

@@ -3,39 +3,50 @@
  *
  * 역할:
  * 1. API 엔드포인트 제공 (/api/*)
- * 2. JWT 인증 및 크레딧 검증
- * 3. Railway 백엔드 프록시 + 크레딧 차감
+ * 2. JWT 인증 및 클립 검증
+ * 3. Railway 백엔드 프록시 + 클립 차감
  * 4. R2에서 영상 서빙
  * 5. D1에 메타데이터 저장
  * 6. PortOne(포트원) V2 결제 연동
- * 7. 크레딧 관리 (DeeVid 모델)
+ * 7. 클립 관리
  */
 
-// ==================== 크레딧 & 플랜 설정 ====================
+// ==================== 클립 & 플랜 설정 ====================
 
-const CREDIT_COSTS = {
-  video: 5,
-  script_video: 5,
-  mv: 10,
+const CLIP_COSTS = {
+  video: 25,
+  script_video: 25,
+  mv: 15,
   image_regen: 1,
-  i2v: 2,
-  mv_recompose: 2,
+  i2v: 30,
+  mv_recompose: 8,
 };
 
 const PLANS = {
-  free:    { name: 'Free',    monthlyCredits: 0,    priceKrw: 0,       yearlyPriceKrw: 0 },
-  lite:    { name: 'Lite',    monthlyCredits: 200,  priceKrw: 11900,   yearlyPriceKrw: 119000 },
-  pro:     { name: 'Pro',     monthlyCredits: 600,  priceKrw: 29900,   yearlyPriceKrw: 299000 },
-  premium: { name: 'Premium', monthlyCredits: 3000, priceKrw: 139000,  yearlyPriceKrw: 1390000 },
+  free:    { name: 'Free',    monthlyClips: 0,     priceKrw: 0,       yearlyPriceKrw: 0 },
+  lite:    { name: 'Lite',    monthlyClips: 150,   priceKrw: 11900,   yearlyPriceKrw: 119000 },
+  pro:     { name: 'Pro',     monthlyClips: 500,   priceKrw: 29900,   yearlyPriceKrw: 299000 },
+  premium: { name: 'Premium', monthlyClips: 2000,  priceKrw: 99000,   yearlyPriceKrw: 990000 },
 };
 
-const CREDIT_PACKS = {
-  small:  { credits: 50,  priceKrw: 5900 },
-  medium: { credits: 200, priceKrw: 17900 },
-  large:  { credits: 500, priceKrw: 35900 },
+const CLIP_PACKS = {
+  small:  { clips: 50,  priceKrw: 5900 },
+  medium: { clips: 200, priceKrw: 17900 },
+  large:  { clips: 500, priceKrw: 35900 },
 };
 
-const SIGNUP_BONUS_CREDITS = 20;
+const SIGNUP_BONUS_CLIPS = 30;
+
+const PLAN_LIMITS = {
+  free:    { concurrent: 1, regenPerVideo: 5,  allowI2V: false, watermark: true,  resolution: '720p',  retentionDays: 7,  dailyLimit: 2,  gemini3Free: 0,  gemini3Allowed: false },
+  lite:    { concurrent: 2, regenPerVideo: 10, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 30, dailyLimit: 10, gemini3Free: 3,  gemini3Allowed: true },
+  pro:     { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: 10, gemini3Allowed: true },
+  premium: { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: -1, gemini3Allowed: true },
+};
+
+// Gemini 3.0 surcharge: price difference between 3.0 and 2.5 per image
+// 3.0: $0.134/image, 2.5: $0.039/image → difference $0.095 ≈ 2 clips (~₩100)
+const GEMINI3_SURCHARGE_PER_IMAGE = 2;
 
 // ==================== 메인 엔트리 ====================
 
@@ -88,10 +99,10 @@ async function routeRequest(url, request, env, ctx, cors) {
   const user = await authenticateUser(request, env);
   if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
 
-  // Credits
-  if (path === '/api/credits/balance' && method === 'GET') return handleCreditBalance(user, env, cors);
-  if (path === '/api/credits/history' && method === 'GET') return handleCreditHistory(user, url, env, cors);
-  if (path === '/api/credits/check' && method === 'POST') return handleCreditCheck(request, user, cors);
+  // Clips (legacy /api/credits/* routes also supported)
+  if ((path === '/api/clips/balance' || path === '/api/credits/balance') && method === 'GET') return handleClipBalance(user, env, cors);
+  if ((path === '/api/clips/history' || path === '/api/credits/history') && method === 'GET') return handleClipHistory(user, url, env, cors);
+  if ((path === '/api/clips/check' || path === '/api/credits/check') && method === 'POST') return handleClipCheck(request, user, cors);
 
   // Payments (PortOne)
   if (path === '/api/payments/prepare' && method === 'POST') return handlePaymentPrepare(request, user, env, cors);
@@ -100,9 +111,9 @@ async function routeRequest(url, request, env, ctx, cors) {
   if (path === '/api/payments/cancel-subscription' && method === 'POST') return handleCancelSubscription(user, env, cors);
 
   // Admin
-  if (path === '/api/admin/grant-credits' && method === 'POST') return handleAdminGrantCredits(request, user, env, cors);
+  if ((path === '/api/admin/grant-clips' || path === '/api/admin/grant-credits') && method === 'POST') return handleAdminGrantClips(request, user, env, cors);
 
-  // Generation (크레딧 차감 포함)
+  // Generation (클립 차감 포함)
   if (path === '/api/generate' && method === 'POST') return handleGenerate(request, user, env, ctx, cors);
 
   // Video download
@@ -111,7 +122,7 @@ async function routeRequest(url, request, env, ctx, cors) {
   // Status
   if (path.startsWith('/api/status/')) return handleStatus(url, env, cors);
 
-  // ---- Railway 프록시 라우트 (크레딧 차감 후 프록시) ----
+  // ---- Railway 프록시 라우트 (클립 차감 후 프록시) ----
 
   // 일반 영상 생성 프록시
   if (path === '/api/generate/story' && method === 'POST') {
@@ -160,7 +171,7 @@ async function routeRequest(url, request, env, ctx, cors) {
     return proxyToRailway(request, env, user, 'mv_recompose', path, cors);
   }
 
-  // 기타 Railway 프록시 (크레딧 차감 없음)
+  // 기타 Railway 프록시 (클립 차감 없음)
   if (path.startsWith('/api/')) {
     return proxyToRailway(request, env, user, null, path, cors);
   }
@@ -172,28 +183,103 @@ async function routeRequest(url, request, env, ctx, cors) {
 
 const RAILWAY_URL = 'https://web-production-bb6bf.up.railway.app';
 
-async function proxyToRailway(request, env, user, creditAction, path, cors) {
-  if (creditAction) {
-    const cost = CREDIT_COSTS[creditAction];
-    if (cost && user.credits < cost) {
+async function proxyToRailway(request, env, user, clipAction, path, cors) {
+  const userPlanId = user.plan_id || 'free';
+  const planLimits = PLAN_LIMITS[userPlanId] || PLAN_LIMITS.free;
+
+  // Plan-based restriction: I2V blocked for free tier
+  if (clipAction === 'i2v' && !planLimits.allowI2V) {
+    return jsonResponse({
+      error: 'I2V conversion requires a paid plan. Please upgrade.',
+      action: clipAction,
+      plan: userPlanId,
+    }, 403, cors);
+  }
+
+  // --- Gemini 3.0 model tier enforcement ---
+  let gemini3Surcharge = 0;
+  let requestBody = null;
+  const isImageGenAction = ['video', 'script_video', 'mv', 'image_regen'].includes(clipAction);
+
+  if (request.method !== 'GET' && isImageGenAction) {
+    try {
+      requestBody = await request.clone().json();
+    } catch { /* not JSON, skip */ }
+  }
+
+  const requestedModel = requestBody?.image_model || null;
+  const isGemini3 = requestedModel === 'premium' || (requestedModel && requestedModel.includes('3.0'));
+
+  if (isGemini3) {
+    // Free tier: 3.0 completely blocked
+    if (!planLimits.gemini3Allowed) {
       return jsonResponse({
-        error: 'Insufficient credits',
+        error: 'Gemini 3.0 requires a paid plan. Please upgrade.',
+        action: clipAction,
+        plan: userPlanId,
+      }, 403, cors);
+    }
+
+    // Check monthly 3.0 usage count (skip for unlimited plans)
+    if (planLimits.gemini3Free >= 0) {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const usage = await env.DB.prepare(
+        `SELECT COUNT(*) as count FROM credit_transactions
+         WHERE user_id = ? AND action = 'gemini3_generation' AND created_at >= ?`
+      ).bind(user.id, monthStart.toISOString()).first();
+
+      const gemini3UsedCount = usage?.count || 0;
+
+      if (gemini3UsedCount >= planLimits.gemini3Free) {
+        // Estimate image count for surcharge (story/MV typically 12-20 images)
+        const estimatedImages = (clipAction === 'image_regen') ? 1 : 15;
+        gemini3Surcharge = estimatedImages * GEMINI3_SURCHARGE_PER_IMAGE;
+      }
+    }
+  }
+
+  if (clipAction) {
+    const cost = CLIP_COSTS[clipAction] + gemini3Surcharge;
+    const clips = user.credits; // DB column is still 'credits', mapped to clips
+    if (cost && clips < cost) {
+      return jsonResponse({
+        error: gemini3Surcharge > 0
+          ? `Insufficient clips. Gemini 3.0 surcharge: +${gemini3Surcharge} clips (${GEMINI3_SURCHARGE_PER_IMAGE} clips/image)`
+          : 'Insufficient clips',
         required: cost,
-        available: user.credits,
-        action: creditAction,
+        available: clips,
+        action: clipAction,
+        gemini3_surcharge: gemini3Surcharge,
       }, 402, cors);
     }
 
     if (cost) {
-      await deductCredits(env, user.id, cost, creditAction, `${creditAction} generation`);
+      await deductClips(env, user.id, cost, clipAction, `${clipAction} generation${gemini3Surcharge > 0 ? ' (Gemini 3.0 surcharge +' + gemini3Surcharge + ')' : ''}`);
+    }
+
+    // Record Gemini 3.0 usage for monthly tracking
+    if (isGemini3) {
+      await env.DB.prepare(
+        `INSERT INTO credit_transactions (user_id, amount, type, action, description, created_at)
+         VALUES (?, 0, 'tracking', 'gemini3_generation', ?, ?)`
+      ).bind(user.id, `${clipAction} with Gemini 3.0`, new Date().toISOString()).run();
     }
   }
 
   const railwayUrl = `${RAILWAY_URL}${path}`;
   const headers = new Headers(request.headers);
   headers.set('X-User-Id', user.id);
-  if (creditAction) {
-    headers.set('X-Credits-Charged', String(CREDIT_COSTS[creditAction] || 0));
+  headers.set('X-User-Plan', userPlanId);
+  headers.set('X-Watermark', planLimits.watermark ? 'true' : 'false');
+  headers.set('X-Resolution', planLimits.resolution);
+  if (clipAction) {
+    headers.set('X-Clips-Charged', String((CLIP_COSTS[clipAction] || 0) + gemini3Surcharge));
+  }
+  if (isGemini3) {
+    headers.set('X-Image-Model', requestedModel);
   }
 
   try {
@@ -211,10 +297,10 @@ async function proxyToRailway(request, env, user, creditAction, path, cors) {
       headers: responseHeaders,
     });
   } catch (error) {
-    if (creditAction) {
-      const cost = CREDIT_COSTS[creditAction];
+    if (clipAction) {
+      const cost = (CLIP_COSTS[clipAction] || 0) + gemini3Surcharge;
       if (cost) {
-        await refundCredits(env, user.id, cost, creditAction, `${creditAction} proxy failed - refund`);
+        await refundClips(env, user.id, cost, clipAction, `${clipAction} proxy failed - refund`);
       }
     }
     return jsonResponse({ error: 'Backend unavailable' }, 502, cors);
@@ -318,11 +404,11 @@ async function handleRegister(request, env, cors) {
     await env.DB.prepare(
       `INSERT INTO users (id, email, password_hash, credits, plan_id, created_at)
        VALUES (?, ?, ?, ?, 'free', ?)`
-    ).bind(userId, email, passwordHash, SIGNUP_BONUS_CREDITS, new Date().toISOString()).run();
+    ).bind(userId, email, passwordHash, SIGNUP_BONUS_CLIPS, new Date().toISOString()).run();
 
-    await recordTransaction(env, userId, SIGNUP_BONUS_CREDITS, 'signup_bonus', null, 'Signup bonus credits');
+    await recordTransaction(env, userId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Signup bonus clips');
 
-    return jsonResponse({ message: 'Registered successfully', user: { id: userId, email, credits: SIGNUP_BONUS_CREDITS } }, 201, cors);
+    return jsonResponse({ message: 'Registered successfully', user: { id: userId, email, clips: SIGNUP_BONUS_CLIPS } }, 201, cors);
   } catch (error) {
     console.error('Register error:', error);
     return jsonResponse({ error: error.message }, 500, cors);
@@ -357,7 +443,7 @@ async function handleLogin(request, env, cors) {
         id: user.id,
         email: user.email,
         username: user.email.split('@')[0],
-        credits: user.credits,
+        clips: user.credits, // DB column 'credits' → response field 'clips'
         plan_id: user.plan_id || 'free',
       },
     }, 200, cors);
@@ -398,12 +484,12 @@ async function handleGoogleAuth(request, env, cors) {
       const userId = crypto.randomUUID();
       await env.DB.prepare(
         `INSERT INTO users (id, email, password_hash, credits, plan_id, created_at)
-         VALUES (?, ?, NULL, ?, 'free', ?)`
-      ).bind(userId, email, SIGNUP_BONUS_CREDITS, new Date().toISOString()).run();
+         VALUES (?, ?, '', ?, 'free', ?)`
+      ).bind(userId, email, SIGNUP_BONUS_CLIPS, new Date().toISOString()).run();
 
-      await recordTransaction(env, userId, SIGNUP_BONUS_CREDITS, 'signup_bonus', null, 'Google signup bonus credits');
+      await recordTransaction(env, userId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Google signup bonus clips');
 
-      user = { id: userId, email, credits: SIGNUP_BONUS_CREDITS, plan_id: 'free' };
+      user = { id: userId, email, credits: SIGNUP_BONUS_CLIPS, plan_id: 'free' };
     }
 
     const token = await createJWT({ sub: user.id, email: user.email }, env.JWT_SECRET);
@@ -414,7 +500,7 @@ async function handleGoogleAuth(request, env, cors) {
         id: user.id,
         email: user.email,
         username: name || email.split('@')[0],
-        credits: user.credits,
+        clips: user.credits, // DB column 'credits' → response field 'clips'
         plan_id: user.plan_id || 'free',
       },
     }, 200, cors);
@@ -512,26 +598,47 @@ async function verifyPassword(password, stored) {
   return computedHex === hashHex;
 }
 
-// ==================== 크레딧 관리 ====================
+// ==================== 클립 관리 ====================
 
-async function handleCreditBalance(user, env, cors) {
+async function handleClipBalance(user, env, cors) {
   const freshUser = await env.DB.prepare(
     `SELECT credits, plan_id, plan_expires_at, monthly_credits FROM users WHERE id = ?`
   ).bind(user.id).first();
 
   const planInfo = PLANS[freshUser.plan_id] || PLANS.free;
+  const planLimits = PLAN_LIMITS[freshUser.plan_id] || PLAN_LIMITS.free;
+
+  // Gemini 3.0 monthly usage count
+  let gemini3UsedThisMonth = 0;
+  if (planLimits.gemini3Allowed) {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const usage = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM credit_transactions
+       WHERE user_id = ? AND action = 'gemini3_generation' AND created_at >= ?`
+    ).bind(user.id, monthStart.toISOString()).first();
+    gemini3UsedThisMonth = usage?.count || 0;
+  }
 
   return jsonResponse({
-    credits: freshUser.credits,
+    clips: freshUser.credits, // DB 'credits' → API 'clips'
     plan_id: freshUser.plan_id || 'free',
     plan_name: planInfo.name,
     plan_expires_at: freshUser.plan_expires_at,
-    monthly_credits: freshUser.monthly_credits,
-    costs: CREDIT_COSTS,
+    monthly_clips: freshUser.monthly_credits, // DB 'monthly_credits' → API 'monthly_clips'
+    costs: CLIP_COSTS,
+    limits: planLimits,
+    gemini3: {
+      used: gemini3UsedThisMonth,
+      free_limit: planLimits.gemini3Free,
+      surcharge_per_image: GEMINI3_SURCHARGE_PER_IMAGE,
+      allowed: planLimits.gemini3Allowed,
+    },
   }, 200, cors);
 }
 
-async function handleCreditHistory(user, url, env, cors) {
+async function handleClipHistory(user, url, env, cors) {
   const page = parseInt(url.searchParams.get('page') || '1');
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 50);
   const offset = (page - 1) * limit;
@@ -557,25 +664,26 @@ async function handleCreditHistory(user, url, env, cors) {
   }, 200, cors);
 }
 
-async function handleCreditCheck(request, user, cors) {
+async function handleClipCheck(request, user, cors) {
   const { action } = await request.json();
-  const cost = CREDIT_COSTS[action];
+  const cost = CLIP_COSTS[action];
 
   if (cost === undefined) {
     return jsonResponse({ error: 'Unknown action' }, 400, cors);
   }
 
-  const sufficient = user.credits >= cost;
+  const clips = user.credits; // DB column 'credits' → variable 'clips'
+  const sufficient = clips >= cost;
 
   return jsonResponse({
     action,
     cost,
-    available: user.credits,
+    available: clips,
     sufficient,
   }, 200, cors);
 }
 
-async function deductCredits(env, userId, amount, action, description, projectId) {
+async function deductClips(env, userId, amount, action, description, projectId) {
   await env.DB.batch([
     env.DB.prepare('UPDATE users SET credits = credits - ?, updated_at = ? WHERE id = ?')
       .bind(amount, new Date().toISOString(), userId),
@@ -586,7 +694,7 @@ async function deductCredits(env, userId, amount, action, description, projectId
   ]);
 }
 
-async function refundCredits(env, userId, amount, action, description, projectId) {
+async function refundClips(env, userId, amount, action, description, projectId) {
   await env.DB.batch([
     env.DB.prepare('UPDATE users SET credits = credits + ?, updated_at = ? WHERE id = ?')
       .bind(amount, new Date().toISOString(), userId),
@@ -597,7 +705,7 @@ async function refundCredits(env, userId, amount, action, description, projectId
   ]);
 }
 
-async function addCredits(env, userId, amount, type, action, description) {
+async function addClips(env, userId, amount, type, action, description) {
   await env.DB.batch([
     env.DB.prepare('UPDATE users SET credits = credits + ?, updated_at = ? WHERE id = ?')
       .bind(amount, new Date().toISOString(), userId),
@@ -620,7 +728,7 @@ async function recordTransaction(env, userId, amount, type, action, description)
 const PORTONE_API_URL = 'https://api.portone.io';
 
 async function handleGetPlans(cors) {
-  return jsonResponse({ plans: PLANS, credit_packs: CREDIT_PACKS, costs: CREDIT_COSTS }, 200, cors);
+  return jsonResponse({ plans: PLANS, clip_packs: CLIP_PACKS, costs: CLIP_COSTS, limits: PLAN_LIMITS }, 200, cors);
 }
 
 /**
@@ -631,37 +739,37 @@ async function handlePaymentPrepare(request, user, env, cors) {
   const { type, plan_id, pack_type } = await request.json();
 
   const paymentId = `pay_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-  let orderName, totalAmount, credits;
+  let orderName, totalAmount, clips;
 
-  if (type === 'credit_pack') {
-    const pack = CREDIT_PACKS[pack_type];
+  if (type === 'clip_pack' || type === 'credit_pack') {
+    const pack = CLIP_PACKS[pack_type];
     if (!pack) return jsonResponse({ error: 'Invalid pack type' }, 400, cors);
 
-    orderName = `StoryCut 크레딧팩 ${pack_type} (${pack.credits}cr)`;
+    orderName = `StoryCut 클립팩 ${pack_type} (${pack.clips} clips)`;
     totalAmount = pack.priceKrw;
-    credits = pack.credits;
+    clips = pack.clips;
 
     // pending 결제 기록
     await env.DB.prepare(
       `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, created_at)
        VALUES (?, ?, ?, ?, 'pending', 'one_time', ?)`
-    ).bind(paymentId, user.id, totalAmount, credits, new Date().toISOString()).run();
+    ).bind(paymentId, user.id, totalAmount, clips, new Date().toISOString()).run();
 
   } else if (type === 'subscription') {
     const plan = PLANS[plan_id];
     if (!plan || plan_id === 'free') return jsonResponse({ error: 'Invalid plan' }, 400, cors);
 
-    orderName = `StoryCut ${plan.name} 구독 (월 ${plan.monthlyCredits}cr)`;
+    orderName = `StoryCut ${plan.name} 구독 (월 ${plan.monthlyClips} clips)`;
     totalAmount = plan.priceKrw;
-    credits = plan.monthlyCredits;
+    clips = plan.monthlyClips;
 
     await env.DB.prepare(
       `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, created_at)
        VALUES (?, ?, ?, ?, 'pending', 'subscription', ?)`
-    ).bind(paymentId, user.id, totalAmount, credits, new Date().toISOString()).run();
+    ).bind(paymentId, user.id, totalAmount, clips, new Date().toISOString()).run();
 
   } else {
-    return jsonResponse({ error: 'Invalid type (credit_pack or subscription)' }, 400, cors);
+    return jsonResponse({ error: 'Invalid type (clip_pack or subscription)' }, 400, cors);
   }
 
   return jsonResponse({
@@ -675,8 +783,8 @@ async function handlePaymentPrepare(request, user, env, cors) {
 }
 
 /**
- * 크레딧팩 결제 완료 검증 — 프론트에서 SDK 결제 후 호출
- * PortOne API로 결제 상태 확인 → 크레딧 충전
+ * 클립팩 결제 완료 검증 — 프론트에서 SDK 결제 후 호출
+ * PortOne API로 결제 상태 확인 → 클립 충전
  */
 async function handlePaymentComplete(request, user, env, cors) {
   const { payment_id, pack_type } = await request.json();
@@ -696,31 +804,31 @@ async function handlePaymentComplete(request, user, env, cors) {
     return jsonResponse({ error: verified.error || 'Payment verification failed' }, 400, cors);
   }
 
-  // 3) 크레딧 충전
-  const credits = payment.credits;
-  await addCredits(env, user.id, credits, 'purchase', 'credit_pack',
-    `${pack_type || 'pack'} (${credits}cr) - ${payment.amount_usd.toLocaleString()}원`);
+  // 3) 클립 충전
+  const clips = payment.credits; // DB column still 'credits'
+  await addClips(env, user.id, clips, 'purchase', 'clip_pack',
+    `${pack_type || 'pack'} (${clips} clips) - ${payment.amount_usd.toLocaleString()}원`);
 
   // 4) 결제 완료 처리
   await env.DB.prepare(
     `UPDATE payments SET status = 'completed', stripe_payment_id = ?, completed_at = ? WHERE id = ?`
   ).bind(verified.portone_payment_id || payment_id, new Date().toISOString(), payment_id).run();
 
-  // 5) credit_packs 기록
+  // 5) credit_packs 기록 (DB table name preserved)
   if (pack_type) {
     await env.DB.prepare(
       `INSERT INTO credit_packs (user_id, pack_type, credits, amount_usd, stripe_payment_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(user.id, pack_type, credits, payment.amount_usd, payment_id, new Date().toISOString()).run();
+    ).bind(user.id, pack_type, clips, payment.amount_usd, payment_id, new Date().toISOString()).run();
   }
 
   // 최신 잔액 조회
   const freshUser = await env.DB.prepare('SELECT credits FROM users WHERE id = ?').bind(user.id).first();
 
   return jsonResponse({
-    message: `${credits} credits added`,
-    credits_added: credits,
-    credits_total: freshUser.credits,
+    message: `${clips} clips added`,
+    clips_added: clips,
+    clips_total: freshUser.credits, // DB column
   }, 200, cors);
 }
 
@@ -753,7 +861,7 @@ async function handleSubscribe(request, user, env, cors) {
     return jsonResponse({ error: `Payment failed: ${chargeResult.error}` }, 402, cors);
   }
 
-  // 구독 등록 + 크레딧 충전
+  // 구독 등록 + 클립 충전
   const now = new Date();
   const nextMonth = new Date(now);
   nextMonth.setMonth(nextMonth.getMonth() + 1);
@@ -762,7 +870,7 @@ async function handleSubscribe(request, user, env, cors) {
     env.DB.prepare(
       `UPDATE users SET plan_id = ?, monthly_credits = ?, credits = credits + ?,
        stripe_subscription_id = ?, plan_expires_at = ?, updated_at = ? WHERE id = ?`
-    ).bind(plan_id, plan.monthlyCredits, plan.monthlyCredits, billing_key,
+    ).bind(plan_id, plan.monthlyClips, plan.monthlyClips, billing_key,
       nextMonth.toISOString(), now.toISOString(), user.id),
     env.DB.prepare(
       `INSERT INTO subscriptions (user_id, plan_id, stripe_subscription_id, stripe_price_id, status,
@@ -772,24 +880,24 @@ async function handleSubscribe(request, user, env, cors) {
       now.toISOString(), nextMonth.toISOString(), now.toISOString(), now.toISOString()),
   ]);
 
-  await addCredits(env, user.id, plan.monthlyCredits, 'subscription', 'plan_renewal',
-    `${plan.name} 구독 시작 (${plan.monthlyCredits}cr)`);
+  await addClips(env, user.id, plan.monthlyClips, 'subscription', 'plan_renewal',
+    `${plan.name} 구독 시작 (${plan.monthlyClips} clips)`);
 
   // 결제 기록
   await env.DB.prepare(
     `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, stripe_payment_id, created_at, completed_at)
      VALUES (?, ?, ?, ?, 'completed', 'subscription', ?, ?, ?)`
-  ).bind(firstPaymentId, user.id, plan.priceKrw, plan.monthlyCredits,
+  ).bind(firstPaymentId, user.id, plan.priceKrw, plan.monthlyClips,
     billing_key, now.toISOString(), now.toISOString()).run();
 
   const freshUser = await env.DB.prepare('SELECT credits FROM users WHERE id = ?').bind(user.id).first();
 
   return jsonResponse({
-    message: `${plan.name} 구독 시작! ${plan.monthlyCredits}cr 충전됨`,
+    message: `${plan.name} 구독 시작! ${plan.monthlyClips} clips 충전됨`,
     plan_id: plan_id,
     plan_name: plan.name,
-    credits_added: plan.monthlyCredits,
-    credits_total: freshUser.credits,
+    clips_added: plan.monthlyClips,
+    clips_total: freshUser.credits,
     next_renewal: nextMonth.toISOString(),
   }, 200, cors);
 }
@@ -836,8 +944,8 @@ async function handlePortoneWebhook(request, env, cors) {
 
         if (payment) {
           // complete 처리 (프론트에서 complete 호출 못한 경우 보충)
-          await addCredits(env, payment.user_id, payment.credits, 'purchase', 'credit_pack',
-            `Webhook: ${payment.credits}cr - ${payment.amount_usd}원`);
+          await addClips(env, payment.user_id, payment.credits, 'purchase', 'clip_pack',
+            `Webhook: ${payment.credits} clips - ${payment.amount_usd}원`);
 
           await env.DB.prepare(
             `UPDATE payments SET status = 'completed', completed_at = ? WHERE id = ?`
@@ -958,8 +1066,8 @@ async function processSubscriptionRenewals(env) {
         const nextMonth = new Date(now);
         nextMonth.setMonth(nextMonth.getMonth() + 1);
 
-        await addCredits(env, sub.user_id, plan.monthlyCredits, 'subscription', 'plan_renewal',
-          `${plan.name} 월간 갱신 (${plan.monthlyCredits}cr)`);
+        await addClips(env, sub.user_id, plan.monthlyClips, 'subscription', 'plan_renewal',
+          `${plan.name} 월간 갱신 (${plan.monthlyClips} clips)`);
 
         await env.DB.batch([
           env.DB.prepare(
@@ -974,7 +1082,7 @@ async function processSubscriptionRenewals(env) {
         await env.DB.prepare(
           `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, stripe_payment_id, created_at, completed_at)
            VALUES (?, ?, ?, ?, 'completed', 'subscription', ?, ?, ?)`
-        ).bind(paymentId, sub.user_id, plan.priceKrw, plan.monthlyCredits,
+        ).bind(paymentId, sub.user_id, plan.priceKrw, plan.monthlyClips,
           sub.billing_key, now.toISOString(), now.toISOString()).run();
 
         console.log(`Renewal success: user=${sub.user_id}, plan=${sub.plan_id}`);
@@ -1000,7 +1108,7 @@ async function processSubscriptionRenewals(env) {
 
 // ==================== 관리자 API ====================
 
-async function handleAdminGrantCredits(request, user, env, cors) {
+async function handleAdminGrantClips(request, user, env, cors) {
   const adminEmails = (env.ADMIN_EMAILS || '').split(',').map(e => e.trim());
   if (!adminEmails.includes(user.email)) {
     return jsonResponse({ error: 'Forbidden' }, 403, cors);
@@ -1019,9 +1127,9 @@ async function handleAdminGrantCredits(request, user, env, cors) {
     return jsonResponse({ error: 'target_user_id/target_email and amount required' }, 400, cors);
   }
 
-  await addCredits(env, targetId, amount, 'purchase', 'admin_grant', reason || `Admin grant by ${user.email}`);
+  await addClips(env, targetId, amount, 'purchase', 'admin_grant', reason || `Admin grant by ${user.email}`);
 
-  return jsonResponse({ message: `Granted ${amount} credits`, target_user_id: targetId }, 200, cors);
+  return jsonResponse({ message: `Granted ${amount} clips`, target_user_id: targetId }, 200, cors);
 }
 
 // ==================== 기존 핸들러 ====================
@@ -1038,15 +1146,16 @@ async function handleGenerate(request, user, env, ctx, cors) {
   try {
     const body = await request.json();
 
-    const creditAction = body.mode === 'mv' ? 'mv' : 'video';
-    const cost = CREDIT_COSTS[creditAction];
+    const clipAction = body.mode === 'mv' ? 'mv' : 'video';
+    const cost = CLIP_COSTS[clipAction];
+    const clips = user.credits; // DB column 'credits' → variable 'clips'
 
-    if (user.credits < cost) {
+    if (clips < cost) {
       return jsonResponse({
-        error: 'Insufficient credits',
+        error: 'Insufficient clips',
         required: cost,
-        available: user.credits,
-        action: creditAction,
+        available: clips,
+        action: clipAction,
       }, 402, cors);
     }
 
@@ -1066,14 +1175,14 @@ async function handleGenerate(request, user, env, ctx, cors) {
       });
     }
 
-    await deductCredits(env, user.id, cost, creditAction, `${creditAction} generation`, projectId);
+    await deductClips(env, user.id, cost, clipAction, `${clipAction} generation`, projectId);
 
     return jsonResponse({
       project_id: projectId,
       status: 'queued',
       message: 'Generation started',
-      credits_used: cost,
-      credits_remaining: user.credits - cost,
+      clips_used: cost,
+      clips_remaining: clips - cost,
     }, 200, cors);
   } catch (error) {
     console.error('Generate error:', error);

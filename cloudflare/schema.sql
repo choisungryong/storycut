@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
     api_token TEXT UNIQUE,
-    credits INTEGER DEFAULT 20,
+    credits INTEGER DEFAULT 30,
     subscription_tier TEXT DEFAULT 'free',
     plan_id TEXT DEFAULT 'free',
     plan_expires_at DATETIME,
