@@ -4539,7 +4539,9 @@ class MVPipeline:
             f"[0:v]{vf_filter}[v];[1:a]aresample=48000,asetpts=N/SR/TB[a]",
             "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-profile:v", "high", "-level", "4.1", "-r", "30",
+            "-profile:v", "high", "-level", "4.1",
+            "-preset", "medium", "-crf", "20",
+            "-r", "30",
             "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
             out_abs
         ]

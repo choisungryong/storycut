@@ -216,9 +216,10 @@ class FFmpegComposer:
         if total_frames < 1:
             total_frames = 1
 
-        # Δscale 클램핑 (Rule 5: max 0.06)
+        # Δscale 클램핑 (Rule 5: max 0.06, Rule 5b: max 0.02/sec)
         zoom_min, zoom_max = zoom_range
-        delta = min(zoom_max - zoom_min, self._MAX_DELTA_SCALE)
+        max_delta_for_duration = 0.02 * duration_sec
+        delta = min(zoom_max - zoom_min, self._MAX_DELTA_SCALE, max_delta_for_duration)
         zoom_max = zoom_min + delta
 
         # shot_type별 스케일 범위 검증 (Rule 2)
@@ -1715,7 +1716,7 @@ class FFmpegComposer:
                 "-filter_complex", filter_complex,
                 "-map", "[vout]", "-map", "1:a",
                 "-c:v", "libx264", "-profile:v", "high",
-                "-preset", "fast", "-crf", "22",
+                "-preset", "medium", "-crf", "20",
                 "-pix_fmt", "yuv420p", "-r", str(self.fps),
                 "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000",
                 "-shortest",
@@ -1729,7 +1730,7 @@ class FFmpegComposer:
                 "-i", audio_abs,
                 "-map", "0:v", "-map", "1:a",
                 "-c:v", "libx264", "-profile:v", "high",
-                "-preset", "fast", "-crf", "22",
+                "-preset", "medium", "-crf", "20",
                 "-pix_fmt", "yuv420p", "-r", str(self.fps),
                 "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000",
                 "-shortest",
