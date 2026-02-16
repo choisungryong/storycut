@@ -65,7 +65,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -801,6 +801,54 @@ async def signup_page():
 async def pricing_page():
     """가격표 페이지"""
     return HTMLResponse(content=Path("web/templates/pricing.html").read_text(encoding="utf-8"))
+
+
+@app.get("/privacy.html", response_class=HTMLResponse)
+async def privacy_page():
+    """개인정보처리방침"""
+    return HTMLResponse(content=Path("web/templates/privacy.html").read_text(encoding="utf-8"))
+
+
+@app.get("/terms.html", response_class=HTMLResponse)
+async def terms_page():
+    """이용약관"""
+    return HTMLResponse(content=Path("web/templates/terms.html").read_text(encoding="utf-8"))
+
+
+@app.get("/about.html", response_class=HTMLResponse)
+async def about_page():
+    """서비스 소개"""
+    return HTMLResponse(content=Path("web/templates/about.html").read_text(encoding="utf-8"))
+
+
+@app.get("/robots.txt")
+async def robots_txt():
+    """robots.txt for SEO"""
+    content = """User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /api/
+Disallow: /ws/
+Disallow: /docs
+Disallow: /outputs/
+Sitemap: https://klippa.cc/sitemap.xml
+"""
+    return PlainTextResponse(content=content, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    """sitemap.xml for SEO"""
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://klippa.cc/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://klippa.cc/pricing.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://klippa.cc/about.html</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://klippa.cc/privacy.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://klippa.cc/terms.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+</urlset>
+"""
+    return PlainTextResponse(content=content.strip(), media_type="application/xml")
 
 
 @app.websocket("/ws/{project_id}")
@@ -3657,6 +3705,119 @@ async def mv_download(project_id: str):
         print(f"[MV Download] R2 fallback error: {e}")
 
     raise HTTPException(status_code=404, detail="Video not found")
+
+
+# ============================================================================
+# User Profile / Stats / History (mock endpoints for profile modal)
+# ============================================================================
+
+@app.get("/api/user/stats")
+async def get_user_stats():
+    """Mock user statistics - counts projects from local outputs"""
+    outputs_dir = "outputs"
+    total_videos = 0
+    total_mv = 0
+    styles = {}
+    genres = {}
+
+    if os.path.exists(outputs_dir):
+        for d in os.listdir(outputs_dir):
+            if not os.path.isdir(os.path.join(outputs_dir, d)):
+                continue
+            manifest_path = os.path.join(outputs_dir, d, "manifest.json")
+            if not os.path.exists(manifest_path):
+                continue
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("status") != "completed":
+                    continue
+                if d.startswith("mv_"):
+                    total_mv += 1
+                    ma = data.get("music_analysis", {})
+                    g = ma.get("genre")
+                    if g:
+                        genres[g] = genres.get(g, 0) + 1
+                else:
+                    total_videos += 1
+                    g = data.get("genre")
+                    if g:
+                        genres[g] = genres.get(g, 0) + 1
+                s = data.get("style")
+                if s:
+                    styles[s] = styles.get(s, 0) + 1
+            except Exception:
+                continue
+
+    user = None
+    token = None
+    # Try to get user info from Authorization header for member_since
+    member_since = "N/A"
+    try:
+        user_data = json.loads(open("outputs/.user_cache.json").read()) if os.path.exists("outputs/.user_cache.json") else {}
+        member_since = user_data.get("created_at", "N/A")
+    except Exception:
+        pass
+
+    top_style = max(styles, key=styles.get) if styles else None
+    top_genre = max(genres, key=genres.get) if genres else None
+
+    return {
+        "total_videos": total_videos,
+        "total_mv": total_mv,
+        "total_credits_used": (total_videos * 5) + (total_mv * 10),
+        "member_since": member_since,
+        "top_style": top_style,
+        "top_genre": top_genre,
+    }
+
+
+@app.put("/api/user/profile")
+async def update_user_profile(request: Request):
+    """Mock profile update - updates username in local user cache"""
+    body = await request.json()
+    username = body.get("username", "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    return {"success": True, "username": username}
+
+
+@app.get("/api/user/history")
+async def get_user_history():
+    """Mock credit usage history - derives from local project manifests"""
+    outputs_dir = "outputs"
+    history = []
+
+    if os.path.exists(outputs_dir):
+        entries = []
+        for d in os.listdir(outputs_dir):
+            if not os.path.isdir(os.path.join(outputs_dir, d)):
+                continue
+            manifest_path = os.path.join(outputs_dir, d, "manifest.json")
+            if not os.path.exists(manifest_path):
+                continue
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("status") != "completed":
+                    continue
+                is_mv = d.startswith("mv_")
+                created = data.get("created_at", "")
+                title = data.get("title") or data.get("concept") or d
+                entries.append({
+                    "date": created[:10] if created else "",
+                    "action": f"MV: {title}" if is_mv else f"Video: {title}",
+                    "credits": 10 if is_mv else 5,
+                    "project_id": d,
+                    "sort_key": created,
+                })
+            except Exception:
+                continue
+
+        entries.sort(key=lambda x: x.get("sort_key", ""), reverse=True)
+        history = [{"date": e["date"], "action": e["action"], "credits": e["credits"], "project_id": e["project_id"]} for e in entries[:10]]
+
+    return {"history": history}
 
 
 @app.on_event("startup")

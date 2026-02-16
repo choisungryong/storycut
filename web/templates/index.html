@@ -5,9 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Klippa - AI Video Creation Studio</title>
+    <meta name="robots" content="noindex">
     <link rel="stylesheet" href="/static/css/design-tokens.css">
     <link rel="stylesheet" href="/static/css/shared.css">
-    <link rel="stylesheet" href="/static/css/app.css?v=20260216_1210">
+    <link rel="stylesheet" href="/static/css/app.css?v=20260216_2100">
     <script src="/static/auth.js"></script>
 </head>
 
@@ -918,43 +919,188 @@
         <div class="modal-card profile-modal-card">
             <button class="modal-close" onclick="closeProfileModal()">&times;</button>
 
-            <div class="profile-section">
+            <!-- Common Header -->
+            <div class="profile-header">
                 <div class="profile-avatar">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
                         <circle cx="12" cy="7" r="4"/>
                     </svg>
                 </div>
-                <h3 class="profile-name" id="profile-name">User</h3>
-                <p class="profile-email" id="profile-email">user@example.com</p>
+                <div class="profile-header-info">
+                    <div class="profile-name-row">
+                        <h3 class="profile-name" id="profile-name">User</h3>
+                        <button class="profile-edit-name-btn" onclick="toggleUsernameEdit()" title="Edit name">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                    </div>
+                    <div class="profile-name-edit" id="profile-name-edit" style="display:none">
+                        <input type="text" id="profile-name-input" class="form-input profile-name-input" />
+                        <button class="profile-name-save" onclick="updateUsername()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                        </button>
+                        <button class="profile-name-cancel" onclick="toggleUsernameEdit()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <p class="profile-email" id="profile-email">user@example.com</p>
+                </div>
             </div>
 
-            <div class="profile-stats">
-                <div class="profile-stat-card">
-                    <span class="profile-stat-value" id="profile-credits">0</span>
-                    <span class="profile-stat-label">Credits</span>
-                </div>
-                <div class="profile-stat-card">
-                    <span class="profile-stat-value" id="profile-plan">Free</span>
-                    <span class="profile-stat-label">Plan</span>
-                </div>
-                <div class="profile-stat-card">
-                    <span class="profile-stat-value" id="profile-since">N/A</span>
-                    <span class="profile-stat-label">Member Since</span>
-                </div>
+            <!-- Tab Navigation -->
+            <div class="profile-tabs">
+                <button class="profile-tab active" data-tab="account" onclick="switchProfileTab('account')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <span>Account</span>
+                </button>
+                <button class="profile-tab" data-tab="credits" onclick="switchProfileTab('credits')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor">C</text></svg>
+                    <span>Credits</span>
+                </button>
+                <button class="profile-tab" data-tab="stats" onclick="switchProfileTab('stats')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+                    <span>Stats</span>
+                </button>
+                <button class="profile-tab" data-tab="settings" onclick="switchProfileTab('settings')">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                    <span>Settings</span>
+                </button>
             </div>
 
-            <div class="profile-actions">
-                <a href="/pricing.html" class="btn-profile btn-profile-primary">Get More Credits</a>
-                <button onclick="logout()" class="btn-profile btn-profile-danger">Log Out</button>
+            <!-- Tab Content -->
+            <div class="profile-tab-content">
+
+                <!-- Account Tab -->
+                <div id="profile-tab-account" class="profile-tab-panel active">
+                    <div class="profile-account-info">
+                        <div class="profile-info-row">
+                            <span class="profile-info-label">Email</span>
+                            <span class="profile-info-value" id="profile-account-email">-</span>
+                        </div>
+                        <div class="profile-info-row">
+                            <span class="profile-info-label">Google</span>
+                            <span class="profile-info-value" id="profile-google-status">
+                                <span class="profile-badge profile-badge-connected">Connected</span>
+                            </span>
+                        </div>
+                        <div class="profile-info-row">
+                            <span class="profile-info-label">Plan</span>
+                            <span class="profile-info-value" id="profile-plan">Free</span>
+                        </div>
+                        <div class="profile-info-row">
+                            <span class="profile-info-label">Member Since</span>
+                            <span class="profile-info-value" id="profile-since">N/A</span>
+                        </div>
+                    </div>
+                    <div class="profile-actions" style="margin-top: var(--space-6)">
+                        <button onclick="logout()" class="btn-profile btn-profile-danger" style="flex:none; width:100%">Log Out</button>
+                    </div>
+                </div>
+
+                <!-- Credits Tab -->
+                <div id="profile-tab-credits" class="profile-tab-panel">
+                    <div class="profile-credits-hero">
+                        <span class="profile-credits-big" id="profile-credits">0</span>
+                        <span class="profile-credits-label">Credits Remaining</span>
+                    </div>
+                    <div class="profile-credits-plan-row">
+                        <span>Current Plan: <strong id="profile-credits-plan">Free</strong></span>
+                        <a href="/pricing.html" class="btn-profile-sm btn-profile-primary">Upgrade</a>
+                    </div>
+                    <div class="profile-credits-history">
+                        <h4 class="profile-section-title">Usage History</h4>
+                        <div id="profile-history-list" class="profile-history-list">
+                            <p class="profile-empty-state">No credit usage history yet.</p>
+                        </div>
+                    </div>
+                    <a href="/pricing.html" class="btn-profile btn-profile-primary" style="width:100%; margin-top:var(--space-4)">Get More Credits</a>
+                </div>
+
+                <!-- Stats Tab -->
+                <div id="profile-tab-stats" class="profile-tab-panel">
+                    <div class="profile-stats-grid">
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-value" id="profile-stat-videos">-</span>
+                            <span class="profile-stat-label">Standard Videos</span>
+                        </div>
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-value" id="profile-stat-mvs">-</span>
+                            <span class="profile-stat-label">Music Videos</span>
+                        </div>
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-value" id="profile-stat-credits-used">-</span>
+                            <span class="profile-stat-label">Credits Used</span>
+                        </div>
+                        <div class="profile-stat-card">
+                            <span class="profile-stat-value" id="profile-stat-since">-</span>
+                            <span class="profile-stat-label">Member Since</span>
+                        </div>
+                    </div>
+                    <div class="profile-stats-extra" id="profile-stats-extra" style="display:none">
+                        <div class="profile-info-row">
+                            <span class="profile-info-label">Top Style</span>
+                            <span class="profile-info-value" id="profile-stat-top-style">-</span>
+                        </div>
+                        <div class="profile-info-row">
+                            <span class="profile-info-label">Top Genre</span>
+                            <span class="profile-info-value" id="profile-stat-top-genre">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="profile-tab-settings" class="profile-tab-panel">
+                    <div class="profile-settings-form">
+                        <div class="profile-setting-group">
+                            <label class="profile-setting-label">Default Style</label>
+                            <div class="select-wrapper">
+                                <select id="pref-style" class="form-select" onchange="savePreferences()">
+                                    <option value="">None (use form default)</option>
+                                    <option value="cinematic, high contrast">Cinematic</option>
+                                    <option value="realistic">Realistic</option>
+                                    <option value="illustration">Illustration</option>
+                                    <option value="anime">Anime</option>
+                                    <option value="webtoon">Webtoon</option>
+                                    <option value="game_anime">Game Anime</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="profile-setting-group">
+                            <label class="profile-setting-label">Default Genre</label>
+                            <div class="select-wrapper">
+                                <select id="pref-genre" class="form-select" onchange="savePreferences()">
+                                    <option value="">None (use form default)</option>
+                                    <option value="emotional">Emotional</option>
+                                    <option value="mystery">Mystery</option>
+                                    <option value="thriller">Thriller</option>
+                                    <option value="fantasy">Fantasy</option>
+                                    <option value="horror">Horror</option>
+                                    <option value="comedy">Comedy</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="profile-setting-group">
+                            <label class="profile-setting-label">Default Language</label>
+                            <div class="select-wrapper">
+                                <select id="pref-language" class="form-select" onchange="savePreferences()">
+                                    <option value="">None (auto)</option>
+                                    <option value="ko">Korean</option>
+                                    <option value="en">English</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="profile-setting-hint">These defaults will be auto-selected when creating new videos.</p>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
 
     <!-- Footer -->
     <footer class="app-footer">
-        <p>&copy; 2025 Klippa | AI Video Creation Studio</p>
-        <p><a href="/docs" target="_blank">API Docs</a></p>
+        <p>&copy; 2026 Klippa | AI Video Creation Studio</p>
+        <p><a href="/privacy.html">Privacy</a> | <a href="/terms.html">Terms</a> | <a href="/docs" target="_blank">API Docs</a></p>
     </footer>
 
     <script src="/static/app.js?v=20260216_1210"></script>
