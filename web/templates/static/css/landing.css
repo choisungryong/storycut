@@ -595,9 +595,9 @@ body {
    ═══════════════════════════════════════════════════════════ */
 .pricing__grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-6);
-  max-width: 960px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -701,6 +701,12 @@ body {
   color: var(--brand-primary-light);
 }
 
+@media (max-width: 1024px) {
+  .pricing__grid {
+    grid-template-columns: repeat(2, 1fr);
+    max-width: 600px;
+  }
+}
 @media (max-width: 768px) {
   .pricing__grid {
     grid-template-columns: 1fr;
