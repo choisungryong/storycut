@@ -831,7 +831,7 @@ Disallow: /api/
 Disallow: /ws/
 Disallow: /docs
 Disallow: /outputs/
-Sitemap: https://klippa.cc/sitemap.xml
+Sitemap: https://storycut.pages.dev/sitemap.xml
 """
     return PlainTextResponse(content=content, media_type="text/plain")
 
@@ -841,11 +841,11 @@ async def sitemap_xml():
     """sitemap.xml for SEO"""
     content = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://klippa.cc/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>https://klippa.cc/pricing.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://klippa.cc/about.html</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://klippa.cc/privacy.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
-  <url><loc>https://klippa.cc/terms.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://storycut.pages.dev/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://storycut.pages.dev/pricing.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://storycut.pages.dev/about.html</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://storycut.pages.dev/privacy.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://storycut.pages.dev/terms.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
 </urlset>
 """
     return PlainTextResponse(content=content.strip(), media_type="application/xml")
