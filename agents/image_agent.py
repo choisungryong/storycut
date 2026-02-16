@@ -145,6 +145,7 @@ class ImageAgent:
                         visual_bible=visual_bible,
                         color_mood=color_mood,
                         camera_directive=camera_directive,
+                        aspect_ratio=aspect_ratio,
                     )
                 except Exception as e:
                     error_msg = str(e)
@@ -171,6 +172,7 @@ class ImageAgent:
                                 visual_bible=visual_bible,
                                 color_mood=color_mood,
                                 camera_directive=camera_directive,
+                                aspect_ratio=aspect_ratio,
                             )
                         except Exception as retry_e:
                             print(f"     [Error] Softened prompt retry failed: {retry_e}")
@@ -227,6 +229,7 @@ class ImageAgent:
         visual_bible: Optional[dict] = None,    # v3.0: Visual Bible
         color_mood: Optional[str] = None,       # v3.0: Visual Bible
         camera_directive: Optional[str] = None, # v3.1: 카메라/프레이밍 지시
+        aspect_ratio: str = "16:9",            # v3.2: 플랫폼별 비율
     ) -> tuple:
         """
         Call Google Gemini 2.5 Flash Image API for image generation.

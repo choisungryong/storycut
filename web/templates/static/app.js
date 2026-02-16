@@ -2760,12 +2760,34 @@ class StorycutApp {
     // ==================== Music Video Mode ====================
 
     initMVEventListeners() {
-        // MV 네비게이션
+        // MV 네비게이션 - 클릭 시 이전 MV 상태 완전 초기화
         document.getElementById('nav-mv')?.addEventListener('click', (e) => {
             e.preventDefault();
-            this.showSection('mv');
-            this.setNavActive('nav-mv');
+            this.resetMVUI();
         });
+
+        // MV 파일 선택 시 파일명 표시
+        const mvFileInput = document.getElementById('mv-music-file');
+        const mvDropzone = document.getElementById('mv-dropzone');
+        if (mvFileInput && mvDropzone) {
+            mvFileInput.addEventListener('change', () => {
+                const file = mvFileInput.files[0];
+                const textEl = mvDropzone.querySelector('.file-dropzone__text');
+                const hintEl = mvDropzone.querySelector('.file-dropzone__hint');
+                if (file) {
+                    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+                    textEl.textContent = file.name;
+                    hintEl.textContent = `${sizeMB} MB`;
+                    mvDropzone.style.borderColor = 'var(--brand-primary)';
+                    mvDropzone.style.background = 'rgba(99, 102, 241, 0.06)';
+                } else {
+                    textEl.textContent = 'Drop music file or click to browse';
+                    hintEl.textContent = 'MP3, WAV, M4A, OGG, FLAC (max 10 min)';
+                    mvDropzone.style.borderColor = '';
+                    mvDropzone.style.background = '';
+                }
+            });
+        }
 
         // MV 폼 제출 (음악 업로드)
         document.getElementById('mv-form')?.addEventListener('submit', (e) => {
@@ -2812,6 +2834,8 @@ class StorycutApp {
         this.stopMVPolling();
         const prevGrid = document.getElementById('mv-image-review-grid');
         if (prevGrid) prevGrid.innerHTML = '';
+        const prevSceneGrid = document.getElementById('mv-scene-grid');
+        if (prevSceneGrid) prevSceneGrid.innerHTML = '';
         const composeBtn = document.getElementById('mv-compose-btn');
         if (composeBtn) {
             composeBtn.disabled = false;
@@ -3010,7 +3034,12 @@ class StorycutApp {
             // 크레딧 차감 반영
             if (typeof deductLocalCredits === 'function') deductLocalCredits('mv');
 
-            // 진행 화면으로 전환
+            // 진행 화면으로 전환 - 이전 데이터 클리어
+            const sceneGrid = document.getElementById('mv-scene-grid');
+            if (sceneGrid) sceneGrid.innerHTML = '';
+            const logContent = document.getElementById('mv-log-content');
+            if (logContent) logContent.innerHTML = '';
+
             this.showSection('mv-progress');
             this.mvAddLog('INFO', `✅ MV 생성 시작 (Project: ${this.mvProjectId})`);
             this.mvAddLog('INFO', `📊 총 ${result.total_scenes}개 씬, 예상 소요: ${Math.ceil(result.estimated_time_sec / 60)}분`);
@@ -4071,11 +4100,30 @@ class StorycutApp {
         this.mvProjectId = null;
         this.mvAnalysis = null;
         this.mvRequestParams = null;
+        this._currentMVResultProjectId = null;
         this.stopMVPolling();
 
-        // 이전 MV 이미지 리뷰 그리드 초기화
+        // 폼 리셋 (파일, 가사, 컨셉, 셀렉트 등 전부 초기화)
+        const mvForm = document.getElementById('mv-form');
+        if (mvForm) mvForm.reset();
+
+        // 파일명 표시 초기화
+        const fileLabel = document.getElementById('mv-file-name');
+        if (fileLabel) fileLabel.textContent = '';
+
+        // 분석 결과 섹션 초기화
+        const sceneEditor = document.getElementById('mv-scene-editor');
+        if (sceneEditor) sceneEditor.innerHTML = '';
+        ['mv-duration', 'mv-bpm', 'mv-suggested-scenes', 'mv-detected-mood'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '-';
+        });
+
+        // 이미지 그리드 초기화 (진행 중 미리보기 + 리뷰 에디터)
         const grid = document.getElementById('mv-image-review-grid');
         if (grid) grid.innerHTML = '';
+        const sceneGrid = document.getElementById('mv-scene-grid');
+        if (sceneGrid) sceneGrid.innerHTML = '';
 
         // 합성 버튼 초기화
         const composeBtn = document.getElementById('mv-compose-btn');
@@ -4084,11 +4132,16 @@ class StorycutApp {
             composeBtn.innerHTML = '<span class="btn-icon">🎬</span> 최종 뮤직비디오 생성';
         }
 
-        // MV 진행 로그 초기화
+        // 진행 로그 초기화
         const logContent = document.getElementById('mv-log-content');
         if (logContent) logContent.innerHTML = '';
 
-        document.getElementById('mv-form').reset();
+        // 진행률 바 초기화
+        const progressBar = document.getElementById('mv-progress-bar');
+        if (progressBar) progressBar.style.width = '0%';
+        const progressText = document.getElementById('mv-progress-text');
+        if (progressText) progressText.textContent = '';
+
         this.showSection('mv');
         this.setNavActive('nav-mv');
     }

@@ -16,6 +16,10 @@ from datetime import datetime
 
 # 섹션 마커 패턴: [Chorus], [Verse 1], [Pre-Chorus], [Intro] 등
 _SECTION_MARKER_RE = re.compile(r'^\[.*?\]$')
+# 줄 시작의 [...] 마커 strip용 (뒤에 텍스트가 있어도 제거)
+_STRIP_BRACKET_RE = re.compile(r'^\[.*?\]\s*')
+# 줄 시작/끝의 (...) 마커 strip용
+_STRIP_PAREN_RE = re.compile(r'^\(.*?\)\s*|\s*\(.*?\)$')
 
 from schemas.mv_models import (
     MVProject, MVScene, MVProjectStatus, MVSceneStatus,
@@ -220,8 +224,13 @@ class MVPipeline:
             line = line.strip()
             if not line:
                 continue
-            # 섹션 마커 제거 [Chorus], [Verse 1] 등
+            # 섹션 마커 제거 [Chorus], [Verse 1] 등 (줄 전체가 마커이면 스킵)
             if _SECTION_MARKER_RE.match(line):
+                continue
+            # 줄 시작의 [...] / (...) 마커 통째로 제거
+            line = _STRIP_BRACKET_RE.sub('', line).strip()
+            line = _STRIP_PAREN_RE.sub('', line).strip()
+            if not line:
                 continue
             # 따옴표류 제거
             line = re.sub(r'["""\u201c\u201d\u2018\u2019\'`]', '', line)
@@ -819,6 +828,12 @@ class MVPipeline:
                     "facial hair (beard/mustache/clean-shaven + length if applicable), "
                     "eye shape, face shape, skin tone, body type. Be CONCRETE "
                     f"{self._get_ethnicity_description_example(project)}\n"
+                    "  - unique_features: REQUIRED - 3+ UNIQUE IDENTIFYING FEATURES that distinguish this character "
+                    "from all others and remain constant across every scene. Examples: "
+                    "'small mole below left eye, silver pendant necklace, distinctive sharp eyebrows', "
+                    "'red hair ribbon on right side, heterochromia (left blue right amber), thin scar on left cheek', "
+                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring'. "
+                    "These must be VISIBLE and SPECIFIC enough to identify the character in any scene.\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
                     "=== SCENE BLOCKING ===\n"
@@ -911,6 +926,12 @@ class MVPipeline:
                     "facial hair (beard/mustache/clean-shaven + length if applicable), "
                     "eye shape, face shape, skin tone, body type. Be CONCRETE "
                     f"{self._get_ethnicity_description_example(project)}\n"
+                    "  - unique_features: REQUIRED - 3+ UNIQUE IDENTIFYING FEATURES that distinguish this character "
+                    "from all others and remain constant across every scene. Examples: "
+                    "'small mole below left eye, silver pendant necklace, distinctive sharp eyebrows', "
+                    "'red hair ribbon on right side, heterochromia (left blue right amber), thin scar on left cheek', "
+                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring'. "
+                    "These must be VISIBLE and SPECIFIC enough to identify the character in any scene.\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
                     "=== SCENE BLOCKING ===\n"
@@ -1252,7 +1273,7 @@ class MVPipeline:
             "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin",
             "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, NOT a photograph",
             "abstract": "abstract expressionist art, surreal dreamlike, bold geometric shapes",
-            "game_anime": "anime game cinematic illustration, premium game-art quality, cel-shaded with dramatic lighting, vibrant saturated colors, NOT photorealistic, NOT western cartoon",
+            "game_anime": "3D cel-shaded toon-rendered scene, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn illustration, NOT western cartoon",
         }
         style_context = _style_directives.get(project.style.value, f"{project.style.value} style")
         style_context += f", {project.mood.value} mood"
@@ -1268,6 +1289,8 @@ class MVPipeline:
                 f"Character portrait, upper body, face clearly visible, centered composition, "
                 f"{character.description}"
             )
+            if getattr(character, 'unique_features', ''):
+                portrait_prompt += f", MUST INCLUDE: {character.unique_features}"
             if character.outfit:
                 portrait_prompt += f", wearing {character.outfit}"
             portrait_prompt += (
@@ -1393,8 +1416,15 @@ class MVPipeline:
         if not lyrics:
             return ""
 
-        lines = [l.strip() for l in lyrics.strip().split('\n')
-                 if l.strip() and not _SECTION_MARKER_RE.match(l.strip())]
+        lines = []
+        for l in lyrics.strip().split('\n'):
+            t = l.strip()
+            if not t or _SECTION_MARKER_RE.match(t):
+                continue
+            t = _STRIP_BRACKET_RE.sub('', t).strip()
+            t = _STRIP_PAREN_RE.sub('', t).strip()
+            if t:
+                lines.append(t)
         if not lines:
             return ""
 
@@ -1527,7 +1557,7 @@ class MVPipeline:
                 "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, candid feel, 35mm film grain",
                 "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, artstation trending",
                 "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational",
-                "game_anime": "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, premium game-art quality, vibrant saturated colors"
+                "game_anime": "3D cel-shaded toon-rendered scene, modern anime action RPG game cutscene quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, dynamic hair and cloth physics, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast"
             }.get(request.style.value, "cinematic film still, dramatic lighting")
 
             # GenreProfile: 스타일 프로필이 있으면 장르 프로필에 병합
@@ -2085,6 +2115,9 @@ class MVPipeline:
             parts = [char.description] if char.description else []
             if char.outfit:
                 parts.append(f"wearing {char.outfit}")
+            # 고유 식별 특징 주입 (일관성 핵심)
+            if getattr(char, 'unique_features', ''):
+                parts.append(f"MUST HAVE: {char.unique_features}")
             if parts:
                 char_descs.append(f"[{role.upper()}] {', '.join(parts)}")
 
@@ -2119,6 +2152,19 @@ class MVPipeline:
         if len(scene.characters_in_scene) >= 2:
             hand_token = "natural hands, correct fingers, anatomically correct hands"
 
+        # 씬 프롬프트에서 LLM이 생성한 의상 묘사 제거 (Visual Bible outfit과 충돌 방지)
+        cleaned_prompt = prompt
+        if char_descs:
+            _OUTFIT_RE = re.compile(
+                r'\b(?:wearing|dressed in|clad in|in a|clothed in)\s+'
+                r'[^,.;]{3,60}(?:[,.]|\s(?:and|with))',
+                re.IGNORECASE
+            )
+            cleaned_prompt = _OUTFIT_RE.sub('', cleaned_prompt).strip()
+            # 이중 쉼표/공백 정리
+            cleaned_prompt = re.sub(r',\s*,', ',', cleaned_prompt)
+            cleaned_prompt = re.sub(r'\s{2,}', ' ', cleaned_prompt).strip(' ,.')
+
         # 프롬프트 조립: action_pose를 최우선에 배치 (앵커 이미지의 직립 자세 덮어쓰기)
         prefix_parts = []
         if action_pose:
@@ -2131,7 +2177,58 @@ class MVPipeline:
         char_block = " | ".join(char_descs)
         prefix_parts.append(char_block)
 
-        return f"{'. '.join(prefix_parts)}. {prompt}"
+        # 의상 잠금 강조
+        outfit_lock = ""
+        for role in scene.characters_in_scene[:5]:
+            char = char_map.get(role)
+            if char and char.outfit:
+                outfit_lock += f" OUTFIT LOCK: {role} MUST wear {char.outfit} in EVERY scene."
+
+        return f"{'. '.join(prefix_parts)}.{outfit_lock} {cleaned_prompt}"
+
+    @staticmethod
+    def _build_character_negative(project: 'MVProject', scene: 'MVScene') -> str:
+        """캐릭터 외형 변화를 방지하는 캐릭터별 네거티브 프롬프트 생성."""
+        if not project.visual_bible or not project.visual_bible.characters:
+            return ""
+        if not scene.characters_in_scene:
+            return ""
+
+        char_map = {c.role: c for c in project.visual_bible.characters}
+        neg_parts = []
+
+        for role in scene.characters_in_scene[:5]:
+            char = char_map.get(role)
+            if not char or not char.description:
+                continue
+            desc_lower = char.description.lower()
+
+            # 나이 변화 방지
+            if any(w in desc_lower for w in ("young", "20s", "mid-20", "teen")):
+                neg_parts.append("aged face, wrinkles, old person")
+            elif any(w in desc_lower for w in ("old", "elder", "60s", "70s")):
+                neg_parts.append("baby face, teenage face, child")
+
+            # 머리 색/길이 변화 방지
+            if "black hair" in desc_lower:
+                neg_parts.append("blonde hair, red hair, brown hair, white hair")
+            elif "blonde" in desc_lower:
+                neg_parts.append("black hair, red hair, brown hair")
+            if "long hair" in desc_lower:
+                neg_parts.append("short hair, buzz cut, bald")
+            elif "short hair" in desc_lower:
+                neg_parts.append("long hair, ponytail")
+
+            # 성별 변화 방지
+            if any(w in desc_lower for w in ("female", "woman", "girl")):
+                neg_parts.append("masculine face, beard, mustache")
+            elif any(w in desc_lower for w in ("male", "man", "boy")):
+                neg_parts.append("feminine face, lipstick, long eyelashes")
+
+        # 일반 ID/의상 드리프트 방지
+        neg_parts.append("different face, identity change, age change, ethnicity change, different outfit, wardrobe change, wrong clothes")
+
+        return ", ".join(neg_parts)
 
     # ── 인물 키워드 제거 (캐릭터 없는 씬용) ──
     _PEOPLE_PATTERNS = re.compile(
@@ -2346,6 +2443,10 @@ class MVPipeline:
                     _hand_neg = "extra fingers, deformed hands, fused fingers, missing fingers"
                     _char_neg = f"{_lens_neg}, {_hand_neg}"
                     _scene_neg = f"{_char_neg}, {_scene_neg}" if _scene_neg else _char_neg
+                    # 캐릭터 ID 드리프트 방지 네거티브
+                    _id_neg = self._build_character_negative(project, scene)
+                    if _id_neg:
+                        _scene_neg = f"{_id_neg}, {_scene_neg}"
 
                 if not scene.characters_in_scene:
                     _no_people = "random person, unnamed person, elderly man, old man, old woman, middle-aged woman, middle-aged man, young woman, young man, bystander, stranger, human figure, person standing, woman standing, man standing, silhouette of person, crowd"
@@ -2355,6 +2456,14 @@ class MVPipeline:
                     final_prompt = f"{era_prefix}, {final_prompt}"
                 if era_negative:
                     _scene_neg = f"{era_negative}, {_scene_neg}" if _scene_neg else era_negative
+
+                # game_anime 스타일: 런타임 3D cel-shading 프리픽스 + 네거티브 강제 주입
+                if project.style.value == "game_anime":
+                    _ga_prefix = "3D cel-shaded toon-rendered scene, Genshin Impact / Honkai Star Rail style, high-fidelity 3D models with toon shader and bloom"
+                    if "cel-shaded" not in final_prompt.lower() and "toon" not in final_prompt.lower():
+                        final_prompt = f"{_ga_prefix}, {final_prompt}"
+                    _ga_neg = "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly"
+                    _scene_neg = f"{_ga_neg}, {_scene_neg}" if _scene_neg else _ga_neg
 
                 # 캐릭터 미등장 씬: 스타일 앵커 제외 (앵커에 인물이 있으면 복제됨)
                 _scene_style_anchor = style_anchor_path if scene.characters_in_scene else None
@@ -2377,6 +2486,7 @@ class MVPipeline:
                 scene.image_path = image_path
                 scene.status = MVSceneStatus.COMPLETED
 
+                # CharacterQA: 얼굴 일관성 검증 + 실패 시 1회 재생성
                 if hasattr(self, '_character_qa') and self._character_qa and scene.characters_in_scene:
                     try:
                         qa_results = self._character_qa.verify_scene_image(
@@ -2384,14 +2494,50 @@ class MVPipeline:
                             characters_in_scene=scene.characters_in_scene,
                             scene_id=scene.scene_id,
                         )
+                        any_failed = False
                         for role, qr in qa_results.items():
                             if not qr["passed"]:
                                 print(f"    [CharacterQA] FAIL scene {scene.scene_id} role={role}: "
                                       f"sim={qr['similarity']:.3f} reason={qr['fail_reason']}")
+                                any_failed = True
                             else:
                                 sim_str = f"{qr['similarity']:.3f}" if qr['similarity'] >= 0 else "n/a"
                                 print(f"    [CharacterQA] OK scene {scene.scene_id} role={role}: sim={sim_str}")
-                        scene.qa_results = qa_results
+
+                        # QA 실패 시 1회 재생성 (더 강한 CHARACTER LOCK)
+                        if any_failed:
+                            print(f"    [CharacterQA] Retrying scene {scene.scene_id} with stronger lock...")
+                            retry_prompt = f"CRITICAL: Character face MUST be IDENTICAL to the reference image. Do NOT change any facial features. {final_prompt}"
+                            try:
+                                retry_path, _ = self.image_agent.generate_image(
+                                    scene_id=scene.scene_id,
+                                    prompt=retry_prompt,
+                                    style=project.style.value,
+                                    output_dir=image_dir,
+                                    style_anchor_path=_scene_style_anchor,
+                                    genre=project.genre.value,
+                                    mood=project.mood.value,
+                                    negative_prompt=_scene_neg or scene.negative_prompt,
+                                    visual_bible=vb_dict,
+                                    color_mood=scene.color_mood,
+                                    character_reference_paths=char_anchor_paths or None,
+                                    camera_directive=scene.camera_directive,
+                                )
+                                # 재생성 결과도 QA 검증
+                                retry_qa = self._character_qa.verify_scene_image(
+                                    image_path=retry_path,
+                                    characters_in_scene=scene.characters_in_scene,
+                                    scene_id=scene.scene_id,
+                                )
+                                retry_better = all(r["passed"] for r in retry_qa.values())
+                                if retry_better:
+                                    scene.image_path = retry_path
+                                    image_path = retry_path
+                                    print(f"    [CharacterQA] Retry PASSED - using new image")
+                                else:
+                                    print(f"    [CharacterQA] Retry also failed - keeping original")
+                            except Exception as retry_e:
+                                print(f"    [CharacterQA] Retry failed: {retry_e}")
                     except Exception as qa_e:
                         print(f"    [CharacterQA] Error: {qa_e}")
 
@@ -3529,6 +3675,24 @@ class MVPipeline:
             project.error_message = "No completed scenes to compose"
             return project
 
+        # API URL → 로컬 파일 경로 변환 (R2 업로드 후 URL로 덮어쓰여진 경우)
+        import re as _re
+        for sc in completed_scenes:
+            for attr in ("image_path", "video_path"):
+                val = getattr(sc, attr, None)
+                if val and "/api/asset/" in val:
+                    m = _re.search(r'/api/asset/[^/]+/images?/(.+)', val)
+                    if m:
+                        local = f"{project_dir}/media/images/{m.group(1)}"
+                        if os.path.exists(local):
+                            setattr(sc, attr, local)
+                    else:
+                        m = _re.search(r'/api/asset/[^/]+/video/(.+)', val)
+                        if m:
+                            local = f"{project_dir}/media/video/{m.group(1)}"
+                            if os.path.exists(local):
+                                setattr(sc, attr, local)
+
         print(f"  Completed scenes: {len(completed_scenes)}/{len(project.scenes)}")
 
         try:
@@ -3554,9 +3718,27 @@ class MVPipeline:
                     scene_group_map[sid] = len(scene_groups)
                     scene_groups.append([])
 
+            def _resolve_local_path(path_or_url):
+                """API URL 경로를 로컬 파일 경로로 변환"""
+                if not path_or_url:
+                    return path_or_url
+                # /api/asset/{pid}/image/scene_01.png 또는 http://...
+                import re
+                m = re.search(r'/api/asset/[^/]+/images?/(.+)', path_or_url)
+                if m:
+                    local = f"{project_dir}/media/images/{m.group(1)}"
+                    if os.path.exists(local):
+                        return local
+                # 이미 로컬 경로이면 그대로
+                return path_or_url
+
             def _render_cut(ci, cut):
                 """단일 derived cut 렌더링 (스레드에서 실행)"""
                 clip_path = f"{project_dir}/media/video/cut_{cut['parent_scene_id']:02d}_{cut['cut_index']:02d}.mp4"
+
+                # URL → 로컬 경로 변환
+                cut["image_path"] = _resolve_local_path(cut.get("image_path"))
+                cut["video_path"] = _resolve_local_path(cut.get("video_path"))
 
                 if cut.get("video_path"):
                     if cut.get("is_broll"):
@@ -4326,6 +4508,14 @@ class MVPipeline:
         if era_negative:
             _regen_neg = f"{era_negative}, {_regen_neg}" if _regen_neg else era_negative
 
+        # game_anime 스타일: 런타임 3D cel-shading 프리픽스 + 네거티브 강제 주입
+        if project.style.value == "game_anime":
+            _ga_prefix = "3D cel-shaded toon-rendered scene, Genshin Impact / Honkai Star Rail style, high-fidelity 3D models with toon shader and bloom"
+            if "cel-shaded" not in final_prompt.lower() and "toon" not in final_prompt.lower():
+                final_prompt = f"{_ga_prefix}, {final_prompt}"
+            _ga_neg = "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly"
+            _regen_neg = f"{_ga_neg}, {_regen_neg}" if _regen_neg else _ga_neg
+
         try:
             image_path, _ = self.image_agent.generate_image(
                 scene_id=scene.scene_id,
@@ -4690,14 +4880,22 @@ class MVPipeline:
         end_sec 계산 시 다음 '표시될' 엔트리의 타임스탬프를 사용.
         (빈 텍스트/섹션 마커는 건너뛰어 gap이 생기지 않도록)
         """
-        # 1차: 표시할 엔트리만 필터링
+        # 1차: 마커 제거 + 빈 줄 필터링
         displayed = []
         for entry in timed_lyrics:
             text = entry.get("text", "").strip()
             if not text:
                 continue
+            # [Intro], [Chorus] 등 전체가 마커인 줄 스킵
             if _SECTION_MARKER_RE.match(text):
                 continue
+            # 줄 시작의 [...] 마커 제거 (예: "[Intro] 낮게 속삭이듯")
+            text = _STRIP_BRACKET_RE.sub('', text).strip()
+            # 줄 시작/끝의 (...) 마커 제거 (예: "(낮게, 속삭이듯)")
+            text = _STRIP_PAREN_RE.sub('', text).strip()
+            if not text:
+                continue
+            entry = {**entry, "text": text}
             displayed.append(entry)
 
         # 2차: 필터링된 목록에서 SRT 생성 (end_sec = 다음 표시 엔트리 기준)
@@ -4730,8 +4928,15 @@ class MVPipeline:
         if not scene.lyrics_text:
             return []
 
-        lines = [l.strip() for l in scene.lyrics_text.strip().split('\n')
-                 if l.strip() and not _SECTION_MARKER_RE.match(l.strip())]
+        lines = []
+        for l in scene.lyrics_text.strip().split('\n'):
+            t = l.strip()
+            if not t or _SECTION_MARKER_RE.match(t):
+                continue
+            t = _STRIP_BRACKET_RE.sub('', t).strip()
+            t = _STRIP_PAREN_RE.sub('', t).strip()
+            if t:
+                lines.append(t)
         if not lines:
             return []
 
@@ -4842,7 +5047,7 @@ class MVPipeline:
         return "Sans"
 
     def _save_manifest(self, project: MVProject, project_dir: str):
-        """매니페스트 저장 (atomic write로 손상 방지 + progress 역행 방지)"""
+        """매니페스트 저장 (atomic write + Windows 파일 잠금 retry)"""
         manifest_path = f"{project_dir}/manifest.json"
         temp_path = f"{manifest_path}.tmp"
 
@@ -4863,8 +5068,23 @@ class MVPipeline:
         with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2, default=str)
 
-        # atomic rename (기존 파일 덮어쓰기)
-        os.replace(temp_path, manifest_path)
+        # atomic rename with retry (Windows file locking workaround)
+        for attempt in range(5):
+            try:
+                os.replace(temp_path, manifest_path)
+                return
+            except PermissionError:
+                if attempt < 4:
+                    time.sleep(0.1 * (attempt + 1))
+                else:
+                    # fallback: direct write
+                    try:
+                        with open(manifest_path, 'w', encoding='utf-8') as f:
+                            json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                    except Exception as e:
+                        logger.warning(f"Manifest save fallback failed: {e}")
 
     def load_project(self, project_id: str) -> Optional[MVProject]:
         """프로젝트 로드 (로컬 우선, R2 fallback)"""

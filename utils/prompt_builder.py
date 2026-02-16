@@ -187,7 +187,7 @@ class MultimodalPromptBuilder:
         "drama": "cartoon, exaggerated, slapstick, neon colors, silly, fantastical, bright cheerful, magic spells, gore, blood, bloody tears, grotesque, horror, creepy",
         "comedy": "dark, grim, horror, blood, violence, depressing, muted, bleak, melancholic, gore, grotesque",
         "abstract": "photorealistic, literal, mundane, ordinary, documentary, plain, conventional, real brands",
-        "game_anime": "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands",
+        "game_anime": "photorealistic, western cartoon, flat 2D illustration, hand-drawn anime, watercolor, oil painting, low-poly, chibi deformed, mundane everyday, real-world brands, pixel art",
     }
     GENRE_NEGATIVES = _GENRE_NEGATIVES_FALLBACK  # 하위 호환 alias
 
@@ -294,7 +294,9 @@ class MultimodalPromptBuilder:
                     "- ENVIRONMENT PRESERVATION: Background must match the environment anchor\n"
                     "- NO identity drift: faces, hair, eyes, body shape must not change\n"
                     "- NO style drift: lighting, color grading, rendering style must not change\n"
-                    "- NO wardrobe change: clothing, accessories must remain exactly as in reference\n"
+                    "- OUTFIT LOCK: Character clothing and accessories MUST remain EXACTLY as described in the prompt. "
+                    "Do NOT invent new outfits, change colors, add or remove clothing items. "
+                    "The outfit described in the character block is the ONLY correct outfit.\n"
                     "- NO spontaneous props or background elements not described in the prompt\n"
                     "- Characters in this scene must match their respective anchor images EXACTLY"
                 )})
@@ -330,8 +332,8 @@ class MultimodalPromptBuilder:
                 "negative": "ABSOLUTELY NOT realistic, NOT photorealistic, NOT representational."
             },
             "game_anime": {
-                "positive": "Generate an anime game cinematic illustration with premium game-art quality. Cel-shaded with dramatic lighting, character action poses, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky backgrounds, vibrant saturated colors.",
-                "negative": "ABSOLUTELY NOT photorealistic, NOT western cartoon, NOT flat lighting, NOT mundane everyday, NOT low-budget 3D, NOT chibi deformed."
+                "positive": "Generate a 3D cel-shaded toon-rendered character scene in the style of modern anime action RPG games (Genshin Impact, Honkai Star Rail, Wuthering Waves). High-fidelity 3D models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, detailed ornate costumes and fantasy weapons, dynamic hair and cloth physics, Unreal Engine quality rendering, vibrant saturated colors with high contrast, epic open-world fantasy backgrounds.",
+                "negative": "ABSOLUTELY NOT photorealistic, NOT western cartoon, NOT flat 2D illustration, NOT hand-drawn anime, NOT watercolor, NOT oil painting, NOT low-poly, NOT chibi deformed, NOT mundane everyday objects, NOT real-world brands, NOT pixel art."
             },
         }
         directive = style_directives.get(style, {"positive": f"Generate a high-quality image in {style} style.", "negative": ""})

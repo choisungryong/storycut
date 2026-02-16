@@ -47,11 +47,10 @@ def ffprobe_duration_sec(media_path: str) -> float:
 
 def split_lyrics_lines(user_lyrics_text: str) -> List[str]:
     """가사 텍스트를 줄 단위로 분리하고, 섹션 마커/빈 줄 제거."""
-    # 섹션 마커 패턴: [intro], [verse 1], [chorus], [bridge], [outro] 등
-    section_marker = re.compile(
-        r'^\[(?:intro|verse|chorus|pre[- ]?chorus|hook|bridge|outro|interlude|rap|instrumental|repeat|refrain)[\s\d]*\]$',
-        re.IGNORECASE
-    )
+    # 줄 시작의 [...]  마커 제거 (예: [Intro], [Verse 1], [Final Chorus])
+    strip_bracket = re.compile(r'^\[.*?\]\s*')
+    # 줄 시작/끝의 (...) 마커 제거 (예: (낮게, 속삭이듯), (정적), (간주))
+    strip_paren = re.compile(r'^\(.*?\)\s*|\s*\(.*?\)$')
     raw = user_lyrics_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     # 모든 따옴표 문자 완전 제거 (strip은 가장자리만 제거하므로 replace 사용)
     quote_chars = '"\'\u201c\u201d\u2018\u2019\u201e\u201f\u00ab\u00bb\uff02\uff07'
@@ -60,9 +59,11 @@ def split_lyrics_lines(user_lyrics_text: str) -> List[str]:
         txt = ln.strip()
         for ch in quote_chars:
             txt = txt.replace(ch, '')
-        txt = txt.strip()
+        # 마커 제거 (줄 전체가 마커면 빈 문자열이 됨)
+        txt = strip_bracket.sub('', txt).strip()
+        txt = strip_paren.sub('', txt).strip()
         cleaned.append(txt)
-    return [ln for ln in cleaned if ln and not section_marker.match(ln)]
+    return [ln for ln in cleaned if ln]
 
 
 # ── 앵커 추정 ─────────────────────────────────────────────

@@ -290,7 +290,7 @@ class CharacterManager:
             "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, NOT anime, NOT cartoon, NOT illustration",
             "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph",
             "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, non-representational",
-            "game_anime": "anime game cinematic illustration, premium game-art quality, cel-shaded with dramatic lighting, vibrant saturated colors, flowing hair and fabric, NOT photorealistic, NOT western cartoon",
+            "game_anime": "3D cel-shaded toon-rendered character, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D model with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, dynamic hair and cloth physics, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn, NOT western cartoon, NOT watercolor",
         }
         style_directive = _style_anchor_directives.get(project.style.value, f"{project.style.value} style")
 

@@ -307,23 +307,29 @@ genre_profiles:
   game_anime:
     palette_base: ["#0c1029", "#00c8ff", "#ffb347", "#c084fc", "#ff6b9d"]
     palette_mode: "guide"
-    lighting: "anime cel-shaded rim lighting with dramatic god rays; elemental glow effects (teal/amber/violet); soft bloom on characters; volumetric light shafts through clouds"
+    lighting: "3D toon-shaded rim lighting with strong bloom and god rays; cel-shading edge highlights on hair and armor; elemental glow effects (teal/amber/violet/electro); volumetric light shafts; Unreal Engine style global illumination with cartoon post-processing"
     motif_library:
+      - 3D cel-shaded character models with toon shader
       - elemental burst effects (wind/fire/ice/electro)
-      - floating crystals and particles
-      - ornate fantasy weapons with glow
-      - flowing fabric and hair in wind
-      - constellation patterns and star UI
-      - sakura petals or elemental particles
+      - floating crystals and luminous particles
+      - ornate fantasy weapons with energy glow trails
+      - dynamic hair and cloth physics simulation
+      - constellation patterns and elemental sigils
+      - sakura petals or elemental particles in foreground
+      - epic open-world fantasy landscapes as background
     avoid_keywords:
       - photorealistic skin textures
+      - flat 2D hand-drawn illustration
+      - traditional anime cel animation
+      - watercolor or oil painting
       - gore and blood
       - mundane everyday objects
       - flat even lighting
-      - low-budget 3D render
+      - low-poly low-budget 3D render
       - western cartoon style
-    atmosphere: "epic yet beautiful, wonder mixed with power fantasy, every frame is a wallpaper-worthy composition, ethereal grandeur"
-    composition_guide: "dynamic character poses front-center with sweeping backgrounds, camera low angles for heroic shots, depth layering with foreground particles and background vistas, rule of thirds with character at power point"
+      - pixel art
+    atmosphere: "epic yet beautiful, modern anime RPG game cutscene quality, every frame looks like a Genshin Impact or Honkai Star Rail screenshot, ethereal grandeur with power fantasy"
+    composition_guide: "dynamic character poses front-center with sweeping 3D backgrounds, camera low angles for heroic shots, depth layering with foreground particles and background vistas, cinematic camera angles like in-game cutscenes, rule of thirds with character at power point"
     shot_bias:
       wide: 0.30
       medium: 0.45
@@ -333,8 +339,8 @@ genre_profiles:
       - "act2: battle/journey + bonds forged (epic, emotional)"
       - "act3: climactic burst + transcendence (triumphant, bittersweet)"
     prompt_lexicon:
-      positive: "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, premium game-art quality, vibrant saturated colors"
-      negative: "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands"
+      positive: "3D cel-shaded toon-rendered scene, modern anime action RPG game quality, Genshin Impact Honkai Star Rail Wuthering Waves style, high-fidelity 3D models with cartoon shader, crisp cel-shading with rim light bloom, detailed ornate costumes and fantasy weapons, dynamic hair and cloth physics, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast, epic open-world fantasy backgrounds"
+      negative: "photorealistic, western cartoon, flat 2D illustration, hand-drawn anime, watercolor, oil painting, low-poly, chibi deformed, mundane everyday, real-world brands, pixel art"
     reference_artists:
-      - Ilya Kuvshinov
-      - Artgerm (Stanley Lau)
+      - miHoYo / HoYoverse Art Team
+      - Kuro Games Art Team
