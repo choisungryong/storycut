@@ -1250,8 +1250,9 @@ class FFmpegComposer:
         if output_path is None:
             output_path = video_path.replace(".mp4", "_with_audio.mp4")
 
-        # 내레이션 연결
-        narration_concat = "temp_narration.wav"
+        # 내레이션 연결 (output_path 기준 디렉토리에 임시 파일 생성 - 동시 요청 충돌 방지)
+        _out_dir = os.path.dirname(output_path) or "."
+        narration_concat = os.path.join(_out_dir, "temp_narration.wav")
         self._concatenate_audio(narration_paths, narration_concat)
 
         # FFmpeg 명령 구성
@@ -1319,7 +1320,8 @@ class FFmpegComposer:
             if not os.path.exists(audio_path):
                 raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        concat_file = "temp_audio_concat.txt"
+        _out_dir = os.path.dirname(output_path) or "."
+        concat_file = os.path.join(_out_dir, "temp_audio_concat.txt")
         with open(concat_file, "w", encoding="utf-8") as f:
             for audio_path in audio_paths:
                 # Windows 경로를 Unix 스타일로 변환 (ffmpeg concat에서 더 안정적)
@@ -1393,16 +1395,17 @@ class FFmpegComposer:
         """
         print("Starting video composition...")
 
-        # Step 1: 영상 클립 연결
+        # Step 1: 영상 클립 연결 (output_path 기준 디렉토리에 임시 파일 - 동시 요청 충돌 방지)
+        _out_dir = os.path.dirname(output_path) or "."
         print("  -> Concatenating video clips...")
-        temp_video = "temp_concatenated.mp4"
+        temp_video = os.path.join(_out_dir, "temp_concatenated.mp4")
         self.concatenate_videos(video_clips, temp_video)
 
         # Step 2: 오디오 믹스 (내레이션 + BGM)
         if use_ducking and music_path and os.path.exists(music_path):
             print("  -> Mixing audio with DUCKING (narration + BGM)...")
             # 내레이션 먼저 연결
-            narration_concat = "temp_narration_ducking.wav"
+            narration_concat = os.path.join(_out_dir, "temp_narration_ducking.wav")
             self._concatenate_audio(narration_clips, narration_concat)
             # 덕킹 적용 믹싱
             final_video = self.mix_with_ducking(
