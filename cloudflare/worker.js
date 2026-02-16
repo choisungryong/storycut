@@ -81,6 +81,8 @@ async function routeRequest(url, request, env, ctx, cors) {
   // Auth routes
   if (path === '/api/auth/register' && method === 'POST') return handleRegister(request, env, cors);
   if (path === '/api/auth/login' && method === 'POST') return handleLogin(request, env, cors);
+  if (path === '/api/auth/google' && method === 'POST') return handleGoogleAuth(request, env, cors);
+  if (path === '/api/config/google-client-id' && method === 'GET') return handleGoogleClientId(env, cors);
 
   // ---------- 인증 필요 라우트 ----------
   const user = await authenticateUser(request, env);
@@ -363,6 +365,109 @@ async function handleLogin(request, env, cors) {
     console.error('Login error:', error);
     return jsonResponse({ error: error.message }, 500, cors);
   }
+}
+
+// ==================== Google OAuth ====================
+
+async function handleGoogleAuth(request, env, cors) {
+  try {
+    const { id_token } = await request.json();
+    if (!id_token) {
+      return jsonResponse({ error: 'id_token required' }, 400, cors);
+    }
+
+    const clientId = env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      return jsonResponse({ error: 'Google OAuth not configured' }, 500, cors);
+    }
+
+    // Verify Google ID token
+    const googleUser = await verifyGoogleToken(id_token, clientId);
+    if (!googleUser) {
+      return jsonResponse({ error: 'Invalid Google token' }, 401, cors);
+    }
+
+    const { email, name } = googleUser;
+
+    // Check if user exists
+    let user = await env.DB.prepare('SELECT id, email, credits, plan_id FROM users WHERE email = ?')
+      .bind(email).first();
+
+    if (!user) {
+      // Create new user (Google users have no password)
+      const userId = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, credits, plan_id, created_at)
+         VALUES (?, ?, NULL, ?, 'free', ?)`
+      ).bind(userId, email, SIGNUP_BONUS_CREDITS, new Date().toISOString()).run();
+
+      await recordTransaction(env, userId, SIGNUP_BONUS_CREDITS, 'signup_bonus', null, 'Google signup bonus credits');
+
+      user = { id: userId, email, credits: SIGNUP_BONUS_CREDITS, plan_id: 'free' };
+    }
+
+    const token = await createJWT({ sub: user.id, email: user.email }, env.JWT_SECRET);
+
+    return jsonResponse({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: name || email.split('@')[0],
+        credits: user.credits,
+        plan_id: user.plan_id || 'free',
+      },
+    }, 200, cors);
+  } catch (error) {
+    console.error('Google auth error:', error);
+    return jsonResponse({ error: error.message }, 500, cors);
+  }
+}
+
+async function verifyGoogleToken(idToken, clientId) {
+  try {
+    // Use Google's tokeninfo endpoint to verify
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    if (!res.ok) return null;
+
+    const payload = await res.json();
+
+    // Verify audience matches our client ID
+    if (payload.aud !== clientId) {
+      console.error('Google token aud mismatch:', payload.aud, '!=', clientId);
+      return null;
+    }
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && parseInt(payload.exp) < now) {
+      console.error('Google token expired');
+      return null;
+    }
+
+    // Check email verified
+    if (payload.email_verified !== 'true' && payload.email_verified !== true) {
+      console.error('Google email not verified');
+      return null;
+    }
+
+    return {
+      email: payload.email,
+      name: payload.name || payload.email.split('@')[0],
+      picture: payload.picture || null,
+    };
+  } catch (error) {
+    console.error('Google token verification error:', error);
+    return null;
+  }
+}
+
+function handleGoogleClientId(env, cors) {
+  const clientId = env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    return jsonResponse({ error: 'GOOGLE_CLIENT_ID not configured' }, 404, cors);
+  }
+  return jsonResponse({ client_id: clientId }, 200, cors);
 }
 
 // ==================== 패스워드 해싱 ====================

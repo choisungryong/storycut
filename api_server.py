@@ -1793,10 +1793,62 @@ async def login(req: LoginRequest):
             "id": "user_local_mock",
             "username": req.email.split("@")[0],
             "email": req.email,
-            "credits": 100
+            "credits": 1000
         },
         "_warning": "This is a mock response for local development only"
     }
+
+
+@app.post("/api/auth/google")
+async def google_auth(request: Request):
+    """
+    Google OAuth Login (Local Mock ONLY)
+
+    In production, Cloudflare Worker verifies the Google ID token.
+    """
+    print("[SECURITY WARNING] Using LOCAL MOCK Google auth - NOT for production!")
+    body = await request.json()
+    id_token = body.get("id_token", "")
+
+    # In local dev, we skip token verification and return mock user
+    # Parse basic info from JWT payload (no signature verification)
+    try:
+        import base64
+        parts = id_token.split(".")
+        if len(parts) >= 2:
+            payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=="))
+            email = payload.get("email", "google_user@mock.local")
+            name = payload.get("name", email.split("@")[0])
+        else:
+            email = "google_user@mock.local"
+            name = "Google User"
+    except Exception:
+        email = "google_user@mock.local"
+        name = "Google User"
+
+    return {
+        "token": "local_mock_google_token_DO_NOT_USE_IN_PRODUCTION",
+        "user": {
+            "id": "user_google_mock",
+            "username": name,
+            "email": email,
+            "credits": 1000,
+            "plan_id": "free",
+        },
+        "_warning": "This is a mock response for local development only"
+    }
+
+
+@app.get("/api/config/google-client-id")
+async def get_google_client_id():
+    """Return Google OAuth Client ID from environment variable."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    if not client_id:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "GOOGLE_CLIENT_ID not configured"}
+        )
+    return {"client_id": client_id}
 
 
 @app.get("/api/status/{project_id}")

@@ -913,6 +913,44 @@
 
     </main>
 
+    <!-- Profile Modal -->
+    <div id="profile-modal" class="modal-overlay" onclick="if(event.target===this)closeProfileModal()">
+        <div class="modal-card profile-modal-card">
+            <button class="modal-close" onclick="closeProfileModal()">&times;</button>
+
+            <div class="profile-section">
+                <div class="profile-avatar">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                </div>
+                <h3 class="profile-name" id="profile-name">User</h3>
+                <p class="profile-email" id="profile-email">user@example.com</p>
+            </div>
+
+            <div class="profile-stats">
+                <div class="profile-stat-card">
+                    <span class="profile-stat-value" id="profile-credits">0</span>
+                    <span class="profile-stat-label">Credits</span>
+                </div>
+                <div class="profile-stat-card">
+                    <span class="profile-stat-value" id="profile-plan">Free</span>
+                    <span class="profile-stat-label">Plan</span>
+                </div>
+                <div class="profile-stat-card">
+                    <span class="profile-stat-value" id="profile-since">N/A</span>
+                    <span class="profile-stat-label">Member Since</span>
+                </div>
+            </div>
+
+            <div class="profile-actions">
+                <a href="/pricing.html" class="btn-profile btn-profile-primary">Get More Credits</a>
+                <button onclick="logout()" class="btn-profile btn-profile-danger">Log Out</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="app-footer">
         <p>&copy; 2025 Klippa | AI Video Creation Studio</p>
