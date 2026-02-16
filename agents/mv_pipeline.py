@@ -21,6 +21,35 @@ _STRIP_BRACKET_RE = re.compile(r'^\[.*?\]\s*')
 # 줄 시작/끝의 (...) 마커 strip용
 _STRIP_PAREN_RE = re.compile(r'^\(.*?\)\s*|\s*\(.*?\)$')
 
+# 스타일별 런타임 프리픽스 + 네거티브 (generate_images / regenerate 공용)
+_STYLE_RUNTIME = {
+    "game_anime": {
+        "prefix": "3D cel-shaded toon-rendered scene, Genshin Impact / Honkai Star Rail style, high-fidelity 3D models with toon shader and bloom",
+        "check": ("cel-shaded", "toon"),
+        "negative": "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly",
+    },
+    "anime": {
+        "prefix": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors",
+        "check": ("anime", "cel-shaded"),
+        "negative": "photorealistic, photograph, 3D render, western cartoon, watercolor, oil painting",
+    },
+    "webtoon": {
+        "prefix": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks",
+        "check": ("webtoon", "manhwa"),
+        "negative": "photorealistic, photograph, 3D render, western cartoon, oil painting, anime cel-shading",
+    },
+    "realistic": {
+        "prefix": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus",
+        "check": ("photorealistic", "photograph", "dslr"),
+        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look",
+    },
+    "illustration": {
+        "prefix": "digital painting illustration, painterly brushstrokes, concept art quality",
+        "check": ("illustration", "painting", "concept art"),
+        "negative": "photorealistic, photograph, anime cel-shading, flat webtoon style",
+    },
+}
+
 from schemas.mv_models import (
     MVProject, MVScene, MVProjectStatus, MVSceneStatus,
     MVGenre, MVMood, MVStyle, MusicAnalysis, MVProjectRequest,
@@ -1915,13 +1944,13 @@ class MVPipeline:
 
         # 스타일 프리픽스
         style_map = {
-            MVStyle.CINEMATIC: "cinematic film still, dramatic lighting, high contrast",
-            MVStyle.ANIME: "Japanese anime cel-shaded illustration, bold black outlines, NOT a photograph",
-            MVStyle.WEBTOON: "Korean manhwa webtoon digital art, clean sharp lines, NOT a photograph",
-            MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",
-            MVStyle.ILLUSTRATION: "digital painting illustration, painterly brushstrokes, concept art quality",
-            MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike, non-representational",
-            MVStyle.GAME_ANIME: "anime game cinematic, cel-shaded illustration, dramatic lighting, elemental effects, premium game-art quality, vibrant saturated colors, NOT photorealistic",
+            MVStyle.CINEMATIC: "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
+            MVStyle.ANIME: "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime eyes and proportions, manga-inspired composition, NOT a photograph, NOT photorealistic",
+            MVStyle.WEBTOON: "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, manhwa character design, NOT a photograph, NOT photorealistic",
+            MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, candid feel, 35mm film grain, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",
+            MVStyle.ILLUSTRATION: "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph",
+            MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational",
+            MVStyle.GAME_ANIME: "3D cel-shaded toon-rendered scene, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn illustration, NOT western cartoon",
         }
         style_prefix = style_map.get(request.style, "cinematic")
 
@@ -2457,13 +2486,13 @@ class MVPipeline:
                 if era_negative:
                     _scene_neg = f"{era_negative}, {_scene_neg}" if _scene_neg else era_negative
 
-                # game_anime 스타일: 런타임 3D cel-shading 프리픽스 + 네거티브 강제 주입
-                if project.style.value == "game_anime":
-                    _ga_prefix = "3D cel-shaded toon-rendered scene, Genshin Impact / Honkai Star Rail style, high-fidelity 3D models with toon shader and bloom"
-                    if "cel-shaded" not in final_prompt.lower() and "toon" not in final_prompt.lower():
-                        final_prompt = f"{_ga_prefix}, {final_prompt}"
-                    _ga_neg = "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly"
-                    _scene_neg = f"{_ga_neg}, {_scene_neg}" if _scene_neg else _ga_neg
+                # 스타일별 런타임 프리픽스 + 네거티브 강제 주입
+                _sr = _STYLE_RUNTIME.get(project.style.value)
+                if _sr:
+                    _low = final_prompt.lower()
+                    if not any(kw in _low for kw in _sr["check"]):
+                        final_prompt = f"{_sr['prefix']}, {final_prompt}"
+                    _scene_neg = f"{_sr['negative']}, {_scene_neg}" if _scene_neg else _sr["negative"]
 
                 # 캐릭터 미등장 씬: 스타일 앵커 제외 (앵커에 인물이 있으면 복제됨)
                 _scene_style_anchor = style_anchor_path if scene.characters_in_scene else None
@@ -4508,13 +4537,13 @@ class MVPipeline:
         if era_negative:
             _regen_neg = f"{era_negative}, {_regen_neg}" if _regen_neg else era_negative
 
-        # game_anime 스타일: 런타임 3D cel-shading 프리픽스 + 네거티브 강제 주입
-        if project.style.value == "game_anime":
-            _ga_prefix = "3D cel-shaded toon-rendered scene, Genshin Impact / Honkai Star Rail style, high-fidelity 3D models with toon shader and bloom"
-            if "cel-shaded" not in final_prompt.lower() and "toon" not in final_prompt.lower():
-                final_prompt = f"{_ga_prefix}, {final_prompt}"
-            _ga_neg = "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly"
-            _regen_neg = f"{_ga_neg}, {_regen_neg}" if _regen_neg else _ga_neg
+        # 스타일별 런타임 프리픽스 + 네거티브 강제 주입
+        _sr = _STYLE_RUNTIME.get(project.style.value)
+        if _sr:
+            _low = final_prompt.lower()
+            if not any(kw in _low for kw in _sr["check"]):
+                final_prompt = f"{_sr['prefix']}, {final_prompt}"
+            _regen_neg = f"{_sr['negative']}, {_regen_neg}" if _regen_neg else _sr["negative"]
 
         try:
             image_path, _ = self.image_agent.generate_image(

@@ -287,7 +287,7 @@ class CharacterManager:
             "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, color graded like a Hollywood blockbuster",
             "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime character proportions, NOT a photograph, NOT photorealistic",
             "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, manhwa character design, NOT a photograph, NOT photorealistic",
-            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, NOT anime, NOT cartoon, NOT illustration",
+            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",
             "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph",
             "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, non-representational",
             "game_anime": "3D cel-shaded toon-rendered character, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D model with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, dynamic hair and cloth physics, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn, NOT western cartoon, NOT watercolor",
