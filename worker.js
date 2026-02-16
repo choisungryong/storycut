@@ -95,6 +95,15 @@ async function routeRequest(url, request, env, ctx, cors) {
   if (path === '/api/auth/google' && method === 'POST') return handleGoogleAuth(request, env, cors);
   if (path === '/api/config/google-client-id' && method === 'GET') return handleGoogleClientId(env, cors);
 
+  // Public Railway proxy routes (no auth required)
+  if (path === '/api/history' && method === 'GET') return proxyToRailwayPublic(request, env, path, cors);
+  if (path.startsWith('/api/status/')) return proxyToRailwayPublic(request, env, path, cors);
+  if (path.startsWith('/api/asset/')) return proxyToRailwayPublic(request, env, path, cors);
+  if (path.startsWith('/api/mv/stream/')) return proxyToRailwayPublic(request, env, path, cors);
+  if (path.startsWith('/api/mv/download/')) return proxyToRailwayPublic(request, env, path, cors);
+  if (path.startsWith('/api/stream/')) return proxyToRailwayPublic(request, env, path, cors);
+  if (path.startsWith('/api/download/')) return proxyToRailwayPublic(request, env, path, cors);
+
   // ---------- 인증 필요 라우트 ----------
   const user = await authenticateUser(request, env);
   if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
@@ -115,12 +124,6 @@ async function routeRequest(url, request, env, ctx, cors) {
 
   // Generation (클립 차감 포함)
   if (path === '/api/generate' && method === 'POST') return handleGenerate(request, user, env, ctx, cors);
-
-  // Video download
-  if (path.startsWith('/api/video/')) return handleVideoDownload(url, env, cors);
-
-  // Status
-  if (path.startsWith('/api/status/')) return handleStatus(url, env, cors);
 
   // ---- Railway 프록시 라우트 (클립 차감 후 프록시) ----
 
@@ -182,6 +185,23 @@ async function routeRequest(url, request, env, ctx, cors) {
 // ==================== Railway 프록시 ====================
 
 const RAILWAY_URL = 'https://web-production-bb6bf.up.railway.app';
+
+async function proxyToRailwayPublic(request, env, path, cors) {
+  const railwayUrl = `${RAILWAY_URL}${path}`;
+  try {
+    const response = await fetch(railwayUrl, {
+      method: request.method,
+      headers: request.headers,
+      body: request.method !== 'GET' ? await request.clone().arrayBuffer() : undefined,
+    });
+    const responseHeaders = new Headers(response.headers);
+    Object.entries(cors).forEach(([k, v]) => responseHeaders.set(k, v));
+    return new Response(response.body, { status: response.status, headers: responseHeaders });
+  } catch (error) {
+    console.error('Public proxy error:', error);
+    return jsonResponse({ error: 'Backend unavailable' }, 502, cors);
+  }
+}
 
 async function proxyToRailway(request, env, user, clipAction, path, cors) {
   const userPlanId = user.plan_id || 'free';
