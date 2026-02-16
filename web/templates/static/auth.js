@@ -1,6 +1,6 @@
 // Auth Logic + Clip System + Google OAuth + Profile Modal
 const API_BASE_URL = window.location.hostname === 'localhost' ? '' : 'https://web-production-bb6bf.up.railway.app';
-const WORKER_URL = window.location.hostname === 'localhost' ? '' : 'https://storycut-worker.twinspa0713.workers.dev';
+const WORKER_URL = 'https://storycut-worker.twinspa0713.workers.dev';
 
 // ==================== Clip Costs (synced with Worker) ====================
 const CLIP_COSTS = {
@@ -28,9 +28,7 @@ let _googleClientId = null;
 async function fetchGoogleClientId() {
     if (_googleClientId) return _googleClientId;
     try {
-        const url = window.location.hostname === 'localhost'
-            ? '/api/config/google-client-id'
-            : `${WORKER_URL}/api/config/google-client-id`;
+        const url = `${WORKER_URL}/api/config/google-client-id`;
         const res = await fetch(url);
         if (!res.ok) return null;
         const data = await res.json();
@@ -65,9 +63,7 @@ async function handleGoogleCredential(response) {
     }
 
     try {
-        const url = window.location.hostname === 'localhost'
-            ? '/api/auth/google'
-            : `${WORKER_URL}/api/auth/google`;
+        const url = `${WORKER_URL}/api/auth/google`;
 
         const res = await fetch(url, {
             method: 'POST',
