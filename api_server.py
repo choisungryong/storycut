@@ -65,7 +65,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -1781,8 +1781,17 @@ async def download_video(project_id: str):
             break
 
     if not video_path:
-        print(f"[DEBUG] Video not found for project {project_id}")
-        print(f"[DEBUG] Checked paths: {possible_paths}")
+        # R2 fallback: 로컬 파일이 없으면 R2에서 가져오기
+        print(f"[DEBUG] Video not found locally for {project_id}, trying R2...")
+        r2_path = f"videos/{project_id}/final_video.mp4"
+        data = storage_manager.get_object(r2_path)
+        if data:
+            print(f"[DEBUG] Serving download from R2: {r2_path}")
+            return Response(
+                content=data,
+                media_type="video/mp4",
+                headers={"Content-Disposition": f'attachment; filename="storycut_{project_id}.mp4"'}
+            )
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
 
     print(f"[DEBUG] Downloading video from: {video_path}")
@@ -2024,8 +2033,15 @@ async def stream_video(project_id: str):
             break
             
     if not video_path:
+        # R2 fallback: 로컬 파일이 없으면 R2에서 가져오기
+        print(f"[DEBUG] Video not found locally for {project_id}, trying R2...")
+        r2_path = f"videos/{project_id}/final_video.mp4"
+        data = storage_manager.get_object(r2_path)
+        if data:
+            print(f"[DEBUG] Streaming from R2: {r2_path}")
+            return Response(content=data, media_type="video/mp4")
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
-        
+
     return FileResponse(video_path, media_type="video/mp4")  # filename 생략 -> Inline 재생
 
 
