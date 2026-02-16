@@ -1,24 +1,25 @@
+# Cloudflare Workers + D1 + R2 설정
+
 name = "storycut-worker"
 main = "worker.js"
 compatibility_date = "2023-10-25"
+workers_dev = true
 
+# D1 Database 바인딩
 [[d1_databases]]
 binding = "DB"
 database_name = "storycut-db"
 database_id = "32eba5ea-69eb-4ec8-a5be-f8b5a807b981"
 
+# R2 Storage 바인딩
 [[r2_buckets]]
-binding = "VIDEO_BUCKET"
+binding = "R2_BUCKET"
 bucket_name = "storycut-videos"
 
-# Producers (메시지를 보내는 쪽)
-# [[queues.producers]]
-#   queue = "storycut-video-queue"
-#   binding = "VIDEO_QUEUE"
+# 환경 변수
+[vars]
+ENVIRONMENT = "production"
+BACKEND_URL = "https://web-production-bb6bf.up.railway.app"
 
-# Consumers (메시지를 받아서 처리하는 쪽)
-# [[queues.consumers]]
-#   queue = "storycut-video-queue"
-#   max_batch_size = 10  # 한 번에 처리할 메시지 개수
-#   max_batch_timeout = 30 # 최대 대기 시간(초)
-#   dead_letter_queue = "storycut-dlq" # 실패 시 이동할 큐
+# Secret 환경 변수 (wrangler secret put 명령으로 설정)
+# - GOOGLE_CLIENT_ID

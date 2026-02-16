@@ -1,1084 +1,1251 @@
-
-import { SignJWT, jwtVerify } from 'jose';
-import bcrypt from 'bcryptjs';
-
 /**
  * STORYCUT Cloudflare Worker
  *
  * 역할:
  * 1. API 엔드포인트 제공 (/api/*)
- * 2. 인증 및 크레딧 검증
- * 3. 비동기 작업 큐잉 (Queue)
+ * 2. JWT 인증 및 클립 검증
+ * 3. Railway 백엔드 프록시 + 클립 차감
  * 4. R2에서 영상 서빙
  * 5. D1에 메타데이터 저장
+ * 6. PortOne(포트원) V2 결제 연동
+ * 7. 클립 관리
  */
 
-// JWT 비밀키 (반드시 wrangler secret put JWT_SECRET으로 설정!)
-// 주의: 하드코딩 금지! env.JWT_SECRET 사용
-function getJwtSecret(env) {
-  if (!env.JWT_SECRET) {
-    console.error('[SECURITY] JWT_SECRET not configured! Using fallback (INSECURE!)');
-    // 개발/테스트용 폴백 (프로덕션에서는 절대 사용 금지)
-    return new TextEncoder().encode('dev-only-insecure-key-replace-me');
-  }
-  return new TextEncoder().encode(env.JWT_SECRET);
-}
+// ==================== 클립 & 플랜 설정 ====================
+
+const CLIP_COSTS = {
+  video: 25,
+  script_video: 25,
+  mv: 15,
+  image_regen: 1,
+  i2v: 30,
+  mv_recompose: 8,
+};
+
+const PLANS = {
+  free:    { name: 'Free',    monthlyClips: 0,     priceKrw: 0,       yearlyPriceKrw: 0 },
+  lite:    { name: 'Lite',    monthlyClips: 150,   priceKrw: 11900,   yearlyPriceKrw: 119000 },
+  pro:     { name: 'Pro',     monthlyClips: 500,   priceKrw: 29900,   yearlyPriceKrw: 299000 },
+  premium: { name: 'Premium', monthlyClips: 2000,  priceKrw: 99000,   yearlyPriceKrw: 990000 },
+};
+
+const CLIP_PACKS = {
+  small:  { clips: 50,  priceKrw: 5900 },
+  medium: { clips: 200, priceKrw: 17900 },
+  large:  { clips: 500, priceKrw: 35900 },
+};
+
+const SIGNUP_BONUS_CLIPS = 30;
+
+const PLAN_LIMITS = {
+  free:    { concurrent: 1, regenPerVideo: 5,  allowI2V: false, watermark: true,  resolution: '720p',  retentionDays: 7,  dailyLimit: 2,  gemini3Free: 0,  gemini3Allowed: false },
+  lite:    { concurrent: 2, regenPerVideo: 10, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 30, dailyLimit: 10, gemini3Free: 3,  gemini3Allowed: true },
+  pro:     { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: 10, gemini3Allowed: true },
+  premium: { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: -1, gemini3Allowed: true },
+};
+
+// Gemini 3.0 surcharge: price difference between 3.0 and 2.5 per image
+// 3.0: $0.134/image, 2.5: $0.039/image → difference $0.095 ≈ 2 clips (~₩100)
+const GEMINI3_SURCHARGE_PER_IMAGE = 2;
+
+// ==================== 메인 엔트리 ====================
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // CORS 헤더
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
-    // OPTIONS 요청 처리
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // [API] 회원가입
-    if (url.pathname === '/api/auth/register' && request.method === 'POST') {
-      try {
-        const { email, password, username } = await request.json();
-
-        if (!email || !password) {
-          return new Response(JSON.stringify({ error: '아이디(이메일)와 비밀번호를 입력해주세요.' }), {
-            status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          });
-        }
-
-        // 비밀번호 해싱
-        const passwordHash = await bcrypt.hash(password, 10);
-
-        // DB 저장 (기본 크레딧 100 제공)
-        const result = await env.DB.prepare(
-          `INSERT INTO users (email, password_hash, username, credits) VALUES (?, ?, ?, 100)`
-        )
-          .bind(email, passwordHash, username || email.split('@')[0])
-          .run();
-
-        if (!result.success) {
-          throw new Error('회원가입 실패 (이미 존재하는 이메일일 수 있습니다)');
-        }
-
-        return new Response(JSON.stringify({ message: '회원가입 성공!' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-
-      } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
+    try {
+      return await routeRequest(url, request, env, ctx, corsHeaders);
+    } catch (error) {
+      console.error('Unhandled error:', error);
+      return jsonResponse({ error: 'Internal server error' }, 500, corsHeaders);
     }
-
-    // [API] 로그인
-    if (url.pathname === '/api/auth/login' && request.method === 'POST') {
-      try {
-        const { email, password } = await request.json();
-
-        // 사용자 조회
-        const user = await env.DB.prepare(
-          `SELECT * FROM users WHERE email = ?`
-        )
-          .bind(email)
-          .first();
-
-        if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-          return new Response(JSON.stringify({ error: '아이디 또는 비밀번호가 잘못되었습니다.' }), {
-            status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          });
-        }
-
-        // JWT 토큰 발급
-        const token = await new SignJWT({
-          id: user.id,
-          email: user.email,
-          username: user.username
-        })
-          .setProtectedHeader({ alg: 'HS256' })
-          .setIssuedAt()
-          .setExpirationTime('24h') // 24시간 유효
-          .sign(getJwtSecret(env));
-
-        return new Response(JSON.stringify({
-          token,
-          user: { id: user.id, email: user.email, username: user.username, credits: user.credits }
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-
-      } catch (err) {
-        console.error(err);
-        return new Response(JSON.stringify({ error: '로그인 처리 중 오류 발생' }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-    }
-
-    // [API] 사용자 정보 & 크레딧 확인
-    if (url.pathname === '/api/auth/me' && request.method === 'GET') {
-      // 토큰 검증
-      const authHeader = request.headers.get('Authorization');
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return new Response(JSON.stringify({ error: '로그인이 필요합니다.' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-
-      try {
-        const token = authHeader.split(' ')[1];
-        const { payload } = await jwtVerify(token, getJwtSecret(env));
-
-        // 최신 크레딧 정보 조회
-        const user = await env.DB.prepare(`SELECT id, email, username, credits FROM users WHERE id = ?`)
-          .bind(payload.id)
-          .first();
-
-        return new Response(JSON.stringify({ user }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({ error: '유효하지 않은 토큰입니다.' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-    }
-
-    // 라우팅
-    if (url.pathname === '/api/health') {
-      return handleHealth(env, corsHeaders);
-    }
-
-    // [기존 API] 영상 생성 (인증 적용)
-    if (url.pathname === '/api/generate' && request.method === 'POST') {
-      // 토큰 검증 (선택 사항: 배포 초기엔 없어도 되지만, 이제 인증 붙였으니 체크)
-      const authHeader = request.headers.get('Authorization');
-      let userId = null; // 비회원도 일단 허용? 아니면 차단? -> 일단 비회원용 임시 처리 or 차단
-      let userCredits = 0;
-
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        try {
-          const token = authHeader.split(' ')[1];
-          const { payload } = await jwtVerify(token, getJwtSecret(env));
-          userId = payload.id;
-
-          // 크레딧 확인
-          const user = await env.DB.prepare(`SELECT credits FROM users WHERE id = ?`).bind(userId).first();
-          userCredits = user ? user.credits : 0;
-        } catch (e) {
-          console.warn('Token verification failed', e);
-        }
-      }
-
-      // (임시) 비회원이면 못 쓰게 막으려면 여기서 return 401 하면 됨.
-      // 일단은 기존 로직 유지하되, userId가 있으면 DB 크레딧 차감하도록 수정
-
-      return handleGenerate(request, env, ctx, corsHeaders, userId, userCredits);
-    }
-
-    if (url.pathname === '/api/generate/video' && request.method === 'POST') {
-      // Step 2: Video Generation (Existing Logic)
-      // Auth & Credit check included in handleGenerate
-      const authHeader = request.headers.get('Authorization');
-      let userId = null;
-      let userCredits = 0;
-
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        try {
-          const token = authHeader.split(' ')[1];
-          const { payload } = await jwtVerify(token, getJwtSecret(env));
-          userId = payload.id;
-          const user = await env.DB.prepare(`SELECT credits FROM users WHERE id = ?`).bind(userId).first();
-          userCredits = user ? user.credits : 0;
-        } catch (e) {
-          console.warn('Token verification failed', e);
-        }
-      }
-      return handleGenerate(request, env, ctx, corsHeaders, userId, userCredits);
-    }
-
-    // [FIXED] Step 1: Story Generation - Worker Direct (Async)
-    if (url.pathname === '/api/generate/story' && request.method === 'POST') {
-      return handleGenerateStoryAsync(request, env, ctx, corsHeaders);
-    }
-
-    // Script → Scene split + prompt generation (proxy to Railway)
-    if (url.pathname === '/api/generate/from-script' && request.method === 'POST') {
-      return handleProxyToBackend(request, url, env, corsHeaders);
-    }
-
-    if (url.pathname.startsWith('/api/video/')) {
-      return handleVideoDownload(url, env, corsHeaders);
-    }
-
-    if (url.pathname.startsWith('/api/webhook/')) {
-      return handleWebhook(request, url, env, corsHeaders);
-    }
-
-    if (url.pathname.startsWith('/api/status/')) {
-      return handleStatus(url, env, corsHeaders);
-    }
-
-    if (url.pathname.startsWith('/api/sample-voice/')) {
-      return handleProxyToBackend(request, url, env, corsHeaders);
-    }
-
-    // I2V 변환 + Hook 토글 (proxy to Railway)
-    if (url.pathname.startsWith('/api/convert/i2v/') && request.method === 'POST') {
-      return handleProxyToBackend(request, url, env, corsHeaders);
-    }
-    if (url.pathname.startsWith('/api/toggle/hook-video/') && request.method === 'POST') {
-      return handleProxyToBackend(request, url, env, corsHeaders);
-    }
-
-    // [New] Manifest Proxy
-    if (url.pathname.startsWith('/api/manifest/')) {
-      return handleProxyToBackend(request, url, env, corsHeaders);
-    }
-
-    // [New] Generic Asset Download (Image/Audio/Video) from R2
-    // Path: /api/asset/{projectId}/{type}/{filename}
-    // Type: 'images', 'audio', 'videos'
-    if (url.pathname.startsWith('/api/asset/')) {
-      return handleAssetDownload(url, env, corsHeaders);
-    }
-
-    // 정적 파일 (Pages에서 서빙)
-    return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
 
-  /**
-   * Queue Consumer (Keep existing)
-   */
-  async queue(batch, env) {
-    // ... existing queue logic ...
-    console.log(`[Queue] Received batch of ${batch.messages.length} messages`);
-    for (const message of batch.messages) {
-      try {
-        const { projectId, userId, input } = message.body;
-        console.log(`[Queue] Processing project ${projectId} for user ${userId}`);
-        message.ack();
-      } catch (error) {
-        console.error(`[Queue] Error processing message ${message.id}:`, error);
-        message.retry();
-      }
-    }
+  // 정기결제 자동 갱신 (Cron Trigger — 매일 09:00 KST)
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(processSubscriptionRenewals(env));
   },
 };
 
-// ... existing helper functions (handleHealth, handleGenerate, handleVideoDownload, handleStatus, etc.) ...
-// We need to keep them. But since replace_file_content replaces a block, I should be careful.
-// I will just append the new function at the end and modify the routing block.
+// ==================== 라우터 ====================
 
-/**
- * [ASYNC] Story Generation Handler - Immediate Response
- * 즉시 project_id 반환 + 백그라운드에서 Gemini 호출
- */
-async function handleGenerateStoryAsync(request, env, ctx, corsHeaders) {
-  try {
-    const body = await request.json();
-    const projectId = Math.random().toString(36).substring(2, 10);
+async function routeRequest(url, request, env, ctx, cors) {
+  const path = url.pathname;
+  const method = request.method;
 
-    // D1에 초기 상태 저장
-    if (env.DB) {
-      await env.DB.prepare(
-        `INSERT INTO projects (id, status, input_data, created_at, user_id) VALUES (?, ?, ?, ?, ?)`
-      ).bind(projectId, 'processing', JSON.stringify(body), new Date().toISOString(), 5).run();
-    }
+  // Public routes
+  if (path === '/api/health') return handleHealth(env, cors);
+  if (path === '/api/payments/plans' && method === 'GET') return handleGetPlans(cors);
+  if (path === '/api/payments/webhook' && method === 'POST') return handlePortoneWebhook(request, env, cors);
 
-    // 동기 방식: Gemini 호출 완료 후 응답
-    const storyData = await generateStoryBackground(projectId, body, env);
+  // Auth routes
+  if (path === '/api/auth/register' && method === 'POST') return handleRegister(request, env, cors);
+  if (path === '/api/auth/login' && method === 'POST') return handleLogin(request, env, cors);
+  if (path === '/api/auth/google' && method === 'POST') return handleGoogleAuth(request, env, cors);
+  if (path === '/api/config/google-client-id' && method === 'GET') return handleGoogleClientId(env, cors);
 
-    return new Response(JSON.stringify({
-      project_id: projectId,
-      status: 'story_ready',
-      story_data: storyData
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+  // ---------- 인증 필요 라우트 ----------
+  const user = await authenticateUser(request, env);
+  if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
 
-  } catch (error) {
-    console.error('Story generation error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+  // Clips (legacy /api/credits/* routes also supported)
+  if ((path === '/api/clips/balance' || path === '/api/credits/balance') && method === 'GET') return handleClipBalance(user, env, cors);
+  if ((path === '/api/clips/history' || path === '/api/credits/history') && method === 'GET') return handleClipHistory(user, url, env, cors);
+  if ((path === '/api/clips/check' || path === '/api/credits/check') && method === 'POST') return handleClipCheck(request, user, cors);
+
+  // Payments (PortOne)
+  if (path === '/api/payments/prepare' && method === 'POST') return handlePaymentPrepare(request, user, env, cors);
+  if (path === '/api/payments/complete' && method === 'POST') return handlePaymentComplete(request, user, env, cors);
+  if (path === '/api/payments/subscribe' && method === 'POST') return handleSubscribe(request, user, env, cors);
+  if (path === '/api/payments/cancel-subscription' && method === 'POST') return handleCancelSubscription(user, env, cors);
+
+  // Admin
+  if ((path === '/api/admin/grant-clips' || path === '/api/admin/grant-credits') && method === 'POST') return handleAdminGrantClips(request, user, env, cors);
+
+  // Generation (클립 차감 포함)
+  if (path === '/api/generate' && method === 'POST') return handleGenerate(request, user, env, ctx, cors);
+
+  // Video download
+  if (path.startsWith('/api/video/')) return handleVideoDownload(url, env, cors);
+
+  // Status
+  if (path.startsWith('/api/status/')) return handleStatus(url, env, cors);
+
+  // ---- Railway 프록시 라우트 (클립 차감 후 프록시) ----
+
+  // 일반 영상 생성 프록시
+  if (path === '/api/generate/story' && method === 'POST') {
+    return proxyToRailway(request, env, user, 'video', path, cors);
   }
+  if (path === '/api/generate/from-script' && method === 'POST') {
+    return proxyToRailway(request, env, user, 'script_video', path, cors);
+  }
+  if (path === '/api/generate/video' && method === 'POST') {
+    return proxyToRailway(request, env, user, null, path, cors);
+  }
+  if (path === '/api/generate/images' && method === 'POST') {
+    return proxyToRailway(request, env, user, null, path, cors);
+  }
+
+  // I2V 변환
+  if (path.match(/^\/api\/convert\/i2v\//) && method === 'POST') {
+    return proxyToRailway(request, env, user, 'i2v', path, cors);
+  }
+
+  // 이미지 재생성
+  if (path.match(/^\/api\/regenerate\/image\//) && method === 'POST') {
+    return proxyToRailway(request, env, user, 'image_regen', path, cors);
+  }
+  if (path.match(/^\/api\/projects\/[^/]+\/scenes\/[^/]+\/regenerate/) && method === 'POST') {
+    return proxyToRailway(request, env, user, 'image_regen', path, cors);
+  }
+
+  // MV 생성
+  if (path === '/api/mv/generate' && method === 'POST') {
+    return proxyToRailway(request, env, user, 'mv', path, cors);
+  }
+
+  // MV 씬 이미지 재생성
+  if (path.match(/^\/api\/mv\/scenes\/[^/]+\/[^/]+\/regenerate/) && method === 'POST') {
+    return proxyToRailway(request, env, user, 'image_regen', path, cors);
+  }
+
+  // MV I2V
+  if (path.match(/^\/api\/mv\/scenes\/[^/]+\/[^/]+\/i2v/) && method === 'POST') {
+    return proxyToRailway(request, env, user, 'i2v', path, cors);
+  }
+
+  // MV 리컴포즈
+  if (path.match(/^\/api\/mv\/[^/]+\/recompose/) && method === 'POST') {
+    return proxyToRailway(request, env, user, 'mv_recompose', path, cors);
+  }
+
+  // 기타 Railway 프록시 (클립 차감 없음)
+  if (path.startsWith('/api/')) {
+    return proxyToRailway(request, env, user, null, path, cors);
+  }
+
+  return jsonResponse({ error: 'Not Found' }, 404, cors);
 }
 
-/**
- * 백그라운드 스토리 생성 (ctx.waitUntil용)
- */
-async function generateStoryBackground(projectId, body, env) {
-  try {
-    // 기존 handleGenerateStory 로직 재사용
-    const { genre, mood, style, duration, topic } = body;
-    const apiKey = env.GOOGLE_API_KEY;
+// ==================== Railway 프록시 ====================
 
-    if (!apiKey) {
-      throw new Error('Google API Key not configured');
-    }
+const RAILWAY_URL = 'https://web-production-bb6bf.up.railway.app';
 
-    const total_duration_sec = duration || 90;
-    const min_scenes = Math.floor(total_duration_sec / 8);
-    const max_scenes = Math.floor(total_duration_sec / 4);
+async function proxyToRailway(request, env, user, clipAction, path, cors) {
+  const userPlanId = user.plan_id || 'free';
+  const planLimits = PLAN_LIMITS[userPlanId] || PLAN_LIMITS.free;
 
-    // Step 1: Architecture
-    const step1_prompt = `
-ROLE: Professional Storyboard Artist & Director.
-TASK: Plan the structure for a ${total_duration_sec}-second YouTube Short.
-GENRE: ${genre}
-MOOD: ${mood}
-STYLE: ${style}
-SCENE COUNT: Approx ${min_scenes}-${max_scenes} scenes.
-${topic ? 'USER IDEA: ' + topic : ''}
+  // Plan-based restriction: I2V blocked for free tier
+  if (clipAction === 'i2v' && !planLimits.allowI2V) {
+    return jsonResponse({
+      error: 'I2V conversion requires a paid plan. Please upgrade.',
+      action: clipAction,
+      plan: userPlanId,
+    }, 403, cors);
+  }
 
-[LANGUAGE RULE - CRITICAL]
-- "project_title": 반드시 한국어로 작성 (예: "마지막 편지의 비밀")
-- "logline": 반드시 한국어로 작성
-- "outline" → "summary": 반드시 한국어로 작성
-- character "name": 한국어 이름 사용 (예: 지민, 준혁, 서연)
-- character "appearance": 영어로 작성 (이미지 생성용)
+  // --- Gemini 3.0 model tier enforcement ---
+  let gemini3Surcharge = 0;
+  let requestBody = null;
+  const isImageGenAction = ['video', 'script_video', 'mv', 'image_regen'].includes(clipAction);
 
-[STRUCTURE REQUIREMENT: KI-SEUNG-JEON-GYEOL]
-1. **기 (Introduction)**: Hook the audience, introduce characters/setting.
-2. **승 (Development)**: Escalate tension, build the conflict.
-3. **전 (Twist)**: The climax, a shocking revelation or turning point.
-4. **결 (Resolution)**: **MANDATORY**. The aftermath. Show the consequence.
-
-OUTPUT FORMAT (JSON):
-{
-  "project_title": "한국어 제목 (Hook처럼 작동)",
-  "logline": "한 문장 요약 (한국어)",
-  "global_style": {
-    "art_style": "${style}",
-    "color_palette": "e.g., Cyberpunk Neons",
-    "visual_seed": ${Math.floor(Math.random() * 100000)}
-  },
-  "characters": {
-    "Name": {"name": "한국어 이름", "appearance": "Detailed description in English", "role": "Protagonist/Antagonist"}
-  },
-  "outline": [
-    { "scene_id": 1, "summary": "한국어로 간략한 요약", "estimated_duration": 5 }
-  ]
-}
-`;
-
-    const step1_response = await callGemini(apiKey, step1_prompt, SYSTEM_PROMPT);
-    let structure_data = {};
+  if (request.method !== 'GET' && isImageGenAction) {
     try {
-      structure_data = parseGeminiResponse(step1_response);
-    } catch (e) {
-      console.error('Step 1 Parse Error:', e);
-    }
-
-    // Step 2: Scene Details
-    const structure_context = JSON.stringify(structure_data, null, 2);
-    const step2_prompt = `
-ROLE: Screenwriter & Visual Director.
-TASK: Generate detailed scene specs based on the approved structure.
-
-APPROVED STRUCTURE:
-${structure_context}
-
-REQUIREMENTS:
-- "narrative": 장면 설명 (반드시 한국어). 예: "지민이 카페 문을 열고 들어온다."
-- "tts_script": 나레이션 대사 (반드시 자연스러운 한국어 구어체). 예: "드디어 이곳인가..."
-- "image_prompt": Visual description for AI Image Generator (MUST BE English). ${style} style.
-- "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
-
-[LANGUAGE RULE - CRITICAL]
-- "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
-- "image_prompt"만 영어로 작성 (이미지 생성 AI용).
-- "title"도 반드시 한국어로 작성.
-
-[STRICT] CHARACTER CONSISTENCY RULE:
-- Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
-- DO NOT describe their physical appearance in "image_prompt".
-- Focus ONLY on the scene's action, lighting, and composition.
-
-[STRICT] ENDING RULE:
-- The final scenes MUST clearly show the conclusion.
-- The last "tts_script" should leave a lingering impression but NOT be open-ended.
-
-OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
-{
-  "title": "${structure_data.project_title || '제목 없음'}",
-  "genre": "${genre}",
-  "total_duration_sec": ${total_duration_sec},
-  "character_sheet": ${JSON.stringify(structure_data.characters || {})},
-  "global_style": ${JSON.stringify(structure_data.global_style || {})},
-  "scenes": [
-    {
-      "scene_id": 1,
-      "narrative": "STORYCUT_HERO_A가 카페 문을 열고 들어온다.",
-      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style, high contrast, cinematic lighting.",
-      "tts_script": "드디어 이곳인가...",
-      "duration_sec": 5,
-      "camera_work": "Close-up",
-      "mood": "tense",
-      "characters_in_scene": ["STORYCUT_HERO_A"]
-    }
-  ],
-  "youtube_opt": {
-    "title_candidates": ["한국어 제목 후보 1", "한국어 제목 후보 2"],
-    "thumbnail_text": "한국어 Hook 텍스트",
-    "hashtags": ["#태그1", "#태그2"]
-  }
-}
-`;
-
-    const step2_response = await callGemini(apiKey, step2_prompt, SYSTEM_PROMPT);
-    const story_data = parseGeminiResponse(step2_response);
-
-    // Normalization
-    if (story_data.scenes) {
-      story_data.scenes.forEach(scene => {
-        if (scene.tts_script) {
-          scene.narration = scene.tts_script;
-          scene.sentence = scene.tts_script;
-        }
-        if (scene.image_prompt) {
-          scene.visual_description = scene.image_prompt;
-          scene.prompt = scene.image_prompt;
-        }
-      });
-    }
-
-    // D1에 결과 저장
-    if (env.DB) {
-      await env.DB.prepare(
-        `UPDATE projects SET status = ?, video_url = ?, completed_at = ? WHERE id = ?`
-      ).bind(
-        'story_ready',
-        JSON.stringify(story_data),
-        new Date().toISOString(),
-        projectId
-      ).run();
-    }
-
-    console.log(`[Background] Story generated for project ${projectId}`);
-    return story_data;
-
-  } catch (error) {
-    console.error(`[Background] Story generation failed for ${projectId}:`, error);
-
-    // 실패 상태 저장
-    if (env.DB) {
-      await env.DB.prepare(
-        `UPDATE projects SET status = ?, error_message = ? WHERE id = ?`
-      ).bind('failed', error.message, projectId).run();
-    }
-    throw error;
-  }
-}
-
-/**
- * [New] Story Generation Handler (JS Port of StoryAgent)
- */
-async function handleGenerateStory(request, env, corsHeaders) {
-  try {
-    const body = await request.json();
-    const { genre, mood, style, duration, topic } = body;
-
-    // Gemini API Key Check
-    const apiKey = env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error("Server Error: Google API Key not configured");
-    }
-
-    const total_duration_sec = duration || 90;
-    const min_scenes = Math.floor(total_duration_sec / 8);
-    const max_scenes = Math.floor(total_duration_sec / 4);
-
-    // =================================================================================
-    // STEP 1: Story Architecture
-    // =================================================================================
-    const step1_prompt = `
-ROLE: Professional Storyboard Artist & Director.
-TASK: Plan the structure for a ${total_duration_sec}-second YouTube Short.
-GENRE: ${genre}
-MOOD: ${mood}
-STYLE: ${style}
-SCENE COUNT: Approx ${min_scenes}-${max_scenes} scenes.
-${topic ? 'USER IDEA: ' + topic : ''}
-
-[STRUCTURE REQUIREMENT: KI-SEUNG-JEON-GYEOL]
-1. **Introduction (Ki)**: Hook the audience, introduce characters/setting.
-2. **Development (Seung)**: Escalate tension, build the conflict.
-3. **Twist (Jeon)**: The climax, a shocking revelation or turning point.
-4. **Resolution (Gyeol)**: **MANDATORY**. The aftermath. How did it end? What is the final state? 
-   - DO NOT just stop at the twist. Show the consequence.
-
-OUTPUT FORMAT (JSON):
-{
-  "project_title": "Creative Title",
-  "logline": "One sentence summary including the ending",
-  "global_style": {
-    "art_style": "${style}",
-    "color_palette": "e.g., Cyberpunk Neons",
-    "visual_seed": ${Math.floor(Math.random() * 100000)}
-  },
-  "characters": {
-    "Name": {
-      "name": "Name",
-      "appearance": "Detailed description",
-      "role": "Protagonist/Antagonist"
-    }
-  },
-  "outline": [
-    { "scene_id": 1, "summary": "Brief summary of what happens", "estimated_duration": 5 }
-  ]
-}
-`;
-    const step1_response = await callGemini(apiKey, step1_prompt, SYSTEM_PROMPT);
-    let structure_data = {};
-    try {
-      structure_data = parseGeminiResponse(step1_response);
-      console.log("Step 1 Structure:", structure_data.project_title);
-    } catch (e) {
-      console.error("Step 1 Parse Error:", e);
-      // Fallback or empty
-    }
-
-    // =================================================================================
-    // STEP 2: Scene-level Details
-    // =================================================================================
-    const structure_context = JSON.stringify(structure_data, null, 2);
-
-    const step2_prompt = `
-ROLE: Screenwriter & Visual Director.
-TASK: Generate detailed scene specs based on the approved structure.
-
-APPROVED STRUCTURE:
-${structure_context}
-
-REQUIREMENTS:
-- Follow the outline exactly.
-- "narrative": The action description (Korean).
-- "tts_script": The spoken line (Korean). **MUST BE NATURAL SPOKEN KOREAN (구어체).** Avoid "written style" (문어체).
-    - BAD: "그는 문을 열고 들어왔다." (Narration style)
-    - GOOD: "결국... 돌아왔군." (Character dialogue or Monologue)
-- "image_prompt": Visual description for AI Image Generator (English). ${style} style.
-- "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
-
-[STRICT] CHARACTER CONSISTENCY RULE:
-- Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
-- DO NOT describe their physical appearance (age, hair, clothes) in "image_prompt". This is already handled by the system.
-- Focus ONLY on the scene's action, lighting, and composition.
-
-[STRICT] ENDING RULE:
-- The final scenes MUST clearly show the conclusion.
-- The last line of "tts_script" should leave a lingering impression but NOT be open-ended.
-
-OUTPUT FORMAT (JSON):
-{
-  "title": "${structure_data.project_title || 'Untitled'}",
-  "genre": "${genre}",
-  "total_duration_sec": ${total_duration_sec},
-  "character_sheet": ${JSON.stringify(structure_data.characters || {})},
-  "global_style": ${JSON.stringify(structure_data.global_style || {})},
-  "scenes": [
-    {
-      "scene_id": 1,
-      "narrative": "STORYCUT_HERO_A가 카페 문을 열고 들어온다.",
-      "image_prompt": "STORYCUT_HERO_A opening a cafe door, webtoon style, high contrast, cinematic lighting.",
-      "tts_script": "드디어 이곳인가...",
-      "duration_sec": 5,
-      "camera_work": "Close-up",
-      "mood": "tense",
-      "characters_in_scene": ["STORYCUT_HERO_A"]
-    }
-  ],
-  "youtube_opt": {
-    "title_candidates": ["Title 1", "Title 2"],
-    "thumbnail_text": "Hook Text",
-    "hashtags": ["#Tag1", "#Tag2"]
-  }
-}
-`;
-    const step2_response = await callGemini(apiKey, step2_prompt, SYSTEM_PROMPT);
-    const story_data = parseGeminiResponse(step2_response);
-
-    // Validation / Normalization
-    if (story_data.scenes) {
-      story_data.scenes.forEach(scene => {
-        if (scene.tts_script) {
-          scene.narration = scene.tts_script;
-          scene.sentence = scene.tts_script;
-        }
-        if (scene.image_prompt) {
-          scene.visual_description = scene.image_prompt;
-          scene.prompt = scene.image_prompt;
-        }
-      });
-    }
-
-    return new Response(JSON.stringify({
-      story_data: story_data,
-      request_params: body,
-      project_id: Math.random().toString(36).substring(2, 10)
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    console.error("Story Generation Error:", error);
-    return new Response(JSON.stringify({ detail: error.message }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-async function callGemini(apiKey, prompt, systemPrompt) {
-  // [Fix] Use 'gemini-3-pro-preview' as requested (User's specific model)
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`;
-
-  // Gemini 1.5 Pro supports systemInstruction
-  const payload = {
-    contents: [{
-      role: "user",
-      parts: [{ text: prompt }]
-    }],
-    systemInstruction: {
-      parts: [{ text: systemPrompt }]
-    },
-    generationConfig: {
-      temperature: 0.7,
-      responseMimeType: "application/json"
-    }
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Gemini API Error ${response.status}: ${errText}`);
+      requestBody = await request.clone().json();
+    } catch { /* not JSON, skip */ }
   }
 
-  const data = await response.json();
-  if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts[0].text) {
-    return data.candidates[0].content.parts[0].text;
-  } else {
-    throw new Error("Unexpected Gemini response structure");
-  }
-}
+  const requestedModel = requestBody?.image_model || null;
+  const isGemini3 = requestedModel === 'premium' || (requestedModel && requestedModel.includes('3.0'));
 
-function parseGeminiResponse(text) {
-  try {
-    // Remove markdown
-    let cleaned = text.trim();
-    if (cleaned.startsWith("```json")) cleaned = cleaned.substring(7);
-    if (cleaned.startsWith("```")) cleaned = cleaned.substring(3);
-    if (cleaned.endsWith("```")) cleaned = cleaned.substring(0, cleaned.length - 3);
-    return JSON.parse(cleaned);
-  } catch (e) {
-    throw new Error("Failed to parse JSON from Gemini: " + e.message);
-  }
-}
-
-const SYSTEM_PROMPT = `
-# 🎬 STORYCUT Master Storytelling Prompt v2.1
-You are the **BEST SHORT-FORM STORYTELLER** in the world. Your job is to create **VIRAL-WORTHY stories**.
-
-[CRITICAL RULE: COMPLETE NARRATIVE ARC]
-Your story MUST have a clear **Introduction, Development, Twist, and RESOLUTION**.
-- **NO CLIFFHANGERS.** The story must end definitively.
-- **NO VAGUE ENDINGS.** The audience must know exactly what happened to the characters.
-- **SATISFYING CONCLUSION.** Even if it's a sad ending, it must feel complete.
-
-Generate a **complete, immersive narrative** (2-3 minutes) with a GRIPPING HOOK, RISING TENSION, SHOCKING TWIST, and a DEFINITIVE ENDING.
-Output MUST be valid JSON.
-`;
-
-/**
- * 헬스 체크
- */
-async function handleHealth(env, corsHeaders) {
-  return new Response(
-    JSON.stringify({
-      status: 'ok',
-      version: '2.0',
-      timestamp: new Date().toISOString(),
-    }),
-    {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    }
-  );
-}
-
-/**
- * 영상 생성 요청 처리
- *
- * 1. 사용자 인증 확인
- * 2. 크레딧 차감
- * 3. Queue에 작업 추가
- * 4. 프로젝트 ID 반환
- */
-async function handleGenerate(request, env, ctx, corsHeaders, userId, userCredits) {
-  try {
-    // 요청 데이터 파싱
-    const body = await request.json();
-    const url = new URL(request.url);
-
-    // 인증 확인 (이미 fetch에서 검증됨)
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized (재로그인 필요)' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+  if (isGemini3) {
+    // Free tier: 3.0 completely blocked
+    if (!planLimits.gemini3Allowed) {
+      return jsonResponse({
+        error: 'Gemini 3.0 requires a paid plan. Please upgrade.',
+        action: clipAction,
+        plan: userPlanId,
+      }, 403, cors);
     }
 
-    // 크레딧 확인
-    const creditRequired = calculateCredit(body);
-    if (userCredits < creditRequired) {
-      return new Response(
-        JSON.stringify({
-          error: 'Insufficient credits',
-          required: creditRequired,
-          available: userCredits,
-        }),
-        { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Check monthly 3.0 usage count (skip for unlimited plans)
+    if (planLimits.gemini3Free >= 0) {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
 
-    // 프로젝트 ID 생성
-    const projectId = generateProjectId();
+      const usage = await env.DB.prepare(
+        `SELECT COUNT(*) as count FROM credit_transactions
+         WHERE user_id = ? AND action = 'gemini3_generation' AND created_at >= ?`
+      ).bind(user.id, monthStart.toISOString()).first();
 
-    // D1에 프로젝트 메타데이터 저장
-    await env.DB.prepare(
-      `INSERT INTO projects (id, user_id, status, input_data, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-      .bind(projectId, userId, 'queued', JSON.stringify(body), new Date().toISOString())
-      .run();
+      const gemini3UsedCount = usage?.count || 0;
 
-    // Queue에 작업 추가 (Queue가 있을 때만)
-    if (env.VIDEO_QUEUE) {
-      /*
-      await env.VIDEO_QUEUE.send({
-        projectId,
-        userId: userId,
-        input: body,
-        timestamp: Date.now(),
-      });
-      */
-      console.warn('Queue disabled. Direct backend call required here.');
-    }
-
-    // [Direct Call] Python 백엔드 호출 (Railway)
-    const BACKEND_URL = env.BACKEND_URL || "https://web-production-bb6bf.up.railway.app";
-    const targetUrl = `${BACKEND_URL}${url.pathname}`;
-
-    console.log(`Forwarding request to backend: ${targetUrl}`);
-
-    // 백엔드에 요청 전달 (Fire-and-forget 방식)
-    // 사용자는 기다리지 않고 바로 응답을 받지만, 백엔드는 작업을 수행함
-    ctx.waitUntil(
-      fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...body,
-          project_id: projectId, // 이미 생성된 ID 전달
-          webhook_url: `${url.origin}/api/webhook/${projectId}` // 완료 알림용 (나중에 구현)
-        }),
-      }).then(res => {
-        console.log(`Backend response: ${res.status}`);
-      }).catch(err => {
-        console.error(`Backend call failed:`, err);
-      })
-    );
-
-    // 크레딧 차감
-    await env.DB.prepare(
-      `UPDATE users SET credits = credits - ? WHERE id = ?`
-    )
-      .bind(creditRequired, userId)
-      .run();
-
-    return new Response(
-      JSON.stringify({
-        project_id: projectId,
-        status: 'started',
-        message: '영상 생성이 시작되었습니다.',
-        server_url: BACKEND_URL, // 디버깅용
-        credits_used: creditRequired,
-        credits_remaining: userCredits - creditRequired,
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (error) {
-    console.error('Generate error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-}
-
-/**
- * 영상 다운로드
- * R2 Storage에서 가져오기
- */
-async function handleVideoDownload(url, env, corsHeaders) {
-  // ... existing code ...
-  // Keep existing logic or refactor to use generic handleAssetDownload
-  return handleAssetDownload(url, env, corsHeaders, 'video');
-}
-
-/**
- * Generic Asset Download
- * /api/asset/{projectId}/{type}/{filename}
- */
-async function handleAssetDownload(url, env, corsHeaders, forceType = null) {
-  const parts = url.pathname.split('/');
-  // Expected: ["", "api", "asset", "projectId", "type", "filename"]
-  // Or for video: ["", "api", "video", "projectId"] (Handled specially)
-
-  let projectId, type, filename;
-
-  if (forceType === 'video') {
-    projectId = parts.pop();
-    type = 'videos';
-    filename = 'final_video.mp4';
-  } else {
-    filename = parts.pop();
-    type = parts.pop();
-    projectId = parts.pop();
-  }
-
-  // Safety check path traversal
-  if (!projectId || !type || !filename || filename.includes('..')) {
-    return new Response('Invalid path', { status: 400, headers: corsHeaders });
-  }
-
-  // Map URL type to R2 folder
-  // URL type: 'image' -> R2: 'images'
-  // URL type: 'audio' -> R2: 'audio'
-  // URL type: 'video' -> R2: 'videos'
-  let folder = type;
-  if (type === 'image') folder = 'images';
-
-  const key = `${folder}/${projectId}/${filename}`;
-
-  try {
-    const object = await env.R2_BUCKET.get(key);
-
-    if (!object) {
-      return new Response(`Asset not found: ${key}`, { status: 404, headers: corsHeaders });
-    }
-
-    const headers = new Headers(object.writeHttpMetadata(corsHeaders));
-    headers.set('etag', object.httpEtag);
-
-    // Content-Type mapping
-    if (filename.endsWith('.mp4')) headers.set('Content-Type', 'video/mp4');
-    else if (filename.endsWith('.png')) headers.set('Content-Type', 'image/png');
-    else if (filename.endsWith('.jpg')) headers.set('Content-Type', 'image/jpeg');
-    else if (filename.endsWith('.mp3')) headers.set('Content-Type', 'audio/mpeg');
-    else if (filename.endsWith('.wav')) headers.set('Content-Type', 'audio/wav');
-
-    return new Response(object.body, { headers });
-
-  } catch (error) {
-    console.error('Asset Download Error:', error);
-    return new Response('Error downloading asset', { status: 500, headers: corsHeaders });
-  }
-}
-
-/**
- * 프로젝트 상태 조회
- */
-async function handleStatus(url, env, corsHeaders) {
-  const projectId = url.pathname.split('/').pop();
-
-  try {
-    const result = await env.DB.prepare(
-      `SELECT id, status, video_url, created_at, completed_at, error_message, logs, progress
-       FROM projects WHERE id = ?`
-    )
-      .bind(projectId)
-      .first();
-
-    if (!result) {
-      return new Response(
-        JSON.stringify({ error: 'Project not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  } catch (error) {
-    console.error('Status error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-}
-
-/**
- * 사용자 인증
- */
-async function authenticateUser(authHeader, env) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-
-  const token = authHeader.substring(7);
-
-  // JWT 검증 (실제 구현 필요)
-  // 여기서는 단순화된 버전
-  try {
-    const result = await env.DB.prepare(
-      `SELECT id, email, credits FROM users WHERE api_token = ?`
-    )
-      .bind(token)
-      .first();
-
-    return result;
-  } catch (error) {
-    console.error('Auth error:', error);
-    return null;
-  }
-}
-
-/**
- * 크레딧 계산
- */
-function calculateCredit(input) {
-  let credit = 1; // 기본 1 크레딧
-
-  // 길이에 따라 추가
-  if (input.duration > 60) {
-    credit += Math.ceil((input.duration - 60) / 30);
-  }
-
-  // Hook 비디오 사용 시 추가
-  if (input.hook_scene1_video) {
-    credit += 2;
-  }
-
-  return credit;
-}
-
-/**
- * 프로젝트 ID 생성
- */
-function generateProjectId() {
-  return Math.random().toString(36).substring(2, 10);
-}
-
-/**
- * Webhook Handler
- * Python 백엔드로부터 상태 업데이트 수신
- */
-async function handleWebhook(request, url, env, corsHeaders) {
-  const projectId = url.pathname.split('/').pop();
-
-  if (request.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders });
-  }
-
-  try {
-    const data = await request.json();
-    // data: { status: 'completed'|'failed'|'processing', output_url: '...', error: '...' }
-
-    console.log(`[Webhook] Update for project ${projectId}:`, data);
-
-    if (data.status === 'completed') {
-      await env.DB.prepare(
-        `UPDATE projects 
-         SET status = ?, video_url = ?, completed_at = ?, progress = 100, logs = logs || ? 
-         WHERE id = ?`
-      )
-        .bind('completed', data.output_url || data.video_url, new Date().toISOString(), '\n[완료] 영상 생성이 완료되었습니다.', projectId)
-        .run();
-    } else if (data.status === 'failed') {
-      await env.DB.prepare(
-        `UPDATE projects 
-         SET status = ?, error_message = ?, logs = logs || ? 
-         WHERE id = ?`
-      )
-        .bind('failed', data.error || 'Unknown error', `\n[오류] ${data.error || '알 수 없는 오류 발생'}`, projectId)
-        .run();
-    } else {
-      // processing, etc.
-      // 로그 및 진행률 업데이트
-      const logUpdate = data.message ? `\n[${new Date().toLocaleTimeString()}] ${data.message}` : '';
-      const progressUpdate = data.progress || null;
-
-      if (progressUpdate !== null) {
-        await env.DB.prepare(
-          `UPDATE projects SET status = ?, progress = ?, logs = logs || ? WHERE id = ?`
-        )
-          .bind(data.status, progressUpdate, logUpdate, projectId)
-          .run();
-      } else {
-        await env.DB.prepare(
-          `UPDATE projects SET status = ?, logs = logs || ? WHERE id = ?`
-        )
-          .bind(data.status, logUpdate, projectId)
-          .run();
+      if (gemini3UsedCount >= planLimits.gemini3Free) {
+        // Estimate image count for surcharge (story/MV typically 12-20 images)
+        const estimatedImages = (clipAction === 'image_regen') ? 1 : 15;
+        gemini3Surcharge = estimatedImages * GEMINI3_SURCHARGE_PER_IMAGE;
       }
     }
-
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
   }
-}
 
-/**
- * Generic Backend Proxy
- * 단순히 요청을 Python 백엔드로 전달하고 결과를 반환
- */
-async function handleProxyToBackend(request, url, env, corsHeaders) {
-  const BACKEND_URL = env.BACKEND_URL || "https://web-production-bb6bf.up.railway.app";
-  const targetUrl = `${BACKEND_URL}${url.pathname}${url.search}`;
+  if (clipAction) {
+    const cost = CLIP_COSTS[clipAction] + gemini3Surcharge;
+    const clips = user.credits; // DB column is still 'credits', mapped to clips
+    if (cost && clips < cost) {
+      return jsonResponse({
+        error: gemini3Surcharge > 0
+          ? `Insufficient clips. Gemini 3.0 surcharge: +${gemini3Surcharge} clips (${GEMINI3_SURCHARGE_PER_IMAGE} clips/image)`
+          : 'Insufficient clips',
+        required: cost,
+        available: clips,
+        action: clipAction,
+        gemini3_surcharge: gemini3Surcharge,
+      }, 402, cors);
+    }
 
-  console.log(`Proxying request to: ${targetUrl}`);
+    if (cost) {
+      await deductClips(env, user.id, cost, clipAction, `${clipAction} generation${gemini3Surcharge > 0 ? ' (Gemini 3.0 surcharge +' + gemini3Surcharge + ')' : ''}`);
+    }
+
+    // Record Gemini 3.0 usage for monthly tracking
+    if (isGemini3) {
+      await env.DB.prepare(
+        `INSERT INTO credit_transactions (user_id, amount, type, action, description, created_at)
+         VALUES (?, 0, 'tracking', 'gemini3_generation', ?, ?)`
+      ).bind(user.id, `${clipAction} with Gemini 3.0`, new Date().toISOString()).run();
+    }
+  }
+
+  const railwayUrl = `${RAILWAY_URL}${path}`;
+  const headers = new Headers(request.headers);
+  headers.set('X-User-Id', user.id);
+  headers.set('X-User-Plan', userPlanId);
+  headers.set('X-Watermark', planLimits.watermark ? 'true' : 'false');
+  headers.set('X-Resolution', planLimits.resolution);
+  if (clipAction) {
+    headers.set('X-Clips-Charged', String((CLIP_COSTS[clipAction] || 0) + gemini3Surcharge));
+  }
+  if (isGemini3) {
+    headers.set('X-Image-Model', requestedModel);
+  }
 
   try {
-    const response = await fetch(targetUrl, {
+    const response = await fetch(railwayUrl, {
       method: request.method,
-      headers: request.headers,
-      body: request.method !== 'GET' ? await request.arrayBuffer() : undefined
+      headers,
+      body: request.method !== 'GET' ? await request.clone().arrayBuffer() : undefined,
     });
 
-    // 응답 헤더 복사 (CORS 포함)
-    const newHeaders = new Headers(response.headers);
-    Object.keys(corsHeaders).forEach(key => {
-      newHeaders.set(key, corsHeaders[key]);
-    });
+    const responseHeaders = new Headers(response.headers);
+    Object.entries(cors).forEach(([k, v]) => responseHeaders.set(k, v));
 
     return new Response(response.body, {
       status: response.status,
-      headers: newHeaders
+      headers: responseHeaders,
     });
   } catch (error) {
-    console.error('Proxy error:', error);
-    return new Response(JSON.stringify({ error: 'Backend proxy failed' }), {
-      status: 502,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    if (clipAction) {
+      const cost = (CLIP_COSTS[clipAction] || 0) + gemini3Surcharge;
+      if (cost) {
+        await refundClips(env, user.id, cost, clipAction, `${clipAction} proxy failed - refund`);
+      }
+    }
+    return jsonResponse({ error: 'Backend unavailable' }, 502, cors);
   }
 }
 
+// ==================== 인증 ====================
+
+async function authenticateUser(request, env) {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+
+  const token = authHeader.substring(7);
+
+  try {
+    const payload = decodeJWT(token, env.JWT_SECRET);
+    if (!payload) return null;
+
+    const result = await env.DB.prepare(
+      `SELECT id, email, credits, plan_id, plan_expires_at, monthly_credits,
+              stripe_customer_id, stripe_subscription_id
+       FROM users WHERE id = ?`
+    ).bind(payload.sub).first();
+
+    return result;
+  } catch (error) {
+    try {
+      const result = await env.DB.prepare(
+        `SELECT id, email, credits, plan_id, plan_expires_at, monthly_credits,
+                stripe_customer_id, stripe_subscription_id
+         FROM users WHERE api_token = ?`
+      ).bind(token).first();
+      return result;
+    } catch (e) {
+      console.error('Auth error:', e);
+      return null;
+    }
+  }
+}
+
+function decodeJWT(token, secret) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function createJWT(payload, secret) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const tokenPayload = {
+    ...payload,
+    iat: now,
+    exp: now + 86400,
+  };
+
+  const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const encodedPayload = btoa(JSON.stringify(tokenPayload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+  const data = `${encodedHeader}.${encodedPayload}`;
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret || 'storycut-secret-key'),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data));
+  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+  return `${data}.${encodedSignature}`;
+}
+
+// ==================== 회원가입 / 로그인 ====================
+
+async function handleRegister(request, env, cors) {
+  try {
+    const { username, email, password } = await request.json();
+    if (!email || !password) {
+      return jsonResponse({ error: 'Email and password required' }, 400, cors);
+    }
+
+    const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+    if (existing) {
+      return jsonResponse({ error: 'Email already registered' }, 409, cors);
+    }
+
+    const userId = crypto.randomUUID();
+    const passwordHash = await hashPassword(password);
+
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, credits, plan_id, created_at)
+       VALUES (?, ?, ?, ?, 'free', ?)`
+    ).bind(userId, email, passwordHash, SIGNUP_BONUS_CLIPS, new Date().toISOString()).run();
+
+    await recordTransaction(env, userId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Signup bonus clips');
+
+    return jsonResponse({ message: 'Registered successfully', user: { id: userId, email, clips: SIGNUP_BONUS_CLIPS } }, 201, cors);
+  } catch (error) {
+    console.error('Register error:', error);
+    return jsonResponse({ error: error.message }, 500, cors);
+  }
+}
+
+async function handleLogin(request, env, cors) {
+  try {
+    const { email, password } = await request.json();
+    if (!email || !password) {
+      return jsonResponse({ error: 'Email and password required' }, 400, cors);
+    }
+
+    const user = await env.DB.prepare(
+      'SELECT id, email, password_hash, credits, plan_id FROM users WHERE email = ?'
+    ).bind(email).first();
+
+    if (!user || !user.password_hash) {
+      return jsonResponse({ error: 'Invalid credentials' }, 401, cors);
+    }
+
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      return jsonResponse({ error: 'Invalid credentials' }, 401, cors);
+    }
+
+    const token = await createJWT({ sub: user.id, email: user.email }, env.JWT_SECRET);
+
+    return jsonResponse({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.email.split('@')[0],
+        clips: user.credits, // DB column 'credits' → response field 'clips'
+        plan_id: user.plan_id || 'free',
+      },
+    }, 200, cors);
+  } catch (error) {
+    console.error('Login error:', error);
+    return jsonResponse({ error: error.message }, 500, cors);
+  }
+}
+
+// ==================== Google OAuth ====================
+
+async function handleGoogleAuth(request, env, cors) {
+  try {
+    const { id_token } = await request.json();
+    if (!id_token) {
+      return jsonResponse({ error: 'id_token required' }, 400, cors);
+    }
+
+    const clientId = env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      return jsonResponse({ error: 'Google OAuth not configured' }, 500, cors);
+    }
+
+    // Verify Google ID token
+    const googleUser = await verifyGoogleToken(id_token, clientId);
+    if (!googleUser) {
+      return jsonResponse({ error: 'Invalid Google token' }, 401, cors);
+    }
+
+    const { email, name } = googleUser;
+
+    // Check if user exists
+    let user = await env.DB.prepare('SELECT id, email, credits, plan_id FROM users WHERE email = ?')
+      .bind(email).first();
+
+    if (!user) {
+      // Create new user (Google users have no password)
+      const userId = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, credits, plan_id, created_at)
+         VALUES (?, ?, '', ?, 'free', ?)`
+      ).bind(userId, email, SIGNUP_BONUS_CLIPS, new Date().toISOString()).run();
+
+      await recordTransaction(env, userId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Google signup bonus clips');
+
+      user = { id: userId, email, credits: SIGNUP_BONUS_CLIPS, plan_id: 'free' };
+    }
+
+    const token = await createJWT({ sub: user.id, email: user.email }, env.JWT_SECRET);
+
+    return jsonResponse({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: name || email.split('@')[0],
+        clips: user.credits, // DB column 'credits' → response field 'clips'
+        plan_id: user.plan_id || 'free',
+      },
+    }, 200, cors);
+  } catch (error) {
+    console.error('Google auth error:', error);
+    return jsonResponse({ error: error.message }, 500, cors);
+  }
+}
+
+async function verifyGoogleToken(idToken, clientId) {
+  try {
+    // Use Google's tokeninfo endpoint to verify
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    if (!res.ok) return null;
+
+    const payload = await res.json();
+
+    // Verify audience matches our client ID
+    if (payload.aud !== clientId) {
+      console.error('Google token aud mismatch:', payload.aud, '!=', clientId);
+      return null;
+    }
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && parseInt(payload.exp) < now) {
+      console.error('Google token expired');
+      return null;
+    }
+
+    // Check email verified
+    if (payload.email_verified !== 'true' && payload.email_verified !== true) {
+      console.error('Google email not verified');
+      return null;
+    }
+
+    return {
+      email: payload.email,
+      name: payload.name || payload.email.split('@')[0],
+      picture: payload.picture || null,
+    };
+  } catch (error) {
+    console.error('Google token verification error:', error);
+    return null;
+  }
+}
+
+function handleGoogleClientId(env, cors) {
+  const clientId = env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    return jsonResponse({ error: 'GOOGLE_CLIENT_ID not configured' }, 404, cors);
+  }
+  return jsonResponse({ client_id: clientId }, 200, cors);
+}
+
+// ==================== 패스워드 해싱 ====================
+
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const hash = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    key,
+    256
+  );
+  const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
+  const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${saltHex}:${hashHex}`;
+}
+
+async function verifyPassword(password, stored) {
+  const [saltHex, hashHex] = stored.split(':');
+  if (!saltHex || !hashHex) return false;
+
+  const salt = new Uint8Array(saltHex.match(/.{2}/g).map(h => parseInt(h, 16)));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const hash = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    key,
+    256
+  );
+  const computedHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return computedHex === hashHex;
+}
+
+// ==================== 클립 관리 ====================
+
+async function handleClipBalance(user, env, cors) {
+  const freshUser = await env.DB.prepare(
+    `SELECT credits, plan_id, plan_expires_at, monthly_credits FROM users WHERE id = ?`
+  ).bind(user.id).first();
+
+  const planInfo = PLANS[freshUser.plan_id] || PLANS.free;
+  const planLimits = PLAN_LIMITS[freshUser.plan_id] || PLAN_LIMITS.free;
+
+  // Gemini 3.0 monthly usage count
+  let gemini3UsedThisMonth = 0;
+  if (planLimits.gemini3Allowed) {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const usage = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM credit_transactions
+       WHERE user_id = ? AND action = 'gemini3_generation' AND created_at >= ?`
+    ).bind(user.id, monthStart.toISOString()).first();
+    gemini3UsedThisMonth = usage?.count || 0;
+  }
+
+  return jsonResponse({
+    clips: freshUser.credits, // DB 'credits' → API 'clips'
+    plan_id: freshUser.plan_id || 'free',
+    plan_name: planInfo.name,
+    plan_expires_at: freshUser.plan_expires_at,
+    monthly_clips: freshUser.monthly_credits, // DB 'monthly_credits' → API 'monthly_clips'
+    costs: CLIP_COSTS,
+    limits: planLimits,
+    gemini3: {
+      used: gemini3UsedThisMonth,
+      free_limit: planLimits.gemini3Free,
+      surcharge_per_image: GEMINI3_SURCHARGE_PER_IMAGE,
+      allowed: planLimits.gemini3Allowed,
+    },
+  }, 200, cors);
+}
+
+async function handleClipHistory(user, url, env, cors) {
+  const page = parseInt(url.searchParams.get('page') || '1');
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 50);
+  const offset = (page - 1) * limit;
+
+  const total = await env.DB.prepare(
+    'SELECT COUNT(*) as count FROM credit_transactions WHERE user_id = ?'
+  ).bind(user.id).first();
+
+  const transactions = await env.DB.prepare(
+    `SELECT id, amount, type, action, description, created_at
+     FROM credit_transactions WHERE user_id = ?
+     ORDER BY created_at DESC LIMIT ? OFFSET ?`
+  ).bind(user.id, limit, offset).all();
+
+  return jsonResponse({
+    transactions: transactions.results,
+    pagination: {
+      page,
+      limit,
+      total: total.count,
+      pages: Math.ceil(total.count / limit),
+    },
+  }, 200, cors);
+}
+
+async function handleClipCheck(request, user, cors) {
+  const { action } = await request.json();
+  const cost = CLIP_COSTS[action];
+
+  if (cost === undefined) {
+    return jsonResponse({ error: 'Unknown action' }, 400, cors);
+  }
+
+  const clips = user.credits; // DB column 'credits' → variable 'clips'
+  const sufficient = clips >= cost;
+
+  return jsonResponse({
+    action,
+    cost,
+    available: clips,
+    sufficient,
+  }, 200, cors);
+}
+
+async function deductClips(env, userId, amount, action, description, projectId) {
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET credits = credits - ?, updated_at = ? WHERE id = ?')
+      .bind(amount, new Date().toISOString(), userId),
+    env.DB.prepare(
+      `INSERT INTO credit_transactions (user_id, project_id, amount, type, action, description, created_at)
+       VALUES (?, ?, ?, 'usage', ?, ?, ?)`
+    ).bind(userId, projectId || null, -amount, action, description, new Date().toISOString()),
+  ]);
+}
+
+async function refundClips(env, userId, amount, action, description, projectId) {
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET credits = credits + ?, updated_at = ? WHERE id = ?')
+      .bind(amount, new Date().toISOString(), userId),
+    env.DB.prepare(
+      `INSERT INTO credit_transactions (user_id, project_id, amount, type, action, description, created_at)
+       VALUES (?, ?, ?, 'refund', ?, ?, ?)`
+    ).bind(userId, projectId || null, amount, action, description, new Date().toISOString()),
+  ]);
+}
+
+async function addClips(env, userId, amount, type, action, description) {
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET credits = credits + ?, updated_at = ? WHERE id = ?')
+      .bind(amount, new Date().toISOString(), userId),
+    env.DB.prepare(
+      `INSERT INTO credit_transactions (user_id, amount, type, action, description, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(userId, amount, type, action, description, new Date().toISOString()),
+  ]);
+}
+
+async function recordTransaction(env, userId, amount, type, action, description) {
+  await env.DB.prepare(
+    `INSERT INTO credit_transactions (user_id, amount, type, action, description, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(userId, amount, type, action, description, new Date().toISOString()).run();
+}
+
+// ==================== PortOne(포트원) V2 결제 ====================
+
+const PORTONE_API_URL = 'https://api.portone.io';
+
+async function handleGetPlans(cors) {
+  return jsonResponse({ plans: PLANS, clip_packs: CLIP_PACKS, costs: CLIP_COSTS, limits: PLAN_LIMITS }, 200, cors);
+}
+
+/**
+ * 결제 사전 준비 — D1에 pending 결제 생성, 프론트에 paymentId 반환
+ * 프론트는 이 paymentId로 PortOne SDK 결제 팝업을 연다
+ */
+async function handlePaymentPrepare(request, user, env, cors) {
+  const { type, plan_id, pack_type } = await request.json();
+
+  const paymentId = `pay_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+  let orderName, totalAmount, clips;
+
+  if (type === 'clip_pack' || type === 'credit_pack') {
+    const pack = CLIP_PACKS[pack_type];
+    if (!pack) return jsonResponse({ error: 'Invalid pack type' }, 400, cors);
+
+    orderName = `StoryCut 클립팩 ${pack_type} (${pack.clips} clips)`;
+    totalAmount = pack.priceKrw;
+    clips = pack.clips;
+
+    // pending 결제 기록
+    await env.DB.prepare(
+      `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, created_at)
+       VALUES (?, ?, ?, ?, 'pending', 'one_time', ?)`
+    ).bind(paymentId, user.id, totalAmount, clips, new Date().toISOString()).run();
+
+  } else if (type === 'subscription') {
+    const plan = PLANS[plan_id];
+    if (!plan || plan_id === 'free') return jsonResponse({ error: 'Invalid plan' }, 400, cors);
+
+    orderName = `StoryCut ${plan.name} 구독 (월 ${plan.monthlyClips} clips)`;
+    totalAmount = plan.priceKrw;
+    clips = plan.monthlyClips;
+
+    await env.DB.prepare(
+      `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, created_at)
+       VALUES (?, ?, ?, ?, 'pending', 'subscription', ?)`
+    ).bind(paymentId, user.id, totalAmount, clips, new Date().toISOString()).run();
+
+  } else {
+    return jsonResponse({ error: 'Invalid type (clip_pack or subscription)' }, 400, cors);
+  }
+
+  return jsonResponse({
+    payment_id: paymentId,
+    order_name: orderName,
+    total_amount: totalAmount,
+    currency: 'KRW',
+    store_id: env.PORTONE_STORE_ID || '',
+    channel_key: env.PORTONE_CHANNEL_KEY || '',
+  }, 200, cors);
+}
+
+/**
+ * 클립팩 결제 완료 검증 — 프론트에서 SDK 결제 후 호출
+ * PortOne API로 결제 상태 확인 → 클립 충전
+ */
+async function handlePaymentComplete(request, user, env, cors) {
+  const { payment_id, pack_type } = await request.json();
+
+  if (!payment_id) return jsonResponse({ error: 'payment_id required' }, 400, cors);
+
+  // 1) pending 결제 확인
+  const payment = await env.DB.prepare(
+    'SELECT * FROM payments WHERE id = ? AND user_id = ? AND status = ?'
+  ).bind(payment_id, user.id, 'pending').first();
+
+  if (!payment) return jsonResponse({ error: 'Payment not found or already processed' }, 404, cors);
+
+  // 2) 포트원 API로 결제 상태 검증
+  const verified = await verifyPortonePayment(env, payment_id, payment.amount_usd);
+  if (!verified.success) {
+    return jsonResponse({ error: verified.error || 'Payment verification failed' }, 400, cors);
+  }
+
+  // 3) 클립 충전
+  const clips = payment.credits; // DB column still 'credits'
+  await addClips(env, user.id, clips, 'purchase', 'clip_pack',
+    `${pack_type || 'pack'} (${clips} clips) - ${payment.amount_usd.toLocaleString()}원`);
+
+  // 4) 결제 완료 처리
+  await env.DB.prepare(
+    `UPDATE payments SET status = 'completed', stripe_payment_id = ?, completed_at = ? WHERE id = ?`
+  ).bind(verified.portone_payment_id || payment_id, new Date().toISOString(), payment_id).run();
+
+  // 5) credit_packs 기록 (DB table name preserved)
+  if (pack_type) {
+    await env.DB.prepare(
+      `INSERT INTO credit_packs (user_id, pack_type, credits, amount_usd, stripe_payment_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(user.id, pack_type, clips, payment.amount_usd, payment_id, new Date().toISOString()).run();
+  }
+
+  // 최신 잔액 조회
+  const freshUser = await env.DB.prepare('SELECT credits FROM users WHERE id = ?').bind(user.id).first();
+
+  return jsonResponse({
+    message: `${clips} clips added`,
+    clips_added: clips,
+    clips_total: freshUser.credits, // DB column
+  }, 200, cors);
+}
+
+/**
+ * 정기결제(구독) — 빌링키 발급 후 호출
+ * 프론트에서 PortOne SDK로 빌링키 발급 → 여기서 첫 결제 + 구독 등록
+ */
+async function handleSubscribe(request, user, env, cors) {
+  const { billing_key, plan_id, payment_id } = await request.json();
+
+  if (!billing_key || !plan_id) {
+    return jsonResponse({ error: 'billing_key and plan_id required' }, 400, cors);
+  }
+
+  const plan = PLANS[plan_id];
+  if (!plan || plan_id === 'free') return jsonResponse({ error: 'Invalid plan' }, 400, cors);
+
+  // 기존 구독 확인
+  if (user.plan_id && user.plan_id !== 'free') {
+    return jsonResponse({ error: 'Already subscribed. Cancel current plan first.' }, 400, cors);
+  }
+
+  // 빌링키로 첫 결제 실행
+  const firstPaymentId = payment_id || `sub_first_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+
+  const chargeResult = await chargeWithBillingKey(env, billing_key, firstPaymentId, plan.priceKrw,
+    `StoryCut ${plan.name} 구독 (첫 달)`);
+
+  if (!chargeResult.success) {
+    return jsonResponse({ error: `Payment failed: ${chargeResult.error}` }, 402, cors);
+  }
+
+  // 구독 등록 + 클립 충전
+  const now = new Date();
+  const nextMonth = new Date(now);
+  nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE users SET plan_id = ?, monthly_credits = ?, credits = credits + ?,
+       stripe_subscription_id = ?, plan_expires_at = ?, updated_at = ? WHERE id = ?`
+    ).bind(plan_id, plan.monthlyClips, plan.monthlyClips, billing_key,
+      nextMonth.toISOString(), now.toISOString(), user.id),
+    env.DB.prepare(
+      `INSERT INTO subscriptions (user_id, plan_id, stripe_subscription_id, stripe_price_id, status,
+       current_period_start, current_period_end, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)`
+    ).bind(user.id, plan_id, billing_key, String(plan.priceKrw),
+      now.toISOString(), nextMonth.toISOString(), now.toISOString(), now.toISOString()),
+  ]);
+
+  await addClips(env, user.id, plan.monthlyClips, 'subscription', 'plan_renewal',
+    `${plan.name} 구독 시작 (${plan.monthlyClips} clips)`);
+
+  // 결제 기록
+  await env.DB.prepare(
+    `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, stripe_payment_id, created_at, completed_at)
+     VALUES (?, ?, ?, ?, 'completed', 'subscription', ?, ?, ?)`
+  ).bind(firstPaymentId, user.id, plan.priceKrw, plan.monthlyClips,
+    billing_key, now.toISOString(), now.toISOString()).run();
+
+  const freshUser = await env.DB.prepare('SELECT credits FROM users WHERE id = ?').bind(user.id).first();
+
+  return jsonResponse({
+    message: `${plan.name} 구독 시작! ${plan.monthlyClips} clips 충전됨`,
+    plan_id: plan_id,
+    plan_name: plan.name,
+    clips_added: plan.monthlyClips,
+    clips_total: freshUser.credits,
+    next_renewal: nextMonth.toISOString(),
+  }, 200, cors);
+}
+
+/**
+ * 구독 취소
+ */
+async function handleCancelSubscription(user, env, cors) {
+  if (!user.plan_id || user.plan_id === 'free') {
+    return jsonResponse({ error: 'No active subscription' }, 400, cors);
+  }
+
+  const now = new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE users SET plan_id = 'free', stripe_subscription_id = NULL,
+       monthly_credits = 0, updated_at = ? WHERE id = ?`
+    ).bind(now, user.id),
+    env.DB.prepare(
+      `UPDATE subscriptions SET status = 'cancelled', cancelled_at = ?, updated_at = ?
+       WHERE user_id = ? AND status = 'active'`
+    ).bind(now, now, user.id),
+  ]);
+
+  return jsonResponse({ message: 'Subscription cancelled' }, 200, cors);
+}
+
+/**
+ * PortOne Webhook (결제 알림 — 백업용)
+ */
+async function handlePortoneWebhook(request, env, cors) {
+  try {
+    const body = await request.json();
+
+    // Transaction.Paid 이벤트만 처리
+    if (body.type === 'Transaction.Paid') {
+      const paymentId = body.data?.paymentId;
+      if (paymentId) {
+        // 이미 complete 처리된 결제인지 확인
+        const payment = await env.DB.prepare(
+          'SELECT * FROM payments WHERE id = ? AND status = ?'
+        ).bind(paymentId, 'pending').first();
+
+        if (payment) {
+          // complete 처리 (프론트에서 complete 호출 못한 경우 보충)
+          await addClips(env, payment.user_id, payment.credits, 'purchase', 'clip_pack',
+            `Webhook: ${payment.credits} clips - ${payment.amount_usd}원`);
+
+          await env.DB.prepare(
+            `UPDATE payments SET status = 'completed', completed_at = ? WHERE id = ?`
+          ).bind(new Date().toISOString(), paymentId).run();
+        }
+      }
+    }
+
+    return jsonResponse({ received: true }, 200, cors);
+  } catch (error) {
+    console.error('Webhook error:', error);
+    return jsonResponse({ error: 'Webhook processing failed' }, 500, cors);
+  }
+}
+
+// ==================== PortOne API 유틸리티 ====================
+
+/**
+ * 포트원 결제 검증
+ */
+async function verifyPortonePayment(env, paymentId, expectedAmount) {
+  const apiSecret = env.PORTONE_API_SECRET;
+  if (!apiSecret) {
+    // 포트원 미설정 시 검증 스킵 (개발용)
+    console.warn('PORTONE_API_SECRET not set, skipping verification');
+    return { success: true, portone_payment_id: paymentId };
+  }
+
+  try {
+    const response = await fetch(`${PORTONE_API_URL}/payments/${encodeURIComponent(paymentId)}`, {
+      headers: { 'Authorization': `PortOne ${apiSecret}` },
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return { success: false, error: `PortOne API error: ${response.status} ${err}` };
+    }
+
+    const data = await response.json();
+
+    // 상태 확인
+    if (data.status !== 'PAID') {
+      return { success: false, error: `Payment status: ${data.status}` };
+    }
+
+    // 금액 확인
+    if (data.amount?.total !== expectedAmount) {
+      return { success: false, error: `Amount mismatch: expected ${expectedAmount}, got ${data.amount?.total}` };
+    }
+
+    return { success: true, portone_payment_id: data.id || paymentId };
+  } catch (error) {
+    return { success: false, error: `Verification failed: ${error.message}` };
+  }
+}
+
+/**
+ * 빌링키로 결제 (정기결제용)
+ */
+async function chargeWithBillingKey(env, billingKey, paymentId, amount, orderName) {
+  const apiSecret = env.PORTONE_API_SECRET;
+  if (!apiSecret) {
+    console.warn('PORTONE_API_SECRET not set, skipping billing charge');
+    return { success: true };
+  }
+
+  try {
+    const response = await fetch(`${PORTONE_API_URL}/payments/${encodeURIComponent(paymentId)}/billing-key`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `PortOne ${apiSecret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        billingKey: billingKey,
+        orderName: orderName,
+        amount: { total: amount },
+        currency: 'KRW',
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return { success: false, error: `Billing charge failed: ${response.status} ${err}` };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+// ==================== 정기결제 자동 갱신 (Cron) ====================
+
+async function processSubscriptionRenewals(env) {
+  const now = new Date();
+
+  // 만료된 구독 조회
+  const expiredSubs = await env.DB.prepare(
+    `SELECT s.id, s.user_id, s.plan_id, s.stripe_subscription_id as billing_key,
+            s.stripe_price_id as price_krw
+     FROM subscriptions s
+     JOIN users u ON s.user_id = u.id
+     WHERE s.status = 'active' AND u.plan_expires_at <= ?`
+  ).bind(now.toISOString()).all();
+
+  for (const sub of expiredSubs.results || []) {
+    const plan = PLANS[sub.plan_id];
+    if (!plan || !sub.billing_key) continue;
+
+    const paymentId = `renewal_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+
+    try {
+      const result = await chargeWithBillingKey(env, sub.billing_key, paymentId,
+        plan.priceKrw, `StoryCut ${plan.name} 월간 갱신`);
+
+      if (result.success) {
+        const nextMonth = new Date(now);
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+        await addClips(env, sub.user_id, plan.monthlyClips, 'subscription', 'plan_renewal',
+          `${plan.name} 월간 갱신 (${plan.monthlyClips} clips)`);
+
+        await env.DB.batch([
+          env.DB.prepare(
+            'UPDATE users SET plan_expires_at = ?, updated_at = ? WHERE id = ?'
+          ).bind(nextMonth.toISOString(), now.toISOString(), sub.user_id),
+          env.DB.prepare(
+            `UPDATE subscriptions SET current_period_start = ?, current_period_end = ?, updated_at = ?
+             WHERE id = ?`
+          ).bind(now.toISOString(), nextMonth.toISOString(), now.toISOString(), sub.id),
+        ]);
+
+        await env.DB.prepare(
+          `INSERT INTO payments (id, user_id, amount_usd, credits, status, payment_type, stripe_payment_id, created_at, completed_at)
+           VALUES (?, ?, ?, ?, 'completed', 'subscription', ?, ?, ?)`
+        ).bind(paymentId, sub.user_id, plan.priceKrw, plan.monthlyClips,
+          sub.billing_key, now.toISOString(), now.toISOString()).run();
+
+        console.log(`Renewal success: user=${sub.user_id}, plan=${sub.plan_id}`);
+      } else {
+        // 결제 실패 — 구독 만료
+        console.error(`Renewal failed: user=${sub.user_id}, error=${result.error}`);
+
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE users SET plan_id = 'free', stripe_subscription_id = NULL,
+             monthly_credits = 0, updated_at = ? WHERE id = ?`
+          ).bind(now.toISOString(), sub.user_id),
+          env.DB.prepare(
+            `UPDATE subscriptions SET status = 'expired', updated_at = ? WHERE id = ?`
+          ).bind(now.toISOString(), sub.id),
+        ]);
+      }
+    } catch (error) {
+      console.error(`Renewal error: user=${sub.user_id}`, error);
+    }
+  }
+}
+
+// ==================== 관리자 API ====================
+
+async function handleAdminGrantClips(request, user, env, cors) {
+  const adminEmails = (env.ADMIN_EMAILS || '').split(',').map(e => e.trim());
+  if (!adminEmails.includes(user.email)) {
+    return jsonResponse({ error: 'Forbidden' }, 403, cors);
+  }
+
+  const { target_user_id, target_email, amount, reason } = await request.json();
+
+  let targetId = target_user_id;
+  if (!targetId && target_email) {
+    const target = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(target_email).first();
+    if (!target) return jsonResponse({ error: 'Target user not found' }, 404, cors);
+    targetId = target.id;
+  }
+
+  if (!targetId || !amount) {
+    return jsonResponse({ error: 'target_user_id/target_email and amount required' }, 400, cors);
+  }
+
+  await addClips(env, targetId, amount, 'purchase', 'admin_grant', reason || `Admin grant by ${user.email}`);
+
+  return jsonResponse({ message: `Granted ${amount} clips`, target_user_id: targetId }, 200, cors);
+}
+
+// ==================== 기존 핸들러 ====================
+
+async function handleHealth(env, cors) {
+  return jsonResponse({
+    status: 'ok',
+    version: '3.0-portone',
+    timestamp: new Date().toISOString(),
+  }, 200, cors);
+}
+
+async function handleGenerate(request, user, env, ctx, cors) {
+  try {
+    const body = await request.json();
+
+    const clipAction = body.mode === 'mv' ? 'mv' : 'video';
+    const cost = CLIP_COSTS[clipAction];
+    const clips = user.credits; // DB column 'credits' → variable 'clips'
+
+    if (clips < cost) {
+      return jsonResponse({
+        error: 'Insufficient clips',
+        required: cost,
+        available: clips,
+        action: clipAction,
+      }, 402, cors);
+    }
+
+    const projectId = generateProjectId();
+
+    await env.DB.prepare(
+      `INSERT INTO projects (id, user_id, status, input_data, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(projectId, user.id, 'queued', JSON.stringify(body), new Date().toISOString()).run();
+
+    if (env.VIDEO_QUEUE) {
+      await env.VIDEO_QUEUE.send({
+        projectId,
+        userId: user.id,
+        input: body,
+        timestamp: Date.now(),
+      });
+    }
+
+    await deductClips(env, user.id, cost, clipAction, `${clipAction} generation`, projectId);
+
+    return jsonResponse({
+      project_id: projectId,
+      status: 'queued',
+      message: 'Generation started',
+      clips_used: cost,
+      clips_remaining: clips - cost,
+    }, 200, cors);
+  } catch (error) {
+    console.error('Generate error:', error);
+    return jsonResponse({ error: error.message }, 500, cors);
+  }
+}
+
+async function handleVideoDownload(url, env, cors) {
+  const projectId = url.pathname.split('/').pop();
+
+  try {
+    if (!env.R2_BUCKET) {
+      return jsonResponse({ error: 'Storage not configured' }, 503, cors);
+    }
+    const object = await env.R2_BUCKET.get(`videos/${projectId}/final_video.mp4`);
+
+    if (!object) {
+      return new Response('Video not found', { status: 404, headers: cors });
+    }
+
+    return new Response(object.body, {
+      headers: {
+        ...cors,
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': `attachment; filename="storycut_${projectId}.mp4"`,
+        'Cache-Control': 'public, max-age=31536000',
+      },
+    });
+  } catch (error) {
+    console.error('Download error:', error);
+    return new Response('Error downloading video', { status: 500, headers: cors });
+  }
+}
+
+async function handleStatus(url, env, cors) {
+  const projectId = url.pathname.split('/').pop();
+
+  try {
+    const result = await env.DB.prepare(
+      `SELECT id, status, created_at, completed_at, error_message
+       FROM projects WHERE id = ?`
+    ).bind(projectId).first();
+
+    if (!result) {
+      return jsonResponse({ error: 'Project not found' }, 404, cors);
+    }
+
+    return jsonResponse(result, 200, cors);
+  } catch (error) {
+    console.error('Status error:', error);
+    return jsonResponse({ error: error.message }, 500, cors);
+  }
+}
+
+// ==================== 유틸리티 ====================
+
+function jsonResponse(data, status, cors) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, 'Content-Type': 'application/json' },
+  });
+}
+
+function generateProjectId() {
+  return crypto.randomUUID().replace(/-/g, '').substring(0, 12);
+}
