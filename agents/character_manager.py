@@ -290,7 +290,7 @@ class CharacterManager:
             "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, NOT anime, NOT cartoon, NOT illustration",
             "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph",
             "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, non-representational",
-            "hoyoverse": "anime game cinematic illustration, HoYoverse Genshin Impact quality, cel-shaded with dramatic lighting, vibrant saturated colors, flowing hair and fabric, NOT photorealistic, NOT western cartoon",
+            "game_anime": "anime game cinematic illustration, premium game-art quality, cel-shaded with dramatic lighting, vibrant saturated colors, flowing hair and fabric, NOT photorealistic, NOT western cartoon",
         }
         style_directive = _style_anchor_directives.get(project.style.value, f"{project.style.value} style")
 

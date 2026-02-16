@@ -187,7 +187,7 @@ class MultimodalPromptBuilder:
         "drama": "cartoon, exaggerated, slapstick, neon colors, silly, fantastical, bright cheerful, magic spells, gore, blood, bloody tears, grotesque, horror, creepy",
         "comedy": "dark, grim, horror, blood, violence, depressing, muted, bleak, melancholic, gore, grotesque",
         "abstract": "photorealistic, literal, mundane, ordinary, documentary, plain, conventional, real brands",
-        "hoyoverse": "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands",
+        "game_anime": "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands",
     }
     GENRE_NEGATIVES = _GENRE_NEGATIVES_FALLBACK  # 하위 호환 alias
 
@@ -329,8 +329,8 @@ class MultimodalPromptBuilder:
                 "positive": "Generate an abstract expressionist artwork with surreal dreamlike imagery, bold geometric shapes, and non-representational color fields. This MUST be abstract art.",
                 "negative": "ABSOLUTELY NOT realistic, NOT photorealistic, NOT representational."
             },
-            "hoyoverse": {
-                "positive": "Generate an anime game cinematic illustration in HoYoverse style (Genshin Impact / Honkai Star Rail quality). Cel-shaded with dramatic lighting, character action poses, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky backgrounds, vibrant saturated colors.",
+            "game_anime": {
+                "positive": "Generate an anime game cinematic illustration with premium game-art quality. Cel-shaded with dramatic lighting, character action poses, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky backgrounds, vibrant saturated colors.",
                 "negative": "ABSOLUTELY NOT photorealistic, NOT western cartoon, NOT flat lighting, NOT mundane everyday, NOT low-budget 3D, NOT chibi deformed."
             },
         }

@@ -349,6 +349,14 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             manifest.global_style = GlobalStyle(**story_data["global_style"])
             print(f"[v2.0] Global style: {manifest.global_style.art_style}")
 
+        # v3.0: character_voices 저장
+        if "character_voices" in story_data:
+            from schemas import CharacterVoice
+            manifest.character_voices = [
+                CharacterVoice(**cv) for cv in story_data["character_voices"]
+            ]
+            print(f"[v3.0] Loaded {len(manifest.character_voices)} character voices")
+
         # [STEP 1.3] Style Anchor - 프로젝트 전체 룩 앵커 이미지 생성
         style_anchor_path = None
         env_anchors = {}
@@ -766,6 +774,14 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 narration_path=assets_data.get("narration_path") if isinstance(assets_data, dict) else None,
             )
 
+            # v3.0: dialogue_lines 변환
+            from schemas import DialogueLine
+            raw_dl = sd.get("dialogue_lines", [])
+            dialogue_lines = [
+                DialogueLine(**dl) if isinstance(dl, dict) else dl
+                for dl in raw_dl
+            ]
+
             scene = Scene(
                 index=idx,
                 scene_id=sd.get("scene_id", idx),
@@ -779,6 +795,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 narrative=sd.get("narrative"),
                 image_prompt=sd.get("image_prompt"),
                 characters_in_scene=sd.get("characters_in_scene", []),
+                # v3.0 필드
+                dialogue_lines=dialogue_lines,
                 assets=assets,
                 status=sd.get("status", "pending"),
             )

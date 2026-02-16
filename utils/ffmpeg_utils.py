@@ -1375,7 +1375,8 @@ class FFmpegComposer:
         video_clips: List[str],
         narration_clips: List[str],
         music_path: str,
-        output_path: str
+        output_path: str,
+        use_ducking: bool = False
     ) -> str:
         """
         전체 합성 파이프라인: 영상 연결, 오디오 믹스, 최종 MP4 출력.
@@ -1385,6 +1386,7 @@ class FFmpegComposer:
             narration_clips: 내레이션 오디오 파일 목록 (순서대로)
             music_path: 배경 음악 파일
             output_path: 최종 출력 영상 경로
+            use_ducking: 오디오 덕킹 사용 여부
 
         Returns:
             최종 영상 파일 경로
@@ -1397,13 +1399,29 @@ class FFmpegComposer:
         self.concatenate_videos(video_clips, temp_video)
 
         # Step 2: 오디오 믹스 (내레이션 + BGM)
-        print("  -> Mixing audio (narration + background music)...")
-        final_video = self.mix_audio(
-            temp_video,
-            narration_clips,
-            music_path,
-            output_path
-        )
+        if use_ducking and music_path and os.path.exists(music_path):
+            print("  -> Mixing audio with DUCKING (narration + BGM)...")
+            # 내레이션 먼저 연결
+            narration_concat = "temp_narration_ducking.wav"
+            self._concatenate_audio(narration_clips, narration_concat)
+            # 덕킹 적용 믹싱
+            final_video = self.mix_with_ducking(
+                temp_video,
+                narration_concat,
+                music_path,
+                output_path
+            )
+            # 임시 파일 정리
+            if os.path.exists(narration_concat):
+                os.remove(narration_concat)
+        else:
+            print("  -> Mixing audio (narration + background music)...")
+            final_video = self.mix_audio(
+                temp_video,
+                narration_clips,
+                music_path,
+                output_path
+            )
 
         # 임시 파일 정리
         if os.path.exists(temp_video):

@@ -568,6 +568,25 @@ class MVPipeline:
             print(f"  Quick test: {len(scenes)} -> {len(sampled)} scenes (sampled)")
             scenes = sampled
 
+        # preview_duration_sec 제한 (퀵 테스트: 앞 N초만)
+        preview_sec = getattr(request, 'preview_duration_sec', None)
+        if preview_sec and preview_sec > 0:
+            trimmed = []
+            acc = 0.0
+            for s in scenes:
+                if acc >= preview_sec:
+                    break
+                if acc + s.duration_sec > preview_sec:
+                    s.end_sec = s.start_sec + (preview_sec - acc)
+                    s.duration_sec = preview_sec - acc
+                trimmed.append(s)
+                acc += s.duration_sec
+            for idx, s in enumerate(trimmed):
+                s.scene_id = idx + 1
+            print(f"  Preview mode: {len(scenes)} -> {len(trimmed)} scenes ({preview_sec}s)")
+            scenes = trimmed
+            project.preview_duration_sec = preview_sec
+
         project.scenes = scenes
         project.progress = 20
 
@@ -719,7 +738,7 @@ class MVPipeline:
             genre_gp = self.genre_profiles.get(project.genre.value, {})
             style_gp = self.genre_profiles.get(project.style.value, {}) if project.style else {}
 
-            # 스타일 프로필이 별도로 존재하면 (예: hoyoverse) 장르 프로필에 병합
+            # 스타일 프로필이 별도로 존재하면 (예: game_anime) 장르 프로필에 병합
             if genre_gp and style_gp and project.genre.value != project.style.value:
                 gp = dict(genre_gp)  # 장르 기반 복사
                 # 스타일 프로필의 핵심 비주얼 요소를 오버라이드
@@ -1233,7 +1252,7 @@ class MVPipeline:
             "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin",
             "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, NOT a photograph",
             "abstract": "abstract expressionist art, surreal dreamlike, bold geometric shapes",
-            "hoyoverse": "anime game cinematic illustration, HoYoverse Genshin Impact quality, cel-shaded with dramatic lighting, vibrant saturated colors, NOT photorealistic, NOT western cartoon",
+            "game_anime": "anime game cinematic illustration, premium game-art quality, cel-shaded with dramatic lighting, vibrant saturated colors, NOT photorealistic, NOT western cartoon",
         }
         style_context = _style_directives.get(project.style.value, f"{project.style.value} style")
         style_context += f", {project.mood.value} mood"
@@ -1508,7 +1527,7 @@ class MVPipeline:
                 "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, candid feel, 35mm film grain",
                 "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, artstation trending",
                 "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational",
-                "hoyoverse": "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, HoYoverse quality, vibrant saturated colors"
+                "game_anime": "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, premium game-art quality, vibrant saturated colors"
             }.get(request.style.value, "cinematic film still, dramatic lighting")
 
             # GenreProfile: 스타일 프로필이 있으면 장르 프로필에 병합
@@ -1872,7 +1891,7 @@ class MVPipeline:
             MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",
             MVStyle.ILLUSTRATION: "digital painting illustration, painterly brushstrokes, concept art quality",
             MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike, non-representational",
-            MVStyle.HOYOVERSE: "anime game cinematic, cel-shaded illustration, dramatic lighting, elemental effects, HoYoverse Genshin Impact quality, vibrant saturated colors, NOT photorealistic",
+            MVStyle.GAME_ANIME: "anime game cinematic, cel-shaded illustration, dramatic lighting, elemental effects, premium game-art quality, vibrant saturated colors, NOT photorealistic",
         }
         style_prefix = style_map.get(request.style, "cinematic")
 
@@ -3824,9 +3843,29 @@ class MVPipeline:
             # 4. 최종 렌더링 (자막 + 음악 + 워터마크 통합 FFmpeg 패스)
             final_video = f"{project_dir}/final_mv.mp4"
             watermark = "Made with Klippa" if getattr(project, 'watermark_enabled', True) else None
+
+            # 프리뷰 모드: 음악을 preview_duration_sec로 트림
+            audio_path = project.music_file_path
+            preview_dur = getattr(project, 'preview_duration_sec', None)
+            if preview_dur and preview_dur > 0:
+                import subprocess
+                trimmed_audio = f"{project_dir}/music/audio_preview.wav"
+                os.makedirs(os.path.dirname(trimmed_audio), exist_ok=True)
+                try:
+                    subprocess.run([
+                        "ffmpeg", "-y", "-i", audio_path,
+                        "-t", str(preview_dur),
+                        "-c:a", "pcm_s16le", trimmed_audio
+                    ], capture_output=True, timeout=30)
+                    if os.path.exists(trimmed_audio):
+                        audio_path = trimmed_audio
+                        print(f"  Preview: audio trimmed to {preview_dur}s")
+                except Exception as e:
+                    print(f"  Preview audio trim failed: {e}, using full audio")
+
             self._final_render(
                 video_in=concat_video,
-                audio_path=project.music_file_path,
+                audio_path=audio_path,
                 out_path=final_video,
                 srt_path=srt_path,
                 watermark_text=watermark,
@@ -4331,8 +4370,24 @@ class MVPipeline:
         scene = project.scenes[scene_id - 1]
         project_dir = f"{self.output_base_dir}/{project.project_id}"
 
-        if not scene.image_path or not os.path.exists(scene.image_path):
-            raise ValueError(f"Scene {scene_id} has no image")
+        # image_path가 원격 URL이면 로컬 경로로 변환
+        image_path = scene.image_path
+        if image_path and image_path.startswith("http"):
+            # URL에서 파일명 추출 → 로컬 경로로 변환
+            import re
+            match = re.search(r'/api/asset/[^/]+/images?/(.+)', image_path)
+            if match:
+                local_path = f"{project_dir}/media/images/{match.group(1)}"
+                if os.path.exists(local_path):
+                    image_path = local_path
+            if not os.path.exists(image_path):
+                # fallback: scene_XX.png 패턴
+                fallback_path = f"{project_dir}/media/images/scene_{scene_id:02d}.png"
+                if os.path.exists(fallback_path):
+                    image_path = fallback_path
+
+        if not image_path or not os.path.exists(image_path):
+            raise ValueError(f"Scene {scene_id} has no image (path: {scene.image_path})")
 
         print(f"[MV I2V] Scene {scene_id} video generation...")
 
@@ -4345,12 +4400,15 @@ class MVPipeline:
 
         # 씬 동작 정보를 Veo 프롬프트에 반영
         i2v_prompt_parts = []
-        if scene.scene_blocking:
-            for blocking in scene.scene_blocking:
-                if blocking.action_pose:
-                    i2v_prompt_parts.append(blocking.action_pose)
-                if blocking.expression:
-                    i2v_prompt_parts.append(f"expression: {blocking.expression}")
+        # Visual Bible의 scene_blocking에서 해당 씬 정보 조회
+        if project.visual_bible and project.visual_bible.scene_blocking:
+            for blocking in project.visual_bible.scene_blocking:
+                if blocking.scene_id == scene_id:
+                    if blocking.action_pose:
+                        i2v_prompt_parts.append(blocking.action_pose)
+                    if blocking.expression:
+                        i2v_prompt_parts.append(f"expression: {blocking.expression}")
+                    break
         if scene.camera_directive:
             i2v_prompt_parts.append(scene.camera_directive)
         if i2v_prompt_parts:
@@ -4366,7 +4424,7 @@ class MVPipeline:
                 mood=project.mood.value,
                 duration_sec=min(int(scene.duration_sec), 8),  # Veo max ~8s
                 output_path=video_path,
-                first_frame_image=scene.image_path
+                first_frame_image=image_path
             )
             scene.video_path = result_path or video_path
             print(f"  I2V complete: {scene.video_path}")
@@ -4782,9 +4840,20 @@ class MVPipeline:
         return "Sans"
 
     def _save_manifest(self, project: MVProject, project_dir: str):
-        """매니페스트 저장 (atomic write로 손상 방지)"""
+        """매니페스트 저장 (atomic write로 손상 방지 + progress 역행 방지)"""
         manifest_path = f"{project_dir}/manifest.json"
         temp_path = f"{manifest_path}.tmp"
+
+        # progress 역행 방지: 기존 manifest의 progress보다 낮으면 유지
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    existing = json.load(f)
+                old_progress = existing.get("progress", 0)
+                if project.progress < old_progress:
+                    project.progress = old_progress
+            except Exception:
+                pass
 
         # Pydantic → dict
         data = project.model_dump(mode='json')

@@ -304,7 +304,7 @@ genre_profiles:
       - James Turrell
       - Refik Anadol
 
-  hoyoverse:
+  game_anime:
     palette_base: ["#0c1029", "#00c8ff", "#ffb347", "#c084fc", "#ff6b9d"]
     palette_mode: "guide"
     lighting: "anime cel-shaded rim lighting with dramatic god rays; elemental glow effects (teal/amber/violet); soft bloom on characters; volumetric light shafts through clouds"
@@ -333,9 +333,8 @@ genre_profiles:
       - "act2: battle/journey + bonds forged (epic, emotional)"
       - "act3: climactic burst + transcendence (triumphant, bittersweet)"
     prompt_lexicon:
-      positive: "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, HoYoverse Genshin Impact quality, vibrant saturated colors"
+      positive: "anime game cinematic, cel-shaded illustration with dramatic lighting, character action pose, elemental effects, fantasy weapon glow, flowing hair and fabric, epic sky background, premium game-art quality, vibrant saturated colors"
       negative: "photorealistic, western cartoon, flat lighting, mundane everyday, low-budget 3D, gore, chibi deformed, real-world brands"
     reference_artists:
-      - HoYoverse (Genshin Impact)
-      - HoYoverse (Honkai Star Rail)
       - Ilya Kuvshinov
+      - Artgerm (Stanley Lau)

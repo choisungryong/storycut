@@ -1,29 +1,113 @@
 """
-Music Agent: Selects or generates background music.
+Music Agent: Selects background music based on genre and mood.
+
+BGM Library: media/music/library/
+  - {category}.mp3 (fallback)
+  - {category}_01.mp3, {category}_02.mp3, {category}_03.mp3 (random selection)
+
+License: CC BY-SA 4.0 (Internet Archive)
 """
 
 import os
-import shutil
-from typing import Optional
+import random
+from typing import Optional, List
+
+
+# 장르/분위기 → BGM 카테고리 매핑
+_MOOD_MAP = {
+    "dramatic": "emotional_dramatic",
+    "emotional": "emotional_dramatic",
+    "sad": "emotional_dramatic",
+    "melancholic": "emotional_dramatic",
+    "romantic": "emotional_dramatic",
+    "nostalgic": "emotional_dramatic",
+
+    "happy": "happy_upbeat",
+    "upbeat": "happy_upbeat",
+    "cheerful": "happy_upbeat",
+    "fun": "happy_upbeat",
+    "energetic": "happy_upbeat",
+    "bright": "happy_upbeat",
+    "comedic": "happy_upbeat",
+
+    "suspenseful": "suspense_thriller",
+    "tense": "suspense_thriller",
+    "thriller": "suspense_thriller",
+    "mysterious": "suspense_thriller",
+    "dark": "suspense_thriller",
+    "intense": "suspense_thriller",
+
+    "calm": "calm_peaceful",
+    "peaceful": "calm_peaceful",
+    "relaxing": "calm_peaceful",
+    "gentle": "calm_peaceful",
+    "serene": "calm_peaceful",
+    "meditative": "calm_peaceful",
+    "neutral": "calm_peaceful",
+
+    "epic": "epic_cinematic",
+    "cinematic": "epic_cinematic",
+    "heroic": "epic_cinematic",
+    "grand": "epic_cinematic",
+    "action": "epic_cinematic",
+    "adventure": "epic_cinematic",
+    "inspiring": "epic_cinematic",
+
+    "horror": "horror_eerie",
+    "eerie": "horror_eerie",
+    "creepy": "horror_eerie",
+    "scary": "horror_eerie",
+    "haunting": "horror_eerie",
+    "sinister": "horror_eerie",
+}
+
+_GENRE_MAP = {
+    "emotional": "emotional_dramatic",
+    "drama": "emotional_dramatic",
+    "romance": "emotional_dramatic",
+
+    "comedy": "happy_upbeat",
+    "slice_of_life": "happy_upbeat",
+
+    "thriller": "suspense_thriller",
+    "mystery": "suspense_thriller",
+    "crime": "suspense_thriller",
+
+    "documentary": "calm_peaceful",
+    "education": "calm_peaceful",
+
+    "action": "epic_cinematic",
+    "fantasy": "epic_cinematic",
+    "sci_fi": "epic_cinematic",
+    "historical": "epic_cinematic",
+
+    "horror": "horror_eerie",
+}
 
 
 class MusicAgent:
     """
-    Handles background music selection or generation.
-
-    For MVP, this primarily focuses on music selection.
-    Future versions may integrate AI music generation APIs.
+    Handles background music selection based on genre and mood.
+    Randomly picks from available tracks per category.
     """
 
     def __init__(self, music_library_path: str = "media/music"):
-        """
-        Initialize Music Agent.
-
-        Args:
-            music_library_path: Path to music library directory
-        """
         self.music_library_path = music_library_path
-        os.makedirs(music_library_path, exist_ok=True)
+        self.library_path = os.path.join(music_library_path, "library")
+        os.makedirs(self.library_path, exist_ok=True)
+
+    def _find_tracks(self, category: str) -> List[str]:
+        """카테고리에 해당하는 모든 트랙 파일 경로를 반환."""
+        tracks = []
+        # numbered tracks: {category}_01.mp3, {category}_02.mp3, ...
+        for f in os.listdir(self.library_path):
+            if f.startswith(category + "_") and f.endswith(".mp3"):
+                tracks.append(os.path.join(self.library_path, f))
+        # fallback: {category}.mp3
+        base = os.path.join(self.library_path, f"{category}.mp3")
+        if os.path.exists(base) and base not in tracks:
+            tracks.append(base)
+        return tracks
 
     def select_music(
         self,
@@ -32,80 +116,45 @@ class MusicAgent:
         duration_sec: int
     ) -> Optional[str]:
         """
-        Select appropriate background music for the story.
+        Select appropriate background music based on genre and mood.
+        Randomly picks one track from available options.
 
         Args:
-            genre: Story genre
-            mood: Overall mood
-            duration_sec: Required music duration
+            genre: Story genre (e.g., "emotional", "thriller")
+            mood: Overall mood (e.g., "dramatic", "happy")
+            duration_sec: Required music duration (for future use)
 
         Returns:
-            Path to selected music file, or None if no music
+            Path to selected music file, or None
         """
-        print(f"[Music Agent] Selecting background music...")
+        print(f"[Music Agent] Selecting BGM...")
         print(f"   Genre: {genre}, Mood: {mood}, Duration: {duration_sec}s")
 
-        # For MVP, return None or a placeholder
-        # In production, this would:
-        # 1. Query a music library database
-        # 2. Call a music generation API
-        # 3. Select from pre-approved royalty-free music
+        # 1. mood로 카테고리 매칭
+        category = _MOOD_MAP.get(mood.lower())
 
-        music_path = self._get_placeholder_music(duration_sec)
+        # 2. mood 매칭 실패 -> genre fallback
+        if not category:
+            category = _GENRE_MAP.get(genre.lower())
 
-        if music_path:
-            print(f"   [Music Agent] Music selected: {music_path}")
-        else:
-            print(f"   [Info] No background music (silent mode)")
+        # 3. 둘 다 실패 -> 기본값
+        if not category:
+            category = "calm_peaceful"
+            print(f"   [Music Agent] No match for genre='{genre}', mood='{mood}' -> default: {category}")
 
-        return music_path
+        # 카테고리에서 사용 가능한 트랙 탐색
+        tracks = self._find_tracks(category)
 
-    def _get_placeholder_music(self, duration_sec: int) -> Optional[str]:
-        """
-        Generate or return placeholder background music.
+        if tracks:
+            selected = random.choice(tracks)
+            print(f"   [Music Agent] Category: {category} ({len(tracks)} tracks available)")
+            print(f"   [Music Agent] Selected: {os.path.basename(selected)}")
+            return selected
 
-        For MVP testing, creates a simple tone or returns None.
-
-        Args:
-            duration_sec: Music duration
-
-        Returns:
-            Path to placeholder music file, or None
-        """
-        # For MVP, we can skip music entirely or generate a simple ambient tone
-        # Let's generate a very quiet ambient tone as placeholder
-
-        import subprocess
-
-        output_path = f"{self.music_library_path}/placeholder_music.mp3"
-
-        # Only generate once
-        if os.path.exists(output_path):
-            return output_path
-
-        # Create a very quiet ambient tone (200Hz + 300Hz)
-        try:
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-f", "lavfi",
-                "-i", f"sine=frequency=200:duration={duration_sec}",
-                "-f", "lavfi",
-                "-i", f"sine=frequency=300:duration={duration_sec}",
-                "-filter_complex", "amix=inputs=2:duration=first:dropout_transition=2,volume=0.1",
-                "-c:a", "libmp3lame",
-                "-b:a", "128k",
-                output_path
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
-            if result.returncode == 0:
-                return output_path
-            else:
-                print(f"   [Warning] Could not generate music: {result.stderr}")
-                return None
-
-        except Exception as e:
-            print(f"   [Warning] Music generation failed: {e}")
-            return None
+        # 전체 fallback
+        print(f"   [Warning] No tracks found for category '{category}'")
+        placeholder = os.path.join(self.music_library_path, "placeholder_music.mp3")
+        if os.path.exists(placeholder):
+            print(f"   [Music Agent] Fallback: placeholder_music.mp3")
+            return placeholder
+        return None

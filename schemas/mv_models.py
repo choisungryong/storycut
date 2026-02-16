@@ -42,7 +42,7 @@ class MVStyle(str, Enum):
     REALISTIC = "realistic"
     ILLUSTRATION = "illustration"
     ABSTRACT = "abstract"
-    HOYOVERSE = "hoyoverse"
+    GAME_ANIME = "game_anime"
 
 
 class GenreProfile(BaseModel):
@@ -268,6 +268,9 @@ class MVProjectRequest(BaseModel):
     # 씬 수 제한 (퀵 테스트: 5컷으로 빠른 스타일 확인)
     max_scenes: Optional[int] = Field(None, description="최대 씬 수 (None=자동, 5=퀵 테스트)")
 
+    # 프리뷰 길이 제한 (퀵 테스트: 앞 45초만 빠르게 생성)
+    preview_duration_sec: Optional[float] = Field(None, description="프리뷰 길이(초), None=전체 곡")
+
     # 수동 씬 분할 (Phase 1)
     manual_scenes: Optional[List[Dict[str, Any]]] = Field(
         None,
@@ -326,6 +329,9 @@ class MVProject(BaseModel):
     # 진행률
     progress: int = Field(default=0, description="진행률 (0-100)")
     current_step: Optional[str] = Field(None, description="현재 진행 단계")
+
+    # 프리뷰 모드 (퀵 테스트에서 설정, compose_video에서 음악 트림에 사용)
+    preview_duration_sec: Optional[float] = Field(None, description="프리뷰 길이(초), None=전체 곡")
 
     # Visual Bible (Pass 1에서 생성)
     visual_bible: Optional[VisualBible] = Field(None, description="비주얼 바이블")

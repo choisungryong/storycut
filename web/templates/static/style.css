@@ -685,3 +685,40 @@ label {
 .step.active .step-icon {
     animation: pulse 2s infinite;
 }
+
+/* ─── App Header (redesigned) ─── */
+.app-header {
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+    padding-bottom: 16px !important;
+}
+
+.app-header__top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+}
+
+.app-header__logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: #f1f5f9;
+    font-weight: 700;
+    font-size: 1.3rem;
+    letter-spacing: -0.025em;
+}
+
+.app-header__logo-icon {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: white;
+    font-weight: 800;
+}

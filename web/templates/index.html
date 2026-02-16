@@ -4,1903 +4,1026 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STORYCUT v2.0 - AI 스토리 영상 생성기</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260208">
-    <style>
-        body {
-            background-color: #121212;
-            color: #e0e0e0;
-            font-family: 'Noto Sans KR', sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            min-height: 100vh;
-        }
-
-        .container {
-            width: 100%;
-            max-width: 800px;
-            padding: 20px;
-            box-sizing: border-box;
-            background-color: #1e1e1e;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            margin: 0 auto;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #333;
-        }
-
-        .input-title {
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-bottom: 20px;
-        }
-
-        /* Nav & History Styles */
-        .nav-links {
-            margin-top: 15px;
-            display: flex;
-            gap: 20px;
-            justify-content: center;
-        }
-
-        .nav-link {
-            text-decoration: none;
-            color: #aaa;
-            font-weight: bold;
-            font-size: 1rem;
-            transition: color 0.2s;
-            padding-bottom: 5px;
-            border-bottom: 2px solid transparent;
-        }
-
-        .nav-link:hover,
-        .nav-link.active {
-            color: #00adb5;
-            border-bottom-color: #00adb5;
-        }
-
-        .retention-notice {
-            background: rgba(255, 193, 7, 0.1);
-            border: 1px solid rgba(255, 193, 7, 0.3);
-            border-radius: 8px;
-            padding: 10px 14px;
-            margin-bottom: 16px;
-            font-size: 0.82rem;
-            color: #ffc107;
-            line-height: 1.5;
-        }
-
-        .history-filter-tabs {
-            display: flex;
-            gap: 4px;
-            background: #1a1a2e;
-            padding: 3px;
-            border-radius: 8px;
-            border: 1px solid #393e46;
-        }
-        .history-filter-btn {
-            padding: 6px 16px;
-            border: none;
-            border-radius: 6px;
-            background: transparent;
-            color: #888;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-        }
-        .history-filter-btn:hover { color: #ccc; }
-        .history-filter-btn.active {
-            background: #00adb5;
-            color: #fff;
-            font-weight: bold;
-        }
-
-        .history-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-        }
-
-        .history-card {
-            background: #222831;
-            border: 1px solid #393e46;
-            border-radius: 8px;
-            overflow: hidden;
-            transition: transform 0.2s;
-        }
-
-        .history-card:hover {
-            transform: translateY(-5px);
-            border-color: #00adb5;
-        }
-
-        .history-thumb {
-            width: 100%;
-            height: 160px;
-            background: #1a1a2e;
-            display: block;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .history-thumb img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .history-info {
-            padding: 15px;
-        }
-
-        .history-title {
-            color: #fff;
-            font-weight: bold;
-            font-size: 1.1rem;
-            margin: 0 0 10px 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .history-date {
-            color: #888;
-            font-size: 0.8rem;
-            margin-bottom: 10px;
-        }
-
-        .history-status {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 0.8rem;
-            background: #393e46;
-            color: #ccc;
-        }
-
-        .history-status.completed {
-            background: #00adb5;
-            color: #fff;
-        }
-        .history-status.images-ready {
-            background: #f39c12;
-            color: #fff;
-        }
-
-        /* 타입 뱃지 (MV / Video) */
-        .history-type-badge {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            font-weight: bold;
-            z-index: 1;
-        }
-        .history-type-badge.mv {
-            background: #e91e63;
-            color: #fff;
-        }
-        .history-type-badge.video {
-            background: #00adb5;
-            color: #fff;
-        }
-
-        /* MV 보관함 카드 추가 정보 */
-        .history-mv-info {
-            color: #aaa;
-            font-size: 0.75rem;
-            margin: 0 0 6px 0;
-        }
-
-        /* 보관함 이미지 패널 타임스탬프 뱃지 */
-        .scene-time-badge {
-            font-size: 0.7rem;
-            color: #00adb5;
-            background: rgba(0, 173, 181, 0.15);
-            padding: 2px 6px;
-            border-radius: 4px;
-            display: inline-block;
-            margin-bottom: 4px;
-        }
-
-        /* 보관함 모드 - 재생성 버튼 숨김 */
-        .archive-image-card .scene-card-actions {
-            display: none;
-        }
-
-        /* 내레이션 인라인 편집 */
-        .narration-edit-area {
-            width: 100%;
-            min-height: 60px;
-            background: #1a1a2e;
-            color: #fff;
-            border: 1px solid #00adb5;
-            border-radius: 6px;
-            padding: 8px;
-            font-size: 0.85rem;
-            resize: vertical;
-            font-family: inherit;
-        }
-        .narration-edit-actions {
-            display: flex;
-            gap: 6px;
-            margin-top: 6px;
-        }
-        .narration-edit-actions button {
-            padding: 4px 12px;
-            border-radius: 4px;
-            border: none;
-            cursor: pointer;
-            font-size: 0.8rem;
-        }
-        .btn-narration-save {
-            background: #00adb5;
-            color: #fff;
-        }
-        .btn-narration-cancel {
-            background: #393e46;
-            color: #ccc;
-        }
-        .btn-edit-narration {
-            background: none;
-            border: none;
-            color: #00adb5;
-            cursor: pointer;
-            font-size: 0.8rem;
-            padding: 2px 6px;
-            margin-left: 4px;
-        }
-        .btn-edit-narration:hover {
-            text-decoration: underline;
-        }
-
-        /* Additional styles for review and progress */
-        .preview-container {
-            margin-top: 2rem;
-            padding: 1.5rem;
-            background: #252a34;
-            border-radius: 12px;
-            border: 1px solid #393e46;
-        }
-
-        .story-preview h3,
-        .visual-preview h3 {
-            margin-top: 0;
-            margin-bottom: 1rem;
-            color: #00adb5;
-            font-size: 1.2rem;
-        }
-
-        .script-content {
-            background: #1a1a2e;
-            padding: 1rem;
-            border-radius: 8px;
-            max-height: 200px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9rem;
-            color: #eeeeee;
-            line-height: 1.5;
-        }
-
-        .scene-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .scene-card {
-            background: #1a1a2e;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid #393e46;
-            transition: transform 0.2s;
-        }
-
-        .scene-card:hover {
-            transform: scale(1.05);
-        }
-
-        .scene-card img {
-            width: 100%;
-            height: 85px;
-            object-fit: cover;
-            display: block;
-        }
-
-        .scene-card .scene-info {
-            padding: 8px;
-            font-size: 0.8em;
-            color: #ccc;
-        }
-
-        .scene-card .scene-narration {
-            font-weight: bold;
-            color: #fff;
-            margin-bottom: 5px;
-            display: block;
-        }
-
-        .scene-card .scene-visual {
-            font-size: 0.75em;
-            color: #888;
-            font-style: italic;
-            display: block;
-        }
-
-        .scene-placeholder {
-            width: 100%;
-            height: 100px;
-            background: #252a34;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #555;
-            font-size: 0.8rem;
-        }
-
-        /* Review Card Styles */
-        .review-scene-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-
-        .review-card {
-            background: #222831;
-            border: 1px solid #393e46;
-            border-radius: 8px;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .review-card-header {
-            display: flex;
-            justify-content: space-between;
-            color: #00adb5;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-
-        .review-card label {
-            font-size: 0.85rem;
-            color: #ccc;
-            margin-bottom: 2px;
-            display: block;
-        }
-
-        .review-textarea {
-            width: 100%;
-            background: #393e46;
-            border: 1px solid #222831;
-            color: #fff;
-            padding: 8px;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            resize: vertical;
-            min-height: 60px;
-            box-sizing: border-box;
-        }
-
-        .visual-textarea {
-            font-size: 0.85rem;
-            color: #ddd;
-            font-style: italic;
-        }
-
-        .review-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 15px;
-            margin-top: 20px;
-            border-top: 1px solid #393e46;
-            padding-top: 20px;
-        }
-
-        /* 씬 관리 스타일 */
-        .scene-management {
-            margin-top: 2rem;
-            padding: 1.5rem;
-            background: #252a34;
-            border-radius: 12px;
-            border: 1px solid #393e46;
-        }
-
-        .scene-management h3 {
-            color: #00adb5;
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }
-
-        .scene-management .section-description {
-            color: #ccc;
-            font-size: 0.9rem;
-            margin-bottom: 1.5rem;
-            line-height: 1.5;
-        }
-
-        .result-scene-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 15px;
-            margin-bottom: 1.5rem;
-        }
-
-        .result-scene-card {
-            background: #1a1a2e;
-            border: 1px solid #393e46;
-            border-radius: 8px;
-            padding: 15px;
-            transition: border-color 0.2s;
-        }
-
-        .result-scene-card:hover {
-            border-color: #00adb5;
-        }
-
-        .result-scene-card.regenerating {
-            border-color: #f39c12;
-            opacity: 0.7;
-        }
-
-        .result-scene-card.failed {
-            border-color: #e74c3c;
-        }
-
-        .scene-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #393e46;
-        }
-
-        .scene-card-title {
-            color: #00adb5;
-            font-weight: bold;
-            font-size: 1rem;
-        }
-
-        .scene-status-badge {
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: bold;
-        }
-
-        .scene-status-badge.completed {
-            background: #27ae60;
-            color: #fff;
-        }
-
-        .scene-status-badge.failed {
-            background: #e74c3c;
-            color: #fff;
-        }
-
-        .scene-status-badge.regenerating {
-            background: #f39c12;
-            color: #fff;
-        }
-
-        .scene-card-narration {
-            color: #ddd;
-            font-size: 0.85rem;
-            margin: 10px 0;
-            line-height: 1.4;
-            max-height: 60px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .scene-card-visual {
-            color: #888;
-            font-size: 0.75rem;
-            font-style: italic;
-            margin-bottom: 10px;
-            max-height: 40px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .scene-card-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-        }
-
-        .broll-badge {
-            display: inline-block;
-            background: linear-gradient(135deg, #1a7a2e, #2d9b42);
-            color: #fff;
-            padding: 6px 14px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
-
-        .btn-regenerate {
-            flex: 1;
-            background: #393e46;
-            color: #fff;
-            border: 1px solid #555;
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-        }
-
-        .btn-regenerate:hover {
-            background: #00adb5;
-            border-color: #00adb5;
-        }
-
-        .btn-regenerate:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* 재생성 로딩 오버레이 */
-        .scene-card-image {
-            position: relative;
-        }
-
-        .regen-overlay {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            border-radius: 6px;
-            z-index: 10;
-            gap: 8px;
-        }
-
-        .regen-overlay .regen-spinner {
-            width: 36px;
-            height: 36px;
-            border: 3px solid rgba(255,255,255,0.2);
-            border-top-color: #00adb5;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        .regen-overlay .regen-text {
-            color: #fff;
-            font-size: 0.8rem;
-        }
-
-        .regen-overlay.success {
-            background: rgba(39, 174, 96, 0.8);
-            animation: fadeOut 1.5s ease forwards;
-        }
-
-        .regen-overlay.success .regen-text {
-            font-size: 1.2rem;
-        }
-
-        .scene-card-image .image-placeholder {
-            width: 100%;
-            aspect-ratio: 16/9;
-            background: #2a2d35;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #666;
-            font-size: 2rem;
-        }
-
-        @keyframes fadeOut {
-            0% { opacity: 1; }
-            70% { opacity: 1; }
-            100% { opacity: 0; }
-        }
-
-        /* MV 이미지 리뷰 카드 */
-        .mv-review-card {
-            background: #1a1a2e;
-            border: 1px solid #393e46;
-            border-radius: 8px;
-            padding: 12px;
-            transition: border-color 0.2s;
-            position: relative;
-        }
-        .mv-review-card:hover { border-color: #00adb5; }
-        .mv-review-card.regenerating { border-color: #f39c12; }
-        .mv-review-card .mv-review-img-wrap {
-            position: relative;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-        .mv-review-card img {
-            width: 100%;
-            aspect-ratio: 16/9;
-            object-fit: cover;
-            border-radius: 6px;
-            display: block;
-        }
-        .mv-review-card .mv-review-info {
-            margin-top: 8px;
-            font-size: 0.85rem;
-            color: #ccc;
-        }
-        .mv-review-card .mv-review-lyrics {
-            color: #aaa;
-            font-size: 0.8rem;
-            margin-top: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .mv-review-card .mv-review-time {
-            color: #00adb5;
-            font-size: 0.75rem;
-        }
-        .mv-review-card .mv-review-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 10px;
-        }
-        .mv-review-card .mv-review-actions button {
-            flex: 1;
-            padding: 6px 10px;
-            border: 1px solid #393e46;
-            border-radius: 6px;
-            background: #16213e;
-            color: #eee;
-            cursor: pointer;
-            font-size: 0.8rem;
-            transition: background 0.2s;
-        }
-        .mv-review-card .mv-review-actions button:hover { background: #1a1a40; border-color: #00adb5; }
-        .mv-review-card .mv-review-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .mv-review-card .i2v-badge {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            background: rgba(39, 174, 96, 0.9);
-            color: #fff;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            font-weight: bold;
-        }
-
-
-        /* 토스트 알림 */
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .toast {
-            padding: 12px 20px;
-            border-radius: 8px;
-            color: #fff;
-            font-size: 0.9rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            animation: slideIn 0.3s ease, fadeOut 3s ease 2s forwards;
-            max-width: 350px;
-        }
-
-        .toast.success { background: #27ae60; }
-        .toast.error { background: #e74c3c; }
-        .toast.info { background: #2980b9; }
-
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
-        .recompose-actions {
-            display: flex;
-            justify-content: center;
-            padding-top: 1rem;
-            border-top: 1px solid #393e46;
-        }
-
-        .scene-error-message {
-            color: #e74c3c;
-            font-size: 0.75rem;
-            margin-top: 5px;
-            background: rgba(231, 76, 60, 0.1);
-            padding: 5px 8px;
-            border-radius: 4px;
-        }
-
-        /* 가사 타이밍 에디터 모달 */
-        .lyrics-timeline-overlay {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.7);
-            z-index: 10000;
-            justify-content: center;
-            align-items: center;
-        }
-        .lyrics-timeline-overlay.active { display: flex; }
-        .lyrics-timeline-modal {
-            background: #1a1a2e;
-            border: 1px solid #393e46;
-            border-radius: 12px;
-            width: 90%;
-            max-width: 800px;
-            max-height: 85vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .lyrics-timeline-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid #393e46;
-        }
-        .lyrics-timeline-header h3 { margin: 0; color: #00adb5; font-size: 1.1rem; }
-        .lyrics-timeline-close {
-            background: none; border: none; color: #aaa; font-size: 1.5rem; cursor: pointer;
-        }
-        .lyrics-timeline-close:hover { color: #fff; }
-        .lyrics-timeline-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px 20px;
-        }
-        .lyrics-timeline-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85rem;
-        }
-        .lyrics-timeline-table th {
-            text-align: left;
-            padding: 8px 6px;
-            color: #aaa;
-            border-bottom: 2px solid #393e46;
-            font-weight: 600;
-            position: sticky;
-            top: 0;
-            background: #1a1a2e;
-        }
-        .lyrics-timeline-table td {
-            padding: 6px;
-            border-bottom: 1px solid #2a2a3e;
-            vertical-align: middle;
-        }
-        .lyrics-timeline-table tr:hover { background: rgba(0,173,181,0.05); }
-        .lyrics-timeline-table .col-time { width: 80px; }
-        .lyrics-timeline-table .col-stt { width: 35%; color: #888; }
-        .lyrics-timeline-table .col-lyrics { width: auto; }
-        .lyrics-timeline-table .col-del { width: 36px; text-align: center; }
-        .lyrics-timeline-table input[type="text"] {
-            width: 100%;
-            background: #222831;
-            border: 1px solid #393e46;
-            border-radius: 4px;
-            color: #eee;
-            padding: 5px 8px;
-            font-size: 0.85rem;
-        }
-        .lyrics-timeline-table input[type="text"]:focus {
-            border-color: #00adb5;
-            outline: none;
-        }
-        .lyrics-timeline-table input.time-input {
-            width: 70px;
-            text-align: center;
-            font-family: monospace;
-        }
-        .lyrics-timeline-table .stt-text { color: #777; font-style: italic; }
-        .lyrics-timeline-table .btn-row-del {
-            background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 1rem;
-            padding: 2px 6px; border-radius: 4px;
-        }
-        .lyrics-timeline-table .btn-row-del:hover { background: rgba(231,76,60,0.15); }
-        .lyrics-timeline-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 20px;
-            border-top: 1px solid #393e46;
-            gap: 8px;
-        }
-        .lyrics-timeline-footer .footer-left { display: flex; gap: 8px; }
-        .lyrics-timeline-footer .footer-right { display: flex; gap: 8px; }
-        .lyrics-timeline-footer button {
-            padding: 8px 16px;
-            border: 1px solid #393e46;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-        }
-        .btn-tl-add { background: #16213e; color: #ccc; }
-        .btn-tl-add:hover { border-color: #00adb5; }
-        .btn-tl-reset { background: #393e46; color: #ccc; }
-        .btn-tl-reset:hover { background: #4a4f57; }
-        .btn-tl-save { background: #00adb5; color: #fff; border-color: #00adb5; font-weight: 600; }
-        .btn-tl-save:hover { background: #00959c; }
-        .btn-tl-save:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* 이미지 프리뷰 그리드 스타일 */
-        .image-preview-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-
-        .image-card {
-            background: #222831;
-            border: 1px solid #393e46;
-            border-radius: 8px;
-            overflow: hidden;
-            transition: border-color 0.2s, transform 0.2s;
-        }
-
-        .image-card:hover {
-            border-color: #00adb5;
-        }
-
-        .image-card.hook-video {
-            border-color: #8b5cf6;
-            border-width: 2px;
-        }
-
-        .image-card-header {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 15px;
-            background: #1a1a2e;
-            border-bottom: 1px solid #393e46;
-        }
-
-        .image-card-title {
-            color: #00adb5;
-            font-weight: bold;
-        }
-
-        .hook-badge {
-            background: #8b5cf6;
-            color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: bold;
-        }
-
-        .image-card img {
-            width: 100%;
-            height: 220px;
-            object-fit: cover;
-            background: #1a1a2e;
-        }
-
-        .image-card-body {
-            padding: 15px;
-        }
-
-        .image-narration {
-            color: #ddd;
-            font-size: 0.9rem;
-            margin-bottom: 10px;
-            max-height: 60px;
-            overflow: hidden;
-        }
-
-        .image-actions {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-        }
-
-        .btn-image-action {
-            padding: 8px 10px;
-            background: #393e46;
-            color: #fff;
-            border: 1px solid #555;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-            text-align: center;
-        }
-
-        .btn-image-action:hover {
-            background: #00adb5;
-            border-color: #00adb5;
-        }
-
-        .btn-image-action:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .btn-i2v {
-            background: #f39c12;
-            border-color: #f39c12;
-        }
-
-        .btn-i2v:hover {
-            background: #e67e22;
-            border-color: #e67e22;
-        }
-
-        .btn-hook {
-            background: #8b5cf6;
-            border-color: #8b5cf6;
-        }
-
-        .btn-hook:hover {
-            background: #7c3aed;
-            border-color: #7c3aed;
-        }
-
-        .btn-hook.active {
-            background: #6d28d9;
-            box-shadow: 0 0 8px #8b5cf6;
-        }
-    </style>
+    <title>Klippa - AI Video Creation Studio</title>
+    <link rel="stylesheet" href="/static/css/design-tokens.css">
+    <link rel="stylesheet" href="/static/css/shared.css">
+    <link rel="stylesheet" href="/static/css/app.css?v=20260216_1210">
     <script src="/static/auth.js"></script>
 </head>
 
-<body>
-    <div class="container">
-        <!-- 헤더 -->
-        <header class="header">
-            <h1>Storycut <span
-                    style="font-size: 0.5em; background: #8b5cf6; padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v2.7.0</span>
-            </h1>
-            <p class="tagline">이야기를 입력하면, 조회수 터지는 유튜브 영상이 완성됩니다</p>
-            <nav class="nav-links">
-                <a href="#" id="nav-create" class="nav-link active">새 영상 만들기</a>
-                <a href="#" id="nav-mv" class="nav-link">뮤직비디오</a>
-                <a href="#" id="nav-history" class="nav-link">내 비디오 (History)</a>
-                <a href="/pricing.html" class="nav-link">Pricing</a>
-            </nav>
-        </header>
+<body class="app-body">
+    <!-- Ambient background glow -->
+    <div class="app-bg-glow"></div>
 
-        <!-- 메인 컨텐츠 -->
-        <main class="main-content">
-            <!-- 입력 폼 -->
-            <div id="input-section" class="section">
-                <h2>🎬 새 영상 만들기</h2>
+    <!-- ═══ FIXED NAVIGATION ═══ -->
+    <nav class="sc-nav app-nav" id="appNav">
+        <div class="sc-nav__inner">
+            <a href="/" class="sc-nav__logo">
+                <img src="/static/assets/klippa-logo.png" alt="Klippa" class="sc-nav__logo-img">
+            </a>
+            <div class="app-nav__tabs">
+                <a href="#" id="nav-create" class="app-nav__tab active nav-link">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M7 2v20M17 2v20M2 12h20"/></svg>
+                    <span data-i18n="nav.create">New Video</span>
+                </a>
+                <a href="#" id="nav-mv" class="app-nav__tab nav-link">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    <span data-i18n="nav.mv">Music Video</span>
+                </a>
+                <a href="#" id="nav-history" class="app-nav__tab nav-link">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                    <span data-i18n="nav.history">My Videos</span>
+                </a>
+            </div>
+            <div class="app-nav__right">
+                <a href="/pricing.html" class="app-nav__link" data-i18n="nav.pricing">Pricing</a>
+            </div>
+        </div>
+    </nav>
 
-                <form id="generate-form" class="form">
-                    <!-- 입력 모드 토글 -->
-                    <div class="form-group">
-                        <div id="mode-toggle" style="display:flex; gap:0; border:1px solid rgba(255,255,255,0.15); border-radius:8px; overflow:hidden; margin-bottom:4px;">
-                            <button type="button" id="mode-ai-story" class="mode-toggle-btn active"
-                                style="flex:1; padding:10px 16px; border:none; cursor:pointer; font-size:14px; font-weight:600; transition:all 0.2s; background:rgba(139,92,246,0.3); color:#c4b5fd;">
-                                AI 스토리 생성
-                            </button>
-                            <button type="button" id="mode-direct-script" class="mode-toggle-btn"
-                                style="flex:1; padding:10px 16px; border:none; cursor:pointer; font-size:14px; font-weight:600; transition:all 0.2s; background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.5);">
-                                스크립트 직접 입력
-                            </button>
+    <!-- ═══ MAIN CONTENT ═══ -->
+    <main class="app-main">
+
+        <!-- ══════════════════════════════════════
+             INPUT SECTION
+             ══════════════════════════════════════ -->
+        <div id="input-section" class="section">
+            <div class="app-form-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="input.label">Create</span>
+                    <h2 class="section-title" data-i18n="input.title">New Video</h2>
+                    <p class="section-subtitle" data-i18n="input.subtitle">Enter a topic and let AI generate a complete video with narration, images, and effects.</p>
+                </div>
+
+                <form id="generate-form" class="app-form">
+                    <!-- Mode Toggle -->
+                    <div class="app-card">
+                        <div class="form-group">
+                            <div id="mode-toggle" class="mode-toggle">
+                                <button type="button" id="mode-ai-story" class="mode-toggle-btn active" data-i18n="input.mode_ai">
+                                    AI Story
+                                </button>
+                                <button type="button" id="mode-direct-script" class="mode-toggle-btn" data-i18n="input.mode_script">
+                                    Direct Script
+                                </button>
+                            </div>
                         </div>
-                    </div>
 
-                    <!-- AI 스토리 모드: 주제 입력 -->
-                    <div id="ai-story-inputs" class="form-group">
-                        <label for="topic">
-                            <span class="label-icon">💡</span>
-                            주제 / 아이디어
-                        </label>
-                        <input type="text" id="topic" name="topic" placeholder="예: 오래된 폐병원에서 발견된 미스터리한 일기장"
-                            class="input" />
-                        <small class="helper-text">주제를 비워두면 AI가 자동으로 생성합니다</small>
-                    </div>
-
-                    <!-- 스크립트 직접 입력 모드 -->
-                    <div id="direct-script-inputs" class="form-group" style="display:none;">
-                        <label for="direct-script">
-                            <span class="label-icon">📋</span>
-                            내레이션 스크립트
-                        </label>
-                        <textarea id="direct-script" rows="12"
-                            placeholder="내레이션 스크립트를 붙여넣으세요.&#10;&#10;빈 줄로 장면을 구분합니다.&#10;&#10;예시:&#10;망하는 장사 속에서 살아남는 장사.&#10;빵일이의 장사연구소입니다.&#10;&#10;지난 영상에서 소개한 가게가&#10;큰 반응을 얻었습니다."
-                            class="input" style="resize:vertical; min-height:200px; font-size:14px; line-height:1.6;"></textarea>
-                        <small class="helper-text">빈 줄로 장면(씬)을 구분합니다. AI가 각 장면에 맞는 이미지를 자동 생성합니다.</small>
-                    </div>
-
-                    <!-- 장르 -->
-                    <div class="form-group">
-                        <label for="genre">
-                            <span class="label-icon">🎭</span>
-                            장르
-                        </label>
-                        <select id="genre" name="genre" class="select">
-                            <option value="emotional">Emotional (감성적)</option>
-                            <option value="mystery" selected>Mystery (미스터리)</option>
-                            <option value="thriller">Thriller (스릴러)</option>
-                            <option value="fantasy">Fantasy (판타지)</option>
-                            <option value="horror">Horror (공포)</option>
-                            <option value="comedy">Comedy (코미디)</option>
-                        </select>
-                    </div>
-
-                    <!-- 분위기 -->
-                    <div class="form-group">
-                        <label for="mood">
-                            <span class="label-icon">🎨</span>
-                            분위기
-                        </label>
-                        <select id="mood" name="mood" class="select">
-                            <option value="dramatic" selected>Dramatic (극적)</option>
-                            <option value="melancholic">Melancholic (우울)</option>
-                            <option value="suspenseful">Suspenseful (긴장감)</option>
-                            <option value="heartwarming">Heartwarming (따뜻함)</option>
-                            <option value="dark">Dark (어두움)</option>
-                            <option value="cheerful">Cheerful (명랑)</option>
-                        </select>
-                    </div>
-
-                    <!-- 캐릭터 인종/외형 -->
-                    <div class="form-group">
-                        <label for="character_ethnicity">
-                            <span class="label-icon">🌍</span>
-                            캐릭터 인종/외형
-                        </label>
-                        <select id="character_ethnicity" name="character_ethnicity" class="select">
-                            <option value="auto" selected>AI 자동 결정</option>
-                            <option value="korean">한국인</option>
-                            <option value="japanese">일본인</option>
-                            <option value="chinese">중국인</option>
-                            <option value="southeast_asian">동남아시아인</option>
-                            <option value="european">유럽/백인</option>
-                            <option value="black">흑인</option>
-                            <option value="hispanic">히스패닉/라틴</option>
-                            <option value="mixed">다인종 조합</option>
-                        </select>
-                    </div>
-
-                    <!-- 스타일 -->
-                    <div class="form-group">
-                        <label for="style">
-                            <span class="label-icon">🖼️</span>
-                            영상 스타일
-                        </label>
-                        <select id="style" name="style" class="select">
-                            <option value="cinematic, high contrast" selected>Cinematic (영화적)</option>
-                            <option value="realistic">Realistic (사실적)</option>
-                            <option value="illustration">Illustration (일러스트)</option>
-                            <option value="anime">Anime (애니메이션)</option>
-                            <option value="webtoon">Webtoon (웹툰)</option>
-                        </select>
-                    </div>
-
-                    <!-- 이미지 모델 -->
-                    <div class="form-group">
-                        <label for="image_model">
-                            <span class="label-icon">🖼️</span>
-                            이미지 모델
-                        </label>
-                        <select id="image_model" name="image_model" class="select">
-                            <option value="standard" selected>Standard (Replicate / Gemini Flash) - 빠르고 안정적</option>
-                            <option value="premium">Premium (Gemini 3 Pro) - 고품질 프리뷰</option>
-                        </select>
-                    </div>
-
-                    <!-- 목소리 -->
-                    <div class="form-group">
-                        <label for="voice">
-                            <span class="label-icon">🎙️</span>
-                            목소리 (TTS)
-                        </label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <select id="voice" name="voice" class="select" style="flex: 1;">
-                                <option value="uyVNoMrnUku1dZyVEXwD" selected>Anna Kim (여성) - 부드럽고 차분한 목소리</option>
-                                <option value="8jHHF8rMqMlg8if2mOUe">Han (남성) - 대화체, 자연스러운 톤</option>
-                                <option value="s07IwTCOrCDCaETjUVjx">Hyunbin (남성) - 명확하고 신뢰감 있는 목소리</option>
-                                <option value="3MTvEr8xCMCC2mL9ujrI">June (남성) - 젊고 활기찬 스토리텔링</option>
-                            </select>
-                            <button type="button" id="preview-voice-btn" class="btn btn-secondary btn-small"
-                                style="white-space: nowrap;">
-                                🔊 샘플 듣기
-                            </button>
-                        </div>
-                    </div>
-
-                    <script>
-                        document.getElementById('preview-voice-btn').addEventListener('click', async () => {
-                            const voice = document.getElementById('voice').value;
-                            const btn = document.getElementById('preview-voice-btn');
-
-                            // 재생 중 표시
-                            const originalText = btn.textContent;
-                            btn.textContent = '⏳ 로딩...';
-                            btn.disabled = true;
-
-                            try {
-                                // [Fix] Worker 대신 Railway 백엔드 직접 호출
-                                const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                                const baseUrl = isLocal ? '' : 'https://web-production-bb6bf.up.railway.app';
-                                const targetUrl = `${baseUrl}/api/sample-voice/${voice}?t=${Date.now()}`;
-
-                                btn.textContent = '⏳ 연결 중...';
-
-                                const response = await fetch(targetUrl);
-                                if (!response.ok) {
-                                    const errText = await response.text();
-                                    throw new Error(`Worker Error (${response.status}): ${errText}`);
-                                }
-
-                                const blob = await response.blob();
-                                const audioUrl = URL.createObjectURL(blob);
-                                const audio = new Audio(audioUrl);
-
-                                await audio.play();
-                                btn.textContent = '🔊 재생 중...';
-
-                                audio.onended = () => {
-                                    btn.textContent = originalText;
-                                    btn.disabled = false;
-                                    URL.revokeObjectURL(audioUrl); // 메모리 해제
-                                };
-                            } catch (e) {
-                                console.error(e);
-                                alert('미리듣기 실패: ' + e.message);
-                                btn.textContent = originalText;
-                                btn.disabled = false;
-                            }
-                        });
-                    </script>
-
-                    <!-- 길이 -->
-                    <div class="form-group">
-                        <label for="duration">
-                            <span class="label-icon">⏱️</span>
-                            영상 길이: <span id="duration-display">30</span>초
-                        </label>
-                        <input type="range" id="duration" name="duration" min="30" max="300" value="30" step="10"
-                            class="slider" />
-                        <div class="slider-labels">
-                            <span>1분</span>
-                            <span>2분</span>
-                            <span>3분</span>
-                            <span>4분</span>
-                            <span>5분</span>
-                        </div>
-                    </div>
-
-                    <!-- 플랫폼 -->
-                    <div class="form-group">
-                        <label>
-                            <span class="label-icon">📱</span>
-                            대상 플랫폼
-                        </label>
-                        <div class="radio-group">
-                            <label class="radio-label">
-                                <input type="radio" name="platform" value="youtube_long" checked>
-                                <span class="radio-custom"></span>
-                                YouTube 롱폼 (16:9)
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" name="platform" value="youtube_shorts">
-                                <span class="radio-custom"></span>
-                                YouTube Shorts (9:16)
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Feature Flags -->
-                    <div class="form-group">
-                        <label class="section-label">
-                            <span class="label-icon">⚙️</span>
-                            고급 설정
-                        </label>
-
-                        <div class="checkbox-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="ffmpeg_kenburns" id="ffmpeg_kenburns" checked>
-                                <span class="checkbox-custom"></span>
-                                <span class="checkbox-text">
-                                    🎞️ Ken Burns Effect
-                                    <small>이미지에 줌/팬 효과 적용</small>
-                                </span>
-                            </label>
-
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="ffmpeg_audio_ducking" id="ffmpeg_audio_ducking">
-                                <span class="checkbox-custom"></span>
-                                <span class="checkbox-text">
-                                    🔊 Audio Ducking
-                                    <small>내레이션 시 BGM 자동 감쇠</small>
-                                </span>
-                            </label>
-
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="subtitle_burn_in" id="subtitle_burn_in" checked>
-                                <span class="checkbox-custom"></span>
-                                <span class="checkbox-text">
-                                    📝 자막 생성 (Subtitles)
-                                    <small>영상에 자막을 입힙니다 (기본: 켜짐)</small>
-                                </span>
-                            </label>
-
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="context_carry_over" id="context_carry_over" checked>
-                                <span class="checkbox-custom"></span>
-                                <span class="checkbox-text">
-                                    🔗 Context Carry-over
-                                    <small>장면 간 맥락 상속 (일관성 향상)</small>
-                                </span>
-                            </label>
-
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="optimization_pack" id="optimization_pack">
-                                <span class="checkbox-custom"></span>
-                                <span class="checkbox-text">
-                                    🚀 Optimization Pack
-                                    <small>제목/썸네일/해시태그 자동 생성 (추가 API 비용)</small>
+                        <!-- AI Story: Topic -->
+                        <div id="ai-story-inputs" class="form-group">
+                            <label for="topic" data-i18n="input.topic_label">Topic / Idea</label>
+                            <input type="text" id="topic" name="topic"
+                                data-i18n-placeholder="input.topic_placeholder"
+                                placeholder="e.g. A mysterious diary found in an old abandoned hospital"
+                                class="form-input" />
+                            <small class="helper-text" data-i18n="input.topic_hint">Leave blank for AI to auto-generate a topic</small>
+                            <label class="toggle-item" style="margin-top:10px">
+                                <input type="checkbox" name="include_dialogue" id="include_dialogue">
+                                <span class="toggle-switch"></span>
+                                <span class="toggle-label">
+                                    <span>대화 포함</span>
+                                    <small>캐릭터 간 대화가 포함된 시나리오 (남/여 화자 분리)</small>
                                 </span>
                             </label>
                         </div>
+
+                        <!-- Direct Script -->
+                        <div id="direct-script-inputs" class="form-group" style="display:none">
+                            <label for="direct-script" data-i18n="input.script_label">Narration Script</label>
+                            <textarea id="direct-script" rows="10"
+                                data-i18n-placeholder="input.script_placeholder"
+                                placeholder="Paste your narration script here.&#10;&#10;Separate scenes with blank lines.&#10;&#10;Example:&#10;A thriving business among failing stores.&#10;Welcome to the Business Lab.&#10;&#10;The store we introduced last time&#10;received a huge response."
+                                class="form-input form-textarea"></textarea>
+                            <small class="helper-text" data-i18n="input.script_hint">Separate scenes with blank lines. AI generates matching images for each scene.</small>
+                        </div>
                     </div>
 
-                    <!-- 제출 버튼 -->
-                    <button type="submit" class="btn btn-primary" id="generate-story-btn">
-                        <span class="btn-icon">📝</span>
-                        스토리 생성 (1단계)
+                    <!-- Style & Genre -->
+                    <div class="app-card">
+                        <div class="app-card-label" data-i18n="input.style_genre">Style & Genre</div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label for="genre" data-i18n="input.genre">Genre</label>
+                                <div class="select-wrapper">
+                                    <select id="genre" name="genre" class="form-select">
+                                        <option value="emotional">Emotional</option>
+                                        <option value="mystery" selected>Mystery</option>
+                                        <option value="thriller">Thriller</option>
+                                        <option value="fantasy">Fantasy</option>
+                                        <option value="horror">Horror</option>
+                                        <option value="comedy">Comedy</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="mood" data-i18n="input.mood">Mood</label>
+                                <div class="select-wrapper">
+                                    <select id="mood" name="mood" class="form-select">
+                                        <option value="dramatic" selected>Dramatic</option>
+                                        <option value="melancholic">Melancholic</option>
+                                        <option value="suspenseful">Suspenseful</option>
+                                        <option value="heartwarming">Heartwarming</option>
+                                        <option value="dark">Dark</option>
+                                        <option value="cheerful">Cheerful</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label for="style" data-i18n="input.style">Visual Style</label>
+                                <div class="select-wrapper">
+                                    <select id="style" name="style" class="form-select">
+                                        <option value="cinematic, high contrast" selected>Cinematic</option>
+                                        <option value="realistic">Realistic</option>
+                                        <option value="illustration">Illustration</option>
+                                        <option value="anime">Anime</option>
+                                        <option value="webtoon">Webtoon</option>
+                                        <option value="game_anime">Game Anime</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="character_ethnicity" data-i18n="input.ethnicity">Character Ethnicity</label>
+                                <div class="select-wrapper">
+                                    <select id="character_ethnicity" name="character_ethnicity" class="form-select">
+                                        <option value="auto" selected>AI Auto</option>
+                                        <option value="korean">Korean</option>
+                                        <option value="japanese">Japanese</option>
+                                        <option value="chinese">Chinese</option>
+                                        <option value="southeast_asian">Southeast Asian</option>
+                                        <option value="european">European</option>
+                                        <option value="black">Black</option>
+                                        <option value="hispanic">Hispanic</option>
+                                        <option value="mixed">Mixed</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hidden default voice (used as fallback) -->
+                    <input type="hidden" id="voice" name="voice" value="uyVNoMrnUku1dZyVEXwD">
+
+                    <!-- Duration & Platform (버튼 위에 배치) -->
+                    <div class="app-card">
+                        <div class="form-group">
+                            <label for="duration">영상 길이: <span id="duration-display">30</span>초</label>
+                            <input type="range" id="duration" name="duration" min="30" max="300" value="30" step="10"
+                                class="form-slider" />
+                            <div class="slider-labels">
+                                <span>30초</span><span>1분</span><span>2분</span><span>3분</span><span>5분</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label data-i18n="input.platform">플랫폼</label>
+                            <div class="radio-group">
+                                <label class="radio-card">
+                                    <input type="radio" name="platform" value="youtube_long" checked>
+                                    <span class="radio-card__inner">
+                                        <span class="radio-card__icon">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                                        </span>
+                                        <span class="radio-card__label">YouTube Long (16:9)</span>
+                                    </span>
+                                </label>
+                                <label class="radio-card">
+                                    <input type="radio" name="platform" value="youtube_shorts">
+                                    <span class="radio-card__inner">
+                                        <span class="radio-card__icon">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+                                        </span>
+                                        <span class="radio-card__label">YouTube Shorts (9:16)</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ★ Submit button - prominent CTA -->
+                    <button type="submit" class="btn-cta-generate" id="generate-story-btn">
+                        <span class="btn-cta-generate__icon">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        </span>
+                        <span class="btn-cta-generate__text">
+                            <strong data-i18n="input.generate">AI 시나리오 생성</strong>
+                            <small>화자 분리 + 음성 선택 단계로 이동</small>
+                        </span>
+                        <span class="btn-cta-generate__arrow">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                        </span>
                     </button>
+
                 </form>
             </div>
+        </div>
 
-            <!-- 스토리 리뷰 섹션 -->
-            <div id="review-section" class="section hidden">
-                <h2>📝 스토리 검토 및 수정</h2>
-                <div class="review-container">
-                    <p class="section-description">
-                        AI가 생성한 스토리를 확인하세요. 대사나 지문을 자유롭게 수정할 수 있습니다.<br>
-                        수정이 끝나면 하단의 <strong>영상 생성 시작</strong> 버튼을 누르세요.
+        <!-- ══════════════════════════════════════
+             STORY REVIEW SECTION
+             ══════════════════════════════════════ -->
+        <div id="review-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="review.label">Step 2</span>
+                    <h2 class="section-title" data-i18n="review.title">Scenario & Voice Selection</h2>
+                    <p class="section-subtitle" data-i18n="review.subtitle">
+                        Review the scenario, check detected speakers, and assign voices.
+                        Edit narrations or visual descriptions freely, then proceed to image generation.
                     </p>
+                </div>
 
+                <div class="review-container">
                     <div class="story-meta-edit">
-                        <label>제목</label>
-                        <input type="text" id="review-title" class="input input-title" />
+                        <label>Title</label>
+                        <input type="text" id="review-title" class="form-input input-title" />
                     </div>
 
-                    <div id="review-scene-grid" class="review-scene-grid">
-                        <!-- Scene Cards (JS Generated) -->
-                    </div>
+                    <!-- Speaker detection summary + voice assignment (injected by JS) -->
+                    <div id="voice-selection-slot"></div>
+
+                    <div id="review-scene-grid" class="review-scene-grid"></div>
+
+                    <!-- 이미지 생성 옵션 (리뷰 단계에서 설정) -->
+                    <details class="app-card app-accordion" open>
+                        <summary class="app-accordion__trigger">
+                            <span class="app-card-label">영상 생성 옵션</span>
+                            <svg class="app-accordion__arrow" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </summary>
+                        <div class="app-accordion__content">
+                            <div class="form-group">
+                                <label for="image_model">이미지 모델</label>
+                                <div class="select-wrapper">
+                                    <select id="image_model" name="image_model" class="form-select">
+                                        <option value="standard" selected>Standard (Gemini Flash) - 빠르고 안정적</option>
+                                        <option value="premium">Premium (Gemini 3 Pro) - 고품질</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="toggle-grid">
+                                <label class="toggle-item">
+                                    <input type="checkbox" id="ffmpeg_kenburns" checked>
+                                    <span class="toggle-switch"></span>
+                                    <span class="toggle-label">
+                                        <span>Ken Burns 효과</span>
+                                        <small>이미지에 줌 & 패닝 효과</small>
+                                    </span>
+                                </label>
+                                <label class="toggle-item">
+                                    <input type="checkbox" id="ffmpeg_audio_ducking">
+                                    <span class="toggle-switch"></span>
+                                    <span class="toggle-label">
+                                        <span>오디오 덕킹</span>
+                                        <small>나레이션 시 BGM 자동 줄임</small>
+                                    </span>
+                                </label>
+                                <label class="toggle-item">
+                                    <input type="checkbox" id="subtitle_burn_in" checked>
+                                    <span class="toggle-switch"></span>
+                                    <span class="toggle-label">
+                                        <span>자막</span>
+                                        <small>영상에 자막 삽입</small>
+                                    </span>
+                                </label>
+                                <label class="toggle-item">
+                                    <input type="checkbox" id="context_carry_over" checked>
+                                    <span class="toggle-switch"></span>
+                                    <span class="toggle-label">
+                                        <span>맥락 연결</span>
+                                        <small>씬 간 시각적 일관성 유지</small>
+                                    </span>
+                                </label>
+                                <label class="toggle-item">
+                                    <input type="checkbox" id="optimization_pack">
+                                    <span class="toggle-switch"></span>
+                                    <span class="toggle-label">
+                                        <span>최적화 팩</span>
+                                        <small>제목, 썸네일, 해시태그 자동 생성</small>
+                                    </span>
+                                </label>
+                                <label class="toggle-item">
+                                    <input type="checkbox" id="film_look">
+                                    <span class="toggle-switch"></span>
+                                    <span class="toggle-label">
+                                        <span>필름 룩</span>
+                                        <small>필름 그레인 + 색보정 효과</small>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                    </details>
 
                     <div class="review-actions">
-                        <button id="back-to-input-btn" class="btn btn-secondary">
-                            <span class="btn-icon">⬅️</span>
-                            다시 설정하기
+                        <button id="back-to-input-btn" class="btn btn-secondary" data-i18n="review.back">
+                            Back to Settings
                         </button>
-                        <button id="generate-images-btn" class="btn btn-primary btn-large">
-                            <span class="btn-icon">🖼️</span>
-                            이미지 생성 (2단계)
+                        <button id="generate-images-btn" class="btn btn-primary btn-large" data-i18n="review.gen_images">
+                            Generate Images (Step 2)
                         </button>
-                        <button id="start-video-generation-btn" class="btn btn-secondary btn-large">
-                            <span class="btn-icon">🎬</span>
-                            바로 영상 생성 (이미지 프리뷰 생략)
+                        <button id="start-video-generation-btn" class="btn btn-secondary btn-large" data-i18n="review.skip_video">
+                            Skip to Video (Skip Preview)
                         </button>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- 이미지 프리뷰 섹션 -->
-            <div id="image-preview-section" class="section hidden">
-                <h2>🖼️ 이미지 검토</h2>
-                <p class="section-description">
-                    각 씬의 이미지를 확인하세요. 마음에 들지 않으면 재생성하거나, I2V로 영상 변환할 수 있습니다.<br>
-                    확인이 끝나면 <strong>이미지 확정 및 영상 생성</strong> 버튼을 누르세요.
-                </p>
-                <!-- 이미지 생성 진행 바 -->
-                <div id="image-progress-container" class="progress-container hidden" style="margin-bottom: 20px;">
+        <!-- ══════════════════════════════════════
+             IMAGE PREVIEW SECTION
+             ══════════════════════════════════════ -->
+        <div id="image-preview-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="image.label">Step 3</span>
+                    <h2 class="section-title" data-i18n="image.title">Image Review</h2>
+                    <p class="section-subtitle" data-i18n="image.subtitle">
+                        Review each scene's image. Regenerate or convert to I2V video as needed.
+                    </p>
+                </div>
+
+                <!-- Image generation progress -->
+                <div id="image-progress-container" class="progress-container hidden">
                     <div class="progress-header">
-                        <span class="progress-label" id="image-progress-label">이미지 생성 중...</span>
+                        <span class="progress-label" id="image-progress-label">Generating images...</span>
                         <span class="progress-percentage" id="image-progress-percentage">0%</span>
                     </div>
                     <div class="progress-bar-wrapper">
-                        <div class="progress-bar" id="image-progress-bar" style="width: 0%"></div>
+                        <div class="progress-bar" id="image-progress-bar"></div>
                     </div>
-                    <div class="status-message" id="image-status-message">준비 중...</div>
+                    <div class="status-message" id="image-status-message">Preparing...</div>
                 </div>
+
                 <div id="image-preview-grid" class="image-preview-grid"></div>
-                <div id="image-test-result" style="display:none; margin: 10px 0; padding: 12px; border-radius: 8px; background: #1a1a2e; font-size: 13px; white-space: pre-wrap; max-height: 200px; overflow-y: auto;"></div>
+                <div id="image-test-result" class="image-test-result"></div>
+
                 <div class="review-actions">
-                    <button id="back-to-review-btn" class="btn btn-secondary">
-                        <span class="btn-icon">⬅️</span>
-                        스토리 수정하기
+                    <button id="back-to-review-btn" class="btn btn-secondary" data-i18n="image.edit_story">
+                        Edit Story
                     </button>
-                    <button id="test-image-btn" class="btn btn-secondary" onclick="app.testImageGeneration()">
-                        <span class="btn-icon">🧪</span>
-                        이미지 생성 테스트
+                    <!-- Test Image 버튼 제거 (API 엔드포인트 미구현) -->
+                    <button id="test-image-btn" class="btn btn-secondary" onclick="app.testImageGeneration()" data-i18n="image.test" style="display:none">
+                        Test Image
                     </button>
-                    <button id="approve-images-btn" class="btn btn-primary btn-large" disabled>
-                        <span class="btn-icon">🎬</span>
-                        이미지 확정 및 영상 생성 (3단계)
+                    <button id="approve-images-btn" class="btn btn-primary btn-large" disabled data-i18n="image.approve">
+                        Approve & Generate Video (Step 3)
                     </button>
                 </div>
             </div>
+        </div>
 
-            <!-- 진행상황 섹션 -->
-            <div id="progress-section" class="section hidden">
-                <h2 id="progress-title">⏳ 스토리 생성 중...</h2>
+        <!-- ══════════════════════════════════════
+             PROGRESS SECTION
+             ══════════════════════════════════════ -->
+        <div id="progress-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <h2 class="section-title" id="progress-title">Generating...</h2>
+                </div>
 
                 <div class="progress-container">
-                    <!-- 전체 진행률 -->
                     <div class="progress-header">
-                        <span class="progress-label">전체 진행률</span>
+                        <span class="progress-label">Overall Progress</span>
                         <span class="progress-percentage" id="progress-percentage">0%</span>
                     </div>
                     <div class="progress-bar-wrapper">
                         <div class="progress-bar" id="progress-bar"></div>
                     </div>
+                    <div class="status-message" id="status-message">Initializing...</div>
 
-                    <!-- 현재 상태 -->
-                    <div class="status-message" id="status-message">
-                        초기화 중...
-                    </div>
-
-                    <!-- 단계별 진행상황 -->
                     <div class="steps-container" id="steps-container">
                         <div class="step" data-step="story">
-                            <div class="step-icon">📝</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">스토리 생성</div>
-                                <div class="step-status">대기 중</div>
+                                <div class="step-title">Story Generation</div>
+                                <div class="step-status">Waiting</div>
                             </div>
                         </div>
-
                         <div class="step" data-step="scenes">
-                            <div class="step-icon">🎬</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">장면 처리</div>
-                                <div class="step-status">대기 중</div>
+                                <div class="step-title">Scene Processing</div>
+                                <div class="step-status">Waiting</div>
                             </div>
                         </div>
-
                         <div class="step" data-step="compose">
-                            <div class="step-icon">🎞️</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">영상 합성</div>
-                                <div class="step-status">대기 중</div>
+                                <div class="step-title">Video Composition</div>
+                                <div class="step-status">Waiting</div>
                             </div>
                         </div>
-
                         <div class="step" data-step="optimize">
-                            <div class="step-icon">🚀</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">최적화</div>
-                                <div class="step-status">대기 중</div>
+                                <div class="step-title">Optimization</div>
+                                <div class="step-status">Waiting</div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 실시간 미리보기 -->
                     <div class="preview-container hidden" id="preview-container">
-                        <!-- 통합 스토리 보드 -->
                         <div class="visual-preview hidden" id="visual-preview">
-                            <h3>🎬 스토리 보드 (Story Board)</h3>
-                            <div class="scene-grid" id="scene-grid">
-                                <!-- 생성된 씬 카드가 여기 추가됩니다 -->
-                            </div>
+                            <h3>Storyboard</h3>
+                            <div class="scene-grid" id="scene-grid"></div>
                         </div>
                     </div>
 
-                    <!-- 로그 -->
                     <div class="log-container">
                         <div class="log-header">
-                            <span>📋 실시간 로그</span>
-                            <button id="clear-log-btn" class="btn-small">지우기</button>
+                            <span>Live Log</span>
+                            <button id="clear-log-btn" class="btn-small">Clear</button>
                         </div>
                         <div class="log-content" id="log-content"></div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- 결과 섹션 -->
-            <div id="result-section" class="section hidden">
-                <h2 id="result-header-text">🎉 영상 생성 완료!</h2>
+        <!-- ══════════════════════════════════════
+             RESULT SECTION
+             ══════════════════════════════════════ -->
+        <div id="result-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="result.label">Complete</span>
+                    <h2 class="section-title" id="result-header-text" data-i18n="result.title">Video Ready!</h2>
+                </div>
 
                 <div class="result-container">
-                    <!-- 프로젝트 정보 -->
                     <div class="result-info">
-                        <p><strong>프로젝트 ID:</strong> <code id="result-project-id"></code></p>
-                        <p><strong>영상 제목:</strong> <span id="result-title"></span></p>
+                        <p><strong>Project ID:</strong> <code id="result-project-id"></code></p>
+                        <p><strong>Title:</strong> <span id="result-title"></span></p>
                     </div>
 
-                    <!-- 비디오 플레이어 -->
                     <div class="video-player" id="result-video-container">
                         <video id="result-video" controls></video>
                     </div>
 
-                    <!-- 다운로드 버튼 -->
                     <div class="result-actions">
-                        <a id="download-btn" class="btn btn-primary" download>
-                            <span class="btn-icon">📥</span>
-                            영상 다운로드
+                        <a id="download-btn" class="btn btn-primary" download data-i18n="result.download">
+                            Download Video
                         </a>
-                        <button id="new-video-btn" class="btn btn-secondary">
-                            <span class="btn-icon">➕</span>
-                            새 영상 만들기
+                        <button id="new-video-btn" class="btn btn-secondary" data-i18n="result.new_video">
+                            New Video
                         </button>
                     </div>
 
-                    <!-- 씬 관리 섹션 -->
                     <div id="scene-management" class="scene-management">
-                        <h3>🎬 씬 관리</h3>
-                        <p class="section-description">
-                            개별 씬을 확인하고 필요시 재생성할 수 있습니다.
-                            씬을 재생성한 후에는 하단의 "영상 재합성" 버튼을 눌러 최종 영상을 업데이트하세요.
+                        <h3 data-i18n="result.scene_mgmt">Scene Management</h3>
+                        <p class="section-description" data-i18n="result.scene_desc">
+                            Review individual scenes and regenerate as needed.
+                            After changes, click "Recompose Video" to update the final video.
                         </p>
-
-                        <!-- 씬 목록 그리드 -->
-                        <div id="result-scene-grid" class="result-scene-grid">
-                            <!-- JS로 동적 생성 -->
-                        </div>
-
-                        <!-- 재합성 버튼 -->
+                        <div id="result-scene-grid" class="result-scene-grid"></div>
                         <div class="recompose-actions">
-                            <button id="recompose-btn" class="btn btn-primary" style="display: none;">
-                                <span class="btn-icon">🔄</span>
-                                영상 재합성 (수정된 씬 반영)
+                            <button id="recompose-btn" class="btn btn-primary" style="display:none" data-i18n="result.recompose">
+                                Recompose Video
                             </button>
                         </div>
                     </div>
 
-                    <!-- 최적화 패키지 -->
                     <div id="optimization-pack" class="optimization-pack">
-                        <h3>🚀 YouTube 최적화 패키지</h3>
-
-                        <!-- 제목 후보 -->
+                        <h3>YouTube Optimization Pack</h3>
                         <div class="opt-section">
-                            <h4>📌 제목 후보</h4>
+                            <h4>Title Candidates</h4>
                             <div id="title-candidates" class="candidate-list"></div>
                         </div>
-
-                        <!-- 썸네일 문구 -->
                         <div class="opt-section">
-                            <h4>🖼️ 썸네일 문구</h4>
+                            <h4>Thumbnail Text</h4>
                             <div id="thumbnail-texts" class="candidate-list"></div>
                         </div>
-
-                        <!-- 해시태그 -->
                         <div class="opt-section">
-                            <h4>#️⃣ 해시태그</h4>
+                            <h4>Hashtags</h4>
                             <div id="hashtags" class="hashtag-list"></div>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- 뮤직비디오 섹션 -->
-            <div id="mv-section" class="section hidden">
-                <h2>🎵 뮤직비디오 만들기</h2>
-                <p class="section-description" style="color: #ccc; margin-bottom: 20px;">
-                    Suno, Udio 등에서 만든 음악을 업로드하고 AI가 자동으로 뮤직비디오를 생성합니다.
-                </p>
+        <!-- ══════════════════════════════════════
+             MUSIC VIDEO SECTION
+             ══════════════════════════════════════ -->
+        <div id="mv-section" class="section hidden">
+            <div class="app-form-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="mv.label">Create</span>
+                    <h2 class="section-title" data-i18n="mv.title">Music Video</h2>
+                    <p class="section-subtitle" data-i18n="mv.subtitle">Upload music from Suno, Udio, etc. and AI creates a synced music video automatically.</p>
+                </div>
 
-                <form id="mv-form" class="form">
-                    <!-- 음악 파일 업로드 -->
-                    <div class="form-group">
-                        <label for="mv-music-file">
-                            <span class="label-icon">🎵</span>
-                            음악 파일 업로드
-                        </label>
-                        <input type="file" id="mv-music-file" name="music_file"
-                            accept=".mp3,.wav,.m4a,.ogg,.flac" class="input" required />
-                        <small class="helper-text">MP3, WAV, M4A, OGG, FLAC (최대 10분)</small>
+                <form id="mv-form" class="app-form">
+                    <!-- Upload -->
+                    <div class="app-card">
+                        <div class="form-group">
+                            <label for="mv-music-file" data-i18n="mv.music_file">Music File</label>
+                            <div class="file-dropzone" id="mv-dropzone">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                <span class="file-dropzone__text" data-i18n="mv.drop_text">Drop music file or click to browse</span>
+                                <span class="file-dropzone__hint" data-i18n="mv.drop_hint">MP3, WAV, M4A, OGG, FLAC (max 10 min)</span>
+                                <input type="file" id="mv-music-file" name="music_file"
+                                    accept=".mp3,.wav,.m4a,.ogg,.flac" required />
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="mv-lyrics" data-i18n="mv.lyrics_label">Lyrics (Optional)</label>
+                            <textarea id="mv-lyrics" name="lyrics" class="form-input form-textarea" rows="5"
+                                data-i18n-placeholder="mv.lyrics_placeholder"
+                                placeholder="Enter lyrics for more accurate scene splitting..."></textarea>
+                            <small class="helper-text" data-i18n="mv.lyrics_hint">Lyrics enable synced subtitle overlay</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="mv-concept" data-i18n="mv.concept_label">Visual Concept (Optional)</label>
+                            <input type="text" id="mv-concept" name="concept" class="form-input"
+                                data-i18n-placeholder="mv.concept_placeholder"
+                                placeholder="e.g. Fairies dancing under moonlight, neon city streets..." />
+                        </div>
                     </div>
 
-                    <!-- 가사 (선택) -->
-                    <div class="form-group">
-                        <label for="mv-lyrics">
-                            <span class="label-icon">📝</span>
-                            가사 (선택)
-                        </label>
-                        <textarea id="mv-lyrics" name="lyrics" class="input" rows="6"
-                            placeholder="가사를 입력하면 더 정확한 씬 분할이 가능합니다..."></textarea>
-                        <small class="helper-text">가사를 입력하면 장면에 가사가 연동됩니다</small>
+                    <!-- Style Settings -->
+                    <div class="app-card">
+                        <div class="app-card-label" data-i18n="mv.style_settings">Style Settings</div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label for="mv-character-setup" data-i18n="mv.characters">Characters</label>
+                                <div class="select-wrapper">
+                                    <select id="mv-character-setup" name="character_setup" class="form-select">
+                                        <option value="auto" selected>AI Auto</option>
+                                        <option value="male_female">Male-Female Couple</option>
+                                        <option value="female_female">Female-Female Couple</option>
+                                        <option value="male_male">Male-Male Couple</option>
+                                        <option value="solo_male">Solo Male</option>
+                                        <option value="solo_female">Solo Female</option>
+                                        <option value="group">Group (3+)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="mv-character-ethnicity" data-i18n="mv.ethnicity">Ethnicity</label>
+                                <div class="select-wrapper">
+                                    <select id="mv-character-ethnicity" name="character_ethnicity" class="form-select">
+                                        <option value="auto" selected>AI Auto</option>
+                                        <option value="korean">Korean</option>
+                                        <option value="japanese">Japanese</option>
+                                        <option value="chinese">Chinese</option>
+                                        <option value="southeast_asian">Southeast Asian</option>
+                                        <option value="european">European</option>
+                                        <option value="black">Black</option>
+                                        <option value="hispanic">Hispanic</option>
+                                        <option value="mixed">Mixed</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label for="mv-genre" data-i18n="mv.genre">Genre</label>
+                                <div class="select-wrapper">
+                                    <select id="mv-genre" name="genre" class="form-select">
+                                        <option value="fantasy" selected>Fantasy</option>
+                                        <option value="romance">Romance</option>
+                                        <option value="action">Action</option>
+                                        <option value="horror">Horror</option>
+                                        <option value="scifi">Sci-Fi</option>
+                                        <option value="drama">Drama</option>
+                                        <option value="comedy">Comedy</option>
+                                        <option value="abstract">Abstract</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="mv-mood" data-i18n="mv.mood">Mood</label>
+                                <div class="select-wrapper">
+                                    <select id="mv-mood" name="mood" class="form-select">
+                                        <option value="epic" selected>Epic</option>
+                                        <option value="dreamy">Dreamy</option>
+                                        <option value="energetic">Energetic</option>
+                                        <option value="calm">Calm</option>
+                                        <option value="dark">Dark</option>
+                                        <option value="romantic">Romantic</option>
+                                        <option value="melancholic">Melancholic</option>
+                                        <option value="uplifting">Uplifting</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="mv-style" data-i18n="mv.style">Visual Style</label>
+                            <div class="select-wrapper">
+                                <select id="mv-style" name="style" class="form-select">
+                                    <option value="cinematic" selected>Cinematic</option>
+                                    <option value="anime">Anime</option>
+                                    <option value="webtoon">Webtoon</option>
+                                    <option value="realistic">Realistic</option>
+                                    <option value="illustration">Illustration</option>
+                                    <option value="abstract">Abstract</option>
+                                    <option value="game_anime">Game Anime</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- 비주얼 컨셉 -->
-                    <div class="form-group">
-                        <label for="mv-concept">
-                            <span class="label-icon">🎨</span>
-                            비주얼 컨셉 (선택)
-                        </label>
-                        <input type="text" id="mv-concept" name="concept" class="input"
-                            placeholder="예: 달빛 아래 춤추는 요정들, 미래 도시의 네온 거리..." />
-                        <small class="helper-text">원하는 비주얼 컨셉을 자유롭게 설명하세요</small>
+                    <!-- MV Options -->
+                    <div class="app-card">
+                        <div class="app-card-label" data-i18n="mv.options">Options</div>
+                        <div class="toggle-grid">
+                            <label class="toggle-item">
+                                <input type="checkbox" id="mv-subtitle-enabled" checked>
+                                <span class="toggle-switch"></span>
+                                <span class="toggle-label">
+                                    <span data-i18n="mv_toggle.lyrics">Lyric Subtitles</span>
+                                    <small data-i18n="mv_toggle.lyrics_desc">Overlay lyrics on video</small>
+                                </span>
+                            </label>
+                            <label class="toggle-item">
+                                <input type="checkbox" id="mv-quick-test">
+                                <span class="toggle-switch"></span>
+                                <span class="toggle-label">
+                                    <span data-i18n="mv_toggle.quick">Quick Test (45s preview)</span>
+                                    <small data-i18n="mv_toggle.quick_desc">Fast preview - first 45 seconds only</small>
+                                </span>
+                            </label>
+                            <label class="toggle-item">
+                                <input type="checkbox" id="mv-subtitle-only">
+                                <span class="toggle-switch"></span>
+                                <span class="toggle-label">
+                                    <span data-i18n="mv_toggle.sub_only">Subtitle Only Test</span>
+                                    <small data-i18n="mv_toggle.sub_only_desc">Test subtitle sync on black background</small>
+                                </span>
+                            </label>
+                        </div>
                     </div>
 
-                    <!-- 캐릭터 구성 -->
-                    <div class="form-group">
-                        <label for="mv-character-setup">
-                            <span class="label-icon">👥</span>
-                            캐릭터 구성
-                        </label>
-                        <select id="mv-character-setup" name="character_setup" class="select">
-                            <option value="auto" selected>AI 자동 결정</option>
-                            <option value="male_female">남녀 커플</option>
-                            <option value="female_female">여여 커플</option>
-                            <option value="male_male">남남 커플</option>
-                            <option value="solo_male">솔로 남성</option>
-                            <option value="solo_female">솔로 여성</option>
-                            <option value="group">그룹 (3인 이상)</option>
-                        </select>
-                    </div>
-
-                    <!-- 캐릭터 인종/외형 -->
-                    <div class="form-group">
-                        <label for="mv-character-ethnicity">
-                            <span class="label-icon">🌍</span>
-                            캐릭터 인종/외형
-                        </label>
-                        <select id="mv-character-ethnicity" name="character_ethnicity" class="select">
-                            <option value="auto" selected>AI 자동 결정</option>
-                            <option value="korean">한국인</option>
-                            <option value="japanese">일본인</option>
-                            <option value="chinese">중국인</option>
-                            <option value="southeast_asian">동남아시아인</option>
-                            <option value="european">유럽/백인</option>
-                            <option value="black">흑인</option>
-                            <option value="hispanic">히스패닉/라틴</option>
-                            <option value="mixed">다인종 조합</option>
-                        </select>
-                    </div>
-
-                    <!-- 장르 -->
-                    <div class="form-group">
-                        <label for="mv-genre">
-                            <span class="label-icon">🎭</span>
-                            장르
-                        </label>
-                        <select id="mv-genre" name="genre" class="select">
-                            <option value="fantasy" selected>Fantasy (판타지)</option>
-                            <option value="romance">Romance (로맨스)</option>
-                            <option value="action">Action (액션)</option>
-                            <option value="horror">Horror (공포)</option>
-                            <option value="scifi">Sci-Fi (SF)</option>
-                            <option value="drama">Drama (드라마)</option>
-                            <option value="comedy">Comedy (코미디)</option>
-                            <option value="abstract">Abstract (추상)</option>
-                        </select>
-                    </div>
-
-                    <!-- 분위기 -->
-                    <div class="form-group">
-                        <label for="mv-mood">
-                            <span class="label-icon">✨</span>
-                            분위기
-                        </label>
-                        <select id="mv-mood" name="mood" class="select">
-                            <option value="epic" selected>Epic (웅장)</option>
-                            <option value="dreamy">Dreamy (몽환)</option>
-                            <option value="energetic">Energetic (역동)</option>
-                            <option value="calm">Calm (평온)</option>
-                            <option value="dark">Dark (어두움)</option>
-                            <option value="romantic">Romantic (로맨틱)</option>
-                            <option value="melancholic">Melancholic (우울)</option>
-                            <option value="uplifting">Uplifting (고양)</option>
-                        </select>
-                    </div>
-
-                    <!-- 스타일 -->
-                    <div class="form-group">
-                        <label for="mv-style">
-                            <span class="label-icon">🖼️</span>
-                            비주얼 스타일
-                        </label>
-                        <select id="mv-style" name="style" class="select">
-                            <option value="cinematic" selected>Cinematic (영화적)</option>
-                            <option value="anime">Anime (애니메이션)</option>
-                            <option value="webtoon">Webtoon (웹툰)</option>
-                            <option value="realistic">Realistic (사실적)</option>
-                            <option value="illustration">Illustration (일러스트)</option>
-                            <option value="abstract">Abstract (추상)</option>
-                            <option value="hoyoverse">HoYoverse (게임 애니메)</option>
-                        </select>
-                    </div>
-
-                    <!-- 자막 옵션 -->
-                    <div class="form-group" style="margin-top: 10px;">
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="mv-subtitle-enabled" checked
-                                   style="width: 18px; height: 18px; accent-color: #00adb5; cursor: pointer;">
-                            <span style="font-size: 0.95rem;">
-                                📝 가사 자막
-                                <small style="color: #999; display: block; font-size: 0.8rem;">영상에 가사 자막을 입힙니다</small>
-                            </span>
-                        </label>
-                    </div>
-
-                    <!-- 테스트 옵션 -->
-                    <div class="form-group" style="margin-top: 5px;">
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="mv-quick-test"
-                                   style="width: 18px; height: 18px; accent-color: #00adb5; cursor: pointer;">
-                            <span style="font-size: 0.95rem;">
-                                ⚡ 퀵 테스트 (5컷)
-                                <small style="color: #999; display: block; font-size: 0.8rem;">스타일 확인용 - 5컷만 빠르게 생성</small>
-                            </span>
-                        </label>
-                    </div>
-                    <div class="form-group" style="margin-top: 5px;">
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="mv-subtitle-only"
-                                   style="width: 18px; height: 18px; accent-color: #00adb5; cursor: pointer;">
-                            <span style="font-size: 0.95rem;">
-                                📝 자막만 테스트
-                                <small style="color: #999; display: block; font-size: 0.8rem;">이미지 없이 자막 싱크만 확인 (검은 배경)</small>
-                            </span>
-                        </label>
-                    </div>
-
-                    <!-- 업로드 버튼 -->
-                    <button type="submit" class="btn btn-primary" id="mv-upload-btn">
-                        <span class="btn-icon">🎬</span>
-                        뮤직비디오 생성
+                    <button type="submit" class="btn btn-primary btn-submit" id="mv-upload-btn">
+                        <span data-i18n="mv.generate">Generate Music Video</span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </button>
                 </form>
             </div>
+        </div>
 
-            <!-- 뮤직비디오 분석 결과 섹션 -->
-            <div id="mv-analysis-section" class="section hidden">
-                <h2>🎼 음악 분석 결과</h2>
-                <div class="mv-analysis-info" style="background: #1a1a2e; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px;">
-                        <div class="mv-info-card">
-                            <span style="color: #00adb5; font-size: 0.9rem;">길이</span>
-                            <p id="mv-duration" style="font-size: 1.5rem; font-weight: bold;">0:00</p>
+        <!-- ══════════════════════════════════════
+             MV ANALYSIS SECTION
+             ══════════════════════════════════════ -->
+        <div id="mv-analysis-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="mva.label">Analysis</span>
+                    <h2 class="section-title" data-i18n="mva.title">Music Analysis</h2>
+                </div>
+
+                <div class="mv-analysis-info">
+                    <div class="mv-stats-grid">
+                        <div class="mv-stat-card">
+                            <span class="mv-stat-label" data-i18n="mva.duration">Duration</span>
+                            <span class="mv-stat-value" id="mv-duration">0:00</span>
                         </div>
-                        <div class="mv-info-card">
-                            <span style="color: #00adb5; font-size: 0.9rem;">BPM</span>
-                            <p id="mv-bpm" style="font-size: 1.5rem; font-weight: bold;">-</p>
+                        <div class="mv-stat-card">
+                            <span class="mv-stat-label">BPM</span>
+                            <span class="mv-stat-value" id="mv-bpm">-</span>
                         </div>
-                        <div class="mv-info-card">
-                            <span style="color: #00adb5; font-size: 0.9rem;">추천 씬 수</span>
-                            <p id="mv-suggested-scenes" style="font-size: 1.5rem; font-weight: bold;">-</p>
+                        <div class="mv-stat-card">
+                            <span class="mv-stat-label" data-i18n="mva.scenes">Scenes</span>
+                            <span class="mv-stat-value" id="mv-suggested-scenes">-</span>
                         </div>
-                        <div class="mv-info-card">
-                            <span style="color: #00adb5; font-size: 0.9rem;">분위기</span>
-                            <p id="mv-detected-mood" style="font-size: 1.5rem; font-weight: bold;">-</p>
+                        <div class="mv-stat-card">
+                            <span class="mv-stat-label" data-i18n="mva.mood">Mood</span>
+                            <span class="mv-stat-value" id="mv-detected-mood">-</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- 씬 분할 편집 -->
-                <h3 style="color: #00adb5; margin-bottom: 15px;">📍 씬 분할 편집</h3>
-                <p class="section-description" style="color: #ccc; margin-bottom: 15px;">
-                    자동 분할된 씬을 확인하고 필요시 수정하세요. 각 씬에 대한 설명을 추가하면 더 정확한 영상이 생성됩니다.
-                </p>
-                <div id="mv-scene-editor" style="display: flex; flex-direction: column; gap: 15px;">
-                    <!-- JS로 씬 카드 동적 생성 -->
+                <div class="mv-scene-editor-section">
+                    <h3 class="mv-editor-title" data-i18n="mva.editor">Scene Editor</h3>
+                    <p class="section-description" data-i18n="mva.editor_desc">
+                        Review auto-split scenes. Add descriptions for more accurate visuals.
+                    </p>
+                    <div id="mv-scene-editor" class="mv-scene-editor-list"></div>
                 </div>
 
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 30px;">
-                    <div style="display: flex; justify-content: center; gap: 15px;">
-                        <button id="mv-back-btn" class="btn btn-secondary">
-                            <span class="btn-icon">⬅️</span>
-                            다시 업로드
-                        </button>
-                        <button id="mv-subtitle-test-btn" class="btn" style="font-size: 1rem; padding: 12px 24px; background: #444; color: #fff; border: 1px solid #666;">
-                            <span class="btn-icon">📝</span> 자막 테스트
-                        </button>
-                        <button id="mv-generate-btn" class="btn btn-primary btn-large">
-                            <span class="btn-icon">🎬</span>
-                            뮤직비디오 생성 시작
-                        </button>
-                    </div>
+                <div class="review-actions review-actions--center">
+                    <button id="mv-back-btn" class="btn btn-secondary" data-i18n="mva.reupload">
+                        Re-upload
+                    </button>
+                    <button id="mv-subtitle-test-btn" class="btn btn-secondary" data-i18n="mva.sub_test">
+                        Subtitle Test
+                    </button>
+                    <button id="mv-generate-btn" class="btn btn-primary btn-large" data-i18n="mva.start">
+                        Start MV Generation
+                    </button>
                 </div>
             </div>
+        </div>
 
-            <!-- 뮤직비디오 생성 진행 섹션 -->
-            <div id="mv-progress-section" class="section hidden">
-                <h2 id="mv-progress-title">⏳ 뮤직비디오 생성 중...</h2>
+        <!-- ══════════════════════════════════════
+             MV PROGRESS SECTION
+             ══════════════════════════════════════ -->
+        <div id="mv-progress-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <h2 class="section-title" id="mv-progress-title">Generating MV...</h2>
+                </div>
 
                 <div class="progress-container">
                     <div class="progress-header">
-                        <span class="progress-label">전체 진행률</span>
+                        <span class="progress-label">Overall Progress</span>
                         <span class="progress-percentage" id="mv-progress-percentage">0%</span>
                     </div>
                     <div class="progress-bar-wrapper">
                         <div class="progress-bar" id="mv-progress-bar"></div>
                     </div>
-                    <div class="status-message" id="mv-status-message">초기화 중...</div>
-                    <button id="mv-cancel-btn" class="btn btn-danger" style="margin-top: 10px; background: #e74c3c; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 14px;">생성 중단</button>
+                    <div class="status-message" id="mv-status-message">Initializing...</div>
+                    <button id="mv-cancel-btn" class="btn btn-danger btn-small">Cancel</button>
 
-                    <!-- 단계 표시 -->
                     <div class="steps-container" id="mv-steps-container">
                         <div class="step" data-step="analyze">
-                            <div class="step-icon">🎵</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">음악 분석</div>
-                                <div class="step-status">완료</div>
+                                <div class="step-title">Music Analysis</div>
+                                <div class="step-status">Complete</div>
                             </div>
                         </div>
                         <div class="step" data-step="scenes">
-                            <div class="step-icon">📝</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">씬 프롬프트 생성</div>
-                                <div class="step-status">대기 중</div>
+                                <div class="step-title">Scene Prompts</div>
+                                <div class="step-status">Waiting</div>
                             </div>
                         </div>
                         <div class="step" data-step="images">
-                            <div class="step-icon">🖼️</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">이미지 생성</div>
-                                <div class="step-status">대기 중</div>
+                                <div class="step-title">Image Generation</div>
+                                <div class="step-status">Waiting</div>
                             </div>
                         </div>
                         <div class="step" data-step="compose">
-                            <div class="step-icon">🎬</div>
+                            <div class="step-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                            </div>
                             <div class="step-content">
-                                <div class="step-title">영상 합성</div>
-                                <div class="step-status">대기 중</div>
+                                <div class="step-title">Video Composition</div>
+                                <div class="step-status">Waiting</div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 씬 미리보기 그리드 -->
-                    <div id="mv-scene-preview" style="margin-top: 20px;">
-                        <h3 style="color: #00adb5; margin-bottom: 15px;">🎨 생성된 씬</h3>
-                        <div id="mv-scene-grid" class="scene-grid">
-                            <!-- JS로 동적 생성 -->
-                        </div>
+                    <div id="mv-scene-preview" class="mv-scene-preview-area">
+                        <h3 class="mv-editor-title">Generated Scenes</h3>
+                        <div id="mv-scene-grid" class="scene-grid"></div>
                     </div>
 
-                    <!-- 로그 -->
-                    <div class="log-container" style="margin-top: 20px;">
+                    <div class="log-container">
                         <div class="log-header">
-                            <span>📋 실시간 로그</span>
-                            <button id="mv-clear-log-btn" class="btn-small">지우기</button>
+                            <span>Live Log</span>
+                            <button id="mv-clear-log-btn" class="btn-small">Clear</button>
                         </div>
                         <div class="log-content" id="mv-log-content"></div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- 뮤직비디오 통합 에디터 섹션 -->
-            <div id="mv-image-review-section" class="section hidden">
-                <h2 id="mv-editor-header">🎨 씬 이미지 확인</h2>
+        <!-- ══════════════════════════════════════
+             MV IMAGE REVIEW / EDITOR SECTION
+             ══════════════════════════════════════ -->
+        <div id="mv-image-review-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="mvr.label">Music Video</span>
+                    <h2 class="section-title" id="mv-editor-header">Scene Images</h2>
+                </div>
 
-                <!-- 비디오 영역 (완성 시 표시) -->
-                <div id="mv-editor-video-area" style="display: none; margin-bottom: 1.5rem;">
+                <!-- Video area (shown when complete) -->
+                <div id="mv-editor-video-area" class="mv-editor-video-area" style="display:none">
                     <div class="result-container">
                         <div class="video-player">
-                            <video id="mv-editor-video" controls style="width: 100%; border-radius: 8px;"></video>
+                            <video id="mv-editor-video" controls></video>
                         </div>
-                        <div class="result-actions" style="margin-top: 12px;">
-                            <a id="mv-editor-download-btn" class="btn btn-primary" download>
-                                <span class="btn-icon">📥</span>
-                                뮤직비디오 다운로드
+                        <div class="result-actions">
+                            <a id="mv-editor-download-btn" class="btn btn-primary" download data-i18n="mvr.download">
+                                Download MV
                             </a>
-                            <label id="mv-editor-music-upload-btn" class="btn btn-secondary" style="display:none;">
-                                <span class="btn-icon">🎵</span>
-                                음악 파일 재업로드
-                                <input type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" style="display:none;"
+                            <label id="mv-editor-music-upload-btn" class="btn btn-secondary" style="display:none">
+                                Re-upload Music
+                                <input type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" class="sr-only"
                                        onchange="app.mvUploadMusicForRecompose(this.files[0])">
                             </label>
-                            <button id="mv-editor-recompose-btn" class="btn btn-secondary" style="display:none;"
+                            <button id="mv-editor-recompose-btn" class="btn btn-secondary" style="display:none"
                                     onclick="app.mvRecompose()">
-                                <span class="btn-icon">🔄</span>
-                                영상 재합성 (수정 반영)
+                                Recompose Video
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <p id="mv-editor-description" style="color: #999; margin-bottom: 1.5rem;">
-                    씬 이미지를 확인하고, 마음에 안 드는 씬은 재생성하세요. I2V로 영상 클립을 만들 수도 있습니다.
+                <p id="mv-editor-description" class="section-description" data-i18n="mvr.desc">
+                    Review scene images. Regenerate any scenes you don't like, or create I2V video clips.
                 </p>
                 <div id="mv-image-review-grid" class="result-scene-grid"></div>
-                <div id="mv-editor-bottom-actions" style="margin-top: 1.5rem; text-align: center; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
-                    <button id="mv-lyrics-timeline-btn" class="btn btn-secondary"
-                            onclick="app.openLyricsTimeline()">
-                        <span class="btn-icon">🎤</span>
-                        가사 타이밍 편집
+                <div id="mv-editor-bottom-actions" class="review-actions review-actions--center">
+                    <button id="mv-compose-btn" class="btn btn-primary btn-large" data-i18n="mvr.compose">
+                        Generate Final MV
                     </button>
-                    <button id="mv-compose-btn" class="btn btn-primary" style="font-size: 1.1rem; padding: 14px 32px;">
-                        <span class="btn-icon">🎬</span> 최종 뮤직비디오 생성
-                    </button>
-                    <button class="btn btn-secondary" onclick="app.resetMVUI()">
-                        <span class="btn-icon">➕</span>
-                        새 뮤직비디오 만들기
+                    <button class="btn btn-secondary" onclick="app.resetMVUI()" data-i18n="mvr.new_mv">
+                        New Music Video
                     </button>
                 </div>
 
-                <!-- 가사 타이밍 에디터 모달 -->
+                <!-- Lyrics Timeline Editor Modal -->
                 <div id="lyrics-timeline-overlay" class="lyrics-timeline-overlay">
                     <div class="lyrics-timeline-modal">
                         <div class="lyrics-timeline-header">
-                            <h3>가사 타이밍 편집기</h3>
+                            <h3>Lyrics Timeline Editor</h3>
                             <button class="lyrics-timeline-close" onclick="app.closeLyricsTimeline()">&times;</button>
                         </div>
                         <div class="lyrics-timeline-body">
                             <table class="lyrics-timeline-table">
                                 <thead>
                                     <tr>
-                                        <th class="col-time">시간</th>
-                                        <th class="col-stt">STT 인식</th>
-                                        <th class="col-lyrics">자막 텍스트</th>
+                                        <th class="col-time">Time</th>
+                                        <th class="col-stt">STT</th>
+                                        <th class="col-lyrics">Subtitle Text</th>
                                         <th class="col-del"></th>
                                     </tr>
                                 </thead>
-                                <tbody id="lyrics-timeline-tbody">
-                                    <!-- JS로 동적 생성 -->
-                                </tbody>
+                                <tbody id="lyrics-timeline-tbody"></tbody>
                             </table>
                         </div>
                         <div class="lyrics-timeline-footer">
                             <div class="footer-left">
-                                <button class="btn-tl-add" onclick="app.timelineAddRow()">+ 줄 추가</button>
+                                <button class="btn-tl-add" onclick="app.timelineAddRow()">+ Add Row</button>
                             </div>
                             <div class="footer-right">
-                                <button class="btn-tl-reset" onclick="app.timelineReset()">초기화</button>
-                                <button id="btn-tl-save" class="btn-tl-save" onclick="app.timelineSave()">저장</button>
+                                <button class="btn-tl-reset" onclick="app.timelineReset()">Reset</button>
+                                <button id="btn-tl-save" class="btn-tl-save" onclick="app.timelineSave()">Save</button>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
 
+        <!-- ══════════════════════════════════════
+             HISTORY SECTION
+             ══════════════════════════════════════ -->
+        <div id="history-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <span class="section-label" data-i18n="history.label">Library</span>
+                    <h2 class="section-title" data-i18n="history.title">My Videos</h2>
+                </div>
 
-            <!-- History 섹션 (내 비디오) -->
-            <div id="history-section" class="section hidden">
-                <h2>📺 내 비디오 보관함</h2>
                 <div class="history-container">
-                    <div class="retention-notice">
-                        📋 보관 정책: 이미지는 다음 날 새벽 3시에 자동 삭제됩니다.
-                        최종 영상은 3일 후 삭제됩니다. 필요한 영상은 미리 다운로드해 주세요.
+                    <div class="retention-notice" data-i18n="history.retention">
+                        Images are auto-deleted at 3 AM next day. Final videos are deleted after 3 days.
+                        Please download important videos in advance.
                     </div>
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <div class="history-toolbar">
                         <div class="history-filter-tabs">
-                            <button class="history-filter-btn active" data-filter="all">전체</button>
-                            <button class="history-filter-btn" data-filter="video">📽️ 영상</button>
-                            <button class="history-filter-btn" data-filter="mv">🎵 MV</button>
+                            <button class="history-filter-btn active" data-filter="all">All</button>
+                            <button class="history-filter-btn" data-filter="video">Video</button>
+                            <button class="history-filter-btn" data-filter="mv">MV</button>
                         </div>
-                        <button id="refresh-history-btn" class="btn btn-secondary btn-small">
-                            🔄 새로고침
+                        <button id="refresh-history-btn" class="btn btn-secondary btn-small" data-i18n="history.refresh">
+                            Refresh
                         </button>
                     </div>
-                    <div id="history-grid" class="history-grid">
-                        <!-- JS로 카드 로드 -->
-                    </div>
+                    <div id="history-grid" class="history-grid"></div>
                 </div>
             </div>
+        </div>
 
-        </main>
+    </main>
 
-        <!-- 푸터 -->
-        <footer class="footer">
-            <p>&copy; 2024 STORYCUT v2.0 | AI-Powered Story Video Generator</p>
-            <p>
-                <a href="https://github.com/yourusername/storycut" target="_blank">GitHub</a> |
-                <a href="/docs" target="_blank">API 문서</a>
-            </p>
-        </footer>
-    </div>
+    <!-- Footer -->
+    <footer class="app-footer">
+        <p>&copy; 2025 Klippa | AI Video Creation Studio</p>
+        <p><a href="/docs" target="_blank">API Docs</a></p>
+    </footer>
 
-    <script src="/static/app.js?v=20260215_2110"></script>
+    <script src="/static/app.js?v=20260216_1210"></script>
+    <script>
+    // ─── App i18n (synced with landing page via localStorage) ───
+    (function() {
+      const T = {
+        ko: {
+          // Nav
+          'nav.create': '새 영상', 'nav.mv': '뮤직비디오', 'nav.history': '내 영상',
+          'nav.pricing': '요금제',
+          // Input section
+          'input.label': '만들기', 'input.title': '새 영상',
+          'input.subtitle': '주제를 입력하면 AI가 내레이션, 이미지, 효과가 포함된 영상을 자동 생성합니다.',
+          'input.mode_ai': 'AI 스토리', 'input.mode_script': '직접 입력',
+          'input.topic_label': '주제 / 아이디어',
+          'input.topic_placeholder': '예: 오래된 폐병원에서 발견된 미스터리 일기장',
+          'input.topic_hint': '비워두면 AI가 자동으로 주제를 생성합니다',
+          'input.script_label': '내레이션 스크립트',
+          'input.script_placeholder': '내레이션 스크립트를 붙여넣으세요.\n\n빈 줄로 씬을 구분합니다.\n\n예시:\n망해가는 상가 속 번창하는 가게.\n비즈니스 랩에 오신 걸 환영합니다.\n\n지난번 소개한 매장은\n엄청난 반응을 얻었습니다.',
+          'input.script_hint': '빈 줄로 씬을 구분하세요. AI가 각 씬에 맞는 이미지를 생성합니다.',
+          'input.style_genre': '스타일 & 장르',
+          'input.genre': '장르', 'input.mood': '분위기',
+          'input.style': '비주얼 스타일', 'input.ethnicity': '캐릭터 인종',
+          'input.voice_duration': '음성 & 길이',
+          'input.voice': '음성 (TTS)', 'input.sample': '미리듣기',
+          'input.platform': '플랫폼',
+          'input.advanced': '고급 설정', 'input.image_model': '이미지 모델',
+          'input.generate': '스토리 생성',
+          // Review
+          'review.label': '2단계', 'review.title': '스토리 검토',
+          'review.subtitle': 'AI가 생성한 스토리를 검토하세요. 내레이션이나 비주얼 설명을 자유롭게 편집한 뒤 이미지 생성으로 진행하세요.',
+          'review.back': '설정으로 돌아가기',
+          'review.gen_images': '이미지 생성 (2단계)',
+          'review.skip_video': '영상으로 건너뛰기',
+          // Image preview
+          'image.label': '3단계', 'image.title': '이미지 검토',
+          'image.subtitle': '각 씬의 이미지를 검토하세요. 재생성하거나 I2V 영상으로 변환할 수 있습니다.',
+          'image.edit_story': '스토리 편집',
+          'image.test': '테스트 이미지',
+          'image.approve': '승인 & 영상 생성 (3단계)',
+          // Result
+          'result.label': '완료', 'result.title': '영상 완성!',
+          'result.download': '영상 다운로드', 'result.new_video': '새 영상',
+          'result.scene_mgmt': '씬 관리',
+          'result.scene_desc': '개별 씬을 검토하고 필요한 것을 재생성하세요. 변경 후 "영상 재합성"을 클릭하면 최종 영상이 업데이트됩니다.',
+          'result.recompose': '영상 재합성',
+          // MV
+          'mv.label': '만들기', 'mv.title': '뮤직비디오',
+          'mv.subtitle': 'Suno, Udio 등의 음악을 업로드하면 AI가 싱크된 뮤직비디오를 자동 제작합니다.',
+          'mv.music_file': '음악 파일',
+          'mv.drop_text': '음악 파일을 드래그하거나 클릭해서 선택',
+          'mv.drop_hint': 'MP3, WAV, M4A, OGG, FLAC (최대 10분)',
+          'mv.lyrics_label': '가사 (선택)',
+          'mv.lyrics_placeholder': '더 정확한 씬 분할을 위해 가사를 입력하세요...',
+          'mv.lyrics_hint': '가사를 입력하면 싱크된 자막이 오버레이됩니다',
+          'mv.concept_label': '비주얼 컨셉 (선택)',
+          'mv.concept_placeholder': '예: 달빛 아래 춤추는 요정들, 네온 도시의 거리...',
+          'mv.style_settings': '스타일 설정',
+          'mv.characters': '캐릭터', 'mv.ethnicity': '인종',
+          'mv.genre': '장르', 'mv.mood': '분위기', 'mv.style': '비주얼 스타일',
+          'mv.options': '옵션',
+          'mv.generate': '뮤직비디오 생성',
+          // MV toggles
+          'mv_toggle.lyrics': '가사 자막', 'mv_toggle.lyrics_desc': '영상에 가사 오버레이',
+          'mv_toggle.quick': '빠른 테스트 (45초 미리보기)', 'mv_toggle.quick_desc': '빠른 미리보기 - 처음 45초만',
+          'mv_toggle.sub_only': '자막 전용 테스트', 'mv_toggle.sub_only_desc': '검정 배경에서 자막 싱크 테스트',
+          // Advanced toggles
+          'toggle.kenburns': 'Ken Burns 효과', 'toggle.kenburns_desc': '이미지에 줌 & 패닝',
+          'toggle.ducking': '오디오 덕킹', 'toggle.ducking_desc': '내레이션 시 BGM 자동 줄임',
+          'toggle.subtitles': '자막', 'toggle.subtitles_desc': '영상에 자막 삽입',
+          'toggle.context': '맥락 이어가기', 'toggle.context_desc': '씬 간 일관성 유지',
+          'toggle.optimize': '최적화 패키지', 'toggle.optimize_desc': '제목, 썸네일, 해시태그 자동 생성',
+          // MV Analysis
+          'mva.label': '분석', 'mva.title': '음악 분석',
+          'mva.duration': '길이', 'mva.scenes': '씬 수', 'mva.mood': '분위기',
+          'mva.editor': '씬 에디터', 'mva.editor_desc': '자동 분할된 씬을 검토하세요. 설명을 추가하면 더 정확한 비주얼이 생성됩니다.',
+          'mva.reupload': '다시 업로드', 'mva.sub_test': '자막 테스트', 'mva.start': 'MV 생성 시작',
+          // MV Review
+          'mvr.label': '뮤직비디오',
+          'mvr.download': 'MV 다운로드', 'mvr.desc': '씬 이미지를 검토하세요. 마음에 들지 않는 씬은 재생성하거나 I2V 영상 클립으로 변환할 수 있습니다.',
+          'mvr.compose': '최종 MV 생성', 'mvr.new_mv': '새 뮤직비디오',
+          // History
+          'history.label': '라이브러리', 'history.title': '내 영상',
+          'history.retention': '이미지는 다음날 새벽 3시에 자동 삭제됩니다. 최종 영상은 3일 후 삭제됩니다. 중요한 영상은 미리 다운로드하세요.',
+          'history.refresh': '새로고침',
+        },
+        en: {}  // English is the HTML default, no overrides needed
+      };
+
+      function applyLang(lang) {
+        const dict = T[lang] || {};
+        if (lang === 'en') return; // HTML already in English
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+          const key = el.getAttribute('data-i18n');
+          if (dict[key]) el.textContent = dict[key];
+        });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+          const key = el.getAttribute('data-i18n-placeholder');
+          if (dict[key]) el.placeholder = dict[key];
+        });
+      }
+
+      const lang = localStorage.getItem('klippa_lang') || 'ko';
+      if (lang !== 'en') applyLang(lang);
+    })();
+    </script>
 </body>
 
 </html>

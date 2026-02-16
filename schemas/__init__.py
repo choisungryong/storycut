@@ -22,6 +22,8 @@ from .models import (
     PoseAnchor,
     AnchorSet,
     ValidationResult,
+    DialogueLine,
+    CharacterVoice,
 )
 
 __all__ = [
@@ -44,4 +46,6 @@ __all__ = [
     "PoseAnchor",
     "AnchorSet",
     "ValidationResult",
+    "DialogueLine",
+    "CharacterVoice",
 ]

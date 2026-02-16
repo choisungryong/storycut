@@ -1,15 +1,21 @@
 """
 TTS Agent: Generates narration audio for each scene.
 ElevenLabs 전용 — 실패 시 silent placeholder fallback.
+멀티 화자 대화 지원 (v3.0).
 """
 
 import os
 import subprocess
-from typing import Optional
+import time
+import tempfile
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Voice list cache
+_voice_cache: Dict[str, Any] = {"data": None, "expires": 0}
 
 
 @dataclass
@@ -84,6 +90,191 @@ class TTSAgent:
 
         print(f"     [TTS Agent] Audio saved: {audio_path} (duration: {duration_sec:.2f}s)")
         return TTSResult(audio_path=audio_path, duration_sec=duration_sec)
+
+    def get_available_voices(self) -> List[Dict[str, Any]]:
+        """
+        ElevenLabs 음성 목록 반환 (5분 캐시).
+
+        Returns:
+            [{"voice_id": "...", "name": "...", "category": "...",
+              "preview_url": "...", "labels": {"gender": "male", "age": "young"}}]
+        """
+        global _voice_cache
+
+        # Check cache
+        if _voice_cache["data"] and time.time() < _voice_cache["expires"]:
+            return _voice_cache["data"]
+
+        if not self.elevenlabs_key:
+            print("[TTS Agent] No ELEVENLABS_API_KEY - returning empty voice list")
+            return []
+
+        try:
+            from elevenlabs.client import ElevenLabs
+            client = ElevenLabs(api_key=self.elevenlabs_key)
+            response = client.voices.get_all()
+
+            voices = []
+            for v in response.voices:
+                labels = {}
+                if hasattr(v, 'labels') and v.labels:
+                    labels = dict(v.labels) if isinstance(v.labels, dict) else {}
+
+                voices.append({
+                    "voice_id": v.voice_id,
+                    "name": v.name,
+                    "category": getattr(v, 'category', 'custom'),
+                    "preview_url": getattr(v, 'preview_url', ''),
+                    "labels": labels,
+                })
+
+            # Cache for 5 minutes
+            _voice_cache["data"] = voices
+            _voice_cache["expires"] = time.time() + 300
+
+            print(f"[TTS Agent] Loaded {len(voices)} voices from ElevenLabs")
+            return voices
+
+        except Exception as e:
+            print(f"[TTS Agent] Failed to load voices: {e}")
+            return []
+
+    def generate_dialogue_audio(
+        self,
+        dialogue_lines: List[Dict[str, str]],
+        character_voices: List[Dict[str, str]],
+        output_path: str,
+        silence_gap: float = 0.3,
+    ) -> 'TTSResult':
+        """
+        멀티 화자 TTS: 각 대사를 해당 음성으로 생성 후 하나로 스티칭.
+
+        Args:
+            dialogue_lines: [{"speaker": "narrator", "text": "...", "emotion": ""}]
+            character_voices: [{"speaker": "narrator", "voice_id": "..."}]
+            output_path: 최종 오디오 출력 경로
+            silence_gap: 화자 전환 시 무음 간격 (초)
+
+        Returns:
+            TTSResult with audio_path and duration_sec
+        """
+        if not dialogue_lines:
+            return TTSResult(audio_path=output_path, duration_sec=0.0)
+
+        # Build speaker → voice_id map
+        voice_map = {}
+        for cv in character_voices:
+            voice_map[cv["speaker"]] = cv["voice_id"]
+
+        # Default voice for unmapped speakers
+        default_voice = self.voice
+
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Generate individual audio clips
+        temp_dir = tempfile.mkdtemp(prefix="tts_dialogue_")
+        clip_paths = []
+        line_timings = []
+        current_time = 0.0
+
+        for i, line in enumerate(dialogue_lines):
+            speaker = line.get("speaker", "narrator")
+            text = line.get("text", "").strip()
+            if not text:
+                continue
+
+            voice_id = voice_map.get(speaker, default_voice)
+            clip_path = os.path.join(temp_dir, f"line_{i:03d}.mp3")
+
+            # Generate individual line
+            try:
+                if self.elevenlabs_key:
+                    self._call_elevenlabs_api(text, voice_id, clip_path)
+                else:
+                    self._generate_placeholder_audio(i, text, clip_path)
+            except Exception as e:
+                print(f"  [TTS] Line {i} ({speaker}) failed: {e}. Using placeholder.")
+                self._generate_placeholder_audio(i, text, clip_path)
+
+            # Get duration
+            duration = self._get_audio_duration(clip_path, narration_text=text)
+
+            line_timings.append({
+                "speaker": speaker,
+                "text": text,
+                "start": current_time,
+                "end": current_time + duration,
+                "duration": duration,
+            })
+
+            clip_paths.append(clip_path)
+            current_time += duration + silence_gap
+
+        if not clip_paths:
+            return TTSResult(audio_path=output_path, duration_sec=0.0)
+
+        # Stitch clips with silence gaps using FFmpeg concat
+        self._stitch_audio_clips(clip_paths, output_path, silence_gap)
+
+        total_duration = self._get_audio_duration(output_path)
+
+        # Clean up temp files
+        for p in clip_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(temp_dir)
+        except OSError:
+            pass
+
+        print(f"  [TTS] Dialogue audio: {len(clip_paths)} clips, {total_duration:.1f}s total")
+        return TTSResult(audio_path=output_path, duration_sec=total_duration)
+
+    def _stitch_audio_clips(self, clip_paths: List[str], output_path: str, silence_gap: float = 0.3):
+        """FFmpeg로 오디오 클립들을 무음 간격과 함께 연결."""
+        if len(clip_paths) == 1:
+            # Single clip - just copy
+            import shutil
+            shutil.copy2(clip_paths[0], output_path)
+            return
+
+        # Build FFmpeg filter for concat with silence gaps
+        inputs = []
+        filter_parts = []
+
+        for i, path in enumerate(clip_paths):
+            inputs.extend(["-i", path])
+            filter_parts.append(f"[{i}:a]")
+
+            # Add silence between clips (not after last)
+            if i < len(clip_paths) - 1 and silence_gap > 0:
+                silence_idx = len(clip_paths) + i
+                inputs.extend(["-f", "lavfi", "-t", str(silence_gap),
+                             "-i", "anullsrc=r=44100:cl=mono"])
+                filter_parts.append(f"[{silence_idx}:a]")
+
+        filter_str = "".join(filter_parts) + f"concat=n={len(filter_parts)}:v=0:a=1[out]"
+
+        cmd = ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_str,
+            "-map", "[out]",
+            "-c:a", "libmp3lame", "-b:a", "192k",
+            output_path
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                print(f"  [TTS] FFmpeg stitch failed: {result.stderr[:200]}")
+                # Fallback: just use first clip
+                import shutil
+                shutil.copy2(clip_paths[0], output_path)
+        except Exception as e:
+            print(f"  [TTS] FFmpeg stitch error: {e}")
+            import shutil
+            shutil.copy2(clip_paths[0], output_path)
 
     def _get_audio_duration(self, audio_path: str, narration_text: str = None) -> float:
         """FFprobe로 오디오 실제 길이 측정"""

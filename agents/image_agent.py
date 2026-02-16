@@ -302,7 +302,7 @@ class ImageAgent:
                 "generationConfig": {
                     "responseModalities": ["TEXT", "IMAGE"],
                     "imageConfig": {
-                        "aspectRatio": "16:9"
+                        "aspectRatio": aspect_ratio
                     }
                 }
             }

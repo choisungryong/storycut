@@ -4,7 +4,8 @@ Story Agent: Generates scene-based story JSON using LLM (Gemini 3 Pro).
 
 import json
 import os
-from typing import Dict, Any
+import re
+from typing import Dict, Any, List
 from pathlib import Path
 
 
@@ -78,6 +79,12 @@ SCENE COUNT: Approx {min_scenes}-{max_scenes} scenes.
 
 {'USER IDEA: ' + user_idea if user_idea else ''}
 
+[DIALOGUE RULE]
+- If the user idea mentions dialogue, conversation, or multiple speakers (화자, 대화):
+  You MUST create at least 2-3 named characters (male + female) with distinct roles.
+  The tts_script in Step 2 MUST include [male_1], [female_1] speaker tags with actual dialogue lines.
+  DO NOT make a narrator-only story when dialogue is requested.
+
 OUTPUT FORMAT (JSON):
 {{
   "project_title": "한국어 제목 (Hook처럼 작동)",
@@ -128,6 +135,21 @@ REQUIREMENTS:
 - "tts_script": 풍부한 스토리텔링 나레이션 (반드시 한국어, 최소 4-6문장 필수!)
 - "image_prompt": Visual description for AI Image Generator (MUST BE English). {style} style.
 - "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
+
+## DIALOGUE FORMAT (CRITICAL)
+Each scene's tts_script MUST use speaker tags when characters speak:
+[narrator] 어두운 밤, 한 남자가 골목을 걸어간다.
+[male_1] 누구야? 거기 서!
+[female_1] 도망쳐! 빨리!
+[narrator] 그녀의 목소리는 절박함으로 가득 차 있었다.
+
+Rules:
+- [narrator] for narration and description passages
+- [male_1], [female_1], [male_2], [female_2]... for character dialogue
+- Keep speaker IDs consistent across ALL scenes (same character = same ID)
+- Every line MUST start with a speaker tag
+- If a scene is pure narration with no character dialogue, use only [narrator]
+- Include emotional cues in parentheses when helpful: [male_1](angry) 이게 무슨 소리야!
 
 [CRITICAL] STORYTELLING NARRATION RULE (스토리텔링 필수):
 You are a PROFESSIONAL STORYTELLER for YouTube. Each "tts_script" MUST be rich and immersive!
@@ -367,7 +389,134 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
             if "characters_in_scene" in scene and scene["characters_in_scene"]:
                 print(f"[Scene {idx}] Characters: {', '.join(scene['characters_in_scene'])}", flush=True)
 
+            # v3.0: Parse dialogue lines from tts_script
+            tts = scene.get("tts_script", "") or scene.get("narration", "")
+            dialogue_lines = StoryAgent.parse_dialogue_lines(tts)
+            if dialogue_lines and len(dialogue_lines) > 1:
+                scene["dialogue_lines"] = dialogue_lines
+                speakers = set(dl["speaker"] for dl in dialogue_lines)
+                print(f"[Scene {idx}] Dialogue: {len(dialogue_lines)} lines, speakers: {speakers}", flush=True)
+
+        # Extract detected speakers
+        story_data["detected_speakers"] = StoryAgent.extract_speakers(story_data)
+        if len(story_data["detected_speakers"]) > 1:
+            print(f"[Story Validation] Detected speakers: {story_data['detected_speakers']}", flush=True)
+
         return story_data
+
+    @staticmethod
+    def parse_dialogue_lines(tts_script: str) -> List[Dict[str, str]]:
+        """
+        [speaker] text 형식의 tts_script를 DialogueLine 딕셔너리 리스트로 파싱.
+
+        태그가 없으면 전체를 narrator로 처리 (하위호환).
+
+        Args:
+            tts_script: 화자 태그가 포함된 TTS 스크립트
+
+        Returns:
+            [{"speaker": "narrator", "text": "...", "emotion": ""}, ...]
+        """
+        if not tts_script or not tts_script.strip():
+            return []
+
+        lines = []
+        # [speaker] 또는 [speaker](emotion) 패턴 매칭
+        pattern = re.compile(r'\[([^\]]+)\](?:\(([^)]*)\))?\s*(.*)')
+
+        has_tags = bool(re.search(r'\[[^\]]+\]', tts_script))
+
+        if not has_tags:
+            # 태그 없음 → 전체를 narrator로
+            return [{"speaker": "narrator", "text": tts_script.strip(), "emotion": ""}]
+
+        # 줄 단위 파싱
+        for raw_line in tts_script.strip().split('\n'):
+            raw_line = raw_line.strip()
+            if not raw_line:
+                continue
+
+            match = pattern.match(raw_line)
+            if match:
+                speaker = match.group(1).strip()
+                emotion = (match.group(2) or "").strip()
+                text = match.group(3).strip()
+                if text:
+                    lines.append({"speaker": speaker, "text": text, "emotion": emotion})
+            else:
+                # 태그 없는 줄 → 이전 화자 또는 narrator
+                if lines:
+                    lines[-1]["text"] += " " + raw_line
+                else:
+                    lines.append({"speaker": "narrator", "text": raw_line, "emotion": ""})
+
+        return lines
+
+    @staticmethod
+    def extract_speakers(story_data: Dict[str, Any]) -> List[str]:
+        """
+        story_data의 모든 씬에서 고유 화자 목록을 추출.
+
+        Args:
+            story_data: 스토리 JSON
+
+        Returns:
+            ["narrator", "male_1", "female_1", ...] (순서 보존)
+        """
+        speakers = []
+        seen = set()
+        for scene in story_data.get("scenes", []):
+            tts = scene.get("tts_script", "") or scene.get("narration", "")
+            for line in StoryAgent.parse_dialogue_lines(tts):
+                s = line["speaker"]
+                if s not in seen:
+                    seen.add(s)
+                    speakers.append(s)
+        return speakers
+
+    def analyze_script(self, raw_text: str, genre: str = "emotional", mood: str = "dramatic") -> Dict[str, Any]:
+        """
+        Direct Script 모드: 사용자 텍스트를 Gemini에게 보내 화자를 분석하고 태깅.
+
+        Args:
+            raw_text: 사용자 입력 스크립트 텍스트
+            genre: 장르
+            mood: 분위기
+
+        Returns:
+            화자 태깅된 tts_script가 포함된 story_data
+        """
+        prompt = f"""You are a script analyzer. Analyze the following script and add speaker tags.
+
+SCRIPT:
+{raw_text}
+
+TASK:
+1. Identify all speakers/characters in the script
+2. Add speaker tags to every line: [narrator], [male_1], [female_1], etc.
+3. Pure narration/description → [narrator]
+4. Character dialogue → [male_1], [female_1], [male_2], etc.
+5. Keep consistent speaker IDs
+6. Add emotion hints in parentheses when clear: [male_1](angry)
+
+OUTPUT FORMAT (JSON):
+{{
+  "tagged_script": "[narrator] 설명 텍스트...\\n[male_1] 대사...\\n[narrator] 설명...",
+  "detected_speakers": ["narrator", "male_1", "female_1"]
+}}
+
+Return ONLY the JSON."""
+
+        try:
+            response_text = self._call_llm_api(prompt)
+            result = json.loads(response_text)
+            return result
+        except Exception as e:
+            print(f"[StoryAgent] Script analysis failed: {e}. Using narrator fallback.")
+            return {
+                "tagged_script": f"[narrator] {raw_text}",
+                "detected_speakers": ["narrator"]
+            }
 
     def _get_example_story(self) -> str:
         """

@@ -22,6 +22,11 @@ class StorycutApp {
         // Input mode: 'ai' or 'script'
         this._inputMode = 'ai';
 
+        // Multi-speaker voice selection
+        this._detectedSpeakers = [];
+        this._availableVoices = null;  // cached voice list
+        this._characterVoices = {};    // speaker -> {voice_id, voice_name}
+
         this.init();
     }
 
@@ -29,6 +34,27 @@ class StorycutApp {
         this.setupEventListeners();
         this.updateDurationDisplay();
         this._ensureToastContainer();
+        this._setupNavigationGuard();
+    }
+
+    // ===== 브라우저 뒤로가기/새로고침 방어 =====
+    _setupNavigationGuard() {
+        // beforeunload: 탭 닫기/새로고침 방어
+        window.addEventListener('beforeunload', (e) => {
+            if (this.isGenerating) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+
+        // popstate: 브라우저 뒤로가기 방어
+        history.pushState(null, '', location.href);
+        window.addEventListener('popstate', (e) => {
+            if (this.isGenerating) {
+                history.pushState(null, '', location.href);
+                this.showToast('영상 생성 중에는 뒤로가기를 사용할 수 없습니다.', 'warning');
+            }
+        });
     }
 
     // ===== Toast Notification (alert 대체) =====
@@ -211,8 +237,17 @@ class StorycutApp {
         btn.disabled = true;
         btn.innerHTML = '<span class="btn-icon">⏳</span> 스토리 생성 중...';
 
+        // Build topic with dialogue hint if enabled
+        let topic = formData.get('topic') || null;
+        const includeDialogue = document.getElementById('include_dialogue')?.checked || false;
+        if (includeDialogue && topic) {
+            topic = topic + ' (반드시 남녀 캐릭터 간 대화를 포함할 것. 최소 2명 이상의 화자)';
+        } else if (includeDialogue && !topic) {
+            topic = '남녀 캐릭터 간 대화가 풍부한 드라마 시나리오 (최소 2명 이상의 화자, 나레이터 + 남성 + 여성)';
+        }
+
         const requestData = {
-            topic: formData.get('topic') || null,
+            topic: topic,
             genre: formData.get('genre'),
             mood: formData.get('mood'),
             style: formData.get('style'),
@@ -220,14 +255,16 @@ class StorycutApp {
             duration: parseInt(formData.get('duration')),
             platform: formData.get('platform'),
             character_ethnicity: formData.get('character_ethnicity') || 'auto',
+            include_dialogue: includeDialogue,
 
-            // Feature Flags (with null checks)
-            hook_scene1_video: document.getElementById('hook_scene1_video')?.checked || false,
-            ffmpeg_kenburns: document.getElementById('ffmpeg_kenburns')?.checked || true,
-            ffmpeg_audio_ducking: document.getElementById('ffmpeg_audio_ducking')?.checked || false,
-            subtitle_burn_in: document.getElementById('subtitle_burn_in')?.checked || true,
-            context_carry_over: document.getElementById('context_carry_over')?.checked || true,
-            optimization_pack: document.getElementById('optimization_pack')?.checked || true,
+            // Feature Flags - 기본값 (리뷰 섹션에서 최종 업데이트)
+            hook_scene1_video: false,
+            ffmpeg_kenburns: true,
+            ffmpeg_audio_ducking: false,
+            subtitle_burn_in: true,
+            context_carry_over: true,
+            optimization_pack: false,
+            film_look: false,
         };
 
         this.currentRequestParams = requestData;
@@ -253,9 +290,9 @@ class StorycutApp {
                 { pct: 52, msg: '비주얼 프롬프트를 생성하고 있습니다...' },
                 { pct: 58, msg: '카메라 워크를 설정하고 있습니다...' },
                 { pct: 64, msg: '스토리 일관성을 검증하고 있습니다...' },
-                { pct: 70, msg: '유튜브 최적화 데이터를 생성하고 있습니다...' },
-                { pct: 75, msg: '최종 스토리를 정리하고 있습니다...' },
-                { pct: 78, msg: '거의 완료되었습니다...' },
+                { pct: 70, msg: '화자(Speaker)를 분석하고 있습니다...' },
+                { pct: 75, msg: '시나리오를 최종 정리하고 있습니다...' },
+                { pct: 78, msg: '거의 완료 - 화자 확인 & 음성 선택 화면으로 이동합니다...' },
             ];
             let msgIndex = 0;
             const progressInterval = setInterval(() => {
@@ -311,6 +348,11 @@ class StorycutApp {
                 this.updateProgress(100, '스토리가 완성되었습니다!');
                 this.currentStoryData = result.story_data;
                 this.currentRequestParams = requestData;
+
+                // Store detected speakers from API response
+                if (result.detected_speakers) {
+                    this.currentStoryData.detected_speakers = result.detected_speakers;
+                }
 
                 // 크레딧 차감 반영
                 if (typeof deductLocalCredits === 'function') deductLocalCredits('video');
@@ -468,6 +510,11 @@ class StorycutApp {
                 this.currentStoryData = result.story_data;
                 this.currentRequestParams = requestData;
 
+                // Store detected speakers
+                if (result.detected_speakers) {
+                    this.currentStoryData.detected_speakers = result.detected_speakers;
+                }
+
                 // 크레딧 차감 반영
                 if (typeof deductLocalCredits === 'function') deductLocalCredits('script_video');
 
@@ -536,29 +583,262 @@ class StorycutApp {
         const grid = document.getElementById('review-scene-grid');
         grid.innerHTML = '';
 
+        // Clear voice selection slot
+        const voiceSlot = document.getElementById('voice-selection-slot');
+        if (voiceSlot) voiceSlot.innerHTML = '';
+
         document.getElementById('review-title').value = storyData.title;
+
+        // Detect speakers
+        this._detectedSpeakers = storyData.detected_speakers || ['narrator'];
 
         storyData.scenes.forEach((scene, index) => {
             const card = document.createElement('div');
             card.className = 'review-card';
-            card.dataset.sceneId = scene.scene_id; // IMPORTANT: Add scene_id to dataset
+            card.dataset.sceneId = scene.scene_id;
+
+            // Format narration with speaker highlighting
+            const narrationText = scene.narration || scene.tts_script || scene.sentence || '';
+            const highlightedHtml = this._highlightSpeakerTags(narrationText);
+
             card.innerHTML = `
                 <div class="review-card-header">
                     <span>Scene ${scene.scene_id}</span>
-                    <span>${scene.duration_sec}초</span>
+                    <span>${scene.duration_sec}s</span>
                 </div>
 
-                <label>내레이션 / 대사</label>
-                <textarea class="review-textarea narration-input" data-idx="${index}">${scene.narration || scene.sentence}</textarea>
+                <label>Narration / Dialogue</label>
+                ${highlightedHtml ? `<div class="dialogue-preview">${highlightedHtml}</div>` : ''}
+                <textarea class="review-textarea narration-input" data-idx="${index}">${narrationText}</textarea>
 
-                <label>화면 묘사 (Prompt)</label>
+                <label>Visual Prompt</label>
                 <textarea class="review-textarea visual-textarea visual-input" data-idx="${index}">${scene.visual_description || scene.prompt}</textarea>
             `;
             grid.appendChild(card);
         });
+
+        // Render voice selection UI if multiple speakers detected
+        this._renderVoiceSelectionUI();
+    }
+
+    _highlightSpeakerTags(text) {
+        if (!text) return '';
+        const speakerColors = {
+            'narrator': '#9ca3af',
+            'male_1': '#60a5fa', 'male_2': '#38bdf8', 'male_3': '#22d3ee',
+            'female_1': '#f472b6', 'female_2': '#fb7185', 'female_3': '#e879f9',
+        };
+
+        const hasTags = text.includes('[');
+        return text.split('\n').map(line => {
+            const match = line.match(/^\[([^\]]+)\](?:\(([^)]*)\))?\s*(.*)/);
+            if (match) {
+                const speaker = match[1];
+                const emotion = match[2] || '';
+                const dialogue = match[3];
+                const color = speakerColors[speaker] || '#a78bfa';
+                const emotionBadge = emotion ? `<span style="color:${color};opacity:0.6;font-size:11px">(${emotion})</span>` : '';
+                return `<span style="color:${color};font-weight:600">[${speaker}]</span>${emotionBadge} ${dialogue}`;
+            }
+            // Show plain text lines as narrator (gray) if no tags in entire text
+            if (!hasTags && line.trim()) {
+                return `<span style="color:#9ca3af">${line}</span>`;
+            }
+            return line;
+        }).filter(l => l.trim()).join('<br>');
+    }
+
+    async _renderVoiceSelectionUI() {
+        // Load available voices
+        if (!this._availableVoices) {
+            try {
+                const baseUrl = this.getApiBaseUrl();
+                const resp = await fetch(`${baseUrl}/api/voices`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    this._availableVoices = data.voices || [];
+                }
+            } catch (e) {
+                console.warn('Failed to load voices:', e);
+                this._availableVoices = [];
+            }
+        }
+
+        // Render into dedicated slot
+        const slot = document.getElementById('voice-selection-slot');
+        if (!slot) return;
+        slot.innerHTML = '';
+
+        const speakerColors = {
+            'narrator': '#9ca3af',
+            'male_1': '#60a5fa', 'male_2': '#38bdf8', 'male_3': '#22d3ee',
+            'female_1': '#f472b6', 'female_2': '#fb7185', 'female_3': '#e879f9',
+        };
+
+        const speakerCount = this._detectedSpeakers.length;
+        const hasMultiple = speakerCount > 1;
+
+        // Build panel
+        const panel = document.createElement('div');
+        panel.className = 'app-card voice-selection-panel';
+
+        // Header with speaker badges
+        const speakerDisplayNames = {
+            'narrator': '내레이터',
+            'male_1': '남성 1', 'male_2': '남성 2', 'male_3': '남성 3',
+            'female_1': '여성 1', 'female_2': '여성 2', 'female_3': '여성 3',
+        };
+        const badgesHtml = this._detectedSpeakers.map(s => {
+            const color = speakerColors[s] || '#a78bfa';
+            const displayName = speakerDisplayNames[s] || s.replace('_', ' ');
+            return `<span class="speaker-badge" style="--badge-color:${color}">${displayName}</span>`;
+        }).join('');
+
+        panel.innerHTML = `
+            <div class="voice-panel-header">
+                <div class="voice-panel-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                    <span>음성 배정</span>
+                </div>
+                <div class="speaker-badges">${badgesHtml}</div>
+                ${hasMultiple
+                    ? '<p class="voice-panel-hint">AI가 여러 화자를 감지했습니다. 각 화자에 맞는 음성을 선택하세요.</p>'
+                    : '<p class="voice-panel-hint">내레이터 음성을 선택하세요. 미리듣기 버튼으로 확인할 수 있습니다.</p>'}
+            </div>
+            <div class="voice-assignments" id="voice-assignments"></div>
+        `;
+        slot.appendChild(panel);
+
+        const assignmentsDiv = panel.querySelector('#voice-assignments');
+        const defaultVoice = document.getElementById('voice')?.value || 'uyVNoMrnUku1dZyVEXwD';
+
+        // Smart default mapping: auto-assign gender-appropriate voices
+        const maleDefaults = ['s07IwTCOrCDCaETjUVjx', 'm5qndnI7u4OAdXhH0Mr5', 'UgBBYS2sOqTuMpoF3BR0', '3MTvEr8xCMCC2mL9ujrI', '8jHHF8rMqMlg8if2mOUe'];
+        const femaleDefaults = ['uyVNoMrnUku1dZyVEXwD', 'sf8Bpb1IU97NI9BHSMRf', '19STyYD15bswVz51nqLf', 'p4w8j6zCUDJ0nGJ3okKs', 'ajOR9IDAaubDK5qtLUqQ'];
+        let maleIdx = 0, femaleIdx = 0;
+
+        // Curated voice list (always use this, not full API list)
+        const curatedVoices = [
+            // ── 여성 (Female) ──
+            { id: 'uyVNoMrnUku1dZyVEXwD', name: 'Anna Kim - 차분하고 따뜻한', gender: 'F' },
+            { id: 'sf8Bpb1IU97NI9BHSMRf', name: 'Rosa Oh - 침착하고 세련된', gender: 'F' },
+            { id: '19STyYD15bswVz51nqLf', name: 'Samara X - 또렷하고 따뜻한', gender: 'F' },
+            // ── 남성 (Male) ──
+            { id: 's07IwTCOrCDCaETjUVjx', name: 'Hyunbin - 차분하고 명확한', gender: 'M' },
+            { id: 'UgBBYS2sOqTuMpoF3BR0', name: 'Mark - 자연스럽고 편안한', gender: 'M' },
+            { id: '3MTvEr8xCMCC2mL9ujrI', name: 'June - 젊고 활기찬', gender: 'M' },
+        ];
+
+        // Always use curated list (API returns too many unfiltered voices)
+        const voiceList = curatedVoices;
+
+        for (const speaker of this._detectedSpeakers) {
+            const color = speakerColors[speaker] || '#a78bfa';
+            const displayName = speakerDisplayNames[speaker] || speaker.replace('_', ' ');
+
+            // Determine smart default voice for this speaker
+            let smartDefault = defaultVoice;
+            if (speaker.startsWith('male')) {
+                smartDefault = maleDefaults[maleIdx % maleDefaults.length];
+                maleIdx++;
+            } else if (speaker.startsWith('female')) {
+                smartDefault = femaleDefaults[femaleIdx % femaleDefaults.length];
+                femaleIdx++;
+            }
+
+            const row = document.createElement('div');
+            row.className = 'voice-assignment-row';
+
+            // Speaker label with color dot
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'voice-speaker-label';
+            labelDiv.innerHTML = `<span class="voice-speaker-dot" style="background:${color}"></span><span>${displayName}</span>`;
+            row.appendChild(labelDiv);
+
+            // Voice select with gender groups
+            const select = document.createElement('select');
+            select.className = 'form-select voice-assignment-select';
+            select.dataset.speaker = speaker;
+
+            const femaleGroup = document.createElement('optgroup');
+            femaleGroup.label = '-- 여성 --';
+            const maleGroup = document.createElement('optgroup');
+            maleGroup.label = '-- 남성 --';
+
+            for (const v of voiceList) {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                opt.textContent = v.name;
+                if (v.id === smartDefault) opt.selected = true;
+                if (v.gender === 'F') femaleGroup.appendChild(opt);
+                else maleGroup.appendChild(opt);
+            }
+            select.appendChild(femaleGroup);
+            select.appendChild(maleGroup);
+
+            select.addEventListener('change', () => {
+                const selectedOpt = select.options[select.selectedIndex];
+                this._characterVoices[speaker] = {
+                    speaker, voice_id: select.value, voice_name: selectedOpt?.textContent || '',
+                };
+            });
+            // Set initial value
+            const initialOpt = select.options[select.selectedIndex];
+            this._characterVoices[speaker] = {
+                speaker, voice_id: select.value, voice_name: initialOpt?.textContent || '',
+            };
+            row.appendChild(select);
+
+            // Preview button
+            const previewBtn = document.createElement('button');
+            previewBtn.type = 'button';
+            previewBtn.className = 'btn btn-secondary btn-small voice-preview-btn';
+            previewBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> 미리듣기';
+            previewBtn.addEventListener('click', async () => {
+                const voiceId = select.value;
+                previewBtn.disabled = true;
+                previewBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg> 재생 중...';
+                try {
+                    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                    const base = isLocal ? '' : 'https://web-production-bb6bf.up.railway.app';
+                    const resp = await fetch(`${base}/api/sample-voice/${voiceId}?t=${Date.now()}`);
+                    if (!resp.ok) throw new Error(`${resp.status}`);
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const audio = new Audio(url);
+                    await audio.play();
+                    audio.onended = () => {
+                        previewBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> 미리듣기';
+                        previewBtn.disabled = false;
+                        URL.revokeObjectURL(url);
+                    };
+                } catch (e) {
+                    console.error('Preview failed:', e);
+                    previewBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> 미리듣기';
+                    previewBtn.disabled = false;
+                }
+            });
+            row.appendChild(previewBtn);
+
+            assignmentsDiv.appendChild(row);
+        }
     }
 
     // ==================== Step 2: 영상 생성 시작 ====================
+    // 리뷰 섹션의 영상 생성 옵션을 currentRequestParams에 반영
+    _syncGenerationOptions() {
+        if (!this.currentRequestParams) return;
+        this.currentRequestParams.ffmpeg_kenburns = document.getElementById('ffmpeg_kenburns')?.checked ?? true;
+        this.currentRequestParams.ffmpeg_audio_ducking = document.getElementById('ffmpeg_audio_ducking')?.checked ?? false;
+        this.currentRequestParams.subtitle_burn_in = document.getElementById('subtitle_burn_in')?.checked ?? true;
+        this.currentRequestParams.context_carry_over = document.getElementById('context_carry_over')?.checked ?? true;
+        this.currentRequestParams.optimization_pack = document.getElementById('optimization_pack')?.checked ?? false;
+        this.currentRequestParams.film_look = document.getElementById('film_look')?.checked ?? false;
+        // image_model은 select
+        const imageModel = document.getElementById('image_model')?.value || 'standard';
+        this.currentRequestParams.image_model = imageModel;
+    }
+
     async startFinalGeneration() {
         if (!this.currentStoryData) return;
 
@@ -567,6 +847,9 @@ class StorycutApp {
             alert('이미 영상 생성이 진행 중입니다.');
             return;
         }
+
+        // 리뷰 섹션 옵션 동기화
+        this._syncGenerationOptions();
 
         // 수정된 스토리 데이터 수집
         const titleInput = document.getElementById('review-title').value;
@@ -601,9 +884,13 @@ class StorycutApp {
                 headers['Authorization'] = `Bearer ${token}`;
             }
 
+            // Collect character_voices from voice selection UI
+            const characterVoices = Object.values(this._characterVoices || {});
+
             const payload = {
                 request_params: this.currentRequestParams,
-                story_data: this.currentStoryData
+                story_data: this.currentStoryData,
+                character_voices: characterVoices.length > 0 ? characterVoices : [],
             };
 
             this.addLog('INFO', '📤 영상 생성 요청 전송 중...');
@@ -706,7 +993,7 @@ class StorycutApp {
 
                 // 상태에 따른 처리
                 if (data.status === 'completed') {
-                    this.addLog('SUCCESS', '🎉 영상 생성 완료!');
+                    this.addLog('SUCCESS', 'Video Complete');
                     this.updateProgress(100, '완료');
                     this.updateStepStatus('complete', '완료');
                     this.stopPolling();
@@ -817,7 +1104,7 @@ class StorycutApp {
 
                         // 완료 감지
                         if (data.progress === 100 || data.step === 'complete') {
-                            this.addLog('SUCCESS', '🎉 영상 생성 완료!');
+                            this.addLog('SUCCESS', 'Video Complete');
                             this.updateStepStatus('complete', '완료');
                             setTimeout(() => {
                                 this.handleComplete({
@@ -946,7 +1233,7 @@ class StorycutApp {
 
         // 상태별 UI 처리
         if (data.status === 'completed') {
-            headerText.textContent = "🎉 영상 생성 완료!";
+            headerText.textContent = "Video Complete";
 
             // 비디오 플레이어 복구/설정
             videoContainer.innerHTML = '<video id="result-video" controls style="width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></video>';
@@ -1673,7 +1960,7 @@ class StorycutApp {
                     const isCompleted = manifest.status === 'completed';
                     let headerText;
                     if (manifest.status === 'images_ready') {
-                        headerText = '🎨 씬 이미지 준비 완료 - 수정 후 영상 재합성하세요';
+                        headerText = 'Images Ready - Edit and recompose';
                     } else if (manifest.status === 'failed') {
                         headerText = '⚠️ 영상 합성 실패 - 음악 재업로드 후 재합성으로 복구';
                     }
@@ -1840,6 +2127,22 @@ class StorycutApp {
     // ==================== 이미지 URL 경로 변환 ====================
     resolveImageUrl(imagePath) {
         if (!imagePath) return '';
+        // 로컬 환경에서 원격 Railway URL → 로컬 asset 경로로 변환
+        if (imagePath.startsWith('http') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+            try {
+                const url = new URL(imagePath);
+                // /api/asset/{pid}/images/{filename} 또는 /api/asset/{pid}/image/{filename} 패턴 매칭
+                const assetMatch = url.pathname.match(/\/api\/asset\/([^/]+)\/images?\/(.+)/);
+                if (assetMatch) {
+                    return `/api/asset/${assetMatch[1]}/images/${assetMatch[2]}`;
+                }
+                // /media/{pid}/media/images/{filename} 패턴
+                const mediaMatch = url.pathname.match(/\/media\/(.+)/);
+                if (mediaMatch) {
+                    return `/media/${mediaMatch[1]}`;
+                }
+            } catch (e) {}
+        }
         if (imagePath.startsWith('http')) return imagePath;
         // outputs/xxx → /media/xxx 변환 (FastAPI StaticFiles 마운트: /media = outputs/)
         if (imagePath.startsWith('outputs/')) {
@@ -1858,6 +2161,9 @@ class StorycutApp {
             alert('스토리 데이터가 없습니다.');
             return;
         }
+
+        // 리뷰 섹션 옵션 동기화
+        this._syncGenerationOptions();
 
         const apiUrl = this.getApiBaseUrl();
         const btn = document.getElementById('generate-images-btn');
@@ -2409,13 +2715,15 @@ class StorycutApp {
                 headers['Authorization'] = `Bearer ${token}`;
             }
 
+            const characterVoices = Object.values(this._characterVoices || {});
             const response = await fetch(`${this.getApiBaseUrl()}/api/generate/video`, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify({
                     project_id: this.projectId,
                     story_data: this.currentStoryData,
-                    request_params: this.currentRequestParams
+                    request_params: this.currentRequestParams,
+                    character_voices: characterVoices.length > 0 ? characterVoices : [],
                 })
             });
 
@@ -2683,6 +2991,7 @@ class StorycutApp {
                     subtitle_enabled: this.mvRequestParams?.subtitle_enabled !== false,
                     watermark_enabled: this._shouldShowWatermark(),
                     max_scenes: document.getElementById('mv-quick-test')?.checked ? 5 : null,
+                    preview_duration_sec: document.getElementById('mv-quick-test')?.checked ? 45 : null,
                     scene_descriptions: sceneDescriptions
                 })
             });
@@ -2747,13 +3056,13 @@ class StorycutApp {
 
                 // 상태별 처리
                 if (data.status === 'images_ready') {
-                    this.mvAddLog('SUCCESS', '🎨 이미지 생성 완료! 리뷰 화면으로 이동합니다.');
+                    this.mvAddLog('SUCCESS', 'Image generation complete. Moving to review.');
                     this.updateMVProgress(70, '이미지 리뷰 대기');
                     this.stopMVPolling();
                     this.showMVImageReview(projectId);
 
                 } else if (data.status === 'completed') {
-                    this.mvAddLog('SUCCESS', '🎉 뮤직비디오 생성 완료!');
+                    this.mvAddLog('SUCCESS', 'Music video generation complete!');
                     this.updateMVProgress(100, '완료');
                     this.stopMVPolling();
                     this.fetchMVResult(projectId);
@@ -2879,9 +3188,9 @@ class StorycutApp {
         if (headerText) {
             header.textContent = headerText;
         } else if (showVideo && videoCompleted) {
-            header.textContent = '🎉 뮤직비디오 완성!';
+            header.textContent = 'MV Complete';
         } else {
-            header.textContent = '🎨 씬 이미지 확인';
+            header.textContent = 'Scene Review';
         }
 
         // 비디오 영역
@@ -3531,7 +3840,7 @@ class StorycutApp {
                     if (composeBtn) composeBtn.style.display = 'none';
                     // 헤더 업데이트
                     const header = document.getElementById('mv-editor-header');
-                    if (header) header.textContent = '🎉 뮤직비디오 완성!';
+                    if (header) header.textContent = 'MV Complete';
                     // 리컴포즈 버튼 숨기기
                     if (recomposeBtn) {
                         recomposeBtn.style.display = 'none';

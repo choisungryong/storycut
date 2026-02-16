@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Klippa - AI Video Creation Studio</title>
+  <meta name="description" content="AI that writes the story, paints the scenes, adds the voice, and delivers the video. Create cinematic AI videos and music videos in minutes.">
+  <link rel="stylesheet" href="/static/css/design-tokens.css">
+  <link rel="stylesheet" href="/static/css/shared.css">
+  <link rel="stylesheet" href="/static/css/landing.css">
+</head>
+<body class="film-grain">
+
+  <!-- ═══ NAVIGATION ═══ -->
+  <nav class="sc-nav" id="mainNav">
+    <div class="sc-nav__inner">
+      <a href="/" class="sc-nav__logo">
+        <img src="/static/assets/klippa-logo.png" alt="Klippa" class="sc-nav__logo-img">
+      </a>
+      <ul class="sc-nav__links">
+        <li><a href="#features" class="sc-nav__link" data-i18n="nav.features">Features</a></li>
+        <li><a href="#gallery" class="sc-nav__link" data-i18n="nav.gallery">Gallery</a></li>
+        <li><a href="#pricing" class="sc-nav__link" data-i18n="nav.pricing">Pricing</a></li>
+        <li><a href="#faq" class="sc-nav__link">FAQ</a></li>
+        <li>
+          <button class="lang-toggle" id="langToggle" title="언어 전환">
+            <span class="lang-toggle__label">EN</span>
+          </button>
+        </li>
+        <li class="sc-nav__cta desktop-only">
+          <a href="/app" class="btn btn-primary" data-i18n="nav.cta">Start Free</a>
+        </li>
+      </ul>
+      <button class="sc-nav__hamburger" id="hamburgerBtn" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile Menu -->
+  <div class="sc-nav__mobile-menu" id="mobileMenu">
+    <a href="#features" class="mobile-link" data-i18n="nav.features">Features</a>
+    <a href="#gallery" class="mobile-link" data-i18n="nav.gallery">Gallery</a>
+    <a href="#pricing" class="mobile-link" data-i18n="nav.pricing">Pricing</a>
+    <a href="#faq" class="mobile-link">FAQ</a>
+    <button class="lang-toggle" id="langToggleMobile" title="언어 전환">
+      <span class="lang-toggle__label">EN</span>
+    </button>
+    <a href="/app" class="btn btn-primary btn-primary-lg" data-i18n="nav.cta">Start Free</a>
+  </div>
+
+  <!-- ═══ S1: CINEMATIC HERO ═══ -->
+  <section class="hero" id="hero">
+    <div class="hero__bg">
+      <div class="hero__gradient-overlay"></div>
+    </div>
+    <div class="hero__content">
+      <h1 class="hero__title">
+        <span class="hero__title-line" data-i18n="hero.title1">Your story,</span>
+        <span class="hero__title-line hero__title-accent" data-i18n="hero.title2">made into film.</span>
+      </h1>
+      <p class="hero__subtitle" data-i18n="hero.subtitle">AI analyzes your text, paints the scenes, adds the voice, and delivers the video.</p>
+      <div class="hero__actions">
+        <a href="/app" class="btn btn-primary btn-primary-lg" data-i18n="hero.cta">Start Free</a>
+        <a href="#pipeline" class="btn btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3L11 8L6 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="hero.how">See How It Works</span>
+        </a>
+      </div>
+      <div class="hero__badges">
+        <div class="hero__badge">
+          <span class="hero__badge-number" data-count="1247">0</span>
+          <span class="hero__badge-label" data-i18n="hero.badge1">Videos Created</span>
+        </div>
+        <div class="hero__badge">
+          <span class="hero__badge-number">30s</span>
+          <span class="hero__badge-label" data-i18n="hero.badge2">Avg Creation</span>
+        </div>
+        <div class="hero__badge">
+          <span class="hero__badge-number">7</span>
+          <span class="hero__badge-label" data-i18n="hero.badge3">Art Styles</span>
+        </div>
+        <div class="hero__badge">
+          <span class="hero__badge-number">MV</span>
+          <span class="hero__badge-label" data-i18n="hero.badge4">Music Videos</span>
+        </div>
+      </div>
+      <div class="hero__scroll-indicator">
+        <span data-i18n="hero.scroll">Scroll to explore</span>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M10 4V16M10 16L5 11M10 16L15 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S2: DUAL MODE ═══ -->
+  <section class="section dual-mode" id="modes">
+    <div class="sc-container">
+      <div class="section-header reveal">
+        <span class="section-label" data-i18n="dual.label">Two Ways to Create</span>
+        <h2 class="section-title" data-i18n="dual.title">Choose your creation mode</h2>
+        <p class="section-subtitle" data-i18n="dual.subtitle">From text to video or music to visual story - AI handles the entire production pipeline.</p>
+      </div>
+      <div class="dual-mode__grid">
+        <div class="dual-mode__card glass-card reveal" data-delay="1">
+          <div class="dual-mode__card-visual">
+            <div class="dual-mode__card-icon-wrap" style="--card-accent: var(--accent-cyan);">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 7h5M17 17h5"/></svg>
+            </div>
+            <span class="dual-mode__card-tag" data-i18n="dual.story_tag">AI Story Video</span>
+          </div>
+          <h3 class="dual-mode__card-title" data-i18n="dual.story_title">AI Story Video</h3>
+          <p class="dual-mode__card-desc" data-i18n="dual.story_desc">Enter a topic and AI writes the story, generates scenes, and produces a complete video with narration.</p>
+          <ul class="dual-mode__features">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.story_f1">Character consistency</span></li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.story_f2">B-roll auto placement</span></li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.story_f3">7 art styles</span></li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.story_f4">Subtitles + TTS narration</span></li>
+          </ul>
+          <a href="/app" class="btn btn-secondary dual-mode__cta" data-i18n="dual.story_cta">Create Story Video &rarr;</a>
+        </div>
+        <div class="dual-mode__card glass-card reveal" data-delay="2">
+          <div class="dual-mode__card-visual">
+            <div class="dual-mode__card-icon-wrap" style="--card-accent: var(--accent-violet);">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/><path d="M8 18l2-2M16 18l-2-2"/></svg>
+            </div>
+            <span class="dual-mode__card-tag" data-i18n="dual.mv_tag">Music Video</span>
+          </div>
+          <h3 class="dual-mode__card-title" data-i18n="dual.mv_title">Music Video</h3>
+          <p class="dual-mode__card-desc" data-i18n="dual.mv_desc">Upload your music and AI analyzes lyrics, BPM, and mood to create a synchronized music video.</p>
+          <ul class="dual-mode__features">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.mv_f1">AI lyrics sync</span></li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.mv_f2">BPM-based scene splits</span></li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.mv_f3">Visual mood matching</span></li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 4.5L6 12L2.5 8.5" stroke="var(--accent-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> <span data-i18n="dual.mv_f4">Subtitle overlay</span></li>
+          </ul>
+          <a href="/app" class="btn btn-secondary dual-mode__cta" data-i18n="dual.mv_cta">Create Music Video &rarr;</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S3: PIPELINE (How It Works) ═══ -->
+  <section class="section pipeline" id="pipeline">
+    <div class="sc-container">
+      <div class="section-header reveal">
+        <span class="section-label" data-i18n="pipe.label">How It Works</span>
+        <h2 class="section-title" data-i18n="pipe.title">From idea to video in 4 steps</h2>
+      </div>
+      <div class="pipeline__steps">
+        <div class="pipeline__step reveal" data-delay="1">
+          <div class="pipeline__step-number">01</div>
+          <div class="pipeline__step-content glass-card">
+            <div class="pipeline__step-icon" style="--step-color: var(--accent-cyan);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </div>
+            <h3 data-i18n="pipe.s1_title">Enter Your Topic</h3>
+            <p data-i18n="pipe.s1_desc">Type a simple topic or detailed script. AI understands context, mood, and narrative intent.</p>
+            <div class="pipeline__step-demo">
+              <div class="pipeline__typewriter" data-i18n="pipe.s1_demo">"A cat walking through neon-lit Tokyo streets at midnight"</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline__connector reveal"></div>
+        <div class="pipeline__step reveal" data-delay="2">
+          <div class="pipeline__step-number">02</div>
+          <div class="pipeline__step-content glass-card">
+            <div class="pipeline__step-icon" style="--step-color: var(--accent-violet);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+            </div>
+            <h3 data-i18n="pipe.s2_title">AI Writes the Story</h3>
+            <p data-i18n="pipe.s2_desc">Gemini AI generates a multi-scene screenplay with character descriptions, camera directions, and emotional arcs.</p>
+          </div>
+        </div>
+        <div class="pipeline__connector reveal"></div>
+        <div class="pipeline__step reveal" data-delay="3">
+          <div class="pipeline__step-number">03</div>
+          <div class="pipeline__step-content glass-card">
+            <div class="pipeline__step-icon" style="--step-color: var(--accent-amber);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            </div>
+            <h3 data-i18n="pipe.s3_title">Generate Scenes</h3>
+            <p data-i18n="pipe.s3_desc">Each scene becomes a cinematic image with consistent characters, then transforms into dynamic video with Ken Burns and I2V effects.</p>
+            <div class="pipeline__filmstrip">
+              <div class="pipeline__frame"></div>
+              <div class="pipeline__frame"></div>
+              <div class="pipeline__frame"></div>
+              <div class="pipeline__frame"></div>
+              <div class="pipeline__frame"></div>
+            </div>
+          </div>
+        </div>
+        <div class="pipeline__connector reveal"></div>
+        <div class="pipeline__step reveal" data-delay="4">
+          <div class="pipeline__step-number">04</div>
+          <div class="pipeline__step-content glass-card">
+            <div class="pipeline__step-icon" style="--step-color: var(--accent-emerald);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </div>
+            <h3 data-i18n="pipe.s4_title">Complete Video</h3>
+            <p data-i18n="pipe.s4_desc">TTS narration, background music, subtitles, cinematic transitions, and film grain are composed into your final video.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S4: KILLER FEATURES (Bento Grid) ═══ -->
+  <section class="section features" id="features">
+    <div class="sc-container">
+      <div class="section-header reveal">
+        <span class="section-label" data-i18n="feat.label">Features</span>
+        <h2 class="section-title" data-i18n="feat.title">What other AI video tools don't have</h2>
+      </div>
+      <div class="bento-grid">
+        <div class="bento-card bento-card--large glass-card reveal">
+          <div class="bento-card__icon" style="--feat-color: var(--accent-cyan);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <h3 data-i18n="feat.char_title">Character Consistency</h3>
+          <p data-i18n="feat.char_desc">Master Anchor + 7-step LOCK system ensures the same character appears identically across every scene. No more face-changing AI videos.</p>
+          <div class="bento-card__visual bento-card__visual--consistency">
+            <div class="consistency-demo">
+              <div class="consistency-frame" style="--frame-hue: 200;">Scene 1</div>
+              <div class="consistency-frame" style="--frame-hue: 200;">Scene 3</div>
+              <div class="consistency-frame" style="--frame-hue: 200;">Scene 5</div>
+            </div>
+            <span class="bento-card__visual-label" data-i18n="feat.char_label">Same character across all scenes</span>
+          </div>
+        </div>
+        <div class="bento-card glass-card reveal" data-delay="1">
+          <div class="bento-card__icon" style="--feat-color: var(--accent-violet);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </div>
+          <h3 data-i18n="feat.style_title">7 Art Styles</h3>
+          <p data-i18n="feat.style_desc">Cinematic, Anime, Webtoon, Realistic, Illustration, Game Anime, Abstract - each with unique visual identity.</p>
+        </div>
+        <div class="bento-card glass-card reveal" data-delay="2">
+          <div class="bento-card__icon" style="--feat-color: var(--accent-emerald);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M10 2v20M2 10h20"/></svg>
+          </div>
+          <h3 data-i18n="feat.broll_title">Auto B-roll</h3>
+          <p data-i18n="feat.broll_desc">Pexels stock footage automatically placed in non-character scenes for professional quality at zero cost.</p>
+        </div>
+        <div class="bento-card bento-card--wide glass-card reveal" data-delay="1">
+          <div class="bento-card__icon" style="--feat-color: var(--accent-amber);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM21 16a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          </div>
+          <h3 data-i18n="feat.lyrics_title">AI Lyrics Sync</h3>
+          <p data-i18n="feat.lyrics_desc">Upload music and AI analyzes BPM, mood, and lyrics to automatically sync visual scenes with musical structure. Gemini-powered alignment for near-perfect timing.</p>
+          <div class="bento-card__visual bento-card__visual--waveform">
+            <div class="waveform-bar" style="--h: 30%;"></div>
+            <div class="waveform-bar" style="--h: 60%;"></div>
+            <div class="waveform-bar" style="--h: 45%;"></div>
+            <div class="waveform-bar" style="--h: 80%;"></div>
+            <div class="waveform-bar" style="--h: 55%;"></div>
+            <div class="waveform-bar" style="--h: 90%;"></div>
+            <div class="waveform-bar" style="--h: 40%;"></div>
+            <div class="waveform-bar" style="--h: 70%;"></div>
+            <div class="waveform-bar" style="--h: 35%;"></div>
+            <div class="waveform-bar" style="--h: 65%;"></div>
+            <div class="waveform-bar" style="--h: 50%;"></div>
+            <div class="waveform-bar" style="--h: 85%;"></div>
+            <div class="waveform-bar" style="--h: 45%;"></div>
+            <div class="waveform-bar" style="--h: 75%;"></div>
+            <div class="waveform-bar" style="--h: 30%;"></div>
+            <div class="waveform-bar" style="--h: 55%;"></div>
+          </div>
+        </div>
+        <div class="bento-card glass-card reveal" data-delay="2">
+          <div class="bento-card__icon" style="--feat-color: var(--accent-rose);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </div>
+          <h3 data-i18n="feat.editor_title">Live Scene Editor</h3>
+          <p data-i18n="feat.editor_desc">Review each scene, edit prompts, and regenerate individual images before final render.</p>
+        </div>
+        <div class="bento-card glass-card reveal" data-delay="3">
+          <div class="bento-card__icon" style="--feat-color: var(--accent-sky);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          </div>
+          <h3 data-i18n="feat.i2v_title">I2V Conversion</h3>
+          <p data-i18n="feat.i2v_desc">Transform still images into real video using Veo 3.1 image-to-video technology.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S5: STYLE GALLERY ═══ -->
+  <section class="section gallery" id="gallery">
+    <div class="sc-container">
+      <div class="section-header reveal">
+        <span class="section-label" data-i18n="gallery.label">Style Gallery</span>
+        <h2 class="section-title" data-i18n="gallery.title">7 worlds, your choice</h2>
+        <p class="section-subtitle" data-i18n="gallery.subtitle">Each style creates a unique visual identity for your video.</p>
+      </div>
+      <div class="gallery__tabs reveal">
+        <button class="gallery__tab active" data-style="cinematic">Cinematic</button>
+        <button class="gallery__tab" data-style="anime">Anime</button>
+        <button class="gallery__tab" data-style="webtoon">Webtoon</button>
+        <button class="gallery__tab" data-style="realistic">Realistic</button>
+        <button class="gallery__tab" data-style="illustration">Illustration</button>
+        <button class="gallery__tab" data-style="game_anime">Game Anime</button>
+        <button class="gallery__tab" data-style="abstract">Abstract</button>
+      </div>
+      <div class="gallery__showcase reveal">
+        <div class="gallery__cards" id="galleryCards">
+          <div class="gallery__card" style="--card-hue: 30;"><div class="gallery__card-img"></div></div>
+          <div class="gallery__card" style="--card-hue: 35;"><div class="gallery__card-img"></div></div>
+          <div class="gallery__card" style="--card-hue: 25;"><div class="gallery__card-img"></div></div>
+        </div>
+        <p class="gallery__desc" id="galleryDesc" data-i18n="gallery.desc_cinematic">Cinematic style delivers movie-grade lighting, deep composition, and premium visual quality reminiscent of Hollywood productions.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S6: SOCIAL PROOF ═══ -->
+  <section class="section social-proof" id="stats">
+    <div class="sc-container">
+      <div class="social-proof__stats reveal">
+        <div class="social-proof__stat">
+          <span class="social-proof__number" data-count="1247">0</span><span class="social-proof__plus">+</span>
+          <span class="social-proof__label" data-i18n="stats.created">Videos Created</span>
+        </div>
+        <div class="social-proof__stat">
+          <span class="social-proof__number">30s</span>
+          <span class="social-proof__label" data-i18n="stats.avg">Avg Creation Time</span>
+        </div>
+        <div class="social-proof__stat">
+          <span class="social-proof__number" data-count="98">0</span><span class="social-proof__plus">%</span>
+          <span class="social-proof__label" data-i18n="stats.success">Success Rate</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S7: PRICING ═══ -->
+  <section class="section pricing" id="pricing">
+    <div class="sc-container">
+      <div class="section-header reveal">
+        <span class="section-label" data-i18n="nav.pricing">Pricing</span>
+        <h2 class="section-title" data-i18n="price.title">Start at the right price</h2>
+      </div>
+      <div class="pricing__grid">
+        <div class="pricing__card glass-card reveal" data-delay="1">
+          <h3 class="pricing__plan">Free</h3>
+          <div class="pricing__price"><span class="pricing__amount">$0</span></div>
+          <ul class="pricing__features">
+            <li data-i18n="price.f_credits">20 credits</li>
+            <li data-i18n="price.f_styles">Basic styles</li>
+            <li data-i18n="price.f_watermark">Watermark included</li>
+            <li data-i18n="price.f_720p">720p output</li>
+          </ul>
+          <a href="/app" class="btn btn-secondary pricing__cta" data-i18n="price.start">Get Started</a>
+        </div>
+        <div class="pricing__card pricing__card--popular glass-card reveal" data-delay="2">
+          <div class="pricing__ribbon" data-i18n="price.popular">Popular</div>
+          <h3 class="pricing__plan">Lite</h3>
+          <div class="pricing__price"><span class="pricing__amount">$10</span><span class="pricing__period">/mo</span></div>
+          <ul class="pricing__features">
+            <li data-i18n="price.l_credits">100 credits</li>
+            <li data-i18n="price.l_styles">All styles</li>
+            <li data-i18n="price.l_nowm">No watermark</li>
+            <li data-i18n="price.l_1080p">1080p output</li>
+            <li data-i18n="price.l_i2v">I2V included</li>
+          </ul>
+          <a href="/app" class="btn btn-primary pricing__cta" data-i18n="price.start">Get Started</a>
+        </div>
+        <div class="pricing__card glass-card reveal" data-delay="3">
+          <h3 class="pricing__plan">Pro</h3>
+          <div class="pricing__price"><span class="pricing__amount">$25</span><span class="pricing__period">/mo</span></div>
+          <ul class="pricing__features">
+            <li data-i18n="price.p_credits">300 credits</li>
+            <li data-i18n="price.p_styles">All styles + MV</li>
+            <li data-i18n="price.p_nowm">No watermark</li>
+            <li data-i18n="price.p_1080p">1080p output</li>
+            <li data-i18n="price.p_priority">Priority processing</li>
+          </ul>
+          <a href="/app" class="btn btn-secondary pricing__cta" data-i18n="price.start">Get Started</a>
+        </div>
+      </div>
+      <p class="pricing__compare reveal"><a href="/pricing.html" data-i18n="price.compare">View full plan comparison &rarr;</a></p>
+    </div>
+  </section>
+
+  <!-- ═══ S8: FAQ ═══ -->
+  <section class="section faq" id="faq">
+    <div class="sc-container">
+      <div class="section-header reveal">
+        <span class="section-label">FAQ</span>
+        <h2 class="section-title" data-i18n="faq.title">Frequently asked questions</h2>
+      </div>
+      <div class="faq__list reveal">
+        <div class="faq__item">
+          <button class="faq__question">
+            <span data-i18n="faq.q1">What is Klippa?</span>
+            <svg class="faq__arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="faq__answer"><p data-i18n="faq.a1">Klippa is an AI-powered video creation studio that transforms text scripts or music into fully produced videos. It handles everything from story writing and image generation to narration, subtitles, and final video composition.</p></div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__question">
+            <span data-i18n="faq.q2">How long does video generation take?</span>
+            <svg class="faq__arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="faq__answer"><p data-i18n="faq.a2">Typically 30 seconds to 2 minutes depending on video length and number of scenes. Music videos may take slightly longer due to audio analysis and lyrics synchronization.</p></div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__question">
+            <span data-i18n="faq.q3">What AI models are used?</span>
+            <svg class="faq__arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="faq__answer"><p data-i18n="faq.a3">Klippa uses Google Gemini for story generation and image creation, Veo 3.1 for image-to-video conversion, ElevenLabs for TTS narration, and proprietary algorithms for scene composition and transitions.</p></div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__question">
+            <span data-i18n="faq.q4">Who owns the generated videos?</span>
+            <svg class="faq__arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="faq__answer"><p data-i18n="faq.a4">You retain full rights to all videos generated through Klippa. You can use them for personal, commercial, and social media purposes without restrictions.</p></div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__question">
+            <span data-i18n="faq.q5">What music formats are supported for MV mode?</span>
+            <svg class="faq__arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="faq__answer"><p data-i18n="faq.a5">Klippa supports MP3, WAV, M4A, and FLAC audio formats. The AI analyzes BPM, mood, energy levels, and lyrics (if present) to create perfectly synchronized visual scenes.</p></div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__question">
+            <span data-i18n="faq.q6">Can I try it for free?</span>
+            <svg class="faq__arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="faq__answer"><p data-i18n="faq.a6">Yes! Every new account receives 20 free credits. You can create multiple videos to experience the full pipeline before deciding on a paid plan.</p></div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__question">
+            <span data-i18n="faq.q7">What is the refund policy?</span>
+            <svg class="faq__arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="faq__answer"><p data-i18n="faq.a7">We offer a full refund within 7 days of purchase if you're not satisfied. Unused credits can be carried over to the next billing cycle.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S9: FINAL CTA ═══ -->
+  <section class="section final-cta" id="cta">
+    <div class="final-cta__bg"></div>
+    <div class="sc-container final-cta__content">
+      <h2 class="final-cta__title reveal" data-i18n="cta.title">Turn your story into video, now.</h2>
+      <p class="final-cta__sub reveal" data-delay="1" data-i18n="cta.sub">No account required to start.</p>
+      <a href="/app" class="btn btn-primary btn-primary-lg reveal" data-delay="2" data-i18n="cta.btn">Start Free</a>
+    </div>
+  </section>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer class="sc-footer">
+    <div class="sc-container">
+      <div class="sc-footer__grid">
+        <div class="sc-footer__brand">
+          <div class="sc-footer__brand-name">Klippa</div>
+          <p class="sc-footer__brand-desc" data-i18n="footer.desc">AI-Powered Video Creation Studio. Turn your stories into cinematic videos.</p>
+        </div>
+        <div>
+          <h4 class="sc-footer__heading" data-i18n="footer.product">Product</h4>
+          <ul class="sc-footer__links">
+            <li><a href="/app" data-i18n="dual.story_tag">AI Story Video</a></li>
+            <li><a href="/app" data-i18n="dual.mv_tag">Music Video</a></li>
+            <li><a href="/pricing.html" data-i18n="nav.pricing">Pricing</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 class="sc-footer__heading" data-i18n="footer.resources">Resources</h4>
+          <ul class="sc-footer__links">
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="https://github.com" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 class="sc-footer__heading" data-i18n="footer.legal">Legal</h4>
+          <ul class="sc-footer__links">
+            <li><a href="#" data-i18n="footer.terms">Terms of Service</a></li>
+            <li><a href="#" data-i18n="footer.privacy">Privacy Policy</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="sc-footer__bottom">
+        &copy; 2026 Klippa. All rights reserved.
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/js/landing.js"></script>
+</body>
+</html>

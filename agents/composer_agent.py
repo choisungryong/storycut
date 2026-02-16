@@ -35,7 +35,8 @@ class ComposerAgent:
         video_clips: List[str],
         narration_clips: List[str],
         music_path: str = None,
-        output_path: str = "output/youtube_ready.mp4"
+        output_path: str = "output/youtube_ready.mp4",
+        use_ducking: bool = False
     ) -> str:
         """
         Compose final video from all scene elements.
@@ -45,11 +46,14 @@ class ComposerAgent:
             narration_clips: List of narration audio paths (in scene order)
             music_path: Background music file path (optional)
             output_path: Final output video path
+            use_ducking: 오디오 덕킹 사용 여부
 
         Returns:
             Path to final composed video
         """
         print("\n[Composer] Starting final video composition...")
+        if use_ducking:
+            print("   [Composer] Audio ducking: ENABLED")
 
         # Validate inputs
         if len(video_clips) != len(narration_clips):
@@ -65,7 +69,8 @@ class ComposerAgent:
             video_clips=video_clips,
             narration_clips=narration_clips,
             music_path=music_path,
-            output_path=output_path
+            output_path=output_path,
+            use_ducking=use_ducking
         )
 
         # Get final video info

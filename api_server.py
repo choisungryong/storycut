@@ -102,7 +102,23 @@ app.add_middleware(
 # Health check
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "version": "2.7.0"}
+    return {"status": "ok", "version": "2.8.0"}
+
+
+# ============================================================
+# Voice List API
+# ============================================================
+@app.get("/api/voices")
+async def list_voices():
+    """ElevenLabs 음성 목록 반환 (캐시 5분)"""
+    from agents.tts_agent import TTSAgent
+    try:
+        tts = TTSAgent()
+        voices = tts.get_available_voices()
+        return {"voices": voices}
+    except Exception as e:
+        print(f"[API] Voice list error: {e}")
+        return {"voices": []}
 
 # ============================================================
 # Security: Input Validation Helpers
@@ -313,6 +329,8 @@ class GenerateRequest(BaseModel):
     duration: int = 60
     platform: str = "youtube_long"
     character_ethnicity: str = "auto"
+    include_dialogue: bool = False
+    image_model: str = "standard"  # standard / premium
 
     # Feature Flags
     hook_scene1_video: bool = False
@@ -730,8 +748,17 @@ class TrackedPipeline(StorycutPipeline):
 # ============================================================================
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root():
-    """메인 페이지"""
+async def landing_page():
+    """Landing page"""
+    html_path = Path("web/templates/landing.html")
+    if html_path.exists():
+        return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+    # Fallback to app page if landing doesn't exist
+    return HTMLResponse(content=Path("web/templates/index.html").read_text(encoding="utf-8"))
+
+
+async def _serve_app():
+    """App workflow page"""
     html_path = Path("web/templates/index.html")
     if html_path.exists():
         return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
@@ -742,10 +769,20 @@ async def read_root():
         <head><title>STORYCUT</title></head>
         <body>
             <h1>STORYCUT v2.0</h1>
-            <p>웹 UI를 로드할 수 없습니다. web/templates/index.html 파일을 확인하세요.</p>
+            <p>Cannot load app UI. Check web/templates/index.html.</p>
         </body>
         </html>
         """)
+
+
+@app.get("/app", response_class=HTMLResponse)
+async def app_page():
+    return await _serve_app()
+
+
+@app.get("/app.html", response_class=HTMLResponse)
+async def app_page_html():
+    return await _serve_app()
 
 
 @app.get("/login.html", response_class=HTMLResponse)
@@ -853,7 +890,8 @@ async def generate_story(req: GenerateRequest):
         return {
             "story_data": story_data,
             "request_params": project_request.dict(), # Pydantic v1/v2 compatibility
-            "project_id": project_id
+            "project_id": project_id,
+            "detected_speakers": story_data.get("detected_speakers", ["narrator"]),
         }
     except Exception as e:
         print(f"Story generation failed: {e}")
@@ -903,10 +941,17 @@ async def generate_from_script(req: ScriptRequest):
         story_data = await run_in_threadpool(
             pipeline.generate_story_from_script, req.script, project_request
         )
+
+        # Parse dialogue from direct script scenes
+        from agents.story_agent import StoryAgent
+        detected_speakers = StoryAgent.extract_speakers(story_data)
+        story_data["detected_speakers"] = detected_speakers
+
         return {
             "story_data": story_data,
             "request_params": project_request.dict(),
-            "project_id": project_id
+            "project_id": project_id,
+            "detected_speakers": detected_speakers,
         }
     except Exception as e:
         print(f"Script generation failed: {e}")
@@ -954,6 +999,10 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
     # 비동기 작업 시작
     tracker = ProgressTracker(project_id, total_scenes=len(req.story_data.get("scenes", [])))
     pipeline = TrackedPipeline(tracker)
+
+    # character_voices를 story_data에 포함시켜 파이프라인에 전달
+    if req.character_voices:
+        req.story_data["character_voices"] = [cv.model_dump() for cv in req.character_voices]
 
     # 별도 스레드에서 실행 (BackgroundTask 대신 Threading 사용)
     def run_pipeline_thread():
@@ -1012,6 +1061,11 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 context_carry_over=request_params.get('context_carry_over', True),
                 optimization_pack=request_params.get('optimization_pack', True),
             )
+            # image_model, film_look을 feature_flags에 주입
+            _im = request_params.get('image_model', 'standard')
+            if _im:
+                setattr(feature_flags, 'image_model', _im)
+            feature_flags.film_look = request_params.get('film_look', False)
 
             # ProjectRequest 생성
             request = ProjectRequest(
@@ -1339,14 +1393,44 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     if _eth_kw and _eth_kw.lower() not in final_prompt.lower():
         final_prompt = f"{_eth_kw} characters, {final_prompt}"
 
+    # 캐릭터 앵커 경로 수집
+    character_anchor_paths = []
+    character_sheets = manifest_data.get("character_sheets", [])
+    for cs in character_sheets:
+        master_path = cs.get("master_image_path", "")
+        if master_path and os.path.exists(master_path):
+            character_anchor_paths.append(master_path)
+
+    # 스타일 앵커 (첫 번째 씬 이미지를 fallback으로 사용)
+    style_anchor_path = None
+    for s in scenes:
+        img = (s.get("assets") or {}).get("image_path", "")
+        if img and os.path.exists(img) and s.get("scene_id") != scene_id:
+            style_anchor_path = img
+            break
+
+    # Visual Bible
+    visual_bible = manifest_data.get("visual_bible")
+
+    # 글로벌 스타일, 장르, 분위기
+    input_data = manifest_data.get("input", {})
+    genre = input_data.get("genre", "mystery")
+    mood = input_data.get("mood", "dramatic")
+    style_preset = input_data.get("style_preset", "cinematic")
+
     try:
         image_path, image_id = await run_in_threadpool(
             image_agent.generate_image,
             scene_id=scene_id,
             prompt=final_prompt,
-            style=target_scene.get("style", "cinematic"),
+            style=target_scene.get("style", style_preset),
             output_dir=f"outputs/{project_id}/media/images",
-            seed=None  # New random seed for regeneration
+            seed=None,  # New random seed for regeneration
+            style_anchor_path=style_anchor_path,
+            genre=genre,
+            mood=mood,
+            visual_bible=visual_bible,
+            character_reference_paths=character_anchor_paths or None,
         )
         
         # image_path를 웹 URL로 정규화
@@ -1771,30 +1855,51 @@ async def get_video_status(project_id: str):
 
 
 @app.get("/api/manifest/{project_id}")
-async def get_manifest(project_id: str):
+async def get_manifest(project_id: str, request: Request):
     """Manifest 조회 (로컬 우선, R2 fallback)"""
     validate_project_id(project_id)
     manifest_path = f"outputs/{project_id}/manifest.json"
+    data = None
 
     if os.path.exists(manifest_path):
         with open(manifest_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
 
-    # R2 fallback (videos/{project_id}/manifest.json 경로로 저장됨)
-    try:
-        from utils.storage import StorageManager
-        storage = StorageManager()
-        # 먼저 videos/ 경로 시도 (표준 업로드 경로)
-        raw = storage.get_object(f"videos/{project_id}/manifest.json")
-        if not raw:
-            # 레거시 경로 시도
-            raw = storage.get_object(f"{project_id}/manifest.json")
-        if raw:
-            return json.loads(raw.decode("utf-8"))
-    except Exception:
-        pass
+    if data is None:
+        # R2 fallback (videos/{project_id}/manifest.json 경로로 저장됨)
+        try:
+            from utils.storage import StorageManager
+            storage = StorageManager()
+            # 먼저 videos/ 경로 시도 (표준 업로드 경로)
+            raw = storage.get_object(f"videos/{project_id}/manifest.json")
+            if not raw:
+                # 레거시 경로 시도
+                raw = storage.get_object(f"{project_id}/manifest.json")
+            if raw:
+                data = json.loads(raw.decode("utf-8"))
+        except Exception:
+            pass
 
-    raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+    if data is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+
+    # 로컬 환경: Railway URL → 로컬 상대 경로 변환
+    _REMOTE_PREFIX = "https://web-production-bb6bf.up.railway.app"
+    host = request.headers.get("host", "")
+    if "localhost" in host or "127.0.0.1" in host:
+        def _localize(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if isinstance(v, str) and v.startswith(_REMOTE_PREFIX):
+                        obj[k] = v[len(_REMOTE_PREFIX):]
+                    elif isinstance(v, (dict, list)):
+                        _localize(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    _localize(item)
+        _localize(data)
+
+    return data
 
 
 @app.get("/api/stream/{project_id}")

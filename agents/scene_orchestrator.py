@@ -488,14 +488,31 @@ JSON 형식으로 출력:
             try:
                 # Phase 1: TTS 먼저 생성하여 실제 duration 확보
                 scene.status = SceneStatus.GENERATING_TTS
-                tts_result = self.tts_agent.generate_speech(
-                    scene_id=scene.scene_id,
-                    narration=scene.narration,
-                    emotion=scene.mood
-                )
+
+                # v3.0: 멀티 화자 TTS 지원
+                scene_dict = scenes[i] if isinstance(scenes[i], dict) else {}
+                dialogue_lines = scene_dict.get("dialogue_lines", [])
+                character_voices = story_data.get("character_voices", [])
+
+                if dialogue_lines and character_voices:
+                    # 멀티 화자 TTS
+                    output_dir = f"{os.path.dirname(output_path)}/media/audio"
+                    os.makedirs(output_dir, exist_ok=True)
+                    audio_path = f"{output_dir}/narration_{scene.scene_id:02d}.mp3"
+                    tts_result = self.tts_agent.generate_dialogue_audio(
+                        dialogue_lines=dialogue_lines,
+                        character_voices=character_voices,
+                        output_path=audio_path,
+                    )
+                else:
+                    # 기존 단일 내레이션 TTS
+                    tts_result = self.tts_agent.generate_speech(
+                        scene_id=scene.scene_id,
+                        narration=scene.narration,
+                        emotion=scene.mood
+                    )
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
-                # narration_clips.append(tts_result.audio_path) -> REMOVED: 나중에 한꺼번에 수집
 
                 # TTS 기반으로 duration 업데이트 (최소 3초, 최대 15초)
                 if tts_result.duration_sec > 0:
@@ -650,11 +667,13 @@ JSON 형식으로 출력:
         print(f"{'─'*60}\n")
 
         # 최종 영상 합성
+        _use_ducking = getattr(self.feature_flags, 'ffmpeg_audio_ducking', False)
         final_video = self.composer_agent.compose_video(
             video_clips=video_clips,
             narration_clips=narration_clips,
             music_path=music_path,
-            output_path=output_path
+            output_path=output_path,
+            use_ducking=_use_ducking
         )
 
         print(f"\n{'='*60}")
@@ -705,18 +724,36 @@ JSON 형식으로 출력:
         print(f"Total scenes: {total_scenes}")
         print(f"Style: {style}\n")
         
-        processed_scenes = []
-        prev_scene = None
-        
+        processed_scenes = [None] * total_scenes  # pre-allocate for ordered results
+
         # Image output directory
         image_output_dir = f"{project_dir}/media/images"
         os.makedirs(image_output_dir, exist_ok=True)
-        
-        for i, scene_data in enumerate(scenes, 1):
-            print(f"\n{'─'*60}")
+
+        # --- 공통 설정 (인종, 에이전트 등) ---
+        from agents.image_agent import ImageAgent
+        from agents.character_manager import CharacterManager
+        _eth = getattr(request, 'character_ethnicity', 'auto') if request else 'auto'
+        _ETH_KW = {
+            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+            "southeast_asian": "Southeast Asian", "european": "European",
+            "black": "Black", "hispanic": "Hispanic",
+        }
+        _eth_kw = _ETH_KW.get(_eth, "")
+
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        _result_lock = threading.Lock()
+        _completed_count = [0]
+
+        def _process_single_scene(idx, scene_data, prev_scene_ref=None):
+            """단일 씬 이미지 생성 (스레드에서 실행 가능)"""
+            i = idx + 1  # 1-based for display
+
+            print(f"\n{'---'*20}")
             print(f"Generating Image for Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
-            print(f"{'─'*60}")
-            
+            print(f"{'---'*20}")
+
             # Scene 객체 생성
             scene = Scene(
                 index=i,
@@ -730,7 +767,7 @@ JSON 형식으로 출력:
                 image_prompt=scene_data.get("image_prompt"),
                 characters_in_scene=scene_data.get("characters_in_scene", []),
             )
-            
+
             # Seed 추출 (모든 캐릭터의 visual_seed 결합)
             scene_seed = None
             if scene.characters_in_scene and character_sheet:
@@ -742,24 +779,24 @@ JSON 형식으로 출력:
                             all_seeds.append(s)
                 if all_seeds:
                     scene_seed = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
-            
+
             # 메타데이터 저장
             scene._seed = scene_seed
             scene._global_style = global_style
             scene._character_sheet = character_sheet
             scene._style_anchor_path = style_anchor_path
             scene._env_anchor_path = environment_anchors.get(scene.scene_id) if environment_anchors else None
-            
-            # Context Carry-over
-            if self.feature_flags.context_carry_over and prev_scene:
-                scene.context_summary = self.summarize_prev_scene(prev_scene)
-                scene.inherited_keywords = self.extract_key_terms(prev_scene)
+
+            # Context Carry-over (직렬 처리 씬만 적용)
+            if self.feature_flags.context_carry_over and prev_scene_ref:
+                scene.context_summary = self.summarize_prev_scene(prev_scene_ref)
+                scene.inherited_keywords = self.extract_key_terms(prev_scene_ref)
             else:
                 scene.inherited_keywords = []
-            
+
             # 엔티티 추출
             scene.entities = self.extract_entities(scene.sentence, scene.inherited_keywords)
-            
+
             # 프롬프트 생성
             if scene.image_prompt:
                 if global_style:
@@ -791,27 +828,18 @@ JSON 형식으로 출력:
                     scene.prompt = f"{char_block}. {scene.prompt}"
 
             # 인종 런타임 주입 (MV 파이프라인과 동일 방식)
-            _eth = getattr(request, 'character_ethnicity', 'auto') if request else 'auto'
-            _ETH_KW = {
-                "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-                "southeast_asian": "Southeast Asian", "european": "European",
-                "black": "Black", "hispanic": "Hispanic",
-            }
-            _eth_kw = _ETH_KW.get(_eth, "")
             if _eth_kw and _eth_kw.lower() not in scene.prompt.lower():
                 scene.prompt = f"{_eth_kw} characters, {scene.prompt}"
 
             scene.negative_prompt = self.build_negative_prompt(style)
-            
+
             try:
                 # Generate IMAGE ONLY (no TTS, no video)
-                from agents.image_agent import ImageAgent
                 image_agent = ImageAgent()
-                
+
                 # Character references (포즈 선택 활성화)
                 char_refs = []
                 if scene.characters_in_scene and character_sheet:
-                    from agents.character_manager import CharacterManager
                     cm = CharacterManager.__new__(CharacterManager)
                     for char_token in scene.characters_in_scene:
                         pose_path = cm.get_pose_appropriate_image(
@@ -831,30 +859,35 @@ JSON 형식으로 출력:
                 # Anchor audit log
                 print(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_refs]}, style={os.path.basename(scene_style_anchor) if scene_style_anchor else 'None'}, env={os.path.basename(scene_env_anchor) if scene_env_anchor else 'None'}")
 
+                # Platform 기반 aspect ratio
+                _platform = getattr(request, 'platform', 'youtube_long') if request else 'youtube_long'
+                _aspect = "9:16" if _platform == 'youtube_shorts' else "16:9"
+
                 # Generate image
                 image_path, image_id = image_agent.generate_image(
                     scene_id=scene.scene_id,
                     prompt=scene.prompt,
                     negative_prompt=scene.negative_prompt,
                     style=style,
+                    aspect_ratio=_aspect,
                     output_dir=image_output_dir,
                     seed=scene_seed,
                     character_reference_paths=char_refs,
-                    style_anchor_path=scene_style_anchor,       # v2.1: 스타일 앵커
-                    environment_anchor_path=scene_env_anchor,   # v2.1: 환경 앵커
-                    image_model="standard"
+                    style_anchor_path=scene_style_anchor,
+                    environment_anchor_path=scene_env_anchor,
+                    image_model=getattr(self.feature_flags, 'image_model', 'standard')
                 )
-                
+
                 scene.assets.image_path = image_path
                 scene.status = SceneStatus.COMPLETED
-                
+
                 print(f"  [OK] Image generated: {image_path}")
-                
+
             except Exception as e:
                 scene.status = SceneStatus.FAILED
                 scene.error_message = str(e)
                 print(f"  [FAIL] Image generation failed: {e}")
-            
+
             # Scene 데이터를 딕셔너리로 변환하여 저장
             scene_dict = scene_data.copy()
             scene_dict["assets"] = {
@@ -862,19 +895,44 @@ JSON 형식으로 출력:
             }
             scene_dict["status"] = scene.status
             scene_dict["prompt"] = scene.prompt
-            
-            processed_scenes.append(scene_dict)
-            prev_scene = scene
+
+            with _result_lock:
+                processed_scenes[idx] = scene_dict
+                _completed_count[0] += 1
 
             # 콜백 호출 (프로그레시브 로딩용)
             if on_scene_complete:
                 try:
-                    on_scene_complete(scene_dict, i, total_scenes)
+                    on_scene_complete(scene_dict, _completed_count[0], total_scenes)
                 except Exception as cb_err:
                     print(f"  [WARNING] on_scene_complete callback error: {cb_err}")
 
             print(f"Scene {i} image complete\n")
-        
+            return scene
+
+        # Scene 1: 직렬 처리 (스타일 앵커 확보 + context carry-over 기준점)
+        prev_scene = None
+        if scenes:
+            prev_scene = _process_single_scene(0, scenes[0], prev_scene_ref=None)
+
+        # Scene 2+: 병렬 처리 (max_workers=4)
+        if len(scenes) > 1:
+            remaining = list(enumerate(scenes[1:], start=1))
+            print(f"\n[Parallel] Processing {len(remaining)} remaining scenes with 4 workers...")
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {
+                    executor.submit(_process_single_scene, idx, sd, prev_scene): sd
+                    for idx, sd in remaining
+                }
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        print(f"  [ERROR] Scene thread exception: {exc}")
+
+        # None 제거 (실패 시 방어)
+        processed_scenes = [s for s in processed_scenes if s is not None]
+
         print(f"\n[SUCCESS] {len(processed_scenes)} images generated!")
         return processed_scenes
 

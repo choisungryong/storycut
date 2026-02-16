@@ -395,7 +395,6 @@ class VideoAgent:
                 },
                 config={
                     'aspect_ratio': '16:9',
-                    'generate_audio': False,
                 }
             )
             
@@ -547,8 +546,19 @@ class VideoAgent:
             ]
             movement_keywords.append(ambient_movements[hash(original_prompt) % len(ambient_movements)])
 
+        # 원본 프롬프트에서 동작 힌트 추출 (action_pose 등이 포함된 경우)
+        action_hint = ""
+        _action_words = ["walking", "running", "turning", "looking", "sitting", "standing up",
+                         "reaching", "crying", "smiling", "dancing", "hugging", "waving",
+                         "leaning", "kneeling", "falling", "rising", "drifting", "swaying"]
+        prompt_lower = original_prompt.lower()
+        for aw in _action_words:
+            if aw in prompt_lower:
+                action_hint = f"The subject is {aw}. "
+                break
+
         # 최종 프롬프트 구성
-        movement_prompt = f"Animate this scene: {', '.join(movement_keywords)}. {style} style, {mood} mood. Maintain character consistency from the reference image. Cinematic quality, smooth motion."
+        movement_prompt = f"Animate this scene: {action_hint}{', '.join(movement_keywords)}. {style} style, {mood} mood. Maintain character consistency from the reference image. Cinematic quality, smooth motion."
 
         # v2.0: forbidden 토큰 제거
         movement_prompt = self._sanitize_motion_prompt(movement_prompt)

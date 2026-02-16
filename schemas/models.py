@@ -80,6 +80,20 @@ class AnchorSet(BaseModel):
         return None
 
 
+class DialogueLine(BaseModel):
+    """대화 라인 (화자별 대사)"""
+    speaker: str = Field(..., description="화자 ID (narrator, male_1, female_1 등)")
+    text: str = Field(..., description="대사 텍스트")
+    emotion: str = Field(default="", description="감정 (calm, angry, sad 등 - TTS 활용)")
+
+
+class CharacterVoice(BaseModel):
+    """화자-음성 매핑"""
+    speaker: str = Field(..., description="DialogueLine.speaker와 매칭")
+    voice_id: str = Field(..., description="ElevenLabs voice ID")
+    voice_name: str = Field(default="", description="표시용 음성 이름")
+
+
 class ValidationResult(BaseModel):
     """일관성 검증 결과"""
     scene_id: int
@@ -362,6 +376,12 @@ class Scene(BaseModel):
         description="재시도 횟수"
     )
 
+    # 멀티 화자 대화 시스템
+    dialogue_lines: List[DialogueLine] = Field(
+        default_factory=list,
+        description="화자별 대사 목록 (비어있으면 tts_script/narration 단일 내레이션)"
+    )
+
     # TTS 기반 duration (Phase 1)
     tts_duration_sec: Optional[float] = Field(
         default=None,
@@ -472,6 +492,12 @@ class Manifest(BaseModel):
         description="캐릭터 시트 (토큰별)"
     )
 
+    # 화자-음성 매핑
+    character_voices: List[CharacterVoice] = Field(
+        default_factory=list,
+        description="화자별 음성 매핑 (멀티 화자 TTS용)"
+    )
+
     # 장면 목록
     scenes: List[Scene] = Field(
         default_factory=list,
@@ -568,3 +594,7 @@ class GenerateVideoRequest(BaseModel):
     project_id: Optional[str] = Field(default=None, description="프로젝트 ID (옵션)")
     request_params: ProjectRequest = Field(..., description="초기 요청 파라미터")
     story_data: Dict[str, Any] = Field(..., description="확정된 스토리 데이터")
+    character_voices: List[CharacterVoice] = Field(
+        default_factory=list,
+        description="화자-음성 매핑 (멀티 화자 TTS용)"
+    )
