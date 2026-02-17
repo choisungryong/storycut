@@ -1289,7 +1289,10 @@ class StorycutApp {
                 this.addLog('INFO', `📥 결과 데이터 요청 중... (시도 ${i + 1}/${maxRetries})`);
                 console.log(`[Fetch] Requesting manifest from: ${targetUrl}`);
 
-                const response = await fetch(targetUrl);
+                const fetchOpts = {};
+                const token = localStorage.getItem('auth_token');
+                if (token) fetchOpts.headers = { 'Authorization': `Bearer ${token}` };
+                const response = await fetch(targetUrl, fetchOpts);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -2098,7 +2101,10 @@ class StorycutApp {
         console.log(`[Archive] showArchiveDetail: projectId=${projectId}, type=${type}`);
         try {
             const baseUrl = this.getApiBaseUrl();
-            const response = await fetch(`${baseUrl}/api/manifest/${projectId}`);
+            const archFetchOpts = {};
+            const archToken = localStorage.getItem('auth_token');
+            if (archToken) archFetchOpts.headers = { 'Authorization': `Bearer ${archToken}` };
+            const response = await fetch(`${baseUrl}/api/manifest/${projectId}`, archFetchOpts);
             if (!response.ok) throw new Error(`Manifest 로드 실패 (${response.status})`);
             const manifest = await response.json();
             console.log(`[Archive] Manifest loaded: status=${manifest.status}, scenes=${(manifest.scenes||[]).length}`);

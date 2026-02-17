@@ -145,6 +145,10 @@ async function routeRequest(url, request, env, ctx, cors) {
     const user = await authenticateUser(request, env);
     return proxyToRailwayPublic(request, env, path, cors, user);
   }
+  if (path.startsWith('/api/manifest/')) {
+    const user = await authenticateUser(request, env);
+    return proxyToRailwayPublic(request, env, path, cors, user);
+  }
   if (path.startsWith('/api/asset/')) return proxyToRailwayPublic(request, env, path, cors);
   if (path.startsWith('/api/mv/stream/')) return proxyToRailwayPublic(request, env, path, cors);
   if (path.startsWith('/api/mv/download/')) return proxyToRailwayPublic(request, env, path, cors);
