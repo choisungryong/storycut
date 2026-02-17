@@ -13,12 +13,12 @@ const CLIP_COSTS = {
 };
 
 const CLIP_LABELS = {
-    video: 'AI Story Video',
-    script_video: 'Script Video',
-    mv: 'Music Video',
-    image_regen: 'Image Regen',
-    i2v: 'I2V Conversion',
-    mv_recompose: 'MV Recompose',
+    video: 'AI 스토리 영상',
+    script_video: '스크립트 영상',
+    mv: '뮤직비디오',
+    image_regen: '이미지 재생성',
+    i2v: 'I2V 변환',
+    mv_recompose: 'MV 재합성',
 };
 
 // ==================== Google OAuth ====================
@@ -42,7 +42,7 @@ async function fetchGoogleClientId() {
 async function googleSignIn() {
     const clientId = await fetchGoogleClientId();
     if (!clientId) {
-        showAuthError('Google login is not configured. Please use email login.');
+        showAuthError('Google 로그인이 설정되지 않았습니다. 이메일 로그인을 사용해 주세요.');
         return;
     }
 
@@ -58,7 +58,7 @@ async function googleSignIn() {
 async function handleGoogleCredential(response) {
     const idToken = response.credential;
     if (!idToken) {
-        showAuthError('Google authentication failed.');
+        showAuthError('Google 인증에 실패했습니다.');
         return;
     }
 
@@ -72,7 +72,7 @@ async function handleGoogleCredential(response) {
         });
         const data = await res.json();
 
-        if (!res.ok) throw new Error(data.error || 'Google login failed');
+        if (!res.ok) throw new Error(data.error || 'Google 로그인 실패');
 
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 const data = await res.json();
 
-                if (!res.ok) throw new Error(data.error || 'Login failed');
+                if (!res.ok) throw new Error(data.error || '로그인 실패');
 
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('user', JSON.stringify(data.user));
@@ -146,7 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 const data = await res.json();
 
-                if (!res.ok) throw new Error(data.error || 'Registration failed');
+                if (!res.ok) throw new Error(data.error || '회원가입 실패');
 
                 showAuthError('');
                 // Auto-login after signup
@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     localStorage.setItem('user', JSON.stringify(loginData.user));
                     window.location.href = '/app';
                 } else {
-                    alert('Registration complete! Please log in.');
+                    alert('회원가입이 완료되었습니다! 로그인해 주세요.');
                     window.location.href = '/login.html';
                 }
             } catch (err) {
@@ -205,7 +205,7 @@ function renderUserHeader(user) {
     const existing = document.getElementById('user-header-info');
     if (existing) existing.remove();
 
-    const displayName = user.username || user.email?.split('@')[0] || 'User';
+    const displayName = user.username || user.email?.split('@')[0] || '사용자';
 
     const userInfo = document.createElement('div');
     userInfo.id = 'user-header-info';
@@ -239,10 +239,10 @@ function openProfileModal() {
     const modal = document.getElementById('profile-modal');
     if (!modal) return;
 
-    const displayName = user.username || user.email?.split('@')[0] || 'User';
+    const displayName = user.username || user.email?.split('@')[0] || '사용자';
     const planName = (user.plan_name || user.plan_id || 'Free').charAt(0).toUpperCase() +
         (user.plan_name || user.plan_id || 'Free').slice(1);
-    const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A';
+    const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString() : '없음';
 
     // Header
     const nameEl = document.getElementById('profile-name');
@@ -258,8 +258,8 @@ function openProfileModal() {
     if (googleStatus) {
         const isGoogle = user.auth_provider === 'google' || user.google_id;
         googleStatus.innerHTML = isGoogle
-            ? '<span class="profile-badge profile-badge-connected">Connected</span>'
-            : '<span class="profile-badge profile-badge-disconnected">Not connected</span>';
+            ? '<span class="profile-badge profile-badge-connected">연결됨</span>'
+            : '<span class="profile-badge profile-badge-disconnected">미연결</span>';
     }
 
     const planEl = document.getElementById('profile-plan');
@@ -341,7 +341,7 @@ async function updateUsername() {
             },
             body: JSON.stringify({ username: newName })
         });
-        if (!res.ok) throw new Error('Failed to update');
+        if (!res.ok) throw new Error('업데이트 실패');
 
         // Update local storage
         const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -352,9 +352,9 @@ async function updateUsername() {
         document.getElementById('profile-name').textContent = newName;
         toggleUsernameEdit();
         renderUserHeader(user);
-        _authToast('Name updated', 'success');
+        _authToast('이름이 변경되었습니다', 'success');
     } catch (err) {
-        _authToast('Failed to update name', 'error');
+        _authToast('이름 변경에 실패했습니다', 'error');
     }
 }
 
@@ -371,7 +371,7 @@ async function loadProfileStats() {
         if (el('profile-stat-videos')) el('profile-stat-videos').textContent = data.total_videos ?? 0;
         if (el('profile-stat-mvs')) el('profile-stat-mvs').textContent = data.total_mv ?? 0;
         if (el('profile-stat-clips-used')) el('profile-stat-clips-used').textContent = data.total_clips_used ?? data.total_credits_used ?? 0;
-        if (el('profile-stat-since')) el('profile-stat-since').textContent = data.member_since || 'N/A';
+        if (el('profile-stat-since')) el('profile-stat-since').textContent = data.member_since || '없음';
 
         const extraEl = document.getElementById('profile-stats-extra');
         if (data.top_style || data.top_genre) {
@@ -398,7 +398,7 @@ async function loadClipHistory() {
 
         const items = data.history || [];
         if (items.length === 0) {
-            listEl.innerHTML = '<p class="profile-empty-state">No clip usage history yet.</p>';
+            listEl.innerHTML = '<p class="profile-empty-state">아직 클립 사용 내역이 없습니다.</p>';
             return;
         }
 
@@ -423,7 +423,7 @@ function savePreferences() {
         language: document.getElementById('pref-language')?.value || '',
     };
     localStorage.setItem('klippa_preferences', JSON.stringify(prefs));
-    _authToast('Preferences saved', 'success');
+    _authToast('설정이 저장되었습니다', 'success');
 }
 
 function loadPreferencesToForm() {
@@ -488,7 +488,7 @@ async function fetchClipBalance() {
             }
             if (!window._clipErrorShown) {
                 window._clipErrorShown = true;
-                _authToast('Clip service unavailable. Proceeding without clip check.', 'error');
+                _authToast('클립 서비스를 사용할 수 없습니다. 클립 확인 없이 진행합니다.', 'error');
             }
             return null;
         }
@@ -508,7 +508,7 @@ async function fetchClipBalance() {
     } catch (err) {
         if (!window._clipErrorShown) {
             window._clipErrorShown = true;
-            _authToast('Clip service unavailable. Proceeding without clip check.', 'error');
+            _authToast('클립 서비스를 사용할 수 없습니다. 클립 확인 없이 진행합니다.', 'error');
         }
         return null;
     }
@@ -556,23 +556,23 @@ function showInsufficientClipsModal(action, cost, available) {
             padding: 32px; max-width: 420px; width: 90%; text-align: center;
         ">
             <div style="font-size: 48px; margin-bottom: 16px;">&#x26A0;</div>
-            <h3 style="color: #f59e0b; margin: 0 0 12px;">Clip Insufficient</h3>
+            <h3 style="color: #f59e0b; margin: 0 0 12px;">클립 부족</h3>
             <p style="color: #ccc; margin: 0 0 8px;">
-                <strong>${label}</strong> requires <strong style="color:#f59e0b">${cost}</strong> clips.
+                <strong>${label}</strong>에 <strong style="color:#f59e0b">${cost}</strong> 클립이 필요합니다.
             </p>
             <p style="color: #888; margin: 0 0 24px;">
-                Current balance: <strong style="color:#ef4444">${available}</strong> clips
+                현재 잔액: <strong style="color:#ef4444">${available}</strong> 클립
             </p>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <a href="/pricing.html" style="
                     padding: 10px 24px; background: linear-gradient(135deg, #f59e0b, #d97706);
                     border: none; border-radius: 8px; color: #000; font-weight: 600;
                     text-decoration: none; cursor: pointer;
-                ">Get Clips</a>
+                ">클립 충전</a>
                 <button onclick="document.getElementById('clip-modal').remove()" style="
                     padding: 10px 24px; background: #333; border: 1px solid #555;
                     border-radius: 8px; color: #ccc; cursor: pointer;
-                ">Cancel</button>
+                ">취소</button>
             </div>
         </div>
     `;
@@ -601,23 +601,23 @@ function showPlanUpgradeModal(action, message) {
             padding: 32px; max-width: 420px; width: 90%; text-align: center;
         ">
             <div style="font-size: 48px; margin-bottom: 16px;">&#x1F512;</div>
-            <h3 style="color: #a78bfa; margin: 0 0 12px;">Plan Upgrade Required</h3>
+            <h3 style="color: #a78bfa; margin: 0 0 12px;">플랜 업그레이드 필요</h3>
             <p style="color: #ccc; margin: 0 0 8px;">
-                <strong>${label}</strong> is not available on your current plan.
+                <strong>${label}</strong>은(는) 현재 플랜에서 사용할 수 없습니다.
             </p>
             <p style="color: #888; margin: 0 0 24px;">
-                ${message || 'Upgrade to a paid plan to unlock this feature.'}
+                ${message || '이 기능을 사용하려면 유료 플랜으로 업그레이드하세요.'}
             </p>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <a href="/pricing.html" style="
                     padding: 10px 24px; background: linear-gradient(135deg, #a78bfa, #7c3aed);
                     border: none; border-radius: 8px; color: #fff; font-weight: 600;
                     text-decoration: none; cursor: pointer;
-                ">View Plans</a>
+                ">요금제 보기</a>
                 <button onclick="document.getElementById('clip-modal').remove()" style="
                     padding: 10px 24px; background: #333; border: 1px solid #555;
                     border-radius: 8px; color: #ccc; cursor: pointer;
-                ">Cancel</button>
+                ">취소</button>
             </div>
         </div>
     `;
@@ -646,31 +646,31 @@ function showGemini3SurchargeModal(action, required, available, surcharge) {
             padding: 32px; max-width: 440px; width: 90%; text-align: center;
         ">
             <div style="font-size: 48px; margin-bottom: 16px;">&#x2728;</div>
-            <h3 style="color: #f59e0b; margin: 0 0 12px;">Gemini 3.0 Surcharge</h3>
+            <h3 style="color: #f59e0b; margin: 0 0 12px;">Gemini 3.0 추가 요금</h3>
             <p style="color: #ccc; margin: 0 0 8px;">
-                You've used your free Gemini 3.0 quota this month.
+                이번 달 무료 Gemini 3.0 사용량을 모두 소진했습니다.
             </p>
             <p style="color: #ccc; margin: 0 0 8px;">
-                <strong>${label}</strong> with Gemini 3.0 requires
-                <span style="color: #f59e0b; font-weight: 700;">${required} clips</span>
-                (includes +${surcharge} surcharge).
+                <strong>${label}</strong>에 Gemini 3.0 사용 시
+                <span style="color: #f59e0b; font-weight: 700;">${required} 클립</span>이
+                필요합니다 (+${surcharge} 추가 요금 포함).
             </p>
             <p style="color: #888; margin: 0 0 8px;">
-                Available: <strong>${available} clips</strong>
+                보유: <strong>${available} 클립</strong>
             </p>
             <p style="color: #777; font-size: 13px; margin: 0 0 24px;">
-                Switch to Gemini 2.5 to avoid the surcharge, or purchase more clips.
+                추가 요금을 피하려면 Gemini 2.5로 전환하거나, 클립을 충전하세요.
             </p>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <a href="/pricing.html" style="
                     padding: 10px 24px; background: linear-gradient(135deg, #f59e0b, #d97706);
                     border: none; border-radius: 8px; color: #fff; font-weight: 600;
                     text-decoration: none; cursor: pointer;
-                ">Get More Clips</a>
+                ">클립 충전하기</a>
                 <button onclick="document.getElementById('clip-modal').remove()" style="
                     padding: 10px 24px; background: #333; border: 1px solid #555;
                     border-radius: 8px; color: #ccc; cursor: pointer;
-                ">Cancel</button>
+                ">취소</button>
             </div>
         </div>
     `;
