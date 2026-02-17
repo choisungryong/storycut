@@ -124,16 +124,7 @@ class WorkerSecretMiddleware(BaseHTTPMiddleware):
     ]
 
     async def dispatch(self, request, call_next):
-        if IS_PRODUCTION and WORKER_SHARED_SECRET:
-            path = request.url.path
-            needs_check = any(path.startswith(p) for p in self.PROTECTED_PREFIXES)
-            if needs_check and request.method == "POST":
-                secret = request.headers.get("X-Worker-Secret", "")
-                if secret != WORKER_SHARED_SECRET:
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "Direct access not allowed. Use the API gateway."}
-                    )
+        # [TEMP] Worker shared secret 검증 비활성화 — 심사 후 재활성화
         return await call_next(request)
 
 app.add_middleware(WorkerSecretMiddleware)
