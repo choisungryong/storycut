@@ -29,7 +29,7 @@ async startImageGeneration() {
 
         const response = await fetch(`${apiUrl}/api/generate/images`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getAuthHeaders(),
             body: JSON.stringify({
                 project_id: this.projectId,
                 story_data: this.currentStoryData,
@@ -117,7 +117,7 @@ async regenerateImage(projectId, sceneId) {
 
         const response = await fetch(`${apiUrl}/api/regenerate/image/${projectId}/${sceneId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getAuthHeaders(),
             body: JSON.stringify({})
         });
 
@@ -161,7 +161,7 @@ async convertToVideo(projectId, sceneId) {
 
         const response = await fetch(`${apiUrl}/api/convert/i2v/${projectId}/${sceneId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getAuthHeaders(),
             body: JSON.stringify({
                 motion_prompt: "camera slowly pans and zooms"
             })
@@ -201,7 +201,7 @@ async toggleHookVideo(projectId, sceneId) {
 
         const response = await fetch(`${apiUrl}/api/toggle/hook-video/${projectId}/${sceneId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getAuthHeaders(),
             body: JSON.stringify({ enable: newState })
         });
 
@@ -261,7 +261,7 @@ async startFinalGenerationAfterImageReview() {
 
         const response = await fetch(`${apiUrl}/api/generate/video`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getAuthHeaders(),
             body: JSON.stringify({
                 project_id: this.projectId,
                 story_data: this.currentStoryData,

@@ -151,6 +151,53 @@ class StorycutApp {
             this.resetUI();
         });
 
+        // 쇼츠 선택 시 duration 슬라이더 자동 조정
+        document.querySelectorAll('input[name="platform"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const slider = document.getElementById('duration');
+                const display = document.getElementById('duration-display');
+                if (e.target.value === 'youtube_shorts') {
+                    slider.max = 60;
+                    if (parseInt(slider.value) > 60) {
+                        slider.value = 30;
+                        display.textContent = '30';
+                    }
+                } else {
+                    slider.max = 300;
+                }
+            });
+        });
+
+        // 유튜브 업로드 버튼 (준비중)
+        const ytUploadBtn = document.getElementById('youtube-upload-btn');
+        if (ytUploadBtn) {
+            ytUploadBtn.addEventListener('click', () => {
+                this.showToast('유튜브 업로드 기능은 준비 중입니다.', 'info');
+            });
+        }
+
+        // Hook text 편집
+        const hookEditBtn = document.getElementById('shorts-hook-edit-btn');
+        if (hookEditBtn) {
+            hookEditBtn.addEventListener('click', () => {
+                const hookArea = document.getElementById('shorts-hook-area');
+                const display = hookArea.querySelector('.shorts-hook-display');
+                const currentText = document.getElementById('shorts-hook-text').textContent;
+                display.innerHTML = `<input type="text" value="${escapeHtml(currentText)}" maxlength="15" /><button class="btn-icon-small" title="저장"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>`;
+                const input = display.querySelector('input');
+                const saveBtn = display.querySelector('button');
+                input.focus();
+                const save = () => {
+                    const newText = input.value.trim() || currentText;
+                    display.innerHTML = `<span id="shorts-hook-text">${escapeHtml(newText)}</span><button id="shorts-hook-edit-btn" class="btn-icon-small" title="편집"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`;
+                    // Re-bind edit button
+                    display.querySelector('#shorts-hook-edit-btn').addEventListener('click', () => hookEditBtn.click());
+                };
+                saveBtn.addEventListener('click', save);
+                input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+            });
+        }
+
         // 네비게이션
         document.getElementById('nav-create').addEventListener('click', (e) => {
             e.preventDefault();
@@ -230,6 +277,13 @@ class StorycutApp {
             return '';
         }
         return 'https://storycut-worker.twinspa0713.workers.dev';
+    }
+
+    getAuthHeaders(extra = {}) {
+        const headers = { 'Content-Type': 'application/json', ...extra };
+        const token = localStorage.getItem('token');
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        return headers;
     }
 
     getMediaBaseUrl() {
@@ -334,6 +388,7 @@ class StorycutApp {
             // 스토리 생성: Worker 먼저 시도, 타임아웃 시 Railway 폴백
             const workerUrl = this.getWorkerUrl();
             const railwayUrl = this.getApiBaseUrl();
+            const token = localStorage.getItem('token');
             let response;
 
             try {
@@ -341,7 +396,7 @@ class StorycutApp {
                 const timeoutId = setTimeout(() => controller.abort(), 120000); // 2분 타임아웃
                 response = await fetch(`${workerUrl}/api/generate/story`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: this.getAuthHeaders(),
                     body: JSON.stringify(requestData),
                     signal: controller.signal
                 });
@@ -351,7 +406,7 @@ class StorycutApp {
                 this.updateProgress(40, 'Worker 타임아웃 — 백엔드로 재시도 중...');
                 response = await fetch(`${railwayUrl}/api/generate/story`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: this.getAuthHeaders(),
                     body: JSON.stringify(requestData)
                 });
             }
@@ -506,7 +561,7 @@ class StorycutApp {
                 const timeoutId = setTimeout(() => controller.abort(), 120000);
                 response = await fetch(`${workerUrl}/api/generate/from-script`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: this.getAuthHeaders(),
                     body: JSON.stringify(requestData),
                     signal: controller.signal
                 });
@@ -517,7 +572,7 @@ class StorycutApp {
                 this.updateProgress(40, 'Worker 타임아웃 - 백엔드로 재시도 중...');
                 response = await fetch(`${railwayUrl}/api/generate/from-script`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: this.getAuthHeaders(),
                     body: JSON.stringify(requestData)
                 });
             }
@@ -950,12 +1005,7 @@ class StorycutApp {
 
             let urlToUse = this.getApiBaseUrl();
 
-            // 인증 토큰 (선택적 - 백엔드가 인증 없이도 작동)
-            const token = localStorage.getItem('token');
-            const headers = { 'Content-Type': 'application/json' };
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
+            const headers = this.getAuthHeaders();
 
             // Collect character_voices from voice selection UI
             const characterVoices = Object.values(this._characterVoices || {});
@@ -1258,7 +1308,9 @@ class StorycutApp {
                     thumbnail_texts: manifest.outputs?.thumbnail_texts,
                     hashtags: manifest.outputs?.hashtags,
                     video_path: manifest.outputs?.final_video_path,
-                    server_url: urlToUse
+                    server_url: urlToUse,
+                    platform: manifest.input?.target_platform || 'youtube_long',
+                    hook_text: manifest.hook_text || '',
                 });
 
                 return; // 성공 시 종료
@@ -1293,6 +1345,35 @@ class StorycutApp {
         const headerText = document.getElementById('result-header-text');
         const videoContainer = document.getElementById('result-video-container');
         const downloadBtn = document.getElementById('download-btn');
+        const isShorts = data.platform === 'youtube_shorts';
+
+        // Shorts 모드 UI 토글
+        const shortsHookArea = document.getElementById('shorts-hook-area');
+        const youtubeUploadBtn = document.getElementById('youtube-upload-btn');
+        const resultSection = document.getElementById('result-section');
+
+        if (isShorts) {
+            videoContainer.classList.add('shorts-player');
+            resultSection.classList.add('shorts-mode');
+        } else {
+            videoContainer.classList.remove('shorts-player');
+            resultSection.classList.remove('shorts-mode');
+        }
+
+        // Hook text 표시
+        if (shortsHookArea) {
+            if (isShorts && data.hook_text) {
+                shortsHookArea.style.display = '';
+                document.getElementById('shorts-hook-text').textContent = data.hook_text;
+            } else {
+                shortsHookArea.style.display = 'none';
+            }
+        }
+
+        // 유튜브 업로드 버튼 표시
+        if (youtubeUploadBtn) {
+            youtubeUploadBtn.style.display = data.status === 'completed' ? 'inline-flex' : 'none';
+        }
 
         // 기본 정보
         document.getElementById('result-project-id').textContent = data.project_id;
@@ -1306,7 +1387,7 @@ class StorycutApp {
 
         // 상태별 UI 처리
         if (data.status === 'completed') {
-            headerText.textContent = "영상 완성";
+            headerText.textContent = isShorts ? "쇼츠 완성" : "영상 완성";
 
             // 비디오 플레이어 복구/설정
             videoContainer.innerHTML = '<video id="result-video" controls style="width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></video>';
@@ -1728,7 +1809,7 @@ class StorycutApp {
                 `${baseUrl}/api/projects/${projectId}/scenes/${sceneId}/narration`,
                 {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: this.getAuthHeaders(),
                     body: JSON.stringify({ narration: newText })
                 }
             );
@@ -1792,7 +1873,7 @@ class StorycutApp {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/projects/${projectId}/scenes/${sceneId}/regenerate`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({
                     regenerate_image: true,
                     regenerate_tts: true,
@@ -1882,7 +1963,7 @@ class StorycutApp {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/projects/${projectId}/recompose`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: this.getAuthHeaders()
             });
 
             if (!response.ok) {
@@ -2080,6 +2161,8 @@ class StorycutApp {
                     hashtags: manifest.outputs?.hashtags,
                     video_path: manifest.outputs?.final_video_path,
                     server_url: baseUrl,
+                    platform: manifest.input?.target_platform || 'youtube_long',
+                    hook_text: manifest.hook_text || '',
                     _fromArchive: true,
                     _scenes: manifest.scenes || [],
                 });
@@ -2264,7 +2347,7 @@ class StorycutApp {
 
             const response = await fetch(`${apiUrl}/api/generate/images`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({
                     project_id: this.projectId,
                     story_data: this.currentStoryData,
@@ -2560,7 +2643,7 @@ class StorycutApp {
 
             const response = await fetch(`${this.getApiBaseUrl()}/api/regenerate/image/${projectId}/${sceneId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({})
             });
 
@@ -2692,7 +2775,7 @@ class StorycutApp {
         try {
             const response = await fetch(`${this.getApiBaseUrl()}/api/convert/i2v/${projectId}/${sceneId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({ motion_prompt: "camera slowly pans and zooms" })
             });
 
@@ -2731,7 +2814,7 @@ class StorycutApp {
         try {
             const response = await fetch(`${this.getApiBaseUrl()}/api/toggle/hook-video/${projectId}/${sceneId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({ enable: !isHook })
             });
 
@@ -2793,16 +2876,10 @@ class StorycutApp {
         this.addLog('INFO', '📤 영상 생성 요청 전송 중...');
 
         try {
-            const token = localStorage.getItem('token');
-            const headers = { 'Content-Type': 'application/json' };
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-
             const characterVoices = Object.values(this._characterVoices || {});
             const response = await fetch(`${this.getApiBaseUrl()}/api/generate/video`, {
                 method: 'POST',
-                headers: headers,
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({
                     project_id: this.projectId,
                     story_data: this.currentStoryData,
@@ -3086,7 +3163,7 @@ class StorycutApp {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/mv/generate`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({
                     project_id: this.mvProjectId,
                     lyrics: this.mvRequestParams?.lyrics || '',
@@ -3604,7 +3681,7 @@ class StorycutApp {
             const fetchBody = customPrompt ? JSON.stringify({ custom_prompt: customPrompt }) : '{}';
             const response = await fetch(`${baseUrl}/api/mv/scenes/${projectId}/${sceneId}/regenerate`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: fetchBody,
             });
 
@@ -4157,7 +4234,7 @@ class StorycutApp {
             const baseUrl = this.getApiBaseUrl();
             const resp = await fetch(`${baseUrl}/api/mv/${projectId}/lyrics-timeline`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getAuthHeaders(),
                 body: JSON.stringify({ timed_lyrics: entries })
             });
 
