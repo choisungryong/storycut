@@ -20,6 +20,28 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 
+# [보안] FFmpeg 필터 파라미터 검증 유틸리티
+def _sanitize_ffmpeg_number(value, default=0.0, min_val=None, max_val=None):
+    """FFmpeg 필터에 삽입될 숫자 값 검증 — 인젝션 방지"""
+    try:
+        num = float(value)
+        if min_val is not None:
+            num = max(num, min_val)
+        if max_val is not None:
+            num = min(num, max_val)
+        return num
+    except (TypeError, ValueError):
+        return default
+
+
+def _sanitize_ffmpeg_style_value(value: str) -> str:
+    """FFmpeg force_style 내 개별 값 검증 — 세미콜론/따옴표 주입 방지"""
+    if not isinstance(value, str):
+        return str(value)
+    # 세미콜론, 따옴표, 줄바꿈 등 FFmpeg 필터 구분자 제거
+    return re.sub(r"[;'\"\\`\n\r]", "", value)
+
+
 class FFmpegComposer:
     """
     FFmpeg 기반 비디오 합성 엔진
@@ -419,14 +441,20 @@ class FFmpegComposer:
             style = {}
 
         # ASS 스타일 문자열 생성
-        # 플랫폼별 한글 폰트 사용 (Windows: Malgun Gothic, Linux: Noto Sans CJK KR)
+        # [보안] 스타일 값 검증 — FFmpeg 필터 인젝션 방지
+        font_size = int(_sanitize_ffmpeg_number(style.get('font_size', 24), 24, 8, 120))
+        primary_color = _sanitize_ffmpeg_style_value(style.get('primary_color', '&HFFFFFF'))
+        outline_color = _sanitize_ffmpeg_style_value(style.get('outline_color', '&H000000'))
+        outline_width = int(_sanitize_ffmpeg_number(style.get('outline_width', 2), 2, 0, 10))
+        margin_v = int(_sanitize_ffmpeg_number(style.get('margin_v', 20), 20, 0, 200))
+
         force_style = (
-            f"FontName={default_font},"  # 플랫폼별 기본 폰트 사용
-            f"FontSize={style.get('font_size', 24)},"
-            f"PrimaryColour={style.get('primary_color', '&HFFFFFF')},"
-            f"OutlineColour={style.get('outline_color', '&H000000')},"
-            f"Outline={style.get('outline_width', 2)},"
-            f"MarginV={style.get('margin_v', 20)}"
+            f"FontName={_sanitize_ffmpeg_style_value(default_font)},"
+            f"FontSize={font_size},"
+            f"PrimaryColour={primary_color},"
+            f"OutlineColour={outline_color},"
+            f"Outline={outline_width},"
+            f"MarginV={margin_v}"
         )
 
         # SRT 경로를 절대 경로로 변환 (Linux에서 상대 경로 문제 해결)
@@ -686,10 +714,11 @@ class FFmpegComposer:
             )
 
         # 둘 다 있는 경우 - Ducking 적용
-        threshold = ducking_config.get("threshold", 0.02)
-        ratio = ducking_config.get("ratio", 10)
-        attack = ducking_config.get("attack_ms", 20)
-        release = ducking_config.get("release_ms", 200)
+        # [보안] 숫자 값 검증 — FFmpeg 필터 인젝션 방지
+        threshold = _sanitize_ffmpeg_number(ducking_config.get("threshold", 0.02), 0.02, 0.001, 1.0)
+        ratio = _sanitize_ffmpeg_number(ducking_config.get("ratio", 10), 10, 1, 100)
+        attack = _sanitize_ffmpeg_number(ducking_config.get("attack_ms", 20), 20, 1, 5000)
+        release = _sanitize_ffmpeg_number(ducking_config.get("release_ms", 200), 200, 1, 10000)
 
         # sidechaincompress를 사용한 Audio Ducking
         filter_complex = (

@@ -1,5 +1,16 @@
 // STORYCUT v2.0 - 프론트엔드 로직 (완전 재작성)
 
+// [보안] HTML 이스케이프 유틸리티 — XSS 방지
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 class StorycutApp {
     constructor() {
         this.projectId = null;
@@ -517,7 +528,7 @@ class StorycutApp {
                 if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'script_video')) {
                     return;
                 }
-                let errorMsg = 'Script processing failed';
+                let errorMsg = '스크립트 처리 실패';
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.error || errorMsg;
@@ -632,10 +643,10 @@ class StorycutApp {
 
                 <label>Narration / Dialogue</label>
                 ${highlightedHtml ? `<div class="dialogue-preview">${highlightedHtml}</div>` : ''}
-                <textarea class="review-textarea narration-input" data-idx="${index}">${narrationText}</textarea>
+                <textarea class="review-textarea narration-input" data-idx="${index}">${escapeHtml(narrationText)}</textarea>
 
                 <label>Visual Prompt</label>
-                <textarea class="review-textarea visual-textarea visual-input" data-idx="${index}">${scene.visual_description || scene.prompt}</textarea>
+                <textarea class="review-textarea visual-textarea visual-input" data-idx="${index}">${escapeHtml(scene.visual_description || scene.prompt)}</textarea>
             `;
             grid.appendChild(card);
         });
@@ -656,18 +667,18 @@ class StorycutApp {
         return text.split('\n').map(line => {
             const match = line.match(/^\[([^\]]+)\](?:\(([^)]*)\))?\s*(.*)/);
             if (match) {
-                const speaker = match[1];
-                const emotion = match[2] || '';
-                const dialogue = match[3];
-                const color = speakerColors[speaker] || '#a78bfa';
+                const speaker = escapeHtml(match[1]);
+                const emotion = escapeHtml(match[2] || '');
+                const dialogue = escapeHtml(match[3]);
+                const color = speakerColors[match[1]] || '#a78bfa';
                 const emotionBadge = emotion ? `<span style="color:${color};opacity:0.6;font-size:11px">(${emotion})</span>` : '';
                 return `<span style="color:${color};font-weight:600">[${speaker}]</span>${emotionBadge} ${dialogue}`;
             }
             // Show plain text lines as narrator (gray) if no tags in entire text
             if (!hasTags && line.trim()) {
-                return `<span style="color:#9ca3af">${line}</span>`;
+                return `<span style="color:#9ca3af">${escapeHtml(line)}</span>`;
             }
-            return line;
+            return escapeHtml(line);
         }).filter(l => l.trim()).join('<br>');
     }
 
@@ -864,22 +875,22 @@ class StorycutApp {
             if (!g3.allowed) {
                 hint.style.display = 'block';
                 hint.style.color = '#ef4444';
-                hint.textContent = 'Gemini 3.0 requires a paid plan.';
+                hint.textContent = 'Gemini 3.0은 유료 플랜에서만 사용 가능합니다.';
                 select.value = 'standard';
                 return;
             }
             if (g3.willSurcharge) {
                 hint.style.display = 'block';
                 hint.style.color = '#f59e0b';
-                hint.textContent = `Free quota used (${g3.used}/${g3.freeLimit}). +${g3.surchargePerImage} clips/image surcharge applies.`;
+                hint.textContent = `무료 할당량 소진 (${g3.used}/${g3.freeLimit}). 이미지당 +${g3.surchargePerImage} 클립 추가 차감됩니다.`;
             } else if (g3.freeLimit >= 0) {
                 hint.style.display = 'block';
                 hint.style.color = '#22c55e';
-                hint.textContent = `Free Gemini 3.0: ${g3.used}/${g3.freeLimit} used this month.`;
+                hint.textContent = `무료 Gemini 3.0: 이번 달 ${g3.used}/${g3.freeLimit} 사용.`;
             } else {
                 hint.style.display = 'block';
                 hint.style.color = '#22c55e';
-                hint.textContent = 'Gemini 3.0 unlimited on your plan.';
+                hint.textContent = 'Gemini 3.0 무제한 사용 가능한 플랜입니다.';
             }
         } else {
             hint.style.display = 'none';
@@ -1055,7 +1066,7 @@ class StorycutApp {
 
                 // 상태에 따른 처리
                 if (data.status === 'completed') {
-                    this.addLog('SUCCESS', 'Video Complete');
+                    this.addLog('SUCCESS', '영상 완성');
                     this.updateProgress(100, '완료');
                     this.updateStepStatus('complete', '완료');
                     this.stopPolling();
@@ -1166,7 +1177,7 @@ class StorycutApp {
 
                         // 완료 감지
                         if (data.progress === 100 || data.step === 'complete') {
-                            this.addLog('SUCCESS', 'Video Complete');
+                            this.addLog('SUCCESS', '영상 완성');
                             this.updateStepStatus('complete', '완료');
                             setTimeout(() => {
                                 this.handleComplete({
@@ -1270,7 +1281,7 @@ class StorycutApp {
     showResultError(projectId, message) {
         document.getElementById('result-section').classList.remove('hidden');
         document.getElementById('result-header-text').textContent = "⚠️ 프로젝트 로드 실패";
-        document.getElementById('result-video-container').innerHTML = `<div class="error-box"><p>${message}</p></div>`;
+        document.getElementById('result-video-container').innerHTML = `<div class="error-box"><p>${escapeHtml(message)}</p></div>`;
     }
 
     async showResults(data) {
@@ -1295,7 +1306,7 @@ class StorycutApp {
 
         // 상태별 UI 처리
         if (data.status === 'completed') {
-            headerText.textContent = "Video Complete";
+            headerText.textContent = "영상 완성";
 
             // 비디오 플레이어 복구/설정
             videoContainer.innerHTML = '<video id="result-video" controls style="width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></video>';
@@ -1324,7 +1335,7 @@ class StorycutApp {
                 <div style="text-align: center; padding: 40px; background: rgba(255,50,50,0.1); border-radius: 8px;">
                     <span style="font-size: 48px; display: block; margin-bottom: 20px;">⚠️</span>
                     <h3>생성 도중 오류가 발생했습니다.</h3>
-                    <p>${data.error_message || '알 수 없는 오류'}</p>
+                    <p>${escapeHtml(data.error_message || '알 수 없는 오류')}</p>
                 </div>`;
             downloadBtn.style.display = 'none';
         }
@@ -1612,7 +1623,7 @@ class StorycutApp {
             // 에러 메시지
             let errorMsg = '';
             if (scene.error_message) {
-                errorMsg = `<div class="scene-error-message">❌ ${scene.error_message}</div>`;
+                errorMsg = `<div class="scene-error-message">❌ ${escapeHtml(scene.error_message)}</div>`;
             }
 
             // 이미지 경로 추론: assets에 있으면 사용, 없으면 기본 경로 추정
@@ -1975,10 +1986,10 @@ class StorycutApp {
             card.innerHTML = `
                 <div class="history-thumb" style="background: #1a1a2e;">
                     ${typeBadge}
-                    ${project.thumbnail_url ? `<img src="${this.getMediaBaseUrl()}${project.thumbnail_url}" alt="${project.title}" onerror="this.style.display='none'">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
+                    ${project.thumbnail_url ? `<img src="${this.getMediaBaseUrl()}${escapeHtml(project.thumbnail_url)}" alt="${escapeHtml(project.title)}" onerror="this.style.display='none'">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
                 </div>
                 <div class="history-info">
-                    <p class="history-title">${project.title}</p>
+                    <p class="history-title">${escapeHtml(project.title)}</p>
                     ${mvInfo}
                     <p class="history-date">${new Date(project.created_at).toLocaleDateString('ko-KR')}</p>
                     <span class="history-status ${project.status === 'completed' ? 'completed' : project.status === 'images_ready' ? 'images-ready' : ''}">${project.status === 'completed' ? '완료' : project.status === 'images_ready' ? '이미지 완료' : project.status === 'failed' ? '실패' : '처리 중'}</span>
@@ -2053,7 +2064,7 @@ class StorycutApp {
                     this.showSection('result');
                     this.setNavActive('nav-history');
                     document.getElementById('result-header-text').textContent = "MV 생성 실패";
-                    document.getElementById('result-video-container').innerHTML = `<div style="text-align:center;padding:40px;background:rgba(255,50,50,0.1);border-radius:8px;"><span style="font-size:48px;display:block;margin-bottom:20px;">⚠️</span><h3>생성 도중 오류가 발생했습니다.</h3><p>${manifest.error_message || '알 수 없는 오류'}</p></div>`;
+                    document.getElementById('result-video-container').innerHTML = `<div style="text-align:center;padding:40px;background:rgba(255,50,50,0.1);border-radius:8px;"><span style="font-size:48px;display:block;margin-bottom:20px;">⚠️</span><h3>생성 도중 오류가 발생했습니다.</h3><p>${escapeHtml(manifest.error_message || '알 수 없는 오류')}</p></div>`;
                     document.getElementById('download-btn').style.display = 'none';
                 }
 
@@ -2168,7 +2179,7 @@ class StorycutApp {
             console.error('[Archive] renderArchiveImagePanel error:', err);
             const grid = document.getElementById('result-scene-grid');
             if (grid) {
-                grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:#f66;padding:20px;">이미지 패널 렌더링 오류: ${err.message}</p>`;
+                grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:#f66;padding:20px;">이미지 패널 렌더링 오류: ${escapeHtml(err.message)}</p>`;
             }
         }
     }
@@ -2854,8 +2865,8 @@ class StorycutApp {
                     mvDropzone.style.borderColor = 'var(--brand-primary)';
                     mvDropzone.style.background = 'rgba(99, 102, 241, 0.06)';
                 } else {
-                    textEl.textContent = 'Drop music file or click to browse';
-                    hintEl.textContent = 'MP3, WAV, M4A, OGG, FLAC (max 10 min)';
+                    textEl.textContent = '음악 파일을 드래그하거나 클릭해서 선택';
+                    hintEl.textContent = 'MP3, WAV, M4A, OGG, FLAC (최대 10분)';
                     mvDropzone.style.borderColor = '';
                     mvDropzone.style.background = '';
                 }
@@ -3293,9 +3304,9 @@ class StorycutApp {
         if (headerText) {
             header.textContent = headerText;
         } else if (showVideo && videoCompleted) {
-            header.textContent = 'MV Complete';
+            header.textContent = 'MV 완성';
         } else {
-            header.textContent = 'Scene Review';
+            header.textContent = '씬 검토';
         }
 
         // 비디오 영역
@@ -3753,7 +3764,7 @@ class StorycutApp {
     async mvSubtitleTest() {
         const projectId = this.mvProjectId;
         if (!projectId) {
-            this.showToast('Project ID not found', 'error');
+            this.showToast('프로젝트 ID를 찾을 수 없습니다', 'error');
             return;
         }
 
@@ -3906,15 +3917,15 @@ class StorycutApp {
                 if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'mv_recompose')) {
                     if (recomposeBtn) {
                         recomposeBtn.disabled = false;
-                        recomposeBtn.innerHTML = '<span class="btn-icon">🔄</span> Recompose';
+                        recomposeBtn.innerHTML = '<span class="btn-icon">🔄</span> 재합성';
                     }
                     return;
                 }
                 const err = await response.json();
-                throw new Error(err.detail || 'Recompose failed');
+                throw new Error(err.detail || '재합성 실패');
             }
 
-            this.showToast('Recomposing video...', 'info');
+            this.showToast('영상 재합성 중...', 'info');
 
             // 폴링으로 완료 대기
             this._pollMVRecompose(projectId);
@@ -3961,7 +3972,7 @@ class StorycutApp {
                     if (composeBtn) composeBtn.style.display = 'none';
                     // 헤더 업데이트
                     const header = document.getElementById('mv-editor-header');
-                    if (header) header.textContent = 'MV Complete';
+                    if (header) header.textContent = 'MV 완성';
                     // 리컴포즈 버튼 숨기기
                     if (recomposeBtn) {
                         recomposeBtn.style.display = 'none';

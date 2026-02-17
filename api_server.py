@@ -54,6 +54,9 @@ def mask_api_key(key: str) -> str:
 # [보안] 프로덕션 모드 확인
 IS_PRODUCTION = os.getenv("PRODUCTION", "").lower() == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None
 
+# [보안] Worker→Railway 공유 시크릿 (프로덕션에서 Worker가 보내는 요청만 허용)
+WORKER_SHARED_SECRET = os.getenv("WORKER_SHARED_SECRET", "")
+
 api_key = os.getenv("OPENAI_API_KEY")
 print(f"DEBUG: OPENAI_API_KEY: {mask_api_key(api_key)}")
 
@@ -81,28 +84,109 @@ storage_manager = StorageManager()
 # FastAPI 앱 생성
 app = FastAPI(title="STORYCUT API", version="2.0")
 
-# CORS 설정
+# [보안] CORS 허용 오리진 목록
+ALLOWED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+    "https://klippa.cc",
+    "https://www.klippa.cc",
+    "https://storycut.pages.dev",
+    "https://storycut-web.pages.dev",
+    "https://storycut-worker.twinspa0713.workers.dev",
+    "https://web-production-bb6bf.up.railway.app",
+]
+
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:3000",
-        "https://storycut.pages.dev",
-        "https://storycut-web.pages.dev",
-        "https://storycut-worker.twinspa0713.workers.dev",
-        "https://web-production-bb6bf.up.railway.app",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Worker-Secret", "X-User-Id", "X-User-Plan", "X-Watermark", "X-Resolution", "X-Clips-Charged", "X-Image-Model"],
 )
+
+# [보안] Worker→Railway 공유 시크릿 검증 미들웨어
+# 프로덕션에서는 생성/재생성 등 주요 API를 Worker 경유로만 허용
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class WorkerSecretMiddleware(BaseHTTPMiddleware):
+    """프로덕션 환경에서 생성 API를 Worker 경유 요청만 허용"""
+    # Worker 경유 필수인 경로 패턴
+    PROTECTED_PREFIXES = [
+        "/api/generate/",
+        "/api/regenerate/",
+        "/api/convert/i2v/",
+        "/api/mv/generate",
+        "/api/mv/scenes/",
+        "/api/mv/compose/",
+        "/api/mv/{",           # recompose 등
+    ]
+
+    async def dispatch(self, request, call_next):
+        if IS_PRODUCTION and WORKER_SHARED_SECRET:
+            path = request.url.path
+            needs_check = any(path.startswith(p) for p in self.PROTECTED_PREFIXES)
+            if needs_check and request.method == "POST":
+                secret = request.headers.get("X-Worker-Secret", "")
+                if secret != WORKER_SHARED_SECRET:
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Direct access not allowed. Use the API gateway."}
+                    )
+        return await call_next(request)
+
+app.add_middleware(WorkerSecretMiddleware)
+
+
+# [보안] 요청 바디 크기 제한 미들웨어 (10MB, 파일 업로드 제외)
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB
+
+    async def dispatch(self, request, call_next):
+        content_type = request.headers.get("content-type", "")
+        # multipart (파일 업로드)는 별도로 처리됨 (각 엔드포인트에서 50MB 체크)
+        if "multipart" not in content_type:
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > self.MAX_BODY_SIZE:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body too large (max 10MB)"}
+                )
+        return await call_next(request)
+
+app.add_middleware(RequestSizeLimitMiddleware)
+
+
+# [보안] 보안 헤더 미들웨어 (CSP, X-Frame-Options 등)
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        # API 응답에는 간소화된 헤더, HTML 응답에는 풀 헤더
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com; "
+                "img-src 'self' data: blob: https:; "
+                "media-src 'self' blob: https:; "
+                "connect-src 'self' https://storycut-worker.twinspa0713.workers.dev https://web-production-bb6bf.up.railway.app https://accounts.google.com https://oauth2.googleapis.com; "
+                "frame-src https://accounts.google.com;"
+            )
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 # Health check
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "version": "2.8.0"}
+    return {"status": "ok", "version": "2.8.1-security"}
 
 
 # ============================================================
@@ -128,6 +212,12 @@ import urllib.parse as _urlparse
 
 _SAFE_PROJECT_ID = _re.compile(r'^[a-zA-Z0-9_\-]+$')
 _SAFE_SIMPLE_ID = _re.compile(r'^[a-zA-Z0-9_\-\.]+$')
+
+def safe_error_detail(e: Exception, public_msg: str = "Internal server error") -> str:
+    """[보안] 프로덕션에서는 내부 에러 메시지 숨김"""
+    if IS_PRODUCTION:
+        return public_msg
+    return f"{public_msg}: {str(e)}"
 
 def validate_project_id(project_id: str) -> str:
     """project_id Path Traversal 방어"""
@@ -173,27 +263,29 @@ async def global_exception_handler(request: Request, exc: Exception):
     import traceback
     traceback.print_exc()
     
+    # [보안] CORS 헤더 — 요청 오리진 기반
+    req_origin = request.headers.get("origin", "")
+    cors_origin = req_origin if req_origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[0]
+    cors_headers = {
+        "Access-Control-Allow-Origin": cors_origin,
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Vary": "Origin",
+    }
+
     # [보안] 프로덕션에서는 트레이스백 숨김
     if IS_PRODUCTION:
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal Server Error"},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-            }
+            headers=cors_headers,
         )
     else:
         # 개발 모드에서는 상세 정보 표시
         return JSONResponse(
             status_code=500,
             content={"detail": str(exc), "traceback": traceback.format_exc()},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-            }
+            headers=cors_headers,
         )
 
 # 정적 파일 서빙
@@ -945,7 +1037,7 @@ async def generate_story(req: GenerateRequest):
         print(f"Story generation failed: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
 @app.post("/api/generate/from-script")
@@ -1005,7 +1097,7 @@ async def generate_from_script(req: ScriptRequest):
         print(f"Script generation failed: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
 @app.post("/api/generate/video")
@@ -1511,14 +1603,15 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
         
     except Exception as e:
         print(f"[API] Image regeneration failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
 @app.get("/api/test/image")
 async def test_image_generation():
-    """
-    이미지 생성 테스트 — gemini-2.5-flash-image (Nano Banana).
-    """
+    """이미지 생성 테스트 — 프로덕션 비활성화"""
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+
     import requests as req_lib
     import base64
 
@@ -1617,7 +1710,7 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
         elif not os.path.isabs(normalized) and not normalized.startswith("outputs/"):
             image_path = f"outputs/{project_id}/{normalized}"
     if not image_path or not os.path.exists(image_path):
-        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id}: {image_path}")
+        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id}")
     
     # I2V 변환
     video_agent = VideoAgent()
@@ -1654,7 +1747,7 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
         
     except Exception as e:
         print(f"[API] I2V conversion failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
 @app.post("/api/toggle/hook-video/{project_id}/{scene_id}")
@@ -1753,7 +1846,7 @@ async def get_voice_sample(voice_id: str):
             if os.path.exists(file_path):
                 os.remove(file_path)
             print(f"[API] TTS sample generation failed: {e}")
-            raise HTTPException(status_code=500, detail=f"TTS 생성 실패: {str(e)}")
+            raise HTTPException(status_code=500, detail=safe_error_detail(e, "TTS 생성 실패"))
 
     return FileResponse(file_path, media_type="audio/mpeg")
 
@@ -1817,9 +1910,13 @@ async def download_video(project_id: str):
 async def register(req: RegisterRequest):
     """
     회원가입 (Local Mock ONLY)
-    
+
     ⚠️ 경고: 이것은 개발용 Mock입니다. 실제 회원가입은 Cloudflare Worker가 처리합니다.
     """
+    # [보안] 프로덕션에서는 Mock 인증 완전 차단
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+
     print("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
     return {
         "message": "User created successfully (LOCAL MOCK)",
@@ -1836,9 +1933,12 @@ async def register(req: RegisterRequest):
 async def login(req: LoginRequest):
     """
     로그인 (Local Mock ONLY)
-    
+
     ⚠️ 경고: 이것은 개발용 Mock입니다. 실제 인증은 Cloudflare Worker가 처리합니다.
     """
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+
     print("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
     
     if not req.email or not req.password:
@@ -1863,6 +1963,9 @@ async def google_auth(request: Request):
 
     In production, Cloudflare Worker verifies the Google ID token.
     """
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
+
     print("[SECURITY WARNING] Using LOCAL MOCK Google auth - NOT for production!")
     body = await request.json()
     id_token = body.get("id_token", "")
@@ -2408,7 +2511,7 @@ perfect for character reference, consistent lighting, sharp details
         print(f"[Character] Error: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Character generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_detail(e, "Character generation failed"))
 
 
 @app.get("/api/projects/{project_id}/characters")
@@ -2523,7 +2626,7 @@ async def regenerate_scene(
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_data, f, ensure_ascii=False, indent=2)
 
-        raise HTTPException(status_code=500, detail=f"씬 재생성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_detail(e, "씬 재생성 실패"))
 
 
 @app.get("/api/projects/{project_id}/scenes")
@@ -2686,7 +2789,7 @@ async def recompose_video(project_id: str):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"영상 합성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=safe_error_detail(e, "영상 합성 실패"))
 
 
 @app.get("/health")
@@ -2719,7 +2822,9 @@ async def health_check():
 
 @app.get("/api/system/errors")
 async def get_system_errors(limit: int = 50):
-    """최근 시스템 에러 로그 조회"""
+    """최근 시스템 에러 로그 조회 — 프로덕션 비활성화"""
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
     try:
         from utils.error_manager import ErrorManager
         return {
@@ -2807,7 +2912,7 @@ async def mv_upload_music(music_file: UploadFile = File(...), lyrics: str = Form
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
 @app.post("/api/mv/generate", response_model=MVGenerateResponse)
@@ -3034,7 +3139,7 @@ async def mv_regenerate_scene(project_id: str, scene_id: int, req: Request = Non
                 image_url = scene.image_path
         return {"success": True, "image_path": scene.image_path, "image_url": image_url}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
 @app.post("/api/mv/scenes/{project_id}/{scene_id}/i2v")
@@ -3058,7 +3163,7 @@ async def mv_scene_i2v(project_id: str, scene_id: int):
         scene = pipeline.generate_scene_i2v(project, scene_id)
         return {"success": True, "video_path": scene.video_path}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
 @app.post("/api/mv/compose/{project_id}")
@@ -3440,7 +3545,9 @@ async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile 
 
 @app.get("/api/mv/{project_id}/debug")
 async def mv_debug(project_id: str):
-    """MV 프로젝트 디버그 정보 (R2 에셋 존재 여부 확인)"""
+    """MV 프로젝트 디버그 정보 — 프로덕션 비활성화"""
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not found")
     validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
     from utils.storage import StorageManager

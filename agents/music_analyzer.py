@@ -6,8 +6,16 @@ Phase 2: 고급 분석 (구간 감지, 분위기 추정)
 """
 
 import os
+import uuid as _uuid
 from typing import Optional, List
 from pathlib import Path
+
+
+def _secure_temp_path(prefix: str, suffix: str = "") -> str:
+    """[보안] 예측 불가능한 임시 파일 경로 생성"""
+    import tempfile
+    temp_dir = tempfile.gettempdir()
+    return os.path.join(temp_dir, f"{prefix}_{_uuid.uuid4().hex[:8]}{suffix}")
 
 # Phase 1: pydub만 사용 (librosa는 Phase 2에서)
 try:
@@ -223,7 +231,7 @@ class MusicAnalyzer:
             # non-ASCII 파일명 대응: temp ASCII 파일로 복사
             ext = Path(audio_path).suffix
             temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, f"gemini_stt_upload{ext}")
+            temp_path = _secure_temp_path("gemini_stt_upload", ext)
             shutil.copy2(audio_path, temp_path)
 
             try:
@@ -320,7 +328,7 @@ class MusicAnalyzer:
             # non-ASCII 파일명 대응
             ext = Path(audio_path).suffix
             temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, f"gemini_align_upload{ext}")
+            temp_path = _secure_temp_path("gemini_align_upload", ext)
             shutil.copy2(audio_path, temp_path)
 
             try:
@@ -479,7 +487,7 @@ class MusicAnalyzer:
 
         # FLAC mono 16kHz로 변환 (STT 최적 포맷)
         import tempfile
-        flac_path = os.path.join(tempfile.gettempdir(), "stt_input.flac")
+        flac_path = _secure_temp_path("stt_input", ".flac")
         try:
             proc = subprocess.run(
                 ["ffmpeg", "-y", "-i", audio_path, "-ar", "16000", "-ac", "1", flac_path],
@@ -502,7 +510,7 @@ class MusicAnalyzer:
 
         if file_mb > 9:
             # FLAC이 너무 크면 OGG_OPUS로 재인코딩 (10~20x 압축)
-            ogg_path = os.path.join(tempfile.gettempdir(), "stt_input.ogg")
+            ogg_path = _secure_temp_path("stt_input", ".ogg")
             try:
                 proc2 = subprocess.run(
                     ["ffmpeg", "-y", "-i", flac_path, "-ar", "16000", "-ac", "1",
@@ -523,7 +531,7 @@ class MusicAnalyzer:
         with open(audio_path_final, "rb") as f:
             audio_content = f.read()
         # 임시 파일 정리
-        for tmp in [flac_path, os.path.join(tempfile.gettempdir(), "stt_input.ogg")]:
+        for tmp in [flac_path, ogg_path]:
             try:
                 os.remove(tmp)
             except OSError:
