@@ -3026,8 +3026,12 @@ class StorycutApp {
             formData.append('style', document.getElementById('mv-style').value);
 
             const baseUrl = this.getApiBaseUrl();
+            const token = localStorage.getItem('token');
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
             const response = await fetch(`${baseUrl}/api/mv/upload`, {
                 method: 'POST',
+                headers,
                 body: formData
             });
 
@@ -3241,7 +3245,9 @@ class StorycutApp {
         this.mvPollingFailCount = 0;
         this.mvPollingInterval = setInterval(async () => {
             try {
-                const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
+                const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`, {
+                    headers: this.getAuthHeaders()
+                });
 
                 if (!response.ok) {
                     console.warn(`MV status check failed: ${response.status}`);
@@ -3336,7 +3342,7 @@ class StorycutApp {
 
         try {
             const baseUrl = this.getApiBaseUrl();
-            const resp = await fetch(`${baseUrl}/api/mv/cancel/${this.mvProjectId}`, { method: 'POST' });
+            const resp = await fetch(`${baseUrl}/api/mv/cancel/${this.mvProjectId}`, { method: 'POST', headers: this.getAuthHeaders() });
             if (resp.ok) {
                 this.mvAddLog('WARNING', '생성 중단을 요청했습니다. 현재 씬 완료 후 중단됩니다.');
                 this.updateMVProgress(0, '중단 요청됨...');
@@ -3349,7 +3355,9 @@ class StorycutApp {
     async fetchMVResult(projectId) {
         try {
             const baseUrl = this.getApiBaseUrl();
-            const response = await fetch(`${baseUrl}/api/mv/result/${projectId}`);
+            const response = await fetch(`${baseUrl}/api/mv/result/${projectId}`, {
+                headers: this.getAuthHeaders()
+            });
 
             if (!response.ok) {
                 throw new Error('결과 조회 실패');
@@ -3543,7 +3551,9 @@ class StorycutApp {
     async showMVImageReview(projectId) {
         try {
             const baseUrl = this.getApiBaseUrl();
-            const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
+            const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`, {
+                headers: this.getAuthHeaders()
+            });
             if (!response.ok) throw new Error('Failed to load project');
 
             const data = await response.json();
@@ -3764,7 +3774,8 @@ class StorycutApp {
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/mv/scenes/${projectId}/${sceneId}/i2v`, {
-                method: 'POST'
+                method: 'POST',
+                headers: this.getAuthHeaders()
             });
 
             if (!response.ok) {
@@ -3818,7 +3829,8 @@ class StorycutApp {
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/mv/compose/${projectId}`, {
-                method: 'POST'
+                method: 'POST',
+                headers: this.getAuthHeaders()
             });
 
             if (!response.ok) {
@@ -3860,7 +3872,8 @@ class StorycutApp {
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/mv/subtitle-test/${projectId}`, {
-                method: 'POST'
+                method: 'POST',
+                headers: this.getAuthHeaders()
             });
 
             if (!response.ok) {
@@ -3876,7 +3889,9 @@ class StorycutApp {
             const pollInterval = setInterval(async () => {
                 attempt++;
                 try {
-                    const statusResp = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
+                    const statusResp = await fetch(`${baseUrl}/api/mv/status/${projectId}`, {
+                        headers: this.getAuthHeaders()
+                    });
                     if (!statusResp.ok) return;
                     const data = await statusResp.json();
 
@@ -3951,8 +3966,12 @@ class StorycutApp {
             const formData = new FormData();
             formData.append('music_file', file);
 
+            const token = localStorage.getItem('token');
+            const uploadHeaders = {};
+            if (token) uploadHeaders['Authorization'] = `Bearer ${token}`;
             const response = await fetch(`${baseUrl}/api/mv/${projectId}/upload-music`, {
                 method: 'POST',
+                headers: uploadHeaders,
                 body: formData
             });
 
@@ -3993,7 +4012,8 @@ class StorycutApp {
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/mv/${projectId}/recompose`, {
-                method: 'POST'
+                method: 'POST',
+                headers: this.getAuthHeaders()
             });
 
             if (!response.ok) {
@@ -4032,7 +4052,9 @@ class StorycutApp {
         const poll = async () => {
             attempts++;
             try {
-                const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`);
+                const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`, {
+                    headers: this.getAuthHeaders()
+                });
                 if (!response.ok) throw new Error('Status check failed');
 
                 const data = await response.json();
@@ -4103,7 +4125,9 @@ class StorycutApp {
 
         try {
             const baseUrl = this.getApiBaseUrl();
-            const resp = await fetch(`${baseUrl}/api/mv/${projectId}/lyrics-timeline`);
+            const resp = await fetch(`${baseUrl}/api/mv/${projectId}/lyrics-timeline`, {
+                headers: this.getAuthHeaders()
+            });
             if (!resp.ok) throw new Error('Failed to load lyrics timeline');
 
             const data = await resp.json();
