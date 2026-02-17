@@ -312,6 +312,16 @@ JSON 형식으로 출력:
             self.feature_flags = request.feature_flags
             self.video_agent.feature_flags = request.feature_flags
 
+        # Platform 기반 해상도 결정
+        _req_platform = getattr(request, 'target_platform', None) if request else None
+        _req_platform_val = _req_platform.value if _req_platform else 'youtube_long'
+        _is_shorts = _req_platform_val == 'youtube_shorts'
+        _resolution = "1080x1920" if _is_shorts else "1920x1080"
+
+        # ComposerAgent를 해상도에 맞게 재생성
+        if _is_shorts:
+            self.composer_agent = ComposerAgent(resolution=_resolution)
+
         scenes = story_data["scenes"]
         total_scenes = len(scenes)
         style = story_data.get("style", request.style_preset if request else "cinematic")
@@ -532,7 +542,8 @@ JSON 형식으로 출력:
                     mood=scene.mood,
                     duration_sec=scene.duration_sec,
                     scene=scene,
-                    output_dir=video_output_dir
+                    output_dir=video_output_dir,
+                    resolution=_resolution
                 )
                 # video_clips.append(video_path) -> REMOVED: 나중에 한꺼번에 수집
                 scene.assets.video_path = video_path
@@ -860,8 +871,9 @@ JSON 형식으로 출력:
                 print(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_refs]}, style={os.path.basename(scene_style_anchor) if scene_style_anchor else 'None'}, env={os.path.basename(scene_env_anchor) if scene_env_anchor else 'None'}")
 
                 # Platform 기반 aspect ratio
-                _platform = getattr(request, 'platform', 'youtube_long') if request else 'youtube_long'
-                _aspect = "9:16" if _platform == 'youtube_shorts' else "16:9"
+                _platform = getattr(request, 'target_platform', None)
+                _platform_val = _platform.value if _platform else 'youtube_long'
+                _aspect = "9:16" if _platform_val == 'youtube_shorts' else "16:9"
 
                 # Generate image
                 image_path, image_id = image_agent.generate_image(

@@ -80,7 +80,8 @@ class VideoAgent:
         mood: str,
         duration_sec: int,
         scene: Optional[Scene] = None,
-        output_dir: str = "media/video"
+        output_dir: str = "media/video",
+        resolution: str = "1920x1080"
     ) -> str:
         """
         Generate a video clip for a scene.
@@ -225,7 +226,8 @@ class VideoAgent:
             style=style,
             duration_sec=duration_sec,
             output_path=video_output_path,
-            scene=scene
+            scene=scene,
+            resolution=resolution
         )
 
         # Update scene metadata if provided
@@ -676,7 +678,8 @@ class VideoAgent:
         style: str,
         duration_sec: int,
         output_path: str,
-        scene: Optional[Scene] = None
+        scene: Optional[Scene] = None,
+        resolution: str = "1920x1080"
     ) -> Tuple[str, str]:
         """
         Generate video using image + Ken Burns effect.
@@ -812,7 +815,8 @@ class VideoAgent:
                 duration_sec=duration_sec,
                 output_path=output_path,
                 scene_id=scene_id,
-                camera_work=camera_work
+                camera_work=camera_work,
+                resolution=resolution
             )
             return video_path, "image+kenburns"
         else:
@@ -830,7 +834,8 @@ class VideoAgent:
         duration_sec: int,
         output_path: str,
         scene_id: int = 1,
-        camera_work: str = None
+        camera_work: str = None,
+        resolution: str = "1920x1080"
     ) -> str:
         """
         Apply Ken Burns (zoom/pan) effect to an image.
@@ -843,6 +848,7 @@ class VideoAgent:
             output_path: Output video path
             scene_id: Scene ID for effect variation (fallback)
             camera_work: Specific camera movement (e.g., "Zoom In", "Pan Right")
+            resolution: Output resolution (e.g., "1920x1080" or "1080x1920")
 
         Returns:
             Path to generated video
@@ -853,16 +859,15 @@ class VideoAgent:
         fps = 30
         total_frames = duration_sec * fps
 
-        # Effect definitions
-        # Format: (zoom_expr, x_expr, y_expr)
+        # Effect definitions - use dynamic resolution
         effect_map = {
-            "zoom_in": f"zoompan=z='min(zoom+0.001,1.3)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
-            "zoom_out": f"zoompan=z='if(lte(zoom,1.0),1.3,max(1.001,zoom-0.001))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
-            "pan_left": f"zoompan=z='1.1':x='if(lte(on,1),0,min(iw/zoom-iw,x+1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}", # Pan Right (move view left?) -> view moves right means image moves left. Usually 'pan_left' means camera moves left (image moves right).
-            "pan_right": f"zoompan=z='1.1':x='if(lte(on,1),iw/zoom-iw,max(0,x-1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s=1920x1080:fps={fps}",
-            "pan_up": f"zoompan=z='1.1':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),0,min(ih/zoom-ih,y+0.6))':d={total_frames}:s=1920x1080:fps={fps}",
-            "pan_down": f"zoompan=z='1.1':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),ih/zoom-ih,max(0,y-0.6))':d={total_frames}:s=1920x1080:fps={fps}",
-            "static": f"zoompan=z='1.0':d={total_frames}:s=1920x1080:fps={fps}" # Minimal storage, acts as static
+            "zoom_in": f"zoompan=z='min(zoom+0.001,1.3)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s={resolution}:fps={fps}",
+            "zoom_out": f"zoompan=z='if(lte(zoom,1.0),1.3,max(1.001,zoom-0.001))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s={resolution}:fps={fps}",
+            "pan_left": f"zoompan=z='1.1':x='if(lte(on,1),0,min(iw/zoom-iw,x+1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s={resolution}:fps={fps}",
+            "pan_right": f"zoompan=z='1.1':x='if(lte(on,1),iw/zoom-iw,max(0,x-1))':y='ih/2-(ih/zoom/2)':d={total_frames}:s={resolution}:fps={fps}",
+            "pan_up": f"zoompan=z='1.1':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),0,min(ih/zoom-ih,y+0.6))':d={total_frames}:s={resolution}:fps={fps}",
+            "pan_down": f"zoompan=z='1.1':x='iw/2-(iw/zoom/2)':y='if(lte(on,1),ih/zoom-ih,max(0,y-0.6))':d={total_frames}:s={resolution}:fps={fps}",
+            "static": f"zoompan=z='1.0':d={total_frames}:s={resolution}:fps={fps}"
         }
         
         selected_effect = None

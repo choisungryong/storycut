@@ -583,6 +583,8 @@ class ProgressTracker:
             "title_candidates": manifest.outputs.title_candidates,
             "thumbnail_texts": manifest.outputs.thumbnail_texts,
             "hashtags": manifest.outputs.hashtags[:5],
+            "hook_text": manifest.hook_text,
+            "platform": manifest.input.target_platform.value if manifest.input.target_platform else "youtube_long",
         })
 
 

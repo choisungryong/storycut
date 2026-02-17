@@ -334,6 +334,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             input=request,
             status="processing",
             title=story_data.get("title"),
+            hook_text=story_data.get("hook_text"),
             script=json.dumps(story_data, ensure_ascii=False)
         )
 
@@ -740,12 +741,16 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         Returns:
             Story JSON
         """
+        _platform = getattr(request, 'target_platform', None)
+        _is_shorts = (_platform.value if _platform else 'youtube_long') == 'youtube_shorts'
+
         story_data = self.story_agent.generate_story(
             genre=request.genre or "emotional",
             mood=request.mood or "dramatic",
             style=request.style_preset or "cinematic",
             total_duration_sec=request.duration_target_sec or 60,
-            user_idea=request.topic or request.user_idea
+            user_idea=request.topic or request.user_idea,
+            is_shorts=_is_shorts
         )
 
         return story_data

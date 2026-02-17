@@ -480,6 +480,7 @@ class Manifest(BaseModel):
 
     # 스토리 정보
     title: Optional[str] = Field(default=None, description="영상 제목")
+    hook_text: Optional[str] = Field(default=None, description="쇼츠 상단 Hook 문구")
     script: Optional[str] = Field(default=None, description="전체 스크립트")
 
     # v2.0 캐릭터 참조 시스템

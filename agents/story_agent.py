@@ -42,7 +42,8 @@ class StoryAgent:
         mood: str,
         style: str,
         total_duration_sec: int = 90,
-        user_idea: str = None
+        user_idea: str = None,
+        is_shorts: bool = False
     ) -> Dict[str, Any]:
         """
         Generate a scene-based story JSON using a 2-Step Hierarchical Chain.
@@ -226,6 +227,18 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
   }}
 }}
 """
+        # Shorts: hook_text 필드 추가 요청
+        if is_shorts:
+            shorts_hook_instruction = (
+                '\n[SHORTS HOOK TEXT RULE]\n'
+                'This is a YouTube Shorts (9:16 vertical video). You MUST add a "hook_text" field at the top level of the JSON:\n'
+                '- A short, curiosity-inducing Korean text (15 characters or less) displayed at the top of the video\n'
+                '- Must make viewers want to keep watching\n'
+                '- Examples: "이 남자의 정체는?", "반전 주의!", "마지막에 소름", "절대 따라하지 마세요"\n'
+                '- Add "hook_text": "..." right after "title" in the output JSON\n'
+            )
+            step2_prompt += shorts_hook_instruction
+
         step2_response = self._call_llm_api(step2_prompt)
         print(f"  [Step 2] Response received, starting validation...", file=sys.stderr, flush=True)
         story_data = self._validate_story_json(step2_response)
