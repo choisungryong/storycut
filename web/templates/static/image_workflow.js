@@ -4,7 +4,7 @@
 // 이미지만 생성 (Step 2A)
 async startImageGeneration() {
     if (!this.currentStoryData) {
-        alert('스토리 데이터가 없습니다.');
+        this.showToast('스토리 데이터가 없습니다.', 'warning');
         return;
     }
 
@@ -50,7 +50,7 @@ async startImageGeneration() {
 
     } catch (error) {
         console.error('[Image Generation] Error:', error);
-        alert(`이미지 생성 실패: ${error.message}`);
+        this.showToast('이미지 생성에 실패했습니다. 다시 시도해주세요.', 'error');
     }
 }
 
@@ -140,7 +140,7 @@ async regenerateImage(projectId, sceneId) {
 
     } catch (error) {
         console.error('[Regenerate] Error:', error);
-        alert(`이미지 재생성 실패: ${error.message}`);
+        this.showToast('이미지 재생성에 실패했습니다.', 'error');
         btn.textContent = originalText;
         btn.disabled = false;
     }
@@ -177,11 +177,11 @@ async convertToVideo(projectId, sceneId) {
         btn.textContent = '✅ I2V 완료';
         btn.disabled = true;
 
-        alert(`Scene ${sceneId} I2V 변환 완료!`);
+        this.showToast(`Scene ${sceneId} I2V 변환 완료!`, 'success');
 
     } catch (error) {
         console.error('[I2V] Error:', error);
-        alert(`I2V 변환 실패: ${error.message}`);
+        this.showToast(`I2V 변환 실패: ${error.message}`, 'error');
         btn.textContent = originalText;
         btn.disabled = false;
     }
@@ -238,14 +238,14 @@ async toggleHookVideo(projectId, sceneId) {
 
     } catch (error) {
         console.error('[Hook] Error:', error);
-        alert(`Hook Video 설정 실패: ${error.message}`);
+        this.showToast('Hook Video 설정에 실패했습니다.', 'error');
     }
 }
 
 // 이미지 승인 후 최종 영상 생성
 async startFinalGenerationAfterImageReview() {
     if (!this.projectId) {
-        alert('프로젝트 ID가 없습니다.');
+        this.showToast('프로젝트 ID가 없습니다.', 'warning');
         return;
     }
 
@@ -284,6 +284,6 @@ async startFinalGenerationAfterImageReview() {
 
     } catch (error) {
         console.error('[Final Generation] Error:', error);
-        alert(`영상 생성 시작 실패: ${error.message}`);
+        this.showToast('영상 생성 시작에 실패했습니다.', 'error');
     }
 }

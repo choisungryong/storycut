@@ -93,7 +93,7 @@ function showAuthError(message) {
         el.textContent = message;
         el.classList.add('visible');
     } else {
-        alert(message);
+        window.showToast ? window.showToast(message, 'error') : _authToast(message, 'error');
     }
 }
 
@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     localStorage.setItem('user', JSON.stringify(loginData.user));
                     window.location.href = '/app';
                 } else {
-                    alert('회원가입이 완료되었습니다! 로그인해 주세요.');
+                    _authToast('회원가입이 완료되었습니다! 로그인해 주세요.', 'success');
                     window.location.href = '/login.html';
                 }
             } catch (err) {

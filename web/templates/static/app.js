@@ -399,7 +399,7 @@ class StorycutApp {
 
         } catch (error) {
             console.error('스토리 생성 실패:', error);
-            alert(`오류 발생: ${error.message}`);
+            this.showToast('스토리 생성 중 오류가 발생했습니다. 다시 시도해주세요.', 'error');
             this.showSection('input');
         } finally {
             btn.disabled = false;
@@ -562,7 +562,7 @@ class StorycutApp {
 
         } catch (error) {
             console.error('스크립트 처리 실패:', error);
-            alert(`오류 발생: ${error.message}`);
+            this.showToast('스토리 생성 중 오류가 발생했습니다. 다시 시도해주세요.', 'error');
             this.showSection('input');
         } finally {
             btn.disabled = false;
@@ -917,7 +917,7 @@ class StorycutApp {
 
         // 이미 생성 중이면 중복 생성 방지
         if (this.isGenerating) {
-            alert('이미 영상 생성이 진행 중입니다.');
+            this.showToast('이미 영상 생성이 진행 중입니다.', 'warning');
             return;
         }
 
@@ -1002,7 +1002,7 @@ class StorycutApp {
         } catch (error) {
             console.error('영상 생성 요청 실패:', error);
             this.addLog('ERROR', `❌ 오류: ${error.message}`);
-            alert(`영상 생성 실패: ${error.message}`);
+            this.showToast('영상 생성에 실패했습니다. 다시 시도해주세요.', 'error');
             this.isGenerating = false;
             this.showSection('review');
         }
@@ -1085,7 +1085,7 @@ class StorycutApp {
                     this.updateProgress(0, '실패');
                     this.stopPolling();
                     this.isGenerating = false;
-                    alert(`영상 생성 실패: ${data.error_message}`);
+                    this.showToast('영상 생성에 실패했습니다. 다시 시도해주세요.', 'error');
 
                 } else if (data.status === 'processing') {
                     // 진행 중 상태 업데이트
@@ -1115,7 +1115,7 @@ class StorycutApp {
                     this.isGenerating = false;
                     this.addLog('ERROR', '서버 연결이 끊어졌습니다. 페이지를 새로고침 해주세요.');
                     this.updateProgress(0, '서버 연결 끊김');
-                    alert('서버와의 연결이 끊어졌습니다.\n서버가 재시작 중일 수 있습니다.\n잠시 후 페이지를 새로고침 해주세요.');
+                    this.showToast('서버 연결이 끊어졌습니다. 잠시 후 새로고침 해주세요.', 'error');
                 }
             }
         }, 2000);
@@ -1437,7 +1437,7 @@ class StorycutApp {
             item.title = '클릭하여 복사';
             item.onclick = () => {
                 this.copyToClipboard(title);
-                alert('제목이 클립보드에 복사되었습니다!');
+                this.showToast('제목이 클립보드에 복사되었습니다!', 'success');
             };
             container.appendChild(item);
         });
@@ -1455,7 +1455,7 @@ class StorycutApp {
             item.title = '클릭하여 복사';
             item.onclick = () => {
                 this.copyToClipboard(text);
-                alert('썸네일 문구가 클립보드에 복사되었습니다!');
+                this.showToast('썸네일 문구가 클립보드에 복사되었습니다!', 'success');
             };
             container.appendChild(item);
         });
@@ -1473,7 +1473,7 @@ class StorycutApp {
             item.title = '클릭하여 복사';
             item.onclick = () => {
                 this.copyToClipboard(tag);
-                alert('해시태그가 클립보드에 복사되었습니다!');
+                this.showToast('해시태그가 클립보드에 복사되었습니다!', 'success');
             };
             container.appendChild(item);
         });
@@ -1902,12 +1902,12 @@ class StorycutApp {
             // 재합성 버튼 숨기기
             btn.style.display = 'none';
 
-            alert('영상 재합성 완료!\n\n새로운 영상이 플레이어에 반영되었습니다.');
+            this.showToast('영상 재합성 완료! 새로운 영상이 플레이어에 반영되었습니다.', 'success');
 
         } catch (error) {
             console.error('영상 재합성 실패:', error);
             this.addLog('ERROR', `❌ 영상 재합성 실패: ${error.message}`);
-            alert(`영상 재합성 실패: ${error.message}`);
+            this.showToast('영상 재합성에 실패했습니다. 다시 시도해주세요.', 'error');
 
             btn.disabled = false;
             btn.innerHTML = '<span class="btn-icon">🔄</span> 영상 재합성 (수정된 씬 반영)';
@@ -2231,7 +2231,7 @@ class StorycutApp {
 
     async startImageGeneration() {
         if (!this.currentStoryData) {
-            alert('스토리 데이터가 없습니다.');
+            this.showToast('스토리 데이터가 없습니다. 먼저 스토리를 생성해주세요.', 'warning');
             return;
         }
 
@@ -2305,7 +2305,7 @@ class StorycutApp {
 
         } catch (error) {
             console.error('[Image Generation] Error:', error);
-            alert(`이미지 생성 실패: ${error.message}`);
+            this.showToast('이미지 생성에 실패했습니다. 다시 시도해주세요.', 'error');
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalBtnText;
@@ -2678,12 +2678,12 @@ class StorycutApp {
 
         const card = document.querySelector(`.image-card[data-scene-id="${sceneId}"]`);
         if (!card) {
-            alert(`I2V 실패: Scene ${sceneId} 카드를 찾을 수 없습니다`);
+            this.showToast('I2V 실패: 씬 카드를 찾을 수 없습니다.', 'error');
             return;
         }
         const btn = card.querySelector('.btn-i2v');
         if (!btn) {
-            alert(`I2V 실패: 버튼을 찾을 수 없습니다`);
+            this.showToast('I2V 실패: 버튼을 찾을 수 없습니다.', 'error');
             return;
         }
         btn.textContent = '⏳...';
@@ -2713,10 +2713,10 @@ class StorycutApp {
             }
 
             btn.textContent = 'I2V';
-            alert(`Scene ${sceneId} I2V complete!`);
+            this.showToast(`Scene ${sceneId} I2V 변환 완료!`, 'success');
 
         } catch (error) {
-            alert(`I2V failed: ${error.message}`);
+            this.showToast(`I2V 변환 실패: ${error.message}`, 'error');
             btn.textContent = 'I2V';
             btn.disabled = false;
         }
@@ -2762,19 +2762,19 @@ class StorycutApp {
             }
 
         } catch (error) {
-            alert(`Hook 설정 실패: ${error.message}`);
+            this.showToast('Hook 설정에 실패했습니다.', 'error');
         }
     }
 
     async startFinalGenerationAfterImageReview() {
         if (!this.projectId) {
-            alert('프로젝트 ID가 없습니다.');
+            this.showToast('프로젝트 ID가 없습니다.', 'warning');
             return;
         }
 
         // 중복 생성 방지
         if (this.isGenerating) {
-            alert('이미 영상 생성이 진행 중입니다.');
+            this.showToast('이미 영상 생성이 진행 중입니다.', 'warning');
             return;
         }
 
@@ -2834,7 +2834,7 @@ class StorycutApp {
         } catch (error) {
             console.error('영상 생성 요청 실패:', error);
             this.addLog('ERROR', `❌ 오류: ${error.message}`);
-            alert(`영상 생성 실패: ${error.message}`);
+            this.showToast('영상 생성에 실패했습니다. 다시 시도해주세요.', 'error');
             this.isGenerating = false;
             // 에러 시 이미지 프리뷰 화면으로 복귀
             this.showSection('image-preview');
@@ -2910,7 +2910,7 @@ class StorycutApp {
         const file = fileInput.files[0];
 
         if (!file) {
-            alert('음악 파일을 선택해주세요.');
+            this.showToast('음악 파일을 선택해주세요.', 'warning');
             return;
         }
 
@@ -2994,7 +2994,7 @@ class StorycutApp {
 
         } catch (error) {
             console.error('MV 업로드 실패:', error);
-            alert(`오류: ${error.message}`);
+            this.showToast('오류가 발생했습니다. 다시 시도해주세요.', 'error');
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
@@ -3061,7 +3061,7 @@ class StorycutApp {
         }
 
         if (!this.mvProjectId) {
-            alert('프로젝트 ID가 없습니다. 다시 업로드해주세요.');
+            this.showToast('프로젝트 ID가 없습니다. 다시 업로드해주세요.', 'warning');
             return;
         }
 
@@ -3140,7 +3140,7 @@ class StorycutApp {
 
         } catch (error) {
             console.error('MV 생성 요청 실패:', error);
-            alert(`오류: ${error.message}`);
+            this.showToast('오류가 발생했습니다. 다시 시도해주세요.', 'error');
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<span class="btn-icon">🎬</span> 뮤직비디오 생성 시작';
@@ -3187,7 +3187,7 @@ class StorycutApp {
                     this.mvAddLog('ERROR', `❌ 오류: ${data.error_message || '알 수 없는 오류'}`);
                     this.updateMVProgress(0, '실패');
                     this.stopMVPolling();
-                    alert(`뮤직비디오 생성 실패: ${data.error_message || '알 수 없는 오류'}`);
+                    this.showToast('뮤직비디오 생성에 실패했습니다. 다시 시도해주세요.', 'error');
 
                 } else if (data.status === 'cancelled') {
                     this.mvAddLog('WARNING', '생성이 중단되었습니다.');
@@ -3229,7 +3229,7 @@ class StorycutApp {
                     this.stopMVPolling();
                     this.mvAddLog('ERROR', '서버 연결이 끊어졌습니다. 페이지를 새로고침 해주세요.');
                     this.updateMVProgress(0, '서버 연결 끊김');
-                    alert('서버와의 연결이 끊어졌습니다.\n서버가 재시작 중일 수 있습니다.\n잠시 후 페이지를 새로고침 해주세요.');
+                    this.showToast('서버 연결이 끊어졌습니다. 잠시 후 새로고침 해주세요.', 'error');
                 }
             }
         }, 3000);
@@ -4252,6 +4252,9 @@ class StorycutApp {
 
 // 앱 초기화
 const app = new StorycutApp();
+
+// 글로벌 showToast 헬퍼 (auth.js 등 클래스 외부에서 사용)
+window.showToast = (msg, type) => app.showToast(msg, type);
 
 // MV 이벤트 리스너 초기화
 app.initMVEventListeners();
