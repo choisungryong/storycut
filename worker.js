@@ -50,8 +50,8 @@ const GEMINI3_SURCHARGE_PER_IMAGE = 2;
 
 // [SECURITY] Allowed CORS origins
 const ALLOWED_ORIGINS = [
-  'https://klippa.cc',
-  'https://www.klippa.cc',
+  'https://storycut.pages.dev',
+  'https://web-production-bb6bf.up.railway.app',
   'https://storycut-frontend.vercel.app',
   'http://localhost:8000',
   'http://localhost:3000',
