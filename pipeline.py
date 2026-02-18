@@ -558,52 +558,66 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_dict, f, ensure_ascii=False, indent=2)
 
-        # Style Anchor 생성
+        # Style Anchor 생성 + Character Casting (에러 시 casting_status=failed 보장)
         style_anchor_path = None
         env_anchors = {}
 
-        if manifest.global_style:
-            from agents.style_anchor_agent import StyleAnchorAgent
-            style_anchor_agent = StyleAnchorAgent()
+        try:
+            if manifest.global_style:
+                from agents.style_anchor_agent import StyleAnchorAgent
+                style_anchor_agent = StyleAnchorAgent()
 
-            print(f"\n[StyleAnchor] Generating style anchor image...")
-            style_anchor_path = style_anchor_agent.generate_style_anchor(
-                global_style=manifest.global_style,
-                project_dir=project_dir
-            )
-
-            if "scenes" in story_data:
-                print(f"\n[EnvAnchors] Generating environment anchor images...")
-                env_anchors = style_anchor_agent.generate_environment_anchors(
-                    scenes=story_data["scenes"],
+                print(f"\n[StyleAnchor] Generating style anchor image...")
+                style_anchor_path = style_anchor_agent.generate_style_anchor(
                     global_style=manifest.global_style,
                     project_dir=project_dir
                 )
 
-        # Character Casting
-        if manifest.character_sheet:
-            print(f"\n[Characters] Casting character anchor images...")
-            character_manager = CharacterManager()
-            character_images = character_manager.cast_characters(
-                character_sheet=manifest.character_sheet,
-                global_style=manifest.global_style,
-                project_dir=project_dir,
-                poses=["front"],
-                candidates_per_pose=1
-            )
+                if "scenes" in story_data:
+                    print(f"\n[EnvAnchors] Generating environment anchor images...")
+                    env_anchors = style_anchor_agent.generate_environment_anchors(
+                        scenes=story_data["scenes"],
+                        global_style=manifest.global_style,
+                        project_dir=project_dir
+                    )
 
-            # story_data에 master_image_path 반영
-            if "character_sheet" in story_data:
+            # Character Casting
+            if manifest.character_sheet:
+                print(f"\n[Characters] Casting character anchor images...")
+                character_manager = CharacterManager()
+                character_images = character_manager.cast_characters(
+                    character_sheet=manifest.character_sheet,
+                    global_style=manifest.global_style,
+                    project_dir=project_dir,
+                    poses=["front"],
+                    candidates_per_pose=1
+                )
+
+                # story_data에 master_image_path 반영
+                if "character_sheet" in story_data:
+                    for token, image_path in character_images.items():
+                        if token in story_data["character_sheet"]:
+                            story_data["character_sheet"][token]["master_image_path"] = image_path
+
+                # manifest에도 반영
                 for token, image_path in character_images.items():
-                    if token in story_data["character_sheet"]:
-                        story_data["character_sheet"][token]["master_image_path"] = image_path
+                    if token in manifest.character_sheet:
+                        cs = manifest.character_sheet[token]
+                        if hasattr(cs, 'master_image_path'):
+                            cs.master_image_path = image_path
 
-            # manifest에도 반영
-            for token, image_path in character_images.items():
-                if token in manifest.character_sheet:
-                    cs = manifest.character_sheet[token]
-                    if hasattr(cs, 'master_image_path'):
-                        cs.master_image_path = image_path
+        except Exception as e:
+            print(f"\n[Characters] Casting FAILED: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            self._save_manifest(manifest, project_dir)
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest_dict = json.load(f)
+            manifest_dict["casting_status"] = "failed"
+            manifest_dict["casting_error"] = str(e)
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest_dict, f, ensure_ascii=False, indent=2)
+            raise
 
         # 최종 저장 — casting_ready 상태
         self._save_manifest(manifest, project_dir)

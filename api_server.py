@@ -1830,14 +1830,20 @@ async def generate_characters_only(req: GenerateVideoRequest):
             traceback.print_exc()
             manifest_path = f"outputs/{project_id}/manifest.json"
             try:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                # manifest 파일이 존재하면 읽어서 업데이트
+                if os.path.exists(manifest_path):
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                else:
+                    # manifest가 아직 생성 전이면 최소한의 데이터로 생성
+                    os.makedirs(f"outputs/{project_id}", exist_ok=True)
+                    data = {"project_id": project_id}
                 data["casting_status"] = "failed"
                 data["casting_error"] = str(e)
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
+            except Exception as inner_e:
+                print(f"[CHARACTER CASTING] Failed to write error status: {inner_e}", flush=True)
 
     thread = threading.Thread(target=run_casting, daemon=True)
     thread.start()

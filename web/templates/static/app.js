@@ -2444,10 +2444,22 @@ class StorycutApp {
 
         const apiUrl = this.getApiBaseUrl();
         let pollCount = 0;
+        const MAX_POLL_COUNT = 150; // 5분 타임아웃 (2초 × 150)
 
         this.castingPollingInterval = setInterval(async () => {
             try {
                 pollCount++;
+
+                // 타임아웃 체크
+                if (pollCount > MAX_POLL_COUNT) {
+                    clearInterval(this.castingPollingInterval);
+                    this.castingPollingInterval = null;
+                    console.error('[Casting] Polling timeout after 5 minutes');
+                    this.showToast('캐릭터 캐스팅 시간이 초과되었습니다. 다시 시도해주세요.', 'error');
+                    document.getElementById('casting-progress-label').textContent = '시간 초과';
+                    return;
+                }
+
                 const response = await fetch(`${apiUrl}/api/status/characters/${projectId}`, {
                     headers: this.getAuthHeaders()
                 });
@@ -2459,6 +2471,17 @@ class StorycutApp {
 
                 const data = await response.json();
                 console.log(`[Casting Poll #${pollCount}]`, data.casting_status);
+
+                // not_found 상태 처리 — 아직 manifest 미생성
+                if (data.casting_status === 'not_found') {
+                    if (pollCount > 30) { // 60초 이상 not_found면 에러
+                        clearInterval(this.castingPollingInterval);
+                        this.castingPollingInterval = null;
+                        this.showToast('캐릭터 캐스팅 데이터를 찾을 수 없습니다.', 'error');
+                        document.getElementById('casting-progress-label').textContent = '데이터 없음';
+                    }
+                    return;
+                }
 
                 // 프로그레스 업데이트
                 this.updateCastingProgress(data);
@@ -2486,7 +2509,8 @@ class StorycutApp {
                 } else if (data.casting_status === 'failed') {
                     clearInterval(this.castingPollingInterval);
                     this.castingPollingInterval = null;
-                    this.showToast('캐릭터 캐스팅에 실패했습니다.', 'error');
+                    const errorMsg = data.error ? `캐릭터 캐스팅 실패: ${data.error}` : '캐릭터 캐스팅에 실패했습니다.';
+                    this.showToast(errorMsg, 'error');
                     document.getElementById('casting-progress-label').textContent = '캐스팅 실패';
                 }
 
