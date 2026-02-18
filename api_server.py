@@ -1804,6 +1804,158 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
 
 
 
+# ═══════════════════════════════════════════════════════════
+# CHARACTER CASTING API
+# ═══════════════════════════════════════════════════════════
+
+@app.post("/api/generate/characters")
+async def generate_characters_only(req: GenerateVideoRequest):
+    """캐릭터 앵커 이미지만 생성 (씬 이미지 생성 전 캐릭터 검토용)"""
+    import uuid
+    import threading
+
+    project_id = req.project_id or str(uuid.uuid4())[:8]
+
+    story_data = req.story_data
+    request_params = req.request_params
+
+    def run_casting():
+        try:
+            from pipeline import StorycutPipeline
+            pipeline = StorycutPipeline()
+            pipeline.generate_characters_only(story_data, request_params, project_id)
+        except Exception as e:
+            print(f"[CHARACTER CASTING] Error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            manifest_path = f"outputs/{project_id}/manifest.json"
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                data["casting_status"] = "failed"
+                data["casting_error"] = str(e)
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=run_casting, daemon=True)
+    thread.start()
+
+    total_characters = len(story_data.get("character_sheet", {}))
+    return {
+        "project_id": project_id,
+        "status": "casting_started",
+        "total_characters": total_characters,
+    }
+
+
+@app.get("/api/status/characters/{project_id}")
+async def get_character_casting_status(project_id: str):
+    """캐릭터 캐스팅 진행 상황 조회"""
+    if not _SAFE_SIMPLE_ID.match(project_id):
+        raise HTTPException(status_code=400, detail="Invalid project_id")
+
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    if not os.path.exists(manifest_path):
+        return {"project_id": project_id, "casting_status": "not_found",
+                "characters": [], "completed": 0, "total": 0}
+
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    casting_status = data.get("casting_status", "casting")
+    character_sheet = data.get("character_sheet", {})
+    characters = []
+
+    for token, cs in character_sheet.items():
+        master_path = cs.get("master_image_path", "") if isinstance(cs, dict) else ""
+        web_path = None
+        if master_path:
+            normalized = master_path.replace("\\", "/")
+            if "outputs/" in normalized:
+                rel = normalized.split("outputs/", 1)[1]
+                web_path = f"/media/{rel}"
+
+        characters.append({
+            "token": token,
+            "name": cs.get("name", token) if isinstance(cs, dict) else token,
+            "appearance": cs.get("appearance", "") if isinstance(cs, dict) else "",
+            "gender": cs.get("gender", "") if isinstance(cs, dict) else "",
+            "age": cs.get("age", "") if isinstance(cs, dict) else "",
+            "image_path": web_path,
+            "ready": bool(master_path),
+        })
+
+    completed = sum(1 for c in characters if c["ready"])
+    return {
+        "project_id": project_id,
+        "casting_status": casting_status,
+        "characters": characters,
+        "completed": completed,
+        "total": len(characters),
+        "error": data.get("casting_error"),
+    }
+
+
+@app.post("/api/regenerate/character/{project_id}/{token}")
+async def regenerate_character(project_id: str, token: str):
+    """단일 캐릭터 앵커 이미지 재생성"""
+    from starlette.concurrency import run_in_threadpool
+
+    if not _SAFE_SIMPLE_ID.match(project_id):
+        raise HTTPException(status_code=400, detail="Invalid project_id")
+
+    manifest_path = f"outputs/{project_id}/manifest.json"
+    manifest_data = load_manifest(project_id)
+
+    character_sheet_raw = manifest_data.get("character_sheet", {})
+    if token not in character_sheet_raw:
+        raise HTTPException(status_code=404, detail=f"Character '{token}' not found")
+
+    cs_data = character_sheet_raw[token]
+    from schemas import CharacterSheet, GlobalStyle
+    char_sheet = {token: CharacterSheet(**cs_data)}
+
+    global_style = None
+    if "global_style" in manifest_data:
+        global_style = GlobalStyle(**manifest_data["global_style"])
+
+    project_dir = f"outputs/{project_id}"
+
+    def do_regenerate():
+        from agents.character_manager import CharacterManager
+        manager = CharacterManager()
+        return manager.cast_characters(
+            character_sheet=char_sheet,
+            global_style=global_style,
+            project_dir=project_dir,
+            poses=["front"],
+            candidates_per_pose=1
+        )
+
+    result = await run_in_threadpool(do_regenerate)
+
+    new_path = result.get(token, "")
+    web_path = None
+    if new_path:
+        character_sheet_raw[token]["master_image_path"] = new_path
+        manifest_data["character_sheet"] = character_sheet_raw
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, ensure_ascii=False, indent=2)
+
+        normalized = new_path.replace("\\", "/")
+        if "outputs/" in normalized:
+            rel = normalized.split("outputs/", 1)[1]
+            web_path = f"/media/{rel}"
+
+    return {
+        "project_id": project_id,
+        "token": token,
+        "image_path": web_path,
+    }
+
+
 @app.get("/api/sample-voice/{voice_id}")
 async def get_voice_sample(voice_id: str):
     """TTS 목소리 샘플 반환 (없으면 생성)"""

@@ -243,11 +243,11 @@ class StorycutApp {
             });
         }
 
-        // 이미지만 먼저 생성 버튼
+        // 이미지만 먼저 생성 버튼 → 캐릭터 캐스팅 먼저 진행
         const generateImagesBtn = document.getElementById('generate-images-btn');
         if (generateImagesBtn) {
             generateImagesBtn.addEventListener('click', () => {
-                this.startImageGeneration();
+                this.startCharacterCasting();
             });
         }
     }
@@ -1581,6 +1581,11 @@ class StorycutApp {
             this.mvPollingInterval = null;
             console.log('[Cleanup] MV polling stopped');
         }
+        if (sectionName !== 'character-casting' && this.castingPollingInterval) {
+            clearInterval(this.castingPollingInterval);
+            this.castingPollingInterval = null;
+            console.log('[Cleanup] Casting polling stopped');
+        }
 
         // 모든 섹션 숨기기
         document.getElementById('input-section').classList.add('hidden');
@@ -1589,6 +1594,7 @@ class StorycutApp {
         document.getElementById('review-section').classList.add('hidden');
         document.getElementById('history-section').classList.add('hidden');
         document.getElementById('image-preview-section').classList.add('hidden');
+        document.getElementById('character-casting-section')?.classList.add('hidden');
         // MV 섹션들
         document.getElementById('mv-section')?.classList.add('hidden');
         document.getElementById('mv-analysis-section')?.classList.add('hidden');
@@ -1627,6 +1633,9 @@ class StorycutApp {
                 break;
             case 'mv-image-review':
                 document.getElementById('mv-image-review-section')?.classList.remove('hidden');
+                break;
+            case 'character-casting':
+                document.getElementById('character-casting-section')?.classList.remove('hidden');
                 break;
         }
     }
@@ -2314,6 +2323,280 @@ class StorycutApp {
             return `${this.getMediaBaseUrl()}${imagePath}`;
         }
         return `${this.getMediaBaseUrl()}/media/${imagePath}`;
+    }
+
+    // ==================== 캐릭터 캐스팅 워크플로우 ====================
+
+    async startCharacterCasting() {
+        if (!this.currentStoryData) {
+            this.showToast('스토리 데이터가 없습니다. 먼저 스토리를 생성해주세요.', 'warning');
+            return;
+        }
+
+        // 리뷰 섹션 옵션 동기화
+        this._syncGenerationOptions();
+
+        // 스토리 데이터 업데이트 (사용자 편집 반영)
+        const title = document.getElementById('review-title').value;
+        this.currentStoryData.title = title;
+        document.querySelectorAll('.review-card').forEach((card) => {
+            const sceneId = parseInt(card.dataset.sceneId);
+            const scene = this.currentStoryData.scenes.find(s => s.scene_id === sceneId);
+            if (scene) {
+                scene.narration = card.querySelector('.narration-input').value;
+                scene.sentence = card.querySelector('.narration-input').value;
+                scene.visual_description = card.querySelector('.visual-input').value;
+                scene.prompt = card.querySelector('.visual-input').value;
+            }
+        });
+
+        // 캐릭터가 있는지 확인 (character_sheet는 {token: {...}} 형태의 객체)
+        const characterSheet = this.currentStoryData.character_sheet || {};
+        const characterTokens = Object.keys(characterSheet);
+        if (characterTokens.length === 0) {
+            console.log('[Casting] No characters found, skipping to image generation');
+            this.startImageGeneration();
+            return;
+        }
+
+        const apiUrl = this.getApiBaseUrl();
+        const btn = document.getElementById('generate-images-btn');
+        const originalBtnText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> 캐릭터 캐스팅 시작...';
+
+        try {
+            console.log('[Casting] Starting character casting...');
+
+            const response = await fetch(`${apiUrl}/api/generate/characters`, {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({
+                    project_id: this.projectId,
+                    story_data: this.currentStoryData,
+                    request_params: this.currentRequestParams
+                })
+            });
+
+            if (!response.ok) {
+                let errorDetail = response.statusText;
+                try {
+                    const errorBody = await response.json();
+                    errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
+                } catch (e) {}
+                throw new Error(`${response.status}: ${errorDetail}`);
+            }
+
+            const result = await response.json();
+            this.projectId = result.project_id;
+            console.log('[Casting] Response:', JSON.stringify(result));
+
+            // 캐스팅 화면으로 전환
+            this.renderCastingPlaceholders(characterSheet);
+            this.showSection('character-casting');
+
+            // 폴링 시작
+            this.pollCastingStatus(this.projectId);
+
+        } catch (error) {
+            console.error('[Casting] Error:', error);
+            this.showToast('캐릭터 캐스팅에 실패했습니다. 다시 시도해주세요.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalBtnText;
+        }
+    }
+
+    renderCastingPlaceholders(characterSheet) {
+        const grid = document.getElementById('casting-grid');
+        grid.innerHTML = '';
+
+        Object.entries(characterSheet).forEach(([token, charData]) => {
+            const card = document.createElement('div');
+            card.className = 'image-card';
+            card.dataset.characterToken = token;
+
+            card.innerHTML = `
+                <div class="image-card-header">
+                    <span class="image-card-title">${charData.name || token}</span>
+                </div>
+                <div class="image-card-visual">
+                    <div style="width:100%;aspect-ratio:1/1;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;border-radius:8px;">
+                        <div class="spinner" style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.1);border-top-color:#646cff;border-radius:50%;animation:spin 1s linear infinite;"></div>
+                    </div>
+                </div>
+                <div class="image-card-body">
+                    <div class="image-narration">${charData.description || charData.visual_description || ''}</div>
+                </div>
+            `;
+
+            grid.appendChild(card);
+        });
+
+        // 액션 버튼 숨기기 (캐스팅 완료 후 표시)
+        document.getElementById('casting-actions').style.display = 'none';
+    }
+
+    pollCastingStatus(projectId) {
+        if (this.castingPollingInterval) {
+            clearInterval(this.castingPollingInterval);
+        }
+
+        const apiUrl = this.getApiBaseUrl();
+        let pollCount = 0;
+
+        this.castingPollingInterval = setInterval(async () => {
+            try {
+                pollCount++;
+                const response = await fetch(`${apiUrl}/api/status/characters/${projectId}`, {
+                    headers: this.getAuthHeaders()
+                });
+
+                if (!response.ok) {
+                    console.warn(`[Casting Poll #${pollCount}] Status check failed:`, response.status);
+                    return;
+                }
+
+                const data = await response.json();
+                console.log(`[Casting Poll #${pollCount}]`, data.casting_status);
+
+                // 프로그레스 업데이트
+                this.updateCastingProgress(data);
+
+                if (data.casting_status === 'casting_ready') {
+                    clearInterval(this.castingPollingInterval);
+                    this.castingPollingInterval = null;
+                    console.log('[Casting] Complete!');
+
+                    // 프로그레스 100%
+                    document.getElementById('casting-progress-fill').style.width = '100%';
+                    document.getElementById('casting-progress-percent').textContent = '100%';
+                    document.getElementById('casting-progress-label').textContent = '캐릭터 캐스팅 완료!';
+
+                    // 프로그레스 바 숨기기
+                    setTimeout(() => {
+                        document.getElementById('casting-progress-container').classList.add('hidden');
+                    }, 1000);
+
+                    // 캐릭터 카드 업데이트
+                    this.renderCastingResults(data.characters);
+
+                    // 액션 버튼 표시
+                    document.getElementById('casting-actions').style.display = '';
+                } else if (data.casting_status === 'failed') {
+                    clearInterval(this.castingPollingInterval);
+                    this.castingPollingInterval = null;
+                    this.showToast('캐릭터 캐스팅에 실패했습니다.', 'error');
+                    document.getElementById('casting-progress-label').textContent = '캐스팅 실패';
+                }
+
+            } catch (error) {
+                console.error('[Casting Poll] Error:', error);
+            }
+        }, 2000);
+    }
+
+    updateCastingProgress(data) {
+        const characters = data.characters || [];
+        const total = characters.length || 1;
+        const done = characters.filter(c => c.image_path).length;
+        const percent = Math.round((done / total) * 100);
+
+        document.getElementById('casting-progress-fill').style.width = `${percent}%`;
+        document.getElementById('casting-progress-percent').textContent = `${percent}%`;
+        document.getElementById('casting-progress-label').textContent = `캐릭터 캐스팅 중... (${done}/${total})`;
+    }
+
+    renderCastingResults(characters) {
+        const grid = document.getElementById('casting-grid');
+        grid.innerHTML = '';
+
+        characters.forEach(char => {
+            const token = char.token;
+            const card = document.createElement('div');
+            card.className = 'image-card';
+            card.dataset.characterToken = token;
+
+            const imagePath = char.image_path || '';
+            const imageUrl = imagePath ? this.resolveImageUrl(imagePath) : '';
+
+            card.innerHTML = `
+                <div class="image-card-header">
+                    <span class="image-card-title">${char.name || token}</span>
+                </div>
+                <div class="image-card-visual">
+                    ${imageUrl
+                        ? `<img src="${imageUrl}?t=${Date.now()}" alt="${char.name || token}" style="width:100%;border-radius:8px;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22300%22%3E%3Crect fill=%22%23252a34%22 width=%22300%22 height=%22300%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 fill=%22%23666%22%3EImage Error%3C/text%3E%3C/svg%3E'">`
+                        : `<div style="width:100%;aspect-ratio:1/1;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--text-secondary);">이미지 없음</div>`
+                    }
+                </div>
+                <div class="image-card-body">
+                    <div class="image-narration">${char.appearance || char.name || ''}</div>
+                    <div class="image-actions">
+                        <button class="btn-image-action btn-regenerate" onclick="app.regenerateCharacter('${token}')">
+                            🔄 재생성
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            grid.appendChild(card);
+        });
+    }
+
+    async regenerateCharacter(token) {
+        if (!this.projectId) {
+            this.showToast('프로젝트 ID가 없습니다.', 'warning');
+            return;
+        }
+
+        const apiUrl = this.getApiBaseUrl();
+        const card = document.querySelector(`[data-character-token="${token}"]`);
+        if (!card) return;
+
+        const btn = card.querySelector('.btn-regenerate');
+        const originalText = btn.textContent;
+        btn.textContent = '⏳ 생성 중...';
+        btn.disabled = true;
+
+        try {
+            console.log(`[Casting] Regenerating character: ${token}`);
+
+            const response = await fetch(`${apiUrl}/api/regenerate/character/${this.projectId}/${token}`, {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({})
+            });
+
+            if (!response.ok) {
+                throw new Error(`Regeneration failed: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log('[Casting] Regenerate success:', result);
+
+            // 이미지 업데이트
+            const img = card.querySelector('img');
+            if (img && result.image_path) {
+                const newUrl = this.resolveImageUrl(result.image_path);
+                img.src = `${newUrl}?t=${Date.now()}`;
+            }
+
+            this.showToast(`${token} 캐릭터 재생성 완료!`, 'success');
+
+        } catch (error) {
+            console.error('[Casting] Regenerate error:', error);
+            this.showToast(`캐릭터 재생성 실패: ${error.message}`, 'error');
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    async startImageGenerationAfterCasting() {
+        // 캐스팅 승인 후 이미지 생성으로 진행
+        console.log('[Casting] Approved, proceeding to image generation...');
+        this.startImageGeneration();
     }
 
     // ==================== 이미지 생성 워크플로우 ====================

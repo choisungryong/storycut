@@ -491,6 +491,135 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             self._save_manifest(manifest, project_dir)
             raise
 
+    def generate_characters_only(
+        self,
+        story_data: Dict[str, Any],
+        request: ProjectRequest,
+        project_id: str = None,
+    ) -> None:
+        """
+        Step 2A-PRE: 캐릭터 앵커 이미지만 생성 (씬 이미지 생성 전 캐릭터 검토용).
+
+        캐릭터 캐스팅 결과를 manifest.json에 저장하여 프론트엔드 폴링으로 확인 가능.
+
+        Args:
+            story_data: Story JSON (character_sheet, global_style 포함)
+            request: ProjectRequest
+            project_id: 프로젝트 ID
+        """
+        from schemas import GlobalStyle, CharacterSheet
+
+        if not project_id:
+            project_id = str(uuid.uuid4())[:8]
+
+        project_dir = self._create_project_structure(project_id)
+
+        print(f"\n{'='*60}")
+        print(f"STORYCUT Pipeline - Character Casting - Project: {project_id}")
+        print(f"{'='*60}\n")
+
+        # Manifest 초기화
+        manifest = Manifest(
+            project_id=project_id,
+            input=request,
+            status="preparing",
+            title=story_data.get("title"),
+            hook_text=story_data.get("hook_text"),
+            script=json.dumps(story_data, ensure_ascii=False)
+        )
+
+        if "character_sheet" in story_data:
+            manifest.character_sheet = {
+                token: CharacterSheet(**data)
+                for token, data in story_data["character_sheet"].items()
+            }
+
+        if "global_style" in story_data:
+            manifest.global_style = GlobalStyle(**story_data["global_style"])
+
+        # 씬 정보도 저장 (이후 이미지 생성에서 사용)
+        manifest.scenes = []
+        for idx, sd in enumerate(story_data.get('scenes', []), start=1):
+            scene = Scene(
+                index=idx,
+                scene_id=sd.get("scene_id", idx),
+                sentence=sd.get("narration", ""),
+                narration=sd.get("narration"),
+                status="pending",
+            )
+            manifest.scenes.append(scene)
+
+        # casting_status를 manifest에 직접 저장
+        self._save_manifest(manifest, project_dir)
+        manifest_path = os.path.join(project_dir, "manifest.json")
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest_dict = json.load(f)
+        manifest_dict["casting_status"] = "casting"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_dict, f, ensure_ascii=False, indent=2)
+
+        # Style Anchor 생성
+        style_anchor_path = None
+        env_anchors = {}
+
+        if manifest.global_style:
+            from agents.style_anchor_agent import StyleAnchorAgent
+            style_anchor_agent = StyleAnchorAgent()
+
+            print(f"\n[StyleAnchor] Generating style anchor image...")
+            style_anchor_path = style_anchor_agent.generate_style_anchor(
+                global_style=manifest.global_style,
+                project_dir=project_dir
+            )
+
+            if "scenes" in story_data:
+                print(f"\n[EnvAnchors] Generating environment anchor images...")
+                env_anchors = style_anchor_agent.generate_environment_anchors(
+                    scenes=story_data["scenes"],
+                    global_style=manifest.global_style,
+                    project_dir=project_dir
+                )
+
+        # Character Casting
+        if manifest.character_sheet:
+            print(f"\n[Characters] Casting character anchor images...")
+            character_manager = CharacterManager()
+            character_images = character_manager.cast_characters(
+                character_sheet=manifest.character_sheet,
+                global_style=manifest.global_style,
+                project_dir=project_dir,
+                poses=["front"],
+                candidates_per_pose=1
+            )
+
+            # story_data에 master_image_path 반영
+            if "character_sheet" in story_data:
+                for token, image_path in character_images.items():
+                    if token in story_data["character_sheet"]:
+                        story_data["character_sheet"][token]["master_image_path"] = image_path
+
+            # manifest에도 반영
+            for token, image_path in character_images.items():
+                if token in manifest.character_sheet:
+                    cs = manifest.character_sheet[token]
+                    if hasattr(cs, 'master_image_path'):
+                        cs.master_image_path = image_path
+
+        # 최종 저장 — casting_ready 상태
+        self._save_manifest(manifest, project_dir)
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest_dict = json.load(f)
+        manifest_dict["casting_status"] = "casting_ready"
+        # style_anchor, env_anchors 경로도 저장 (이미지 생성에서 사용)
+        if style_anchor_path:
+            manifest_dict["_style_anchor_path"] = style_anchor_path
+        if env_anchors:
+            manifest_dict["_env_anchors"] = {str(k): v for k, v in env_anchors.items()}
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_dict, f, ensure_ascii=False, indent=2)
+
+        print(f"\n[Characters] Casting complete. Status: casting_ready")
+
     def generate_images_only(
         self,
         story_data: Dict[str, Any],
@@ -561,29 +690,54 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             manifest.scenes.append(scene)
         self._save_manifest(manifest, project_dir)
 
-        # Style Anchor 생성 (v2.0) — 1장만
+        # Style Anchor 생성 (v2.0) — 캐스팅 단계에서 이미 생성된 경우 재사용
         style_anchor_path = None
         env_anchors = {}
-        style_anchor_agent = StyleAnchorAgent()
 
-        if manifest.global_style:
-            print(f"\n[StyleAnchor] Generating style anchor image (1장)...")
-            style_anchor_path = style_anchor_agent.generate_style_anchor(
-                global_style=manifest.global_style,
-                project_dir=project_dir
-            )
+        # 기존 manifest에서 캐스팅 시 저장한 앵커 경로 확인
+        _existing_manifest_path = os.path.join(project_dir, "manifest.json")
+        _existing_data = {}
+        if os.path.exists(_existing_manifest_path):
+            try:
+                with open(_existing_manifest_path, "r", encoding="utf-8") as f:
+                    _existing_data = json.load(f)
+            except Exception:
+                pass
 
-        # Environment Anchors - 씬별 환경 앵커 이미지 생성
-        if manifest.global_style and "scenes" in story_data:
-            print(f"\n[EnvAnchors] Generating environment anchor images...")
-            env_anchors = style_anchor_agent.generate_environment_anchors(
-                scenes=story_data["scenes"],
-                global_style=manifest.global_style,
-                project_dir=project_dir
-            )
+        _saved_style = _existing_data.get("_style_anchor_path")
+        _saved_envs = _existing_data.get("_env_anchors", {})
 
-        # Character Casting (v2.0) — 포즈 1개, 후보 1장으로 경량화
-        if manifest.character_sheet:
+        if _saved_style and os.path.exists(_saved_style):
+            style_anchor_path = _saved_style
+            env_anchors = {int(k): v for k, v in _saved_envs.items() if os.path.exists(v)}
+            print(f"\n[StyleAnchor] Reusing pre-generated style anchor: {style_anchor_path}")
+            print(f"[EnvAnchors] Reusing {len(env_anchors)} pre-generated environment anchors")
+        else:
+            style_anchor_agent = StyleAnchorAgent()
+
+            if manifest.global_style:
+                print(f"\n[StyleAnchor] Generating style anchor image (1장)...")
+                style_anchor_path = style_anchor_agent.generate_style_anchor(
+                    global_style=manifest.global_style,
+                    project_dir=project_dir
+                )
+
+            # Environment Anchors - 씬별 환경 앵커 이미지 생성
+            if manifest.global_style and "scenes" in story_data:
+                print(f"\n[EnvAnchors] Generating environment anchor images...")
+                env_anchors = style_anchor_agent.generate_environment_anchors(
+                    scenes=story_data["scenes"],
+                    global_style=manifest.global_style,
+                    project_dir=project_dir
+                )
+
+        # Character Casting (v2.0) — 이미 캐스팅 완료된 경우 스킵
+        _all_have_anchors = all(
+            hasattr(cs, 'master_image_path') and cs.master_image_path and os.path.exists(cs.master_image_path)
+            for cs in manifest.character_sheet.values()
+        ) if manifest.character_sheet else True
+
+        if manifest.character_sheet and not _all_have_anchors:
             print(f"\n[Characters] Casting character anchor images (1 pose, 1 candidate)...")
             character_manager = CharacterManager()
             character_images = character_manager.cast_characters(
@@ -607,6 +761,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     if hasattr(cs, 'master_image_path'):
                         cs.master_image_path = image_path
             self._save_manifest(manifest, project_dir)
+        elif manifest.character_sheet:
+            print(f"\n[Characters] Anchor images already present, skipping re-cast.")
             print(f"  [Manifest] Saved character anchors to disk")
 
         # 준비 완료 → 이미지 생성 시작
