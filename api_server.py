@@ -1106,27 +1106,45 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
     project_dir = f"outputs/{project_id}"
     Path(project_dir).mkdir(parents=True, exist_ok=True)
 
-    # 초기 manifest 생성 (processing 상태) - 매우 중요!
-    initial_manifest = {
-        "project_id": project_id,
-        "status": "processing",
-        "progress": 25,
-        "message": "장면 처리 준비 중...",
-        "created_at": datetime.now().isoformat(),
-        "title": req.story_data.get("title", "제목 없음"),
-        "input": {},
-        "outputs": {},
-        "error_message": None
-    }
-
+    # 기존 manifest 확인 (images_ready 상태면 scenes 데이터 보존)
     manifest_path = f"{project_dir}/manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
+    existing_manifest = None
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                existing_manifest = json.load(f)
+        except Exception:
+            existing_manifest = None
+
+    if existing_manifest and existing_manifest.get('status') == 'images_ready':
+        # 이미지 프리뷰 후 영상 합성 — scenes 데이터 보존 (이미지 재생성 방지)
+        print(f"[API] Preserving existing images_ready manifest (skipping image regeneration)", flush=True)
+        existing_manifest['progress'] = 25
+        existing_manifest['message'] = '영상 생성 시작...'
+        # status는 아직 images_ready 유지 (process_story가 읽은 후 processing으로 변경됨)
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(existing_manifest, f, ensure_ascii=False, indent=2)
+    else:
+        # 새 프로젝트 또는 이미지 미생성 — 초기 manifest 생성
+        initial_manifest = {
+            "project_id": project_id,
+            "status": "processing",
+            "progress": 25,
+            "message": "장면 처리 준비 중...",
+            "created_at": datetime.now().isoformat(),
+            "title": req.story_data.get("title", "제목 없음"),
+            "input": {},
+            "outputs": {},
+            "error_message": None
+        }
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
 
     print(f"\n[API] ========== PROJECT INITIALIZED ==========", flush=True)
     print(f"[API] Project ID: {project_id}", flush=True)
     print(f"[API] Manifest path: {manifest_path}", flush=True)
-    print(f"[API] Initial manifest status: {initial_manifest['status']}", flush=True)
+    _manifest_status = existing_manifest['status'] if existing_manifest else initial_manifest['status']
+    print(f"[API] Initial manifest status: {_manifest_status}", flush=True)
     print(f"[API] ==========================================\n", flush=True)
 
     # 비동기 작업 시작
@@ -1200,6 +1218,14 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 setattr(feature_flags, 'image_model', _im)
             feature_flags.film_look = request_params.get('film_look', False)
 
+            # Platform 매핑 (frontend는 'platform', schema는 'target_platform')
+            _platform_str = request_params.get('target_platform') or request_params.get('platform', 'youtube_long')
+            if isinstance(_platform_str, str):
+                from schemas import TargetPlatform
+                _target_platform = TargetPlatform.YOUTUBE_SHORTS if _platform_str == 'youtube_shorts' else TargetPlatform.YOUTUBE_LONG
+            else:
+                _target_platform = _platform_str
+
             # ProjectRequest 생성
             request = ProjectRequest(
                 topic=request_params.get('topic'),
@@ -1207,6 +1233,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 mood=request_params.get('mood', 'dramatic'),
                 style_preset=request_params.get('style_preset') or request_params.get('style', 'cinematic'),
                 duration_target_sec=request_params.get('duration_target_sec') or request_params.get('duration', 60),
+                target_platform=_target_platform,
                 voice_id=request_params.get('voice_id') or request_params.get('voice', 'uyVNoMrnUku1dZyVEXwD'),
                 voice_over=request_params.get('voice_over', True),
                 bgm=request_params.get('bgm', True),

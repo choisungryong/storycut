@@ -65,6 +65,89 @@ class SceneOrchestrator:
         return self._llm_client
 
     # =========================================================================
+    # 캐릭터 동작/표정 추론 (MV 포팅 #1)
+    # =========================================================================
+
+    # mood → expression 매핑 (MV의 VisualBible.scene_blocking.expression 대체)
+    _MOOD_TO_EXPRESSION = {
+        "hopeful": "hopeful smile, bright warm eyes",
+        "happy": "genuine smile, joyful expression",
+        "joyful": "bright beaming smile, sparkling eyes",
+        "sad": "downcast eyes, melancholy expression",
+        "melancholy": "wistful gaze, subtle sadness in eyes",
+        "tense": "furrowed brows, intense focused gaze",
+        "angry": "fierce scowl, burning eyes",
+        "fearful": "wide eyes, tense jaw, anxious expression",
+        "mysterious": "enigmatic half-smile, knowing eyes",
+        "romantic": "soft tender gaze, gentle smile",
+        "dramatic": "intense emotional expression, dramatic eyes",
+        "peaceful": "serene calm expression, gentle closed-mouth smile",
+        "excited": "wide bright eyes, enthusiastic grin",
+        "contemplative": "thoughtful distant gaze, pensive expression",
+        "determined": "set jaw, resolute fierce gaze",
+        "nostalgic": "bittersweet smile, distant wistful eyes",
+        "dark": "shadowed intense gaze, grim expression",
+        "warm": "warm genuine smile, kind eyes",
+        "lonely": "distant empty gaze, solitary expression",
+        "triumphant": "proud confident smile, victorious expression",
+    }
+
+    # visual_description/prompt에서 action pose 추출용 패턴
+    _ACTION_PATTERNS = [
+        (r'\b(?:running|sprinting|dashing|chasing)\b', "running dynamically, body in forward motion"),
+        (r'\b(?:sitting|seated|crouching)\b', "sitting naturally, relaxed posture"),
+        (r'\b(?:walking|strolling|wandering)\b', "walking forward, mid-stride natural gait"),
+        (r'\b(?:crying|weeping|sobbing)\b', "hunched slightly, hands near face, emotional"),
+        (r'\b(?:fighting|attacking|punching|swinging)\b', "dynamic action pose, mid-combat"),
+        (r'\b(?:dancing|twirling|spinning)\b', "dancing gracefully, body in fluid motion"),
+        (r'\b(?:hugging|embracing|holding)\b', "embracing warmly, arms around"),
+        (r'\b(?:reaching|stretching|grasping)\b', "reaching outward with one arm extended"),
+        (r'\b(?:kneeling|bowing|praying)\b', "kneeling on one knee, reverent posture"),
+        (r'\b(?:leaning|resting|lounging)\b', "leaning casually against surface"),
+        (r'\b(?:pointing|gesturing|waving)\b', "gesturing expressively with hands"),
+        (r'\b(?:looking up|gazing up|staring at sky)\b', "head tilted upward, gazing at sky"),
+        (r'\b(?:looking down|head bowed)\b', "head bowed downward, contemplative"),
+        (r'\b(?:turning|looking back|glancing)\b', "turning head slightly, three-quarter view"),
+        (r'\b(?:lying|collapsed|fallen)\b', "lying down, body on ground"),
+        (r'\b(?:jumping|leaping)\b', "mid-jump, dynamic airborne pose"),
+        # 한국어 패턴
+        (r'(?:달리|뛰)', "running dynamically, body in forward motion"),
+        (r'(?:앉|쪼그)', "sitting naturally, relaxed posture"),
+        (r'(?:걸어|걷)', "walking forward, mid-stride"),
+        (r'(?:울|눈물)', "hunched slightly, emotional, tears"),
+        (r'(?:싸우|공격|때리)', "dynamic action pose, mid-combat"),
+        (r'(?:춤|춤추)', "dancing gracefully"),
+        (r'(?:안|껴안|포옹)', "embracing warmly"),
+        (r'(?:무릎|꿇)', "kneeling, reverent posture"),
+        (r'(?:기대|눕)', "leaning or lying down"),
+    ]
+
+    def _derive_expression_from_mood(self, mood: str) -> str:
+        """씬의 mood에서 캐릭터 표정 토큰 추론 (MV의 scene_blocking.expression 대체)."""
+        if not mood:
+            return ""
+        mood_lower = mood.lower().strip()
+        # 직접 매칭
+        if mood_lower in self._MOOD_TO_EXPRESSION:
+            return self._MOOD_TO_EXPRESSION[mood_lower]
+        # 부분 매칭 (e.g., "slightly sad" → "sad")
+        for key, expr in self._MOOD_TO_EXPRESSION.items():
+            if key in mood_lower:
+                return expr
+        return ""
+
+    def _derive_action_pose(self, visual_desc: str, narration: str, image_prompt: str) -> str:
+        """visual_description/narration/image_prompt에서 action pose 추론 (MV의 scene_blocking.action_pose 대체)."""
+        import re
+        combined = f"{visual_desc or ''} {narration or ''} {image_prompt or ''}"
+        if not combined.strip():
+            return ""
+        for pattern, pose in self._ACTION_PATTERNS:
+            if re.search(pattern, combined, re.IGNORECASE):
+                return pose
+        return ""
+
+    # =========================================================================
     # P1: Context Carry-over (맥락 상속)
     # =========================================================================
 
@@ -524,9 +607,11 @@ JSON 형식으로 출력:
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
 
-                # TTS 기반으로 duration 업데이트 (최소 3초, 최대 15초)
+                # TTS 기반으로 duration 업데이트 (TTS 실제 길이 + 1초 여유)
+                # NOTE: 이전 max 15초 캡이 TTS/자막 싱크 불일치의 근본 원인이었음
                 if tts_result.duration_sec > 0:
-                    scene.duration_sec = max(3, min(15, int(tts_result.duration_sec) + 1))
+                    import math
+                    scene.duration_sec = max(3, math.ceil(tts_result.duration_sec) + 1)
                     print(f"     [Duration] Updated to {scene.duration_sec}s (TTS: {tts_result.duration_sec:.2f}s)")
 
                 # 영상 생성 (업데이트된 duration 사용)
@@ -823,26 +908,80 @@ JSON 형식으로 출력:
                     style=style
                 )
 
-            # 캐릭터 외형 설명 주입 (character_sheet 기준)
+            # 캐릭터 외형 설명 주입 — MV 파이프라인 방식 포팅 (렌즈/손/의상 잠금 포함)
             if scene.characters_in_scene and character_sheet:
                 char_descs = []
+                outfit_locks = []
                 for char_token in scene.characters_in_scene[:3]:
                     char_data = character_sheet.get(char_token)
                     if not char_data:
                         continue
                     name = char_data.get("name", char_token) if isinstance(char_data, dict) else getattr(char_data, "name", char_token)
                     appearance = char_data.get("appearance", "") if isinstance(char_data, dict) else getattr(char_data, "appearance", "")
+                    clothing = char_data.get("clothing_default", "") if isinstance(char_data, dict) else getattr(char_data, "clothing_default", "")
                     if appearance:
-                        char_descs.append(f"[{name}] {appearance}")
+                        parts = [appearance]
+                        if clothing:
+                            parts.append(f"wearing {clothing}")
+                        char_descs.append(f"[{name}] {', '.join(parts)}")
+                    # 의상 잠금 (MV 포팅 #4)
+                    if clothing:
+                        outfit_locks.append(f"OUTFIT LOCK: {name} MUST wear {clothing} in EVERY scene.")
                 if char_descs:
+                    # action_pose / expression 추론 (MV 포팅 #1)
+                    action_pose = self._derive_action_pose(
+                        scene.visual_description, scene.narration, scene.image_prompt
+                    )
+                    expression = self._derive_expression_from_mood(scene.mood)
+
+                    # 렌즈 왜곡 방지 토큰 (MV 포팅 #2)
+                    prompt_lower = scene.prompt.lower()
+                    is_closeup = any(kw in prompt_lower for kw in ["close-up", "close up", "portrait", "face"])
+                    lens_token = "cinematic 50mm lens, natural facial proportions" if is_closeup else "portrait 85mm lens, natural facial proportions"
+
+                    # 손 품질 강화 토큰 (MV 포팅 #3)
+                    hand_token = ""
+                    if len(scene.characters_in_scene) >= 2:
+                        hand_token = "natural hands, correct fingers, anatomically correct hands"
+
+                    # 프롬프트 조립: MV 방식 (pose → expression → lens → hand → characters → outfit lock → prompt)
+                    prefix_parts = []
+                    if action_pose:
+                        prefix_parts.append(f"POSE: {action_pose}")
+                    if expression:
+                        prefix_parts.append(f"EXPRESSION: {expression}")
+                    prefix_parts.append(lens_token)
+                    if hand_token:
+                        prefix_parts.append(hand_token)
                     char_block = " | ".join(char_descs)
-                    scene.prompt = f"{char_block}. {scene.prompt}"
+                    prefix_parts.append(char_block)
+                    outfit_lock_str = " ".join(outfit_locks)
+                    scene.prompt = f"{'. '.join(prefix_parts)}.{' ' + outfit_lock_str if outfit_lock_str else ''} {scene.prompt}"
+
+                    if action_pose or expression:
+                        print(f"  [MV포팅#1] POSE={action_pose or 'N/A'}, EXPR={expression or 'N/A'}")
+                    # 앵커 이미지의 직립 자세 복제 방지 네거티브
+                    if action_pose:
+                        scene._action_pose_injected = True
 
             # 인종 런타임 주입 (MV 파이프라인과 동일 방식)
             if _eth_kw and _eth_kw.lower() not in scene.prompt.lower():
                 scene.prompt = f"{_eth_kw} characters, {scene.prompt}"
 
-            scene.negative_prompt = self.build_negative_prompt(style)
+            # 네거티브 프롬프트 — MV 파이프라인 방식 포팅 (렌즈/손/ID드리프트/인물방지)
+            _scene_neg = self.build_negative_prompt(style)
+            if scene.characters_in_scene:
+                # 렌즈 왜곡 + 손 품질 네거티브 (MV 포팅 #2, #3)
+                _lens_neg = "wide-angle distortion, fisheye, exaggerated facial features"
+                _hand_neg = "extra fingers, deformed hands, fused fingers, missing fingers"
+                _scene_neg = f"{_lens_neg}, {_hand_neg}, {_scene_neg}"
+                # ID 드리프트 방지 네거티브 (MV 포팅 #5)
+                _scene_neg = f"different face, identity change, age change, ethnicity change, different outfit, wardrobe change, wrong clothes, {_scene_neg}"
+            else:
+                # 캐릭터 없는 씬: 인물 방지 네거티브 (MV 포팅 #6)
+                _no_people = "random person, unnamed person, elderly man, old man, old woman, young woman, young man, bystander, stranger, human figure, person standing, woman standing, man standing, silhouette of person, crowd"
+                _scene_neg = f"{_no_people}, {_scene_neg}"
+            scene.negative_prompt = _scene_neg
 
             try:
                 # Generate IMAGE ONLY (no TTS, no video)
@@ -864,7 +1003,8 @@ JSON 형식으로 출력:
                         print(f"  [WARNING] Only {len(char_refs)}/{len(scene.characters_in_scene)} character anchors found")
 
                 # v2.1: Extract anchors for this scene
-                scene_style_anchor = style_anchor_path
+                # 캐릭터 미등장 씬: 스타일 앵커 제외 — 고스트 방지 (MV 포팅 #7)
+                scene_style_anchor = style_anchor_path if scene.characters_in_scene else None
                 scene_env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
 
                 # Anchor audit log
@@ -874,6 +1014,23 @@ JSON 형식으로 출력:
                 _platform = getattr(request, 'target_platform', None)
                 _platform_val = _platform.value if _platform else 'youtube_long'
                 _aspect = "9:16" if _platform_val == 'youtube_shorts' else "16:9"
+
+                # camera_directive 추론 (MV 포팅: shot_type → prompt_builder 프레이밍 활성화)
+                _camera_directive = None
+                _pl = scene.prompt.lower()
+                for _shot_kw, _shot_val in [
+                    ("extreme close-up", "extreme-close-up"), ("extreme-close-up", "extreme-close-up"),
+                    ("close-up", "close-up"), ("close up", "close-up"),
+                    ("medium shot", "medium"), ("medium", "medium"),
+                    ("wide shot", "wide"), ("wide", "wide"), ("full body", "wide"),
+                ]:
+                    if _shot_kw in _pl:
+                        _camera_directive = _shot_val
+                        break
+
+                # genre / mood 추출 (request에서 가져옴)
+                _genre = getattr(request, 'genre', None) if request else None
+                _mood = scene.mood or (getattr(request, 'mood', None) if request else None)
 
                 # Generate image
                 image_path, image_id = image_agent.generate_image(
@@ -887,7 +1044,10 @@ JSON 형식으로 출력:
                     character_reference_paths=char_refs,
                     style_anchor_path=scene_style_anchor,
                     environment_anchor_path=scene_env_anchor,
-                    image_model=getattr(self.feature_flags, 'image_model', 'standard')
+                    image_model=getattr(self.feature_flags, 'image_model', 'standard'),
+                    genre=_genre,
+                    mood=_mood,
+                    camera_directive=_camera_directive,
                 )
 
                 scene.assets.image_path = image_path
