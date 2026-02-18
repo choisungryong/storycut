@@ -434,7 +434,7 @@ JSON 형식으로 출력:
             try:
                 with open(manifest_path, 'r', encoding='utf-8') as f:
                     manifest_data = json.load(f)
-                if manifest_data.get('status') == 'images_ready':
+                if manifest_data.get('status') == 'images_ready' or manifest_data.get('_images_pregenerated'):
                     for sc in manifest_data.get('scenes', []):
                         sc_id = sc.get('scene_id')
                         img_path = sc.get('assets', {}).get('image_path') if isinstance(sc.get('assets'), dict) else None

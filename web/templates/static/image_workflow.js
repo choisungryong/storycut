@@ -66,19 +66,24 @@ renderImagePreview(data) {
         card.className = 'image-card';
         card.dataset.sceneId = scene.scene_id;
 
-        if (scene.hook_video_enabled) {
-            card.classList.add('hook-video');
-        }
-
         const imagePath = scene.assets?.image_path || scene.image_path || '';
         const imageUrl = imagePath.startsWith('http') ? imagePath : `${this.getApiBaseUrl()}${imagePath}`;
 
         card.innerHTML = `
             <div class="image-card-header">
                 <span class="image-card-title">Scene ${scene.scene_id}</span>
-                ${scene.hook_video_enabled ? '<span class="hook-badge">🎥 HOOK</span>' : ''}
+                ${scene.i2v_converted ? '<span class="i2v-done-badge">I2V</span>' : ''}
             </div>
-            <img src="${imageUrl}" alt="Scene ${scene.scene_id}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22220%22%3E%3Crect fill=%22%23252a34%22 width=%22300%22 height=%22220%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 fill=%22%23666%22%3EImage Loading...%3C/text%3E%3C/svg%3E'">
+            <div class="image-card-visual">
+                <img src="${imageUrl}" alt="Scene ${scene.scene_id}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22220%22%3E%3Crect fill=%22%23252a34%22 width=%22300%22 height=%22220%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 fill=%22%23666%22%3EImage Loading...%3C/text%3E%3C/svg%3E'">
+                <div class="i2v-overlay" style="display:none">
+                    <div class="i2v-overlay-content">
+                        <div class="i2v-spinner"></div>
+                        <span class="i2v-overlay-text">I2V 변환 중...</span>
+                        <span class="i2v-overlay-sub">약 1~2분 소요</span>
+                    </div>
+                </div>
+            </div>
             <div class="image-card-body">
                 <div class="image-narration">${scene.narration || scene.sentence || ''}</div>
                 <div class="image-actions">
@@ -87,9 +92,6 @@ renderImagePreview(data) {
                     </button>
                     <button class="btn-image-action btn-i2v" onclick="app.convertToVideo(${this.projectId}, ${scene.scene_id})" ${scene.i2v_converted ? 'disabled' : ''}>
                         ${scene.i2v_converted ? '✅ I2V 완료' : '🎬 I2V 변환'}
-                    </button>
-                    <button class="btn-image-action btn-hook ${scene.hook_video_enabled ? 'active' : ''}" onclick="app.toggleHookVideo(${this.projectId}, ${scene.scene_id})">
-                        ${scene.hook_video_enabled ? '⭐ Hook' : '☆ Hook'}
                     </button>
                 </div>
             </div>
@@ -151,10 +153,17 @@ async convertToVideo(projectId, sceneId) {
     const apiUrl = this.getApiBaseUrl();
     const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
     const btn = card.querySelector('.btn-i2v');
+    const overlay = card.querySelector('.i2v-overlay');
 
-    const originalText = btn.textContent;
     btn.textContent = '⏳ 변환 중...';
     btn.disabled = true;
+
+    // 오버레이 표시
+    if (overlay) overlay.style.display = 'flex';
+
+    // 다른 버튼도 비활성화
+    const regenBtn = card.querySelector('.btn-regenerate');
+    if (regenBtn) regenBtn.disabled = true;
 
     try {
         console.log(`[I2V] Converting scene ${sceneId} to video...`);
@@ -177,69 +186,33 @@ async convertToVideo(projectId, sceneId) {
         btn.textContent = '✅ I2V 완료';
         btn.disabled = true;
 
+        // 오버레이 → 완료 표시 후 fade out
+        if (overlay) {
+            overlay.innerHTML = '<div class="i2v-overlay-content"><span class="i2v-overlay-text">✅ 변환 완료!</span></div>';
+            setTimeout(() => { overlay.style.display = 'none'; }, 1500);
+        }
+
+        // 헤더에 I2V 뱃지 추가
+        const header = card.querySelector('.image-card-header');
+        if (header && !header.querySelector('.i2v-done-badge')) {
+            const badge = document.createElement('span');
+            badge.className = 'i2v-done-badge';
+            badge.textContent = 'I2V';
+            header.appendChild(badge);
+        }
+
         this.showToast(`Scene ${sceneId} I2V 변환 완료!`, 'success');
 
     } catch (error) {
         console.error('[I2V] Error:', error);
         this.showToast(`I2V 변환 실패: ${error.message}`, 'error');
-        btn.textContent = originalText;
+        btn.textContent = '🎬 I2V 변환';
         btn.disabled = false;
+        if (overlay) overlay.style.display = 'none';
     }
-}
 
-// Hook Video 토글
-async toggleHookVideo(projectId, sceneId) {
-    const apiUrl = this.getApiBaseUrl();
-    const card = document.querySelector(`[data-scene-id="${sceneId}"]`);
-    const btn = card.querySelector('.btn-hook');
-    const isCurrentlyHook = card.classList.contains('hook-video');
-
-    const newState = !isCurrentlyHook;
-
-    try {
-        console.log(`[Hook] Toggling hook video for scene ${sceneId} to ${newState}...`);
-
-        const response = await fetch(`${apiUrl}/api/toggle/hook-video/${projectId}/${sceneId}`, {
-            method: 'POST',
-            headers: this.getAuthHeaders(),
-            body: JSON.stringify({ enable: newState })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Hook toggle failed: ${response.statusText}`);
-        }
-
-        const result = await response.json();
-        console.log('[Hook] Success:', result);
-
-        // UI 업데이트
-        if (newState) {
-            card.classList.add('hook-video');
-            btn.classList.add('active');
-            btn.textContent = '⭐ Hook';
-
-            // Header에 badge 추가
-            const header = card.querySelector('.image-card-header');
-            if (!header.querySelector('.hook-badge')) {
-                const badge = document.createElement('span');
-                badge.className = 'hook-badge';
-                badge.textContent = '🎥 HOOK';
-                header.appendChild(badge);
-            }
-        } else {
-            card.classList.remove('hook-video');
-            btn.classList.remove('active');
-            btn.textContent = '☆ Hook';
-
-            // Badge 제거
-            const badge = card.querySelector('.hook-badge');
-            if (badge) badge.remove();
-        }
-
-    } catch (error) {
-        console.error('[Hook] Error:', error);
-        this.showToast('Hook Video 설정에 실패했습니다.', 'error');
-    }
+    // 재생성 버튼 복원
+    if (regenBtn) regenBtn.disabled = false;
 }
 
 // 이미지 승인 후 최종 영상 생성

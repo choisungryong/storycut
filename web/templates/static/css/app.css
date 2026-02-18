@@ -1793,14 +1793,10 @@ label {
   box-shadow: var(--shadow-md);
 }
 
-.image-card.hook-video {
-  border-color: var(--accent-violet);
-  border-width: 2px;
-}
-
 .image-card-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   padding: var(--space-3) var(--space-4);
   background: rgba(0, 0, 0, 0.2);
   border-bottom: 1px solid var(--border-subtle);
@@ -1812,8 +1808,8 @@ label {
   font-size: var(--text-sm);
 }
 
-.hook-badge {
-  background: var(--accent-violet);
+.i2v-done-badge {
+  background: rgba(16, 185, 129, 0.85);
   color: white;
   padding: 2px 8px;
   border-radius: var(--radius-full);
@@ -1821,11 +1817,56 @@ label {
   font-weight: var(--weight-semibold);
 }
 
+.image-card-visual {
+  position: relative;
+  overflow: hidden;
+}
+
+.image-card-visual img,
 .image-card img {
   width: 100%;
   height: 220px;
   object-fit: cover;
   background: var(--bg-secondary);
+}
+
+/* I2V 변환 오버레이 */
+.i2v-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.i2v-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.i2v-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent-amber);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.i2v-overlay-text {
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.i2v-overlay-sub {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: var(--text-xs);
 }
 
 .image-card-body {
@@ -1842,7 +1883,7 @@ label {
 
 .image-actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-2);
 }
 
@@ -1880,24 +1921,6 @@ label {
   background: var(--accent-amber);
   border-color: var(--accent-amber);
   color: var(--bg-base);
-}
-
-.btn-hook {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.3);
-  color: var(--accent-violet);
-}
-
-.btn-hook:hover {
-  background: var(--accent-violet);
-  border-color: var(--accent-violet);
-  color: white;
-}
-
-.btn-hook.active {
-  background: var(--accent-violet);
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
-  color: white;
 }
 
 /* ═══════════════════════════════════════════════════════════

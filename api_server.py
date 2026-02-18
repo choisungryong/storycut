@@ -364,39 +364,6 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
     sys.stdout.flush()
 
 
-def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict[str, Any], request: 'ProjectRequest'):
-    """
-    Step 2용 wrapper (스토리 확정 후 영상 생성).
-    """
-    import threading
-    import requests
-    import sys
-    import asyncio
-
-    print(f"[DEBUG] run_video_pipeline_wrapper called", flush=True)
-    sys.stdout.flush()
-
-    def run_in_thread():
-        print(f"[DEBUG] Video Thread started", flush=True)
-        sys.stdout.flush()
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(pipeline.run_video_only_async(story_data, request))
-                
-                # Webhook logic if needed (can be added here)
-                
-            finally:
-                loop.close()
-        except Exception as e:
-            print(f"Video Pipeline execution error: {e}")
-            import traceback
-            traceback.print_exc()
-
-    thread = threading.Thread(target=run_in_thread, daemon=True)
-    thread.start()
-
 
 # ============================================================================
 # Pydantic 모델
@@ -524,11 +491,33 @@ class ProgressTracker:
         self.current_step = ""
         self.current_progress = 0
 
+    def _update_manifest_on_disk(self, step: str, progress: int, message: str):
+        """디스크 매니페스트의 progress/message 필드만 빠르게 갱신 (polling fallback용)"""
+        manifest_path = f"outputs/{self.project_id}/manifest.json"
+        try:
+            if os.path.exists(manifest_path):
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest = json.load(f)
+                manifest['progress'] = progress
+                manifest['message'] = message
+                if step == 'complete':
+                    manifest['status'] = 'completed'
+                elif step == 'error':
+                    manifest['status'] = 'failed'
+                elif manifest.get('status') not in ('completed', 'failed'):
+                    manifest['status'] = 'processing'
+                with open(manifest_path, 'w', encoding='utf-8') as f:
+                    json.dump(manifest, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass  # 디스크 업데이트 실패해도 WebSocket은 정상 동작
+
     async def update(self, step: str, progress: int, message: str, data: Dict = None):
-        """진행상황 업데이트"""
+        """진행상황 업데이트 (WebSocket + 디스크 매니페스트)"""
         self.current_step = step
         self.current_progress = progress
         await send_progress(self.project_id, step, progress, message, data)
+        # 디스크 매니페스트에도 진행 상태 반영 (polling fallback용)
+        self._update_manifest_on_disk(step, progress, message)
 
     async def story_start(self):
         await self.update("story", 5, "스토리 생성 중...")
@@ -1119,9 +1108,10 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
     if existing_manifest and existing_manifest.get('status') == 'images_ready':
         # 이미지 프리뷰 후 영상 합성 — scenes 데이터 보존 (이미지 재생성 방지)
         print(f"[API] Preserving existing images_ready manifest (skipping image regeneration)", flush=True)
+        existing_manifest['status'] = 'processing'
         existing_manifest['progress'] = 25
         existing_manifest['message'] = '영상 생성 시작...'
-        # status는 아직 images_ready 유지 (process_story가 읽은 후 processing으로 변경됨)
+        existing_manifest['_images_pregenerated'] = True  # 이미지 스킵 플래그
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(existing_manifest, f, ensure_ascii=False, indent=2)
     else:

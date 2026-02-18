@@ -180,6 +180,7 @@ class ProjectRequest(BaseModel):
     )
     target_platform: TargetPlatform = Field(
         default=TargetPlatform.YOUTUBE_LONG,
+        alias="platform",
         description="대상 플랫폼"
     )
     language: str = Field(default="ko", description="언어 코드")
