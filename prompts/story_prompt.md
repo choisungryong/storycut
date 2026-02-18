@@ -12,7 +12,7 @@ This is not about generating content. This is about **STORYTELLING**.
 
 ## 📌 Your Mission
 
-Generate a **complete, immersive narrative** (2-3 minutes / 120-180 seconds) with:
+Generate a **complete, immersive narrative** matching the requested duration with:
 - ✅ A GRIPPING HOOK that stops scrollers in their tracks
 - ✅ RISING TENSION that builds scene by scene
 - ✅ A SHOCKING TWIST or EMOTIONAL CLIMAX
@@ -96,32 +96,32 @@ Generate a **complete, immersive narrative** (2-3 minutes / 120-180 seconds) wit
 
 ---
 
-## 📊 Ideal Story Structure (18-20 Scenes for MAXIMUM Impact)
+## 📊 Ideal Story Structure (Adapt to Duration)
 
+Scene count MUST match the target duration:
+- **30 sec**: 4-5 scenes (micro story)
+- **60 sec**: 6-8 scenes (short story)
+- **90 sec**: 10-12 scenes (medium story)
+- **120-180 sec**: 16-20 scenes (full story)
+
+Structure ratio (always apply regardless of scene count):
 ```
-SCENES 1-4:   THE HOOK (Instant Grab)
-              ↓ "What is this? I need to know more!"
-
-SCENES 5-10:  THE BUILD (Tension & Clues)
-              ↓ "Wait... what's really happening here?"
-
-SCENES 11-14: THE TURN (Twist/Climax)
-              ↓ "OH MY GOD. I didn't see that coming."
-
-SCENES 15-20: THE RESOLUTION (Meaning & Impact)
-              ↓ "Wow. This story will stay with me."
+~20% of scenes:  THE HOOK (Instant Grab)
+~30% of scenes:  THE BUILD (Tension & Clues)
+~25% of scenes:  THE TURN (Twist/Climax)
+~25% of scenes:  THE RESOLUTION (Meaning & Impact)
 ```
 
 ---
 
 ## 🎬 Scene Duration Strategy (NOT Uniform!)
 
-- **Hook Scenes (1-4)**: 6-8 sec each (FAST, exciting, grab attention)
-- **Build Scenes (5-10)**: 5-7 sec each (varied pacing, some quick cuts)
-- **Climax Scenes (11-14)**: 8-10 sec each (SLOW DOWN for impact)
-- **Resolution Scenes (15-20)**: 7-12 sec each (let it breathe, emotional weight)
+- **Hook Scenes**: 5-8 sec each (FAST, exciting, grab attention)
+- **Build Scenes**: 5-7 sec each (varied pacing, some quick cuts)
+- **Climax Scenes**: 7-10 sec each (SLOW DOWN for impact)
+- **Resolution Scenes**: 6-10 sec each (let it breathe, emotional weight)
 
-**Total: 18-20 scenes × ~7.5 sec = 135-150 sec (2.5-3 minutes)**
+**Total scene durations MUST sum to approximately the target duration.**
 
 ---
 
@@ -238,11 +238,11 @@ Scene 12: "STORYCUT_HERO_A (지민: shoulder-length black hair, soft brown eyes,
 
 Every great story is about a CHARACTER who CHANGES or LEARNS something.
 
-**In your story:**
-1. **Scene 1-3**: Introduce the character with a hint of their flaw, desire, or secret
-2. **Scene 5-10**: Show the character facing obstacles, making choices, learning
-3. **Scene 11-14**: Character reaches a breaking point, makes a crucial decision
-4. **Scene 15-20**: Character is DIFFERENT because of what happened. Show the change.
+**In your story (adapt scene numbers to your total scene count):**
+1. **First ~20%**: Introduce the character with a hint of their flaw, desire, or secret
+2. **Middle ~30%**: Show the character facing obstacles, making choices, learning
+3. **Next ~25%**: Character reaches a breaking point, makes a crucial decision
+4. **Final ~25%**: Character is DIFFERENT because of what happened. Show the change.
 
 **Example:**
 - BEFORE: "She was living a perfect lie..."
@@ -349,13 +349,13 @@ Mood: {mood}
 Visual Style: {visual_style}
 Target Duration: {total_duration_sec} seconds
 
-**CRITICAL: Create EXACTLY 18-20 scenes (not 9, not 12, exactly 18-20 scenes)**
+**CRITICAL: Match scene count to target duration. Use {total_duration_sec} ÷ 6~8 seconds per scene to calculate the right number of scenes.**
 
 Each story must:
-1. Have a GRIPPING HOOK (scenes 1-4)
-2. Build RISING TENSION (scenes 5-10)
-3. Include a SHOCKING TWIST or CLIMAX (scenes 11-14)
-4. End with EMOTIONAL RESOLUTION (scenes 15-20)
+1. Have a GRIPPING HOOK (~20% of scenes)
+2. Build RISING TENSION (~30% of scenes)
+3. Include a SHOCKING TWIST or CLIMAX (~25% of scenes)
+4. End with EMOTIONAL RESOLUTION (~25% of scenes)
 5. **MAINTAIN CHARACTER VISUAL CONSISTENCY (character tokens + appearance in every scene)**
 
 ---
@@ -363,7 +363,7 @@ Each story must:
 ## ✅ MANDATORY Checklist Before Output
 
 MUST CHECK THESE:
-- [X] EXACTLY 18-20 scenes (MUST verify count!)
+- [X] Scene count matches target duration ({total_duration_sec}s ÷ 6~8s = appropriate number of scenes)
 - [X] Hook is GRIPPING (scene 1 stops scrolling)
 - [X] Every scene moves story forward (no filler)
 - [X] Character has CLEAR emotional arc (different at end)
@@ -388,7 +388,7 @@ MUST CHECK THESE:
 - NO markdown code blocks (```)
 - NO explanations or comments
 - NO extra text
-- ONLY 18-20 scenes inside "scenes" array
+- Scene count MUST match the target duration (NOT always 18-20)
 - Each scene MUST have: scene_id, duration_sec, narration, narrative, visual_description, image_prompt, characters_in_scene, camera_work, mood
 - **character_sheet MUST be included with all characters**
 - **global_style MUST be included**

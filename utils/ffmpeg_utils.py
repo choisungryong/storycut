@@ -572,6 +572,10 @@ class FFmpegComposer:
             duration_ms = duration_sec * 1000
             text = scene.get("narration") or scene.get("sentence", "")
 
+            # Strip speaker tags: [narrator], [male_1](whisper), [STORYCUT_HERO_A](angry), etc.
+            if text:
+                text = re.sub(r'\[[\w_]+\](?:\([^)]*\))?\s*', '', text).strip()
+
             if text:
                 # 긴 텍스트를 짧은 청크로 분할
                 chunks = self._split_subtitle_text(text, max_chars=20)
