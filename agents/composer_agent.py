@@ -36,7 +36,8 @@ class ComposerAgent:
         narration_clips: List[str],
         music_path: str = None,
         output_path: str = "output/youtube_ready.mp4",
-        use_ducking: bool = False
+        use_ducking: bool = False,
+        scene_durations: List[float] = None
     ) -> str:
         """
         Compose final video from all scene elements.
@@ -47,6 +48,7 @@ class ComposerAgent:
             music_path: Background music file path (optional)
             output_path: Final output video path
             use_ducking: 오디오 덕킹 사용 여부
+            scene_durations: 씬별 비디오 duration (초). TTS 오디오 패딩에 사용.
 
         Returns:
             Path to final composed video
@@ -70,7 +72,8 @@ class ComposerAgent:
             narration_clips=narration_clips,
             music_path=music_path,
             output_path=output_path,
-            use_ducking=use_ducking
+            use_ducking=use_ducking,
+            scene_durations=scene_durations
         )
 
         # Get final video info

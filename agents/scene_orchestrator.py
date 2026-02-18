@@ -741,11 +741,13 @@ JSON 형식으로 출력:
         print(f"\n[Composer] Collecting clips from completed scenes...")
         video_clips = []
         narration_clips = []
-        
+        scene_durations = []
+
         for s in processed_scenes:
             if s.status == SceneStatus.COMPLETED and s.assets.video_path and s.assets.narration_path:
                 video_clips.append(s.assets.video_path)
                 narration_clips.append(s.assets.narration_path)
+                scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
                 print(f"  + Added Scene {s.scene_id}")
             else:
                 print(f"  - Skipped Scene {s.scene_id} (Status: {s.status})")
@@ -769,7 +771,8 @@ JSON 형식으로 출력:
             narration_clips=narration_clips,
             music_path=music_path,
             output_path=output_path,
-            use_ducking=_use_ducking
+            use_ducking=_use_ducking,
+            scene_durations=scene_durations
         )
 
         print(f"\n{'='*60}")

@@ -1264,7 +1264,8 @@ class FFmpegComposer:
         narration_paths: List[str],
         music_path: str = None,
         output_path: str = None,
-        music_volume: float = 0.2
+        music_volume: float = 0.2,
+        scene_durations: List[float] = None
     ) -> str:
         """
         내레이션과 배경 음악을 영상에 믹스.
@@ -1287,7 +1288,22 @@ class FFmpegComposer:
         # 내레이션 연결 (output_path 기준 디렉토리에 임시 파일 생성 - 동시 요청 충돌 방지)
         _out_dir = os.path.dirname(output_path) or "."
         narration_concat = os.path.join(_out_dir, "temp_narration.wav")
-        self._concatenate_audio(narration_paths, narration_concat)
+
+        # 씬별 비디오 duration으로 TTS 오디오를 패딩하여 싱크 맞춤
+        if scene_durations and len(scene_durations) == len(narration_paths):
+            padded_paths = []
+            try:
+                for i, (audio_path, target_dur) in enumerate(zip(narration_paths, scene_durations)):
+                    padded_path = os.path.join(_out_dir, f"temp_padded_narr_{i:02d}.wav")
+                    self._pad_audio_to_duration(audio_path, float(target_dur), padded_path)
+                    padded_paths.append(padded_path)
+                self._concatenate_audio(padded_paths, narration_concat)
+            finally:
+                for p in padded_paths:
+                    if os.path.exists(p):
+                        os.remove(p)
+        else:
+            self._concatenate_audio(narration_paths, narration_concat)
 
         # FFmpeg 명령 구성
         inputs = ["-i", video_path, "-i", narration_concat]
@@ -1346,6 +1362,22 @@ class FFmpegComposer:
 
         print(f"[FFmpeg] Audio mixed successfully: {output_path}")
         return output_path
+
+    def _pad_audio_to_duration(self, audio_path: str, target_duration: float, output_path: str):
+        """오디오를 target_duration 길이로 패딩 (뒤에 silence 추가)."""
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", audio_path,
+            "-af", "apad",
+            "-t", str(target_duration),
+            "-ar", "44100",
+            "-ac", "2",
+            "-c:a", "pcm_s16le",
+            output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to pad audio: {result.stderr}")
 
     def _concatenate_audio(self, audio_paths: List[str], output_path: str):
         """여러 오디오 파일을 하나로 연결."""
@@ -1412,7 +1444,8 @@ class FFmpegComposer:
         narration_clips: List[str],
         music_path: str,
         output_path: str,
-        use_ducking: bool = False
+        use_ducking: bool = False,
+        scene_durations: List[float] = None
     ) -> str:
         """
         전체 합성 파이프라인: 영상 연결, 오디오 믹스, 최종 MP4 출력.
@@ -1438,9 +1471,22 @@ class FFmpegComposer:
         # Step 2: 오디오 믹스 (내레이션 + BGM)
         if use_ducking and music_path and os.path.exists(music_path):
             print("  -> Mixing audio with DUCKING (narration + BGM)...")
-            # 내레이션 먼저 연결
+            # 내레이션 연결 (씬별 duration 패딩 적용)
             narration_concat = os.path.join(_out_dir, "temp_narration_ducking.wav")
-            self._concatenate_audio(narration_clips, narration_concat)
+            if scene_durations and len(scene_durations) == len(narration_clips):
+                padded_paths = []
+                try:
+                    for i, (audio_path, target_dur) in enumerate(zip(narration_clips, scene_durations)):
+                        padded_path = os.path.join(_out_dir, f"temp_padded_narr_{i:02d}.wav")
+                        self._pad_audio_to_duration(audio_path, float(target_dur), padded_path)
+                        padded_paths.append(padded_path)
+                    self._concatenate_audio(padded_paths, narration_concat)
+                finally:
+                    for p in padded_paths:
+                        if os.path.exists(p):
+                            os.remove(p)
+            else:
+                self._concatenate_audio(narration_clips, narration_concat)
             # 덕킹 적용 믹싱
             final_video = self.mix_with_ducking(
                 temp_video,
@@ -1457,7 +1503,8 @@ class FFmpegComposer:
                 temp_video,
                 narration_clips,
                 music_path,
-                output_path
+                output_path,
+                scene_durations=scene_durations
             )
 
         # 임시 파일 정리

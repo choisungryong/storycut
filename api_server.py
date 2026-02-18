@@ -2886,6 +2886,7 @@ async def recompose_video(project_id: str):
     # 에셋 경로 수집 (수정된 씬은 재렌더링)
     video_clips = []
     narration_clips = []
+    scene_durations = []
 
     for scene in scenes:
         assets = scene.get("assets", {})
@@ -2907,6 +2908,8 @@ async def recompose_video(project_id: str):
 
         if assets.get("narration_path"):
             narration_clips.append(assets["narration_path"])
+            dur = scene.get("duration_sec") or scene.get("tts_duration_sec") or 5
+            scene_durations.append(float(dur))
 
     if not video_clips:
         raise HTTPException(status_code=400, detail="합성할 비디오 클립이 없습니다.")
@@ -2920,7 +2923,8 @@ async def recompose_video(project_id: str):
             video_clips=video_clips,
             narration_clips=narration_clips,
             music_path=None,
-            output_path=output_path
+            output_path=output_path,
+            scene_durations=scene_durations
         )
 
         # Manifest 업데이트
