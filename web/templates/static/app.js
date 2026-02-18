@@ -2538,34 +2538,75 @@ class StorycutApp {
         characters.forEach(char => {
             const token = char.token;
             const card = document.createElement('div');
-            card.className = 'image-card';
+            card.className = 'casting-character-card';
             card.dataset.characterToken = token;
 
-            const imagePath = char.image_path || '';
-            const imageUrl = imagePath ? this.resolveImageUrl(imagePath) : '';
+            // 포즈 이미지들 (멀티포즈)
+            const poseImages = char.pose_images || [];
+            const mainImage = char.image_path ? this.resolveImageUrl(char.image_path) : '';
+
+            const poseLabels = {
+                'front': '정면',
+                'three_quarter': '45도',
+                'full_body': '전신',
+                'side': '측면',
+            };
+
+            let posesHtml = '';
+            if (poseImages.length > 0) {
+                posesHtml = poseImages.map((p, idx) => {
+                    const url = this.resolveImageUrl(p.image_path);
+                    const label = poseLabels[p.pose] || p.pose;
+                    const isSelected = p.image_path === char.image_path ? ' selected' : '';
+                    return `
+                        <div class="casting-pose${isSelected}" data-token="${token}" data-pose-idx="${idx}" data-image-path="${p.image_path}" onclick="app.selectPose('${token}', ${idx})">
+                            <img src="${url}?t=${Date.now()}" alt="${label}" onerror="this.style.display='none'">
+                            <span class="casting-pose-label">${label}</span>
+                        </div>
+                    `;
+                }).join('');
+            } else if (mainImage) {
+                posesHtml = `
+                    <div class="casting-pose selected">
+                        <img src="${mainImage}?t=${Date.now()}" alt="${char.name || token}" onerror="this.style.display='none'">
+                        <span class="casting-pose-label">정면</span>
+                    </div>
+                `;
+            }
 
             card.innerHTML = `
-                <div class="image-card-header">
-                    <span class="image-card-title">${char.name || token}</span>
+                <div class="casting-char-header">
+                    <span class="casting-char-name">${char.name || token}</span>
+                    <span class="casting-char-meta">${char.gender || ''} ${char.age || ''}</span>
                 </div>
-                <div class="image-card-visual">
-                    ${imageUrl
-                        ? `<img src="${imageUrl}?t=${Date.now()}" alt="${char.name || token}" style="width:100%;border-radius:8px;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22300%22%3E%3Crect fill=%22%23252a34%22 width=%22300%22 height=%22300%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 fill=%22%23666%22%3EImage Error%3C/text%3E%3C/svg%3E'">`
-                        : `<div style="width:100%;aspect-ratio:1/1;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--text-secondary);">이미지 없음</div>`
-                    }
+                <div class="casting-poses-grid">
+                    ${posesHtml || '<div style="padding:20px;color:var(--text-secondary);">이미지 없음</div>'}
                 </div>
-                <div class="image-card-body">
-                    <div class="image-narration">${char.appearance || char.name || ''}</div>
-                    <div class="image-actions">
-                        <button class="btn-image-action btn-regenerate" onclick="app.regenerateCharacter('${token}')">
-                            🔄 재생성
-                        </button>
-                    </div>
+                <div class="casting-char-desc">${char.appearance || ''}</div>
+                <div class="casting-char-actions">
+                    <button class="btn-image-action btn-regenerate" onclick="app.regenerateCharacter('${token}')">
+                        🔄 전체 재생성
+                    </button>
                 </div>
             `;
 
             grid.appendChild(card);
         });
+    }
+
+    selectPose(token, poseIdx) {
+        // 해당 캐릭터의 모든 포즈에서 selected 제거
+        document.querySelectorAll(`.casting-pose[data-token="${token}"]`).forEach(el => {
+            el.classList.remove('selected');
+        });
+        // 선택한 포즈에 selected 추가
+        const selected = document.querySelector(`.casting-pose[data-token="${token}"][data-pose-idx="${poseIdx}"]`);
+        if (selected) {
+            selected.classList.add('selected');
+            // 선택된 포즈를 master로 기억
+            if (!this._selectedPoses) this._selectedPoses = {};
+            this._selectedPoses[token] = selected.dataset.imagePath;
+        }
     }
 
     async regenerateCharacter(token) {

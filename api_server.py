@@ -1874,22 +1874,44 @@ async def get_character_casting_status(project_id: str):
     character_sheet = data.get("character_sheet", {})
     characters = []
 
+    def _to_web_path(path_str):
+        """로컬 경로 → 웹 경로 변환"""
+        if not path_str:
+            return None
+        normalized = path_str.replace("\\", "/")
+        if "outputs/" in normalized:
+            rel = normalized.split("outputs/", 1)[1]
+            return f"/media/{rel}"
+        return None
+
     for token, cs in character_sheet.items():
-        master_path = cs.get("master_image_path", "") if isinstance(cs, dict) else ""
-        web_path = None
-        if master_path:
-            normalized = master_path.replace("\\", "/")
-            if "outputs/" in normalized:
-                rel = normalized.split("outputs/", 1)[1]
-                web_path = f"/media/{rel}"
+        if not isinstance(cs, dict):
+            continue
+        master_path = cs.get("master_image_path", "")
+        web_path = _to_web_path(master_path)
+
+        # anchor_set에서 멀티포즈 이미지 추출
+        pose_images = []
+        anchor_set = cs.get("anchor_set")
+        if anchor_set and isinstance(anchor_set, dict):
+            for pose_key, pose_data in anchor_set.get("poses", {}).items():
+                if isinstance(pose_data, dict) and pose_data.get("image_path"):
+                    pose_web = _to_web_path(pose_data["image_path"])
+                    if pose_web:
+                        pose_images.append({
+                            "pose": pose_data.get("pose", pose_key),
+                            "image_path": pose_web,
+                            "score": pose_data.get("score", 0),
+                        })
 
         characters.append({
             "token": token,
-            "name": cs.get("name", token) if isinstance(cs, dict) else token,
-            "appearance": cs.get("appearance", "") if isinstance(cs, dict) else "",
-            "gender": cs.get("gender", "") if isinstance(cs, dict) else "",
-            "age": cs.get("age", "") if isinstance(cs, dict) else "",
+            "name": cs.get("name", token),
+            "appearance": cs.get("appearance", ""),
+            "gender": cs.get("gender", ""),
+            "age": cs.get("age", ""),
             "image_path": web_path,
+            "pose_images": pose_images,
             "ready": bool(master_path),
         })
 

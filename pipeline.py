@@ -564,7 +564,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
         try:
             if manifest.global_style:
-                from agents.style_anchor_agent import StyleAnchorAgent
+                from agents.style_anchor import StyleAnchorAgent
                 style_anchor_agent = StyleAnchorAgent()
 
                 print(f"\n[StyleAnchor] Generating style anchor image...")
@@ -589,8 +589,6 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     character_sheet=manifest.character_sheet,
                     global_style=manifest.global_style,
                     project_dir=project_dir,
-                    poses=["front"],
-                    candidates_per_pose=1
                 )
 
                 # story_data에 master_image_path 반영

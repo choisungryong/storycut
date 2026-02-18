@@ -3269,3 +3269,94 @@ input.input:focus {
 .btn-profile-danger:hover {
   background: rgba(239, 68, 68, 0.25);
 }
+
+/* ─── Character Casting Cards ─── */
+.casting-character-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.casting-char-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.casting-char-name {
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+}
+
+.casting-char-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.casting-poses-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.casting-pose {
+  position: relative;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.casting-pose:hover {
+  border-color: rgba(100, 108, 255, 0.4);
+}
+
+.casting-pose.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(100, 108, 255, 0.3);
+}
+
+.casting-pose img {
+  width: 100%;
+  aspect-ratio: 1/1;
+  object-fit: cover;
+  display: block;
+}
+
+.casting-pose-label {
+  display: block;
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  padding: 4px 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.casting-char-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-3);
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.casting-char-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+@media (max-width: 480px) {
+  .casting-poses-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+  }
+}
