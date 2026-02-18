@@ -17,19 +17,19 @@ class StoryAgent:
     to generate structured story content.
     """
 
-    def __init__(self, api_key: str = None, model: str = "gemini-3-pro-preview"):
+    def __init__(self, api_key: str = None, model: str = "gpt-5.2"):
         """
         Initialize Story Agent.
 
         Args:
-            api_key: Google Gemini API key
-            model: LLM model to use (default: gemini-3-pro-preview)
+            api_key: OpenAI API key
+            model: LLM model to use (default: gpt-5.2)
         """
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model
 
         if not self.api_key:
-            raise ValueError("API key is required. Set GOOGLE_API_KEY environment variable.")
+            raise ValueError("API key is required. Set OPENAI_API_KEY environment variable.")
 
         # Load story prompt template
         prompt_path = Path(__file__).parent.parent / "prompts" / "story_prompt.md"
@@ -248,40 +248,39 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
 
     def _call_llm_api(self, user_prompt: str) -> str:
         """
-        Call Gemini API (v1.0 SDK) to generate content.
+        Call OpenAI API to generate content.
         """
         try:
-            from google import genai
-            from google.genai import types
+            from openai import OpenAI
 
-            client = genai.Client(api_key=self.api_key)
-            
-            print(f"[DEBUG] Calling Gemini API (model: {self.model})", flush=True)
+            client = OpenAI(api_key=self.api_key)
 
-            response = client.models.generate_content(
+            print(f"[DEBUG] Calling OpenAI API (model: {self.model})", flush=True)
+
+            response = client.chat.completions.create(
                 model=self.model,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=self.system_prompt,
-                    temperature=0.7,
-                    response_mime_type="application/json"
-                )
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                response_format={"type": "json_object"}
             )
 
-            response_text = response.text.strip()
-            print(f"[DEBUG] Gemini API response received ({len(response_text)} chars)", flush=True)
+            response_text = response.choices[0].message.content.strip()
+            print(f"[DEBUG] OpenAI API response received ({len(response_text)} chars)", flush=True)
 
             return response_text
 
         except Exception as e:
             from utils.error_manager import ErrorManager
             ErrorManager.log_error(
-                "StoryAgent", 
-                "Gemini API Call Failed", 
-                f"{type(e).__name__}: {str(e)}", 
+                "StoryAgent",
+                "OpenAI API Call Failed",
+                f"{type(e).__name__}: {str(e)}",
                 severity="critical"
             )
-            print(f"[ERROR] Gemini API call failed: {e}", flush=True)
+            print(f"[ERROR] OpenAI API call failed: {e}", flush=True)
             return self._get_example_story()
 
     def _validate_story_json(self, json_string: str) -> Dict[str, Any]:
