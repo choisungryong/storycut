@@ -485,6 +485,9 @@ class Manifest(BaseModel):
         description="프로젝트 요청 정보"
     )
 
+    # 소유자 정보 (Worker가 X-User-Id 헤더로 전달)
+    user_id: Optional[str] = Field(default=None, description="생성 요청 유저 ID")
+
     # 스토리 정보
     title: Optional[str] = Field(default=None, description="영상 제목")
     hook_text: Optional[str] = Field(default=None, description="쇼츠 상단 Hook 문구")

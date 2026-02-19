@@ -1083,7 +1083,7 @@ async def generate_from_script(req: ScriptRequest):
 
 
 @app.post("/api/generate/video")
-async def generate_video_from_story(req: GenerateVideoRequest, background_tasks: BackgroundTasks):
+async def generate_video_from_story(req: GenerateVideoRequest, background_tasks: BackgroundTasks, request: Request):
     """Step 2: 확정된 스토리로 영상 생성 시작"""
     import uuid
     from pathlib import Path
@@ -1116,6 +1116,7 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
             json.dump(existing_manifest, f, ensure_ascii=False, indent=2)
     else:
         # 새 프로젝트 또는 이미지 미생성 — 초기 manifest 생성
+        user_id = request.headers.get("X-User-Id", "")
         initial_manifest = {
             "project_id": project_id,
             "status": "processing",
@@ -1123,6 +1124,7 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
             "message": "장면 처리 준비 중...",
             "created_at": datetime.now().isoformat(),
             "title": req.story_data.get("title", "제목 없음"),
+            "user_id": user_id,
             "input": {},
             "outputs": {},
             "error_message": None
@@ -1351,7 +1353,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
 
 
 @app.post("/api/generate/images")
-async def generate_images_only(req: GenerateVideoRequest, background_tasks: BackgroundTasks):
+async def generate_images_only(req: GenerateVideoRequest, background_tasks: BackgroundTasks, request: Request):
     """
     Step 2A: 스토리 확정 후 이미지만 생성 (비동기, 프로그레시브).
 
@@ -1371,6 +1373,18 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
     print(f"\n[API] ========== IMAGES ONLY GENERATION (ASYNC) =========")
     print(f"[API] Project ID: {project_id}")
     print(f"[API] Scene count: {total_scenes}")
+
+    # 초기 manifest에 user_id 기록 (history 필터링용)
+    user_id = request.headers.get("X-User-Id", "")
+    if user_id:
+        from pathlib import Path
+        proj_dir = f"outputs/{project_id}"
+        Path(proj_dir).mkdir(parents=True, exist_ok=True)
+        manifest_path_stub = f"{proj_dir}/manifest.json"
+        if not os.path.exists(manifest_path_stub):
+            import json as _json
+            with open(manifest_path_stub, "w", encoding="utf-8") as _f:
+                _json.dump({"project_id": project_id, "user_id": user_id, "status": "processing"}, _f)
 
     # req.request_params는 이미 ProjectRequest 객체
     request_obj = req.request_params
@@ -2448,9 +2462,10 @@ async def get_video_from_r2(project_id: str):
 
 
 @app.get("/api/history")
-async def get_history_list():
-    """완료된 프로젝트 목록 조회 (R2 + 로컬 병합)"""
+async def get_history_list(request: Request):
+    """완료된 프로젝트 목록 조회 (R2 + 로컬 병합, user_id 필터링)"""
     from utils.storage import StorageManager
+    filter_user_id = request.headers.get("X-User-Id", "")
 
     storage = StorageManager()
     outputs_dir = "outputs"
@@ -2588,6 +2603,23 @@ async def get_history_list():
     # R2 + 로컬 병합 후 시간순 정렬 (최신 먼저)
     all_projects = r2_projects + local_projects
     all_projects.sort(key=lambda p: p.get("created_at") or "", reverse=True)
+
+    # user_id 필터링: X-User-Id 헤더가 있으면 해당 유저 프로젝트만 반환
+    if filter_user_id:
+        def _matches_user(p):
+            pid = p.get("project_id", "")
+            m_path = os.path.join(outputs_dir, pid, "manifest.json")
+            if not os.path.exists(m_path):
+                return False  # manifest 없는 프로젝트는 숨김
+            try:
+                with open(m_path, "r", encoding="utf-8") as _f:
+                    m = json.load(_f)
+                m_uid = m.get("user_id", "")
+                return not m_uid or m_uid == filter_user_id
+            except Exception:
+                return True  # 읽기 실패 시 포함
+        all_projects = [p for p in all_projects if _matches_user(p)]
+
     return {"projects": all_projects}
 
 

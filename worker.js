@@ -139,6 +139,7 @@ async function routeRequest(url, request, env, ctx, cors) {
   // These routes forward to Railway. We pass user ID if authenticated for ownership filtering.
   if (path === '/api/history' && method === 'GET') {
     const user = await authenticateUser(request, env);
+    if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
     return proxyToRailwayPublic(request, env, path, cors, user);
   }
   if (path.startsWith('/api/status/')) {
