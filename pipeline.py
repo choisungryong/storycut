@@ -890,6 +890,10 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         _saved_envs = _existing_data.get("_env_anchors", {})
         _saved_env_urls = _existing_data.get("_env_anchor_urls", {})
 
+        print(f"[StyleAnchor DEBUG] _saved_style={_saved_style}, exists={os.path.exists(_saved_style) if _saved_style else 'N/A'}")
+        print(f"[StyleAnchor DEBUG] _saved_style_url={_saved_style_url}")
+        print(f"[StyleAnchor DEBUG] casting_status={_existing_data.get('casting_status')}")
+
         # 로컬 파일 또는 R2 URL에서 앵커 복원
         _reused = False
         if _saved_style and os.path.exists(_saved_style):
@@ -910,6 +914,11 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     _local = self._download_to_local(_env_url, project_dir, "media/anchors")
                     if _local:
                         env_anchors[int(_sc_id)] = _local
+
+        # 캐스팅 완료 상태인데 스타일 앵커 파일을 못 찾은 경우 — 재생성 없이 진행
+        if not _reused and _existing_data.get("casting_status") == "casting_ready":
+            print(f"[StyleAnchor] Casting was ready but anchor file missing — skipping regeneration")
+            _reused = True
 
         if _reused:
             print(f"\n[StyleAnchor] Reusing pre-generated style anchor: {style_anchor_path}")
