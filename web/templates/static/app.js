@@ -2594,18 +2594,26 @@ class StorycutApp {
                 'side': '측면',
             };
 
+            const cacheBuster = `v=${this.projectId}_${Date.now()}`;
             let posesHtml = '';
-            if (poseImages.length > 0) {
-                posesHtml = poseImages.map((p, idx) => {
+            // 상위 3개 포즈만 크게 표시 (front > three_quarter > full_body 우선)
+            const POSE_PRIORITY = ['front', 'three_quarter', 'full_body', 'side', 'emotion_neutral', 'emotion_intense'];
+            const sortedPoses = [...poseImages].sort((a, b) =>
+                (POSE_PRIORITY.indexOf(a.pose) + 1 || 99) - (POSE_PRIORITY.indexOf(b.pose) + 1 || 99)
+            ).slice(0, 3);
+
+            if (sortedPoses.length > 0) {
+                posesHtml = sortedPoses.map((p, idx) => {
                     const url = this.resolveImageUrl(p.image_path);
                     const label = poseLabels[p.pose] || p.pose;
                     const isSelected = p.image_path === char.image_path ? ' selected' : '';
                     const escapedUrl = url.replace(/'/g, "\\'");
                     const escapedLabel = label.replace(/'/g, "\\'");
+                    const origIdx = poseImages.indexOf(p);
                     return `
-                        <div class="casting-pose${isSelected}" data-token="${token}" data-pose-idx="${idx}" data-image-path="${p.image_path}" onclick="app.selectPose('${token}', ${idx})">
-                            <img src="${url}?t=${Date.now()}" alt="${label}" onerror="this.style.display='none'">
-                            <button class="zoom-btn" onclick="event.stopPropagation(); app.openLightbox('${escapedUrl}', '${escapedLabel}')" title="확대 보기">⤢</button>
+                        <div class="casting-pose${isSelected}" data-token="${token}" data-pose-idx="${origIdx}" data-image-path="${p.image_path}" onclick="app.selectPose('${token}', ${origIdx})">
+                            <img src="${url}?${cacheBuster}" alt="${label}" onerror="this.style.display='none'">
+                            <button class="zoom-btn" onclick="event.stopPropagation(); app.openLightbox('${escapedUrl}?${cacheBuster}', '${escapedLabel}')" title="확대 보기">⤢</button>
                             <span class="casting-pose-label">${label}</span>
                         </div>
                     `;
@@ -2613,7 +2621,7 @@ class StorycutApp {
             } else if (mainImage) {
                 posesHtml = `
                     <div class="casting-pose selected">
-                        <img src="${mainImage}?t=${Date.now()}" alt="${char.name || token}" onerror="this.style.display='none'">
+                        <img src="${mainImage}?${cacheBuster}" alt="${char.name || token}" onerror="this.style.display='none'">
                         <span class="casting-pose-label">정면</span>
                     </div>
                 `;
@@ -2708,17 +2716,22 @@ class StorycutApp {
             // 포즈 그리드 전체 재렌더링
             if (result.pose_images && result.pose_images.length > 0) {
                 const poseLabels = { front: '정면', three_quarter: '45도', full_body: '전신', side: '측면' };
-                const mainPath = result.image_path || (result.pose_images[0]?.web_path);
-                const posesHtml = result.pose_images.map((p, idx) => {
+                const reCacheBuster = `v=${this.projectId}_${Date.now()}`;
+                const POSE_PRIORITY = ['front', 'three_quarter', 'full_body', 'side', 'emotion_neutral', 'emotion_intense'];
+                const sortedPoses = [...result.pose_images].sort((a, b) =>
+                    (POSE_PRIORITY.indexOf(a.pose) + 1 || 99) - (POSE_PRIORITY.indexOf(b.pose) + 1 || 99)
+                ).slice(0, 3);
+                const posesHtml = sortedPoses.map((p, idx) => {
                     const url = this.resolveImageUrl(p.web_path || p.image_path);
                     const label = poseLabels[p.pose] || p.pose;
                     const isSelected = p.pose === result.best_pose ? ' selected' : '';
                     const escapedUrl = url.replace(/'/g, "\\'");
                     const escapedLabel = label.replace(/'/g, "\\'");
+                    const origIdx = result.pose_images.indexOf(p);
                     return `
-                        <div class="casting-pose${isSelected}" data-token="${token}" data-pose-idx="${idx}" data-image-path="${p.image_path || p.web_path}" onclick="app.selectPose('${token}', ${idx})">
-                            <img src="${url}?t=${Date.now()}" alt="${label}" onerror="this.style.display='none'">
-                            <button class="zoom-btn" onclick="event.stopPropagation(); app.openLightbox('${escapedUrl}', '${escapedLabel}')" title="확대 보기">⤢</button>
+                        <div class="casting-pose${isSelected}" data-token="${token}" data-pose-idx="${origIdx}" data-image-path="${p.image_path || p.web_path}" onclick="app.selectPose('${token}', ${origIdx})">
+                            <img src="${url}?${reCacheBuster}" alt="${label}" onerror="this.style.display='none'">
+                            <button class="zoom-btn" onclick="event.stopPropagation(); app.openLightbox('${escapedUrl}?${reCacheBuster}', '${escapedLabel}')" title="확대 보기">⤢</button>
                             <span class="casting-pose-label">${label}</span>
                         </div>`;
                 }).join('');

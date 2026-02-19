@@ -3297,10 +3297,15 @@ input.input:focus {
   color: var(--text-muted);
 }
 
+/* 캐릭터 카드: 전체 너비 단일 열 */
+#casting-grid {
+  grid-template-columns: 1fr !important;
+}
+
 .casting-poses-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-3);
+  gap: var(--space-4);
   margin-bottom: var(--space-4);
 }
 
@@ -3325,8 +3330,9 @@ input.input:focus {
 
 .casting-pose img {
   width: 100%;
-  aspect-ratio: 1/1;
+  aspect-ratio: 2/3;
   object-fit: cover;
+  object-position: top center;
   display: block;
 }
 
