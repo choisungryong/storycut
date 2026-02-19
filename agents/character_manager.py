@@ -379,11 +379,13 @@ class CharacterManager:
         _best_pose_key = [poses[0] if poses else "three_quarter"]
         _lock = threading.Lock()
 
-        def _process_pose(pose_key: str):
-            """단일 포즈 이미지 생성 (스레드에서 병렬 실행)"""
+        def _process_pose(pose_key: str, reference_image_path: str = None):
+            """단일 포즈 이미지 생성.
+            reference_image_path: 첫 포즈 완성 후 나머지 포즈에 캐릭터 참조 이미지 전달"""
             from agents.image_agent import ImageAgent as _IA
             pose_desc = POSE_CONFIGS.get(pose_key, pose_key)
-            print(f"      [Pose] Generating: {pose_key} ({pose_desc})")
+            print(f"      [Pose] Generating: {pose_key} ({pose_desc})" +
+                  (f" [ref: {os.path.basename(reference_image_path)}]" if reference_image_path else ""))
 
             best_candidate_path = None
             best_candidate_score = -1.0
@@ -409,7 +411,8 @@ class CharacterManager:
                         style=art_style,
                         output_dir=output_path,
                         seed=candidate_seed,
-                        image_model="standard"
+                        image_model="standard",
+                        character_reference_path=reference_image_path,  # 일관성 참조
                     )
                     score = self._score_candidate(
                         image_path=image_path,
@@ -441,9 +444,21 @@ class CharacterManager:
                         _best_score[0] = best_candidate_score
                         _best_pose_key[0] = pose_key
 
-        # 포즈를 병렬로 동시 생성 (3포즈 → 최대 3스레드)
-        with ThreadPoolExecutor(max_workers=len(poses)) as executor:
-            executor.map(_process_pose, poses)
+        # 1단계: 첫 포즈(기준 앵커)를 먼저 단독 생성
+        first_pose = poses[0]
+        remaining_poses = poses[1:]
+        _process_pose(first_pose, reference_image_path=None)
+
+        # 첫 포즈 이미지를 reference로 추출
+        first_ref_path = None
+        if first_pose in anchor_set.poses:
+            first_ref_path = anchor_set.poses[first_pose].image_path
+            print(f"      [Reference] First pose ready: {os.path.basename(first_ref_path) if first_ref_path else 'None'}")
+
+        # 2단계: 나머지 포즈들을 첫 포즈 reference와 함께 병렬 생성
+        if remaining_poses:
+            with ThreadPoolExecutor(max_workers=len(remaining_poses)) as executor:
+                executor.map(lambda p: _process_pose(p, first_ref_path), remaining_poses)
 
         anchor_set.best_pose = _best_pose_key[0]
         return anchor_set

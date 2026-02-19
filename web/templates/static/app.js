@@ -2599,9 +2599,12 @@ class StorycutApp {
                     const url = this.resolveImageUrl(p.image_path);
                     const label = poseLabels[p.pose] || p.pose;
                     const isSelected = p.image_path === char.image_path ? ' selected' : '';
+                    const escapedUrl = url.replace(/'/g, "\\'");
+                    const escapedLabel = label.replace(/'/g, "\\'");
                     return `
                         <div class="casting-pose${isSelected}" data-token="${token}" data-pose-idx="${idx}" data-image-path="${p.image_path}" onclick="app.selectPose('${token}', ${idx})">
                             <img src="${url}?t=${Date.now()}" alt="${label}" onerror="this.style.display='none'">
+                            <button class="zoom-btn" onclick="event.stopPropagation(); app.openLightbox('${escapedUrl}', '${escapedLabel}')" title="확대 보기">⤢</button>
                             <span class="casting-pose-label">${label}</span>
                         </div>
                     `;
@@ -2648,6 +2651,26 @@ class StorycutApp {
             if (!this._selectedPoses) this._selectedPoses = {};
             this._selectedPoses[token] = selected.dataset.imagePath;
         }
+    }
+
+    openLightbox(url, label) {
+        document.querySelector('.casting-lightbox')?.remove();
+
+        const lb = document.createElement('div');
+        lb.className = 'casting-lightbox';
+        lb.innerHTML = `
+            <button class="casting-lightbox-close" title="닫기">✕</button>
+            <img src="${url}" alt="${label}">
+            <div class="casting-lightbox-label">${label}</div>
+        `;
+        lb.querySelector('.casting-lightbox-close').addEventListener('click', () => lb.remove());
+        lb.addEventListener('click', (e) => { if (e.target === lb) lb.remove(); });
+
+        const closeOnEsc = (e) => {
+            if (e.key === 'Escape') { lb.remove(); document.removeEventListener('keydown', closeOnEsc); }
+        };
+        document.addEventListener('keydown', closeOnEsc);
+        document.body.appendChild(lb);
     }
 
     async regenerateCharacter(token) {
