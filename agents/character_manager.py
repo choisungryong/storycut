@@ -669,6 +669,14 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
             fallback_path = char_data.master_image_path
         elif isinstance(char_data, dict):
             fallback_path = char_data.get("master_image_path")
+            # dict에서도 anchor_set 추출
+            _as = char_data.get("anchor_set")
+            if _as and isinstance(_as, dict):
+                from schemas.models import AnchorSet as _AnchorSet
+                try:
+                    anchor_set = _AnchorSet(**_as)
+                except Exception:
+                    anchor_set = None
         else:
             return None
 

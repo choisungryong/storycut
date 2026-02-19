@@ -725,11 +725,16 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     progress_callback=_casting_progress
                 )
 
-                # story_data에 master_image_path 반영
+                # story_data에 master_image_path + anchor_set 반영
                 if "character_sheet" in story_data:
                     for token, image_path in character_images.items():
                         if token in story_data["character_sheet"]:
                             story_data["character_sheet"][token]["master_image_path"] = image_path
+                    # anchor_set도 동기화 (이미지 생성 시 포즈 선택에 필요)
+                    for token in manifest.character_sheet:
+                        cs = manifest.character_sheet[token]
+                        if hasattr(cs, 'anchor_set') and cs.anchor_set and token in story_data["character_sheet"]:
+                            story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump() if hasattr(cs.anchor_set, 'model_dump') else cs.anchor_set
 
                 # manifest에도 반영
                 for token, image_path in character_images.items():
