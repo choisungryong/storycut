@@ -761,13 +761,30 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         self._save_manifest(manifest, project_dir)
 
         # _save_manifest()는 Pydantic 모델만 직렬화하므로
-        # 캐스팅 단계에서 저장한 비모델 필드(_style_anchor_path 등)를 재주입
-        _anchor_extras = {k: _existing_data[k] for k in ("_style_anchor_path", "_env_anchors", "casting_status") if k in _existing_data}
-        if _anchor_extras:
+        # 캐스팅/이미지 생성 단계에서 저장한 비모델 필드(_style_anchor_path 등)를 재주입
+        _keys_to_restore = ("_style_anchor_path", "_env_anchors", "casting_status", "_images_pregenerated")
+        _anchor_extras = {k: _existing_data[k] for k in _keys_to_restore if k in _existing_data}
+        if _anchor_extras or _existing_data.get("scenes"):
             try:
                 with open(_existing_manifest_path, "r", encoding="utf-8") as f:
                     _mf = json.load(f)
                 _mf.update(_anchor_extras)
+                # 이미지 생성 단계에서 저장된 씬 image_path 복원
+                # (3단계 영상생성이 2단계 이미지를 다시 만들지 않도록)
+                if _existing_data.get("_images_pregenerated"):
+                    _existing_scenes_by_id = {}
+                    for sc in _existing_data.get("scenes", []):
+                        sc_id = sc.get("scene_id") or sc.get("index")
+                        if sc_id:
+                            _existing_scenes_by_id[str(sc_id)] = sc
+                    for _mf_scene in _mf.get("scenes", []):
+                        sc_id = str(_mf_scene.get("scene_id") or _mf_scene.get("index", ""))
+                        _prev = _existing_scenes_by_id.get(sc_id, {})
+                        _prev_img = (_prev.get("assets") or {}).get("image_path") or _prev.get("image_path")
+                        if _prev_img:
+                            if "assets" not in _mf_scene or _mf_scene["assets"] is None:
+                                _mf_scene["assets"] = {}
+                            _mf_scene["assets"]["image_path"] = _prev_img
                 with open(_existing_manifest_path, "w", encoding="utf-8") as f:
                     json.dump(_mf, f, ensure_ascii=False, indent=2)
             except Exception:
