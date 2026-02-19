@@ -372,12 +372,30 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         style_anchor_path = None
         env_anchors = {}
         _saved_style = _existing_data.get("_style_anchor_path")
+        _saved_style_url = _existing_data.get("_style_anchor_url")
         _saved_envs = _existing_data.get("_env_anchors", {})
+        _saved_env_urls = _existing_data.get("_env_anchor_urls", {})
 
+        _reused = False
         if _saved_style and os.path.exists(_saved_style):
             style_anchor_path = _saved_style
             env_anchors = {int(k): v for k, v in _saved_envs.items() if os.path.exists(v)}
-            print(f"\n[STEP 1.3] Reusing existing style anchor: {os.path.basename(style_anchor_path)}")
+            _reused = True
+        elif _saved_style_url or _saved_style:
+            _dl_url = _saved_style_url or _saved_style
+            if _dl_url and _dl_url.startswith("http"):
+                _local = self._download_to_local(_dl_url, project_dir, "media/anchors")
+                if _local:
+                    style_anchor_path = _local
+                    _reused = True
+            for _sc_id, _env_url in _saved_env_urls.items():
+                if _env_url and _env_url.startswith("http"):
+                    _local = self._download_to_local(_env_url, project_dir, "media/anchors")
+                    if _local:
+                        env_anchors[int(_sc_id)] = _local
+
+        if _reused:
+            print(f"\n[STEP 1.3] Reusing existing style anchor: {style_anchor_path}")
             print(f"[STEP 1.4] Reusing {len(env_anchors)} existing environment anchors")
         else:
             style_anchor_agent = StyleAnchorAgent()
@@ -398,12 +416,19 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         # [STEP 1.5] Character Casting - 기존 앵커 있으면 스킵
         if manifest.character_sheet:
             _existing_cs_data = _existing_data.get("character_sheet", {})
-            # 기존 manifest에서 master_image_path 로드
+            # 기존 manifest에서 master_image_path 로드 (로컬 → R2 URL 폴백)
             for token, cs in manifest.character_sheet.items():
                 if token in _existing_cs_data:
                     existing_path = _existing_cs_data[token].get("master_image_path")
                     if existing_path and os.path.exists(existing_path):
                         cs.master_image_path = existing_path
+                    elif not (existing_path and os.path.exists(existing_path)):
+                        # R2 URL에서 다운로드 시도
+                        _url = _existing_cs_data[token].get("master_image_url")
+                        if _url:
+                            _local = self._download_to_local(_url, project_dir, "media/characters")
+                            if _local:
+                                cs.master_image_path = _local
 
             _all_have_anchors = all(
                 cs.master_image_path and os.path.exists(cs.master_image_path)
@@ -623,15 +648,49 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 from agents.style_anchor import StyleAnchorAgent
                 style_anchor_agent = StyleAnchorAgent()
 
+                # 스타일 앵커 생성 중 메시지
+                self._save_manifest(manifest, project_dir)
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    _md = json.load(f)
+                _md["casting_status"] = "casting"
+                _md["casting_message"] = "스타일 앵커 이미지 생성 중..."
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(_md, f, ensure_ascii=False, indent=2)
+
                 print(f"\n[StyleAnchor] Generating style anchor image...")
                 style_anchor_path = style_anchor_agent.generate_style_anchor(
                     global_style=manifest.global_style,
                     project_dir=project_dir
                 )
-                # EnvironmentAnchors는 이미지 생성 단계에서 생성 (캐스팅 단계 불필요)
+
+                # Environment Anchors 생성 — 캐스팅 단계에서 미리 생성하여 이미지 생성 대기시간 제거
+                if "scenes" in story_data:
+                    # manifest 상태 업데이트
+                    self._save_manifest(manifest, project_dir)
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        _md = json.load(f)
+                    _md["casting_status"] = "casting"
+                    _md["casting_message"] = f"환경 앵커 이미지 생성 중... ({len(story_data['scenes'])}장)"
+                    with open(manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(_md, f, ensure_ascii=False, indent=2)
+
+                    print(f"\n[EnvAnchors] Generating environment anchor images ({len(story_data['scenes'])} scenes)...")
+                    env_anchors = style_anchor_agent.generate_environment_anchors(
+                        scenes=story_data["scenes"],
+                        global_style=manifest.global_style,
+                        project_dir=project_dir
+                    )
+                    print(f"[EnvAnchors] Generated {len(env_anchors)} environment anchors")
 
             # Character Casting
             if manifest.character_sheet:
+                # 캐릭터 캐스팅 시작 메시지
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    _md = json.load(f)
+                _md["casting_message"] = f"캐릭터 앵커 이미지 생성 중... ({len(manifest.character_sheet)}명)"
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(_md, f, ensure_ascii=False, indent=2)
+
                 print(f"\n[Characters] Casting character anchor images...")
                 character_manager = CharacterManager()
                 character_images = character_manager.cast_characters(
@@ -797,11 +856,32 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         env_anchors = {}
 
         _saved_style = _existing_data.get("_style_anchor_path")
+        _saved_style_url = _existing_data.get("_style_anchor_url")
         _saved_envs = _existing_data.get("_env_anchors", {})
+        _saved_env_urls = _existing_data.get("_env_anchor_urls", {})
 
+        # 로컬 파일 또는 R2 URL에서 앵커 복원
+        _reused = False
         if _saved_style and os.path.exists(_saved_style):
             style_anchor_path = _saved_style
             env_anchors = {int(k): v for k, v in _saved_envs.items() if os.path.exists(v)}
+            _reused = True
+        elif _saved_style_url or _saved_style:
+            # 로컬 파일 없음 → R2 URL에서 다운로드
+            _dl_url = _saved_style_url or _saved_style
+            if _dl_url and _dl_url.startswith("http"):
+                _local = self._download_to_local(_dl_url, project_dir, "media/anchors")
+                if _local:
+                    style_anchor_path = _local
+                    _reused = True
+            # 환경 앵커도 URL에서 복원
+            for _sc_id, _env_url in _saved_env_urls.items():
+                if _env_url and _env_url.startswith("http"):
+                    _local = self._download_to_local(_env_url, project_dir, "media/anchors")
+                    if _local:
+                        env_anchors[int(_sc_id)] = _local
+
+        if _reused:
             print(f"\n[StyleAnchor] Reusing pre-generated style anchor: {style_anchor_path}")
             print(f"[EnvAnchors] Reusing {len(env_anchors)} pre-generated environment anchors")
         else:
@@ -836,6 +916,12 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     existing_path = _existing_cs_data[token].get("master_image_path")
                     if existing_path and os.path.exists(existing_path):
                         cs.master_image_path = existing_path
+                    elif not (existing_path and os.path.exists(existing_path)):
+                        _url = _existing_cs_data[token].get("master_image_url")
+                        if _url:
+                            _local = self._download_to_local(_url, project_dir, "media/characters")
+                            if _local:
+                                cs.master_image_path = _local
 
         _all_have_anchors = all(
             hasattr(cs, 'master_image_path') and cs.master_image_path and os.path.exists(cs.master_image_path)
@@ -1200,6 +1286,24 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             tts_characters=tts_characters,
             estimated_usd=round(estimated_usd, 2)
         )
+
+    def _download_to_local(self, url: str, project_dir: str, subdir: str = "media/anchors") -> str:
+        """URL에서 파일을 다운로드하여 로컬에 저장. 성공 시 로컬 경로, 실패 시 None."""
+        try:
+            import requests as req_lib
+            resp = req_lib.get(url, timeout=30)
+            if resp.status_code == 200:
+                _dir = os.path.join(project_dir, subdir)
+                os.makedirs(_dir, exist_ok=True)
+                _fname = os.path.basename(url.split("?")[0])
+                _local_path = os.path.join(_dir, _fname)
+                with open(_local_path, "wb") as f:
+                    f.write(resp.content)
+                print(f"[R2->Local] Downloaded: {_fname}")
+                return _local_path
+        except Exception as e:
+            print(f"[R2->Local] Download failed ({url}): {e}")
+        return None
 
     def _save_manifest(self, manifest: Manifest, project_dir: str) -> str:
         """

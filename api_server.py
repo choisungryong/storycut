@@ -1906,6 +1906,76 @@ async def generate_characters_only(req: GenerateVideoRequest):
             from pipeline import StorycutPipeline
             pipeline = StorycutPipeline()
             pipeline.generate_characters_only(story_data, request_params, project_id)
+
+            # 캐스팅 완료 후 앵커 이미지들 R2 업로드 (Railway 재시작 대비)
+            try:
+                from utils.storage import StorageManager
+                _storage = StorageManager()
+                _manifest_path = f"outputs/{project_id}/manifest.json"
+                if os.path.exists(_manifest_path):
+                    with open(_manifest_path, "r", encoding="utf-8") as f:
+                        _mf = json.load(f)
+                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    _updated = False
+
+                    # 1) 스타일 앵커 업로드
+                    _style_path = _mf.get("_style_anchor_path")
+                    if _style_path and os.path.exists(_style_path):
+                        _fname = os.path.basename(_style_path)
+                        _r2_key = f"images/{project_id}/{_fname}"
+                        if _storage.upload_file(_style_path, _r2_key):
+                            _mf["_style_anchor_url"] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
+                            _updated = True
+                            print(f"[R2] Uploaded style anchor: {_fname}")
+
+                    # 2) 환경 앵커 업로드
+                    _env_anchors = _mf.get("_env_anchors", {})
+                    _env_urls = {}
+                    for _sc_id, _env_path in _env_anchors.items():
+                        if _env_path and os.path.exists(_env_path):
+                            _fname = os.path.basename(_env_path)
+                            _r2_key = f"images/{project_id}/{_fname}"
+                            if _storage.upload_file(_env_path, _r2_key):
+                                _env_urls[_sc_id] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
+                                print(f"[R2] Uploaded env anchor scene {_sc_id}: {_fname}")
+                                _updated = True
+                    if _env_urls:
+                        _mf["_env_anchor_urls"] = _env_urls
+
+                    # 3) 캐릭터 앵커 업로드
+                    _cs = _mf.get("character_sheet", {})
+                    for _token, _char in _cs.items():
+                        if not isinstance(_char, dict):
+                            continue
+                        _master = _char.get("master_image_path")
+                        if _master and os.path.exists(_master):
+                            _fname = os.path.basename(_master)
+                            _r2_key = f"images/{project_id}/{_fname}"
+                            if _storage.upload_file(_master, _r2_key):
+                                _char["master_image_url"] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
+                                _updated = True
+                                print(f"[R2] Uploaded character anchor {_token}: {_fname}")
+                        # 멀티포즈 업로드
+                        _anchor_set = _char.get("anchor_set")
+                        if _anchor_set and isinstance(_anchor_set, dict):
+                            for _pose_key, _pose_data in _anchor_set.get("poses", {}).items():
+                                if isinstance(_pose_data, dict) and _pose_data.get("image_path"):
+                                    _p_path = _pose_data["image_path"]
+                                    if os.path.exists(_p_path):
+                                        _fname = os.path.basename(_p_path)
+                                        _r2_key = f"images/{project_id}/{_fname}"
+                                        if _storage.upload_file(_p_path, _r2_key):
+                                            _pose_data["image_url"] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
+                                            _updated = True
+
+                    if _updated:
+                        with open(_manifest_path, "w", encoding="utf-8") as f:
+                            json.dump(_mf, f, ensure_ascii=False, indent=2)
+                        _storage.upload_file(_manifest_path, f"videos/{project_id}/manifest.json")
+                        print(f"[R2] Casting manifest uploaded to R2")
+            except Exception as _r2_err:
+                print(f"[R2] Anchor upload to R2 failed (non-fatal): {_r2_err}")
+
         except Exception as e:
             print(f"[CHARACTER CASTING] Error: {e}", flush=True)
             import traceback
@@ -2005,6 +2075,7 @@ async def get_character_casting_status(project_id: str):
         "completed": completed,
         "total": len(characters),
         "error": data.get("casting_error"),
+        "message": data.get("casting_message"),
     }
 
 

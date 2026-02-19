@@ -585,8 +585,10 @@ JSON 형식으로 출력:
                             if s is not None:
                                 all_seeds.append(s)
                     if all_seeds:
-                        scene_seed = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
-                        print(f"  [v2.0] Combined visual_seed: {scene_seed} (from {len(all_seeds)} characters: {all_seeds})")
+                        _base = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
+                        # 씬 인덱스를 반영하여 같은 캐릭터 조합이라도 씬마다 다른 시드 생성
+                        scene_seed = (_base + scene.scene_id * 31337) % (2**31)
+                        print(f"  [v2.0] Combined visual_seed: {scene_seed} (from {len(all_seeds)} characters: {all_seeds}, scene_id: {scene.scene_id})")
 
             # v2.0: Scene에 메타데이터 저장 (video_agent가 활용)
             if not hasattr(scene, '_seed'):
@@ -1003,7 +1005,9 @@ JSON 형식으로 출력:
                         if s is not None:
                             all_seeds.append(s)
                 if all_seeds:
-                    scene_seed = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
+                    _base = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
+                    # 씬 인덱스를 반영하여 같은 캐릭터 조합이라도 씬마다 다른 시드 생성
+                    scene_seed = (_base + scene.scene_id * 31337) % (2**31)
 
             # 메타데이터 저장
             scene._seed = scene_seed
