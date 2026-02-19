@@ -2463,7 +2463,7 @@ class StorycutApp {
                     <span class="image-card-title">${charData.name || token}</span>
                 </div>
                 <div class="image-card-visual">
-                    <div style="width:100%;aspect-ratio:1/1;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;border-radius:8px;">
+                    <div style="width:100%;aspect-ratio:3/2;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;border-radius:8px;">
                         <div class="spinner" style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.1);border-top-color:#646cff;border-radius:50%;animation:spin 1s linear infinite;"></div>
                     </div>
                 </div>

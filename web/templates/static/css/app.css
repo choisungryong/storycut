@@ -3275,15 +3275,15 @@ input.input:focus {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .casting-char-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-2);
 }
 
 .casting-char-name {
@@ -3300,13 +3300,15 @@ input.input:focus {
 /* 캐릭터 카드: 전체 너비 단일 열 */
 #casting-grid {
   grid-template-columns: 1fr !important;
+  max-width: 720px;
+  margin: 0 auto;
 }
 
 .casting-poses-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .casting-pose {
@@ -3330,7 +3332,7 @@ input.input:focus {
 
 .casting-pose img {
   width: 100%;
-  aspect-ratio: 3/4;
+  aspect-ratio: 4/5;
   object-fit: cover;
   object-position: top center;
   display: block;
