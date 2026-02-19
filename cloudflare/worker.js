@@ -541,22 +541,26 @@ async function handleRegister(request, env, cors) {
       return jsonResponse({ error: 'Password must be 8-128 characters' }, 400, cors);
     }
 
-    const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email.toLowerCase().trim()).first();
+    const cleanEmail = email.toLowerCase().trim();
+    const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(cleanEmail).first();
     if (existing) {
       return jsonResponse({ error: 'Email already registered' }, 409, cors);
     }
 
-    const userId = crypto.randomUUID();
     const passwordHash = await hashPassword(password);
+    const now = Math.floor(Date.now() / 1000);
 
-    await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, credits, plan_id, created_at)
+    // id is INTEGER PRIMARY KEY AUTOINCREMENT — do not specify it
+    const result = await env.DB.prepare(
+      `INSERT INTO users (email, password_hash, username, credits, plan_id, created_at)
        VALUES (?, ?, ?, ?, 'free', ?)`
-    ).bind(userId, email.toLowerCase().trim(), passwordHash, SIGNUP_BONUS_CLIPS, new Date().toISOString()).run();
+    ).bind(cleanEmail, passwordHash, username || cleanEmail.split('@')[0], SIGNUP_BONUS_CLIPS, now).run();
+
+    const userId = result.meta.last_row_id;
 
     await recordTransaction(env, userId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Signup bonus clips');
 
-    return jsonResponse({ message: 'Registered successfully', user: { id: userId, email: email.toLowerCase().trim(), clips: SIGNUP_BONUS_CLIPS } }, 201, cors);
+    return jsonResponse({ message: 'Registered successfully', user: { id: userId, email: cleanEmail, clips: SIGNUP_BONUS_CLIPS } }, 201, cors);
   } catch (error) {
     console.error('Register error:', error);
     return jsonResponse({ error: 'Registration failed' }, 500, cors);
@@ -632,15 +636,16 @@ async function handleGoogleAuth(request, env, cors) {
 
     if (!user) {
       // Create new user (Google users have no password)
-      const userId = crypto.randomUUID();
-      await env.DB.prepare(
-        `INSERT INTO users (id, email, password_hash, credits, plan_id, created_at)
-         VALUES (?, ?, '', ?, 'free', ?)`
-      ).bind(userId, email, SIGNUP_BONUS_CLIPS, new Date().toISOString()).run();
+      const now = Math.floor(Date.now() / 1000);
+      const result = await env.DB.prepare(
+        `INSERT INTO users (email, password_hash, username, credits, plan_id, created_at)
+         VALUES (?, '', ?, ?, 'free', ?)`
+      ).bind(email, name || email.split('@')[0], SIGNUP_BONUS_CLIPS, now).run();
 
-      await recordTransaction(env, userId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Google signup bonus clips');
+      const newUserId = result.meta.last_row_id;
+      await recordTransaction(env, newUserId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Google signup bonus clips');
 
-      user = { id: userId, email, credits: SIGNUP_BONUS_CLIPS, plan_id: 'free' };
+      user = { id: newUserId, email, credits: SIGNUP_BONUS_CLIPS, plan_id: 'free' };
     }
 
     const token = await createJWT({ sub: user.id, email: user.email }, env.JWT_SECRET);
