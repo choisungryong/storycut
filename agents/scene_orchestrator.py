@@ -845,6 +845,10 @@ JSON 형식으로 출력:
         _result_lock = threading.Lock()
         _completed_count = [0]
 
+        # pHash 중복 감지 레지스트리 (scene_id -> pHash)
+        _phash_registry = {}
+        _phash_lock = threading.Lock()
+
         def _process_single_scene(idx, scene_data, prev_scene_ref=None):
             """단일 씬 이미지 생성 (스레드에서 실행 가능)"""
             i = idx + 1  # 1-based for display
@@ -1054,6 +1058,51 @@ JSON 형식으로 출력:
                 )
 
                 scene.assets.image_path = image_path
+
+                # pHash 중복 감지: 유사 이미지 반복 생성 방지
+                try:
+                    import imagehash
+                    from PIL import Image as _PILImage
+                    with _PILImage.open(image_path) as _img:
+                        _new_hash = imagehash.phash(_img)
+                    _dup_scene_id = None
+                    with _phash_lock:
+                        for _prev_sid, _prev_hash in _phash_registry.items():
+                            if _new_hash - _prev_hash <= 8:  # hamming distance ≤ 8 → 중복
+                                _dup_scene_id = _prev_sid
+                                break
+                        if _dup_scene_id is None:
+                            _phash_registry[scene.scene_id] = _new_hash
+                    if _dup_scene_id is not None:
+                        print(f"  [pHash] Scene {scene.scene_id} too similar to Scene {_dup_scene_id} (dist≤8). Regenerating...")
+                        _varied_prompt = f"unique composition, different angle, {scene.prompt}"
+                        _new_seed = (scene_seed + 42) if scene_seed else None
+                        image_path, image_id = image_agent.generate_image(
+                            scene_id=scene.scene_id,
+                            prompt=_varied_prompt,
+                            negative_prompt=scene.negative_prompt,
+                            style=style,
+                            aspect_ratio=_aspect,
+                            output_dir=image_output_dir,
+                            seed=_new_seed,
+                            character_reference_paths=char_refs,
+                            style_anchor_path=scene_style_anchor,
+                            environment_anchor_path=scene_env_anchor,
+                            image_model=getattr(self.feature_flags, 'image_model', 'standard'),
+                            genre=_genre,
+                            mood=_mood,
+                            camera_directive=_camera_directive,
+                        )
+                        scene.assets.image_path = image_path
+                        with _phash_lock:
+                            with _PILImage.open(image_path) as _img:
+                                _phash_registry[scene.scene_id] = imagehash.phash(_img)
+                        print(f"  [pHash] Regenerated: {image_path}")
+                except ImportError:
+                    pass  # imagehash 미설치 시 무시
+                except Exception as _ph_err:
+                    print(f"  [pHash] Hash check skipped: {_ph_err}")
+
                 scene.status = SceneStatus.COMPLETED
 
                 print(f"  [OK] Image generated: {image_path}")

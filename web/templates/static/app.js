@@ -87,6 +87,25 @@ class StorycutApp {
         setTimeout(() => toast.remove(), 5000);
     }
 
+    // ===== 브라우저 푸시 알림 =====
+    _requestNotificationPermission() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }
+
+    _sendCompletionNotification(title, body) {
+        // 탭이 이미 포커스 중이면 토스트만으로 충분
+        if (document.hasFocus()) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const n = new Notification(title, {
+            body: body || '영상이 완성되었습니다. 클릭해서 확인하세요.',
+            icon: '/static/icon.png',
+            tag: 'storycut-complete',  // 중복 알림 방지
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+    }
+
     setupEventListeners() {
         // 1단계: 스토리 생성 (폼 제출)
         const form = document.getElementById('generate-form');
@@ -999,6 +1018,7 @@ class StorycutApp {
         // 생성 시작
         try {
             this.isGenerating = true;
+            this._requestNotificationPermission();
             this.showSection('progress');
             const progressTitle = document.getElementById('progress-title');
             if (progressTitle) progressTitle.textContent = '⏳ 영상 생성 중...';
@@ -1121,6 +1141,7 @@ class StorycutApp {
                     this.updateStepStatus('complete', '완료');
                     this.stopPolling();
                     this.isGenerating = false;
+                    this._sendCompletionNotification('StoryCut 영상 완성!', `"${data.title || '영상'}"이 완성되었습니다. 클릭해서 확인하세요.`);
 
                     // 1초 대기 후 결과 페이지로 이동
                     setTimeout(() => {
@@ -1229,6 +1250,7 @@ class StorycutApp {
                         if (data.progress === 100 || data.step === 'complete') {
                             this.addLog('SUCCESS', '영상 완성');
                             this.updateStepStatus('complete', '완료');
+                            this._sendCompletionNotification('StoryCut 영상 완성!', `"${data.data?.title || '영상'}"이 완성되었습니다. 클릭해서 확인하세요.`);
                             setTimeout(() => {
                                 this.handleComplete({
                                     project_id: projectId,
@@ -3201,6 +3223,7 @@ class StorycutApp {
         }
 
         this.isGenerating = true;
+        this._requestNotificationPermission();
 
         // 이미지 프리뷰 → 영상 생성: "장면 처리" 단계부터 시작
         this.showSection('progress');
@@ -3485,6 +3508,8 @@ class StorycutApp {
             return;
         }
 
+        this._requestNotificationPermission();
+
         // 씬 설명 수집
         const sceneDescriptions = [];
         document.querySelectorAll('.mv-scene-description').forEach((textarea, index) => {
@@ -3603,6 +3628,7 @@ class StorycutApp {
                     this.mvAddLog('SUCCESS', 'Music video generation complete!');
                     this.updateMVProgress(100, '완료');
                     this.stopMVPolling();
+                    this._sendCompletionNotification('StoryCut 뮤직비디오 완성!', '뮤직비디오가 완성되었습니다. 클릭해서 확인하세요.');
                     this.fetchMVResult(projectId);
 
                 } else if (data.status === 'failed') {
