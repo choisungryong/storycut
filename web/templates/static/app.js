@@ -2437,6 +2437,12 @@ class StorycutApp {
             this.renderCastingPlaceholders(characterSheet);
             this.showSection('character-casting');
 
+            // 로딩바 초기화 및 표시
+            document.getElementById('casting-progress-container').classList.remove('hidden');
+            document.getElementById('casting-progress-fill').style.width = '0%';
+            document.getElementById('casting-progress-percent').textContent = '0%';
+            document.getElementById('casting-progress-label').textContent = '캐릭터 캐스팅 중...';
+
             // 폴링 시작
             this.pollCastingStatus(this.projectId);
 
