@@ -1279,26 +1279,33 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                         print(f"[WRAPPER] Uploading scene assets...", flush=True)
                         if manifest.scenes:
                             for idx, scene in enumerate(manifest.scenes):
-                                # 1. Image Upload
-                                if hasattr(scene, "image_path") and scene.image_path and os.path.exists(scene.image_path):
-                                    img_filename = os.path.basename(scene.image_path)
+                                assets = getattr(scene, "assets", None)
+                                if not assets:
+                                    continue
+
+                                # 1. Image Upload (scene.assets.image_path)
+                                img_path = assets.image_path if assets.image_path else None
+                                if img_path and os.path.exists(img_path):
+                                    img_filename = os.path.basename(img_path)
                                     r2_key = f"images/{project_id}/{img_filename}"
-                                    if storage.upload_file(scene.image_path, r2_key):
-                                        scene.image_path = f"{backend_url}/api/asset/{project_id}/image/{img_filename}"
+                                    if storage.upload_file(img_path, r2_key):
+                                        assets.image_path = f"{backend_url}/api/asset/{project_id}/image/{img_filename}"
 
-                                # 2. Audio Upload
-                                if hasattr(scene, "audio_path") and scene.audio_path and os.path.exists(scene.audio_path):
-                                    audio_filename = os.path.basename(scene.audio_path)
+                                # 2. Narration Audio Upload (scene.assets.narration_path)
+                                narration_path = assets.narration_path if assets.narration_path else None
+                                if narration_path and os.path.exists(narration_path):
+                                    audio_filename = os.path.basename(narration_path)
                                     r2_key = f"audio/{project_id}/{audio_filename}"
-                                    if storage.upload_file(scene.audio_path, r2_key):
-                                        scene.audio_path = f"{backend_url}/api/asset/{project_id}/audio/{audio_filename}"
+                                    if storage.upload_file(narration_path, r2_key):
+                                        assets.narration_path = f"{backend_url}/api/asset/{project_id}/audio/{audio_filename}"
 
-                                # 3. Scene Video Upload
-                                if hasattr(scene, "video_path") and scene.video_path and os.path.exists(scene.video_path):
-                                    vid_filename = os.path.basename(scene.video_path)
+                                # 3. Scene Video Upload (scene.assets.video_path)
+                                video_path = assets.video_path if assets.video_path else None
+                                if video_path and os.path.exists(video_path):
+                                    vid_filename = os.path.basename(video_path)
                                     r2_key = f"videos/{project_id}/{vid_filename}"
-                                    if storage.upload_file(scene.video_path, r2_key):
-                                        scene.video_path = f"{backend_url}/api/asset/{project_id}/video/{vid_filename}"
+                                    if storage.upload_file(video_path, r2_key):
+                                        assets.video_path = f"{backend_url}/api/asset/{project_id}/video/{vid_filename}"
                         
                         print(f"[WRAPPER] Scene assets uploaded.", flush=True)
                     except Exception as e:
@@ -2504,15 +2511,12 @@ async def get_history_list(request: Request):
                     p["status"] = local_status
                 # 썸네일 보강
                 if not p.get("thumbnail_url"):
-                    thumb_path = os.path.join(outputs_dir, pid, "thumbnail.png")
-                    if os.path.exists(thumb_path):
-                        p["thumbnail_url"] = f"/media/{pid}/thumbnail.png"
-                    else:
-                        for sc in lm.get("scenes", []):
-                            img_p = sc.get("image_path", "")
-                            if img_p:
-                                p["thumbnail_url"] = f"/api/asset/{pid}/images/{os.path.basename(img_p)}"
-                                break
+                    for sc in lm.get("scenes", []):
+                        img_p = sc.get("assets", {}).get("image_path", "") or sc.get("image_path", "")
+                        if img_p:
+                            fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                            p["thumbnail_url"] = f"/api/asset/{pid}/image/{fname}"
+                            break
                 # MV 추가 정보
                 if p["type"] == "mv":
                     ma = lm.get("music_analysis", {})
@@ -2556,17 +2560,14 @@ async def get_history_list(request: Request):
                             music_analysis = data.get("music_analysis", {})
                             scenes = data.get("scenes", [])
 
-                            # 썸네일: thumbnail.png > 첫 씬 이미지
+                            # 썸네일: 첫 씬 이미지 (R2 fallback 지원 경로 사용)
                             thumb_url = None
-                            thumb_path = os.path.join(outputs_dir, pid, "thumbnail.png")
-                            if os.path.exists(thumb_path):
-                                thumb_url = f"/media/{pid}/thumbnail.png"
-                            else:
-                                for sc in scenes:
-                                    img_p = sc.get("image_path", "")
-                                    if img_p:
-                                        thumb_url = f"/api/asset/{pid}/images/{os.path.basename(img_p)}"
-                                        break
+                            for sc in scenes:
+                                img_p = sc.get("assets", {}).get("image_path", "") or sc.get("image_path", "")
+                                if img_p:
+                                    fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                                    thumb_url = f"/api/asset/{pid}/image/{fname}"
+                                    break
 
                             local_projects.append({
                                 "project_id": pid,
@@ -2584,13 +2585,21 @@ async def get_history_list(request: Request):
                             })
                         else:
                             scenes = data.get("scenes", [])
+                            # 썸네일: 첫 씬 이미지 (R2 fallback 지원 경로)
+                            video_thumb = None
+                            for sc in scenes:
+                                img_p = sc.get("assets", {}).get("image_path", "") or sc.get("image_path", "")
+                                if img_p:
+                                    fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                                    video_thumb = f"/api/asset/{pid}/image/{fname}"
+                                    break
                             local_projects.append({
                                 "project_id": data.get("project_id", pid),
                                 "title": data.get("title", "제목 없음"),
                                 "type": "video",
                                 "status": data.get("status"),
                                 "created_at": data.get("created_at"),
-                                "thumbnail_url": f"/media/{pid}/thumbnail.png" if os.path.exists(os.path.join(outputs_dir, pid, "thumbnail.png")) else None,
+                                "thumbnail_url": video_thumb,
                                 "video_url": f"/api/stream/{pid}" if is_completed else None,
                                 "download_url": f"/api/download/{pid}" if is_completed else None,
                                 "scene_count": len(scenes),

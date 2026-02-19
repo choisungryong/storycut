@@ -129,10 +129,10 @@ class StorageManager:
                                 is_completed = status == 'completed'
                                 scenes = manifest.get('scenes', [])
 
-                                # 썸네일: 첫 씬 이미지에서 추출
+                                # 썸네일: 첫 씬 이미지에서 추출 (assets.image_path 구조 지원)
                                 thumbnail_url = None
                                 for sc in scenes:
-                                    img_p = sc.get("image_path", "")
+                                    img_p = sc.get("assets", {}).get("image_path", "") or sc.get("image_path", "")
                                     if img_p:
                                         fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
                                         thumbnail_url = f"/api/asset/{project_id}/image/{fname}"
