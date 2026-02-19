@@ -1975,33 +1975,56 @@ async def regenerate_character(project_id: str, token: str):
     def do_regenerate():
         from agents.character_manager import CharacterManager
         manager = CharacterManager()
-        return manager.cast_characters(
+        # 전체 3포즈 재생성 (reference 기반 일관성 적용)
+        manager.cast_characters(
             character_sheet=char_sheet,
             global_style=global_style,
             project_dir=project_dir,
-            poses=["front"],
+            poses=["front", "three_quarter", "full_body"],
             candidates_per_pose=1
         )
+        # anchor_set 전체 포즈 이미지 경로 반환
+        char_obj = char_sheet.get(token)
+        pose_results = {}
+        if char_obj and char_obj.anchor_set:
+            for pose_key, pose_anchor in char_obj.anchor_set.poses.items():
+                pose_results[pose_key] = pose_anchor.image_path
+            best = char_obj.anchor_set.best_pose
+            master = char_obj.master_image_path
+        else:
+            best = "front"
+            master = None
+        return pose_results, best, master
 
-    result = await run_in_threadpool(do_regenerate)
+    pose_results, best_pose, master_path = await run_in_threadpool(do_regenerate)
 
-    new_path = result.get(token, "")
-    web_path = None
-    if new_path:
-        character_sheet_raw[token]["master_image_path"] = new_path
+    # manifest 업데이트
+    def _to_web(p):
+        if not p:
+            return None
+        normalized = p.replace("\\", "/")
+        if "outputs/" in normalized:
+            return f"/media/{normalized.split('outputs/', 1)[1]}"
+        return None
+
+    if master_path:
+        character_sheet_raw[token]["master_image_path"] = master_path
         manifest_data["character_sheet"] = character_sheet_raw
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_data, f, ensure_ascii=False, indent=2)
 
-        normalized = new_path.replace("\\", "/")
-        if "outputs/" in normalized:
-            rel = normalized.split("outputs/", 1)[1]
-            web_path = f"/media/{rel}"
+    pose_labels = {"front": "정면", "three_quarter": "45도", "full_body": "전신"}
+    pose_images_web = [
+        {"pose": pose_key, "image_path": raw_path, "web_path": _to_web(raw_path), "label": pose_labels.get(pose_key, pose_key)}
+        for pose_key, raw_path in pose_results.items()
+    ]
 
     return {
         "project_id": project_id,
         "token": token,
-        "image_path": web_path,
+        "image_path": _to_web(master_path),
+        "pose_images": pose_images_web,
+        "best_pose": best_pose,
     }
 
 

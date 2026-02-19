@@ -2704,11 +2704,29 @@ class StorycutApp {
             const result = await response.json();
             console.log('[Casting] Regenerate success:', result);
 
-            // 이미지 업데이트
-            const img = card.querySelector('img');
-            if (img && result.image_path) {
-                const newUrl = this.resolveImageUrl(result.image_path);
-                img.src = `${newUrl}?t=${Date.now()}`;
+            // 포즈 그리드 전체 재렌더링
+            if (result.pose_images && result.pose_images.length > 0) {
+                const poseLabels = { front: '정면', three_quarter: '45도', full_body: '전신', side: '측면' };
+                const mainPath = result.image_path || (result.pose_images[0]?.web_path);
+                const posesHtml = result.pose_images.map((p, idx) => {
+                    const url = this.resolveImageUrl(p.web_path || p.image_path);
+                    const label = poseLabels[p.pose] || p.pose;
+                    const isSelected = p.pose === result.best_pose ? ' selected' : '';
+                    const escapedUrl = url.replace(/'/g, "\\'");
+                    const escapedLabel = label.replace(/'/g, "\\'");
+                    return `
+                        <div class="casting-pose${isSelected}" data-token="${token}" data-pose-idx="${idx}" data-image-path="${p.image_path || p.web_path}" onclick="app.selectPose('${token}', ${idx})">
+                            <img src="${url}?t=${Date.now()}" alt="${label}" onerror="this.style.display='none'">
+                            <button class="zoom-btn" onclick="event.stopPropagation(); app.openLightbox('${escapedUrl}', '${escapedLabel}')" title="확대 보기">⤢</button>
+                            <span class="casting-pose-label">${label}</span>
+                        </div>`;
+                }).join('');
+                const grid = card.querySelector('.casting-poses-grid');
+                if (grid) grid.innerHTML = posesHtml;
+            } else if (result.image_path) {
+                // 구버전 단일 이미지 응답 fallback
+                const img = card.querySelector('img');
+                if (img) img.src = `${this.resolveImageUrl(result.image_path)}?t=${Date.now()}`;
             }
 
             this.showToast(`${token} 캐릭터 재생성 완료!`, 'success');
