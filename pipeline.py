@@ -416,7 +416,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 character_images = character_manager.cast_characters(
                     character_sheet=manifest.character_sheet,
                     global_style=manifest.global_style,
-                    project_dir=project_dir
+                    project_dir=project_dir,
+                    ethnicity=getattr(request, 'character_ethnicity', 'auto')
                 )
                 if "character_sheet" in story_data:
                     for token, image_path in character_images.items():
@@ -637,6 +638,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     character_sheet=manifest.character_sheet,
                     global_style=manifest.global_style,
                     project_dir=project_dir,
+                    ethnicity=getattr(request, 'character_ethnicity', 'auto')
                 )
 
                 # story_data에 master_image_path 반영
@@ -843,7 +845,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 global_style=manifest.global_style,
                 project_dir=project_dir,
                 poses=["front"],
-                candidates_per_pose=1
+                candidates_per_pose=1,
+                ethnicity=getattr(request, 'character_ethnicity', 'auto')
             )
 
             # Update story_data with master_image_path

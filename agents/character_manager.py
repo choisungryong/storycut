@@ -76,7 +76,8 @@ class CharacterManager:
         global_style: Optional[GlobalStyle],
         project_dir: str,
         poses: Optional[List[str]] = None,
-        candidates_per_pose: int = 1
+        candidates_per_pose: int = 1,
+        ethnicity: str = "auto"
     ) -> Dict[str, str]:
         """
         모든 캐릭터의 마스터 앵커 이미지 생성.
@@ -145,8 +146,19 @@ class CharacterManager:
                 print(f"    [Warning] Invalid character data for {token}, skipping.")
                 continue
 
+            # 인종 키워드를 appearance에 주입 (씬 이미지와 동일하게)
+            _ETH_KW = {
+                "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+                "southeast_asian": "Southeast Asian", "european": "European",
+                "black": "Black", "hispanic": "Hispanic", "mixed": "Mixed ethnicity",
+            }
+            eth_keyword = _ETH_KW.get(str(ethnicity).lower(), "")
+            if eth_keyword and eth_keyword.lower() not in appearance.lower():
+                appearance = f"{eth_keyword}, {appearance}"
+                print(f"    [Ethnicity] Injected '{eth_keyword}' into appearance")
+
             print(f"    Name: {name}")
-            print(f"    Appearance: {appearance[:50]}..." if len(appearance) > 50 else f"    Appearance: {appearance}")
+            print(f"    Appearance: {appearance[:60]}..." if len(appearance) > 60 else f"    Appearance: {appearance}")
             print(f"    Seed: {char_seed}")
             print(f"    Poses: {poses}")
 
