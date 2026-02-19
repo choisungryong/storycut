@@ -943,9 +943,23 @@ JSON 형식으로 출력:
         
         global_style = story_data.get("global_style")
         character_sheet = story_data.get("character_sheet", {})
-        
+
         print(f"Total scenes: {total_scenes}")
-        print(f"Style: {style}\n")
+        print(f"Style: {style}")
+        # 앵커 디버그: character_sheet에 anchor_set과 master_image_path가 있는지 확인
+        for _dbg_token, _dbg_cs in character_sheet.items():
+            if isinstance(_dbg_cs, dict):
+                _has_anchor = bool(_dbg_cs.get("anchor_set"))
+                _has_master = bool(_dbg_cs.get("master_image_path"))
+                _master_exists = os.path.exists(_dbg_cs.get("master_image_path", "")) if _has_master else False
+                print(f"  [DEBUG] {_dbg_token}: anchor_set={_has_anchor}, master_image_path={_has_master} (exists={_master_exists})")
+                if _has_anchor:
+                    _poses = _dbg_cs["anchor_set"].get("poses", {})
+                    for _pk, _pv in _poses.items():
+                        _pp = _pv.get("image_path", "") if isinstance(_pv, dict) else ""
+                        _pe = os.path.exists(_pp) if _pp else False
+                        print(f"    [DEBUG] pose={_pk}: path={_pp}, exists={_pe}")
+        print()
         
         processed_scenes = [None] * total_scenes  # pre-allocate for ordered results
 
@@ -1179,6 +1193,7 @@ JSON 형식으로 출력:
                                     pass
                             else:
                                 print(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
+                    print(f"  [ANCHOR] Scene {scene.scene_id}: chars={scene.characters_in_scene}, refs={len(char_refs)} paths={char_refs}")
                     if len(char_refs) < len(scene.characters_in_scene):
                         print(f"  [WARNING] Only {len(char_refs)}/{len(scene.characters_in_scene)} character anchors found")
 
