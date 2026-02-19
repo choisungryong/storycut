@@ -212,10 +212,10 @@ GOOD tts_script (풍부한 스토리텔링 - REQUIRED):
 - "image_prompt"만 영어로 작성 (이미지 생성 AI용).
 - "title"도 반드시 한국어로 작성.
 
-[STRICT] CHARACTER CONSISTENCY RULE:
-- Refer to characters ONLY by their IDs (e.g., STORYCUT_HERO_A) in the "image_prompt".
-- DO NOT describe their physical appearance (age, hair, clothes) in "image_prompt". This is already handled by the system.
-- Focus ONLY on the scene's action, lighting, and composition.
+[STRICT] IMAGE PROMPT RULE:
+- Do NOT use character token IDs (e.g., STORYCUT_HERO_A) in "image_prompt". The system injects character visuals automatically.
+- Do NOT describe character appearance (hair, clothes, face) — the reference image handles this.
+- Describe ONLY the scene action, body pose, facial expression, lighting, and composition.
 
 [CRITICAL] DYNAMIC POSE & ACTION RULE (영상 연출 필수):
 You are a FILM DIRECTOR. Each scene MUST have dynamic, cinematic poses. NO static standing poses!
@@ -226,15 +226,15 @@ Every "image_prompt" MUST include ALL of the following:
 4. GESTURE/HANDS: What are the hands doing? (clenched fists, trembling hands reaching out, gripping a weapon, covering mouth in shock)
 5. EYE DIRECTION: Where is the character looking? (staring at camera, looking over shoulder, eyes cast downward, glaring at enemy)
 
-BAD (Static - FORBIDDEN):
-- "STORYCUT_HERO_A standing in a room" ❌
-- "STORYCUT_HERO_A at the door" ❌
-- "STORYCUT_HERO_A in the rain" ❌
+BAD (Static or uses character token - FORBIDDEN):
+- "a young woman standing in a room" ❌
+- "a man at the door" ❌
+- "a person standing in the rain" ❌
 
-GOOD (Dynamic - REQUIRED):
-- "STORYCUT_HERO_A bursting through the door, body leaning forward mid-stride, eyes wide with desperation, hand reaching out, rain soaking through clothes" ✓
-- "STORYCUT_HERO_A collapsed on knees, head thrown back in anguish, tears streaming, fists pounding the ground, dramatic low-angle shot" ✓
-- "STORYCUT_HERO_A spinning around in shock, body twisted mid-turn, hand flying to mouth, eyes locked on something off-screen, dramatic backlight" ✓
+GOOD (Dynamic action, no character token - REQUIRED):
+- "figure bursting through the door, body leaning forward mid-stride, eyes wide with desperation, hand reaching out, rain soaking through clothes, dramatic side lighting" ✓
+- "person collapsed on knees, head thrown back in anguish, tears streaming, fists pounding the ground, dramatic low-angle shot" ✓
+- "silhouette spinning around in shock, body twisted mid-turn, hand flying to mouth, eyes locked on something off-screen, dramatic backlight" ✓
 
 OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
 {{
@@ -246,8 +246,8 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
   "scenes": [
     {{
       "scene_id": 1,
-      "narrative": "STORYCUT_HERO_A가 급하게 카페 문을 밀치며 들어온다.",
-      "image_prompt": "STORYCUT_HERO_A bursting through cafe door, body leaning forward in urgent motion, eyes scanning the room desperately, one hand pushing door open while other clutches a crumpled letter, rain-soaked clothes, dramatic side lighting, {style} style.",
+      "narrative": "지민이 급하게 카페 문을 밀치며 들어온다.",
+      "image_prompt": "figure bursting through cafe door, body leaning forward in urgent motion, eyes scanning room desperately, one hand pushing door open while other clutches a crumpled letter, dramatic side lighting, {style} style.",
       "tts_script": "비에 흠뻑 젖은 채로 카페 문을 밀어젖히는 순간, 지민의 심장은 미친 듯이 뛰고 있었습니다. 손에 꼭 쥔 구겨진 편지... 20년 전 사라진 아버지가 보낸 것이라는 그 편지에는 이 카페의 주소가 적혀 있었죠. 과연 이곳에서 무엇을 발견하게 될까요? 지민은 떨리는 눈으로 카페 안을 훑어보았습니다.",
       "duration_sec": 8,
       "camera_work": "Medium shot, slight low angle",
