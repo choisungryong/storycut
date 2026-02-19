@@ -1312,10 +1312,11 @@ JSON 형식으로 출력:
                 processed_scenes[idx] = scene_dict
                 _completed_count[0] += 1
 
-            # 콜백 호출 (프로그레시브 로딩용)
+            # 콜백 호출 (프로그레시브 로딩용) — scene_id(1-based)를 전달
             if on_scene_complete:
                 try:
-                    on_scene_complete(scene_dict, _completed_count[0], total_scenes)
+                    _actual_scene_id = scene_data.get("scene_id", idx + 1)
+                    on_scene_complete(scene_dict, _actual_scene_id, total_scenes)
                 except Exception as cb_err:
                     print(f"  [WARNING] on_scene_complete callback error: {cb_err}")
 

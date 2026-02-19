@@ -965,6 +965,15 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                             _local = self._download_to_local(_url, project_dir, "media/characters")
                             if _local:
                                 cs.master_image_path = _local
+                    # anchor_set 복원 (캐스팅에서 생성된 멀티포즈 데이터)
+                    _existing_as = _existing_cs_data[token].get("anchor_set")
+                    if _existing_as and isinstance(_existing_as, dict):
+                        from schemas.models import AnchorSet
+                        try:
+                            cs.anchor_set = AnchorSet(**_existing_as)
+                            print(f"    [Restore] {token}: anchor_set restored ({len(_existing_as.get('poses', {}))} poses)")
+                        except Exception as _as_err:
+                            print(f"    [Warning] {token}: anchor_set restore failed: {_as_err}")
 
         _all_have_anchors = all(
             hasattr(cs, 'master_image_path') and cs.master_image_path and os.path.exists(cs.master_image_path)
@@ -1026,18 +1035,26 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
 
             # 프로그레시브 콜백: 각 씬 완료 시 manifest 업데이트
-            def _on_scene_image_complete(scene_dict, scene_index, total):
-                # manifest.scenes의 해당 씬 업데이트
-                if scene_index <= len(manifest.scenes):
-                    raw_path = scene_dict.get("assets", {}).get("image_path")
-                    web_path = self._normalize_to_web_path(raw_path, project_id)
-                    manifest.scenes[scene_index - 1].assets.image_path = raw_path
-                    manifest.scenes[scene_index - 1].prompt = scene_dict.get("prompt", "")
-                    manifest.scenes[scene_index - 1].status = scene_dict.get("status", "completed")
-                    self._save_manifest(manifest, project_dir)
+            import threading
+            _manifest_lock = threading.Lock()
+
+            def _on_scene_image_complete(scene_dict, scene_id, total):
+                # scene_id(1-based)로 올바른 씬을 찾아 업데이트
+                with _manifest_lock:
+                    target = None
+                    for s in manifest.scenes:
+                        if s.scene_id == scene_id:
+                            target = s
+                            break
+                    if target:
+                        raw_path = scene_dict.get("assets", {}).get("image_path")
+                        target.assets.image_path = raw_path
+                        target.prompt = scene_dict.get("prompt", "")
+                        target.status = scene_dict.get("status", "completed")
+                        self._save_manifest(manifest, project_dir)
                 # 외부 콜백도 호출
                 if on_scene_complete:
-                    on_scene_complete(scene_dict, scene_index, total)
+                    on_scene_complete(scene_dict, scene_id, total)
 
             # Call a new method that generates only images
             scenes_with_images = orchestrator.generate_images_for_scenes(
@@ -1375,8 +1392,21 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         """
         manifest_path = f"{project_dir}/manifest.json"
 
+        # 기존 manifest에서 커스텀 키 보존 (model_dump에 포함 안 되는 키들)
+        _CUSTOM_KEYS = ("_style_anchor_path", "_style_anchor_url", "_env_anchors", "_env_anchor_urls",
+                        "casting_status", "casting_message", "casting_error", "_images_pregenerated")
+        _preserved = {}
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    _old = json.load(f)
+                _preserved = {k: _old[k] for k in _CUSTOM_KEYS if k in _old}
+            except Exception:
+                pass
+
         # Pydantic 모델을 JSON으로 직렬화
         manifest_dict = manifest.model_dump(mode="json")
+        manifest_dict.update(_preserved)
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_dict, f, ensure_ascii=False, indent=2, default=str)
