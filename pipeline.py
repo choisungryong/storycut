@@ -704,9 +704,18 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 character_manager = CharacterManager()
 
                 def _casting_progress(done, total, char_name):
-                    manifest.status = "casting"
-                    manifest.message = f"캐릭터 캐스팅 중... ({done}/{total}) - {char_name}"
-                    self._save_manifest(manifest, project_dir)
+                    # manifest JSON에 직접 merge (casting_status 등 커스텀 키 보존)
+                    try:
+                        mp = f"{project_dir}/manifest.json"
+                        with open(mp, "r", encoding="utf-8") as f:
+                            _md = json.load(f)
+                        _md["casting_message"] = f"캐릭터 캐스팅 중... ({done}/{total}) - {char_name}"
+                        _md["status"] = "casting"
+                        _md["message"] = f"캐릭터 캐스팅 중... ({done}/{total}) - {char_name}"
+                        with open(mp, "w", encoding="utf-8") as f:
+                            json.dump(_md, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
 
                 character_images = character_manager.cast_characters(
                     character_sheet=manifest.character_sheet,
