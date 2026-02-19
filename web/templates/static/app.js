@@ -2570,8 +2570,8 @@ class StorycutApp {
 
         document.getElementById('casting-progress-fill').style.width = `${percent}%`;
         document.getElementById('casting-progress-percent').textContent = `${percent}%`;
-        // 서버 메시지가 있으면 표시 (앵커 생성 단계 등), 없으면 기본 메시지
-        const label = (data.message && done === 0) ? data.message : `캐릭터 캐스팅 중... (${done}/${total})`;
+        // 서버 메시지 우선 표시, 없으면 기본 메시지
+        const label = data.message || `캐릭터 캐스팅 중... (${done}/${total})`;
         document.getElementById('casting-progress-label').textContent = label;
     }
 

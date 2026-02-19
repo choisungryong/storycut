@@ -77,7 +77,8 @@ class CharacterManager:
         project_dir: str,
         poses: Optional[List[str]] = None,
         candidates_per_pose: int = 1,
-        ethnicity: str = "auto"
+        ethnicity: str = "auto",
+        progress_callback: Optional[callable] = None
     ) -> Dict[str, str]:
         """
         모든 캐릭터의 마스터 앵커 이미지 생성.
@@ -196,6 +197,10 @@ class CharacterManager:
 
             character_images[token] = anchor_set.get_pose_image(anchor_set.best_pose) or ""
             print(f"    [OK] Anchor set complete: {len(anchor_set.poses)} poses")
+
+            # 진행률 콜백
+            if progress_callback:
+                progress_callback(idx, total_chars, name)
 
         print(f"\n[CharacterManager] Casting complete: {len(character_images)}/{total_chars} characters")
         return character_images
@@ -426,12 +431,16 @@ class CharacterManager:
                         image_model="standard",
                         character_reference_path=reference_image_path,  # 일관성 참조
                     )
-                    score = self._score_candidate(
-                        image_path=image_path,
-                        pose_key=pose_key,
-                        appearance=appearance,
-                        art_style=art_style
-                    )
+                    # 후보가 1개면 스코어링 생략 (Gemini Vision API 호출 절약)
+                    if candidates_per_pose > 1:
+                        score = self._score_candidate(
+                            image_path=image_path,
+                            pose_key=pose_key,
+                            appearance=appearance,
+                            art_style=art_style
+                        )
+                    else:
+                        score = 0.5
                     print(f"        [Pose:{pose_key}] cand{cand_idx} score={score:.2f}")
                     if score > best_candidate_score:
                         best_candidate_score = score

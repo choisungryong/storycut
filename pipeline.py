@@ -702,11 +702,18 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
                 print(f"\n[Characters] Casting character anchor images...")
                 character_manager = CharacterManager()
+
+                def _casting_progress(done, total, char_name):
+                    manifest.status = "casting"
+                    manifest.message = f"캐릭터 캐스팅 중... ({done}/{total}) - {char_name}"
+                    self._save_manifest(manifest, project_dir)
+
                 character_images = character_manager.cast_characters(
                     character_sheet=manifest.character_sheet,
                     global_style=manifest.global_style,
                     project_dir=project_dir,
-                    ethnicity=getattr(request, 'character_ethnicity', 'auto')
+                    ethnicity=getattr(request, 'character_ethnicity', 'auto'),
+                    progress_callback=_casting_progress
                 )
 
                 # story_data에 master_image_path 반영
