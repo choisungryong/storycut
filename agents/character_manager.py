@@ -456,8 +456,9 @@ class CharacterManager:
                         _best_score[0] = best_candidate_score
                         _best_pose_key[0] = pose_key
 
-        # reference 없이 생성해야 하는 포즈 (구도가 front와 크게 달라 reference를 주면 오히려 동일하게 나옴)
-        NO_REF_POSES = {"full_body", "side", "emotion_neutral", "emotion_intense"}
+        # reference 없이 생성해야 하는 포즈 (극단적으로 다른 앵글만)
+        # full_body도 reference 사용 → 얼굴/외형 일관성 유지 (프롬프트로 구도 차이 반영)
+        NO_REF_POSES = {"emotion_neutral", "emotion_intense"}
 
         # 1단계: 첫 포즈(기준 앵커)를 먼저 단독 생성
         first_pose = poses[0]
