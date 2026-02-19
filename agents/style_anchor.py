@@ -57,7 +57,7 @@ class StyleAnchorAgent:
         """
         print(f"\n[StyleAnchor] Generating style anchor image...")
 
-        output_path = f"{project_dir}/media/style_anchor.jpg"
+        output_path = f"{project_dir}/media/style_anchor.png"
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         prompt = self._build_style_anchor_prompt(global_style)
@@ -79,7 +79,7 @@ class StyleAnchorAgent:
                 scene_id=0,
                 prompt=prompt,
                 style=art_style,
-                output_dir=output_path,
+                output_dir=output_path,  # .png로 끝나므로 그대로 파일 경로로 사용됨
                 seed=visual_seed,
                 image_model="standard"
             )
@@ -135,7 +135,7 @@ class StyleAnchorAgent:
 
         def _generate_one(scene_data):
             scene_id = scene_data.get("scene_id", 0)
-            output_path = f"{project_dir}/media/env_anchor_scene_{scene_id:02d}.jpg"
+            output_path = f"{project_dir}/media/env_anchor_scene_{scene_id:02d}.png"
             prompt = self._build_environment_prompt(scene_data, global_style)
             print(f"  Scene {scene_id}: {prompt[:60]}...")
             try:
@@ -144,7 +144,7 @@ class StyleAnchorAgent:
                     scene_id=0,
                     prompt=prompt,
                     style=art_style,
-                    output_dir=output_path,
+                    output_dir=output_path,  # .png로 끝나므로 그대로 파일 경로로 사용됨
                     seed=visual_seed + scene_id,
                     image_model="standard"
                 )

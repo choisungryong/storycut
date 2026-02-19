@@ -109,7 +109,12 @@ class ImageAgent:
 
         # Output Path Setup
         if scene_id == 0:
-            output_path = output_dir if output_dir.endswith('.png') else f"{output_dir}/master_character.png"
+            # output_dir가 이미지 파일 경로(.png/.jpg)이면 그대로 사용, 아니면 디렉토리 취급
+            _ext = os.path.splitext(output_dir)[1].lower()
+            if _ext in ('.png', '.jpg', '.jpeg', '.webp'):
+                output_path = output_dir
+            else:
+                output_path = f"{output_dir}/master_character.png"
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             print(f"  [Image] Generating MASTER CHARACTER ({image_model})...")
         else:
