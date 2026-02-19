@@ -986,6 +986,7 @@ async def generate_story(req: GenerateRequest):
         bgm=True,
         subtitles=req.subtitle_burn_in,
         character_ethnicity=req.character_ethnicity,
+        include_dialogue=req.include_dialogue,
         feature_flags=feature_flags,
     )
 

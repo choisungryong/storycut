@@ -211,6 +211,9 @@ class ProjectRequest(BaseModel):
     # 캐릭터 인종
     character_ethnicity: str = Field(default="auto", description="캐릭터 인종/외형 (auto, korean, japanese, ...)")
 
+    # 대화 포함 여부
+    include_dialogue: bool = Field(default=False, description="캐릭터 간 대화 포함 여부 (False = 나레이터 전용)")
+
     # Feature Flags
     feature_flags: FeatureFlags = Field(
         default_factory=FeatureFlags,

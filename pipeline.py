@@ -1003,7 +1003,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             style=request.style_preset or "cinematic",
             total_duration_sec=request.duration_target_sec or 60,
             user_idea=request.topic or request.user_idea,
-            is_shorts=_is_shorts
+            is_shorts=_is_shorts,
+            include_dialogue=getattr(request, 'include_dialogue', False),
         )
 
         return story_data

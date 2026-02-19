@@ -43,7 +43,8 @@ class StoryAgent:
         style: str,
         total_duration_sec: int = 90,
         user_idea: str = None,
-        is_shorts: bool = False
+        is_shorts: bool = False,
+        include_dialogue: bool = False,
     ) -> Dict[str, Any]:
         """
         Generate a scene-based story JSON using a 2-Step Hierarchical Chain.
@@ -62,7 +63,24 @@ class StoryAgent:
         # =================================================================================
         import sys
         print(f"  [Step 1] Planning Story Architecture...", file=sys.stderr, flush=True)
-        
+
+        if include_dialogue:
+            _step1_dialogue_rule = (
+                "[DIALOGUE RULE]\n"
+                "- If the user idea mentions dialogue, conversation, or multiple speakers (화자, 대화):\n"
+                "  You MUST create at least 2-3 named characters (male + female) with distinct roles.\n"
+                "  The tts_script in Step 2 MUST include [male_1], [female_1] speaker tags with actual dialogue lines.\n"
+                "  DO NOT make a narrator-only story when dialogue is requested."
+            )
+        else:
+            _step1_dialogue_rule = (
+                "[NARRATOR-ONLY MODE - CRITICAL]\n"
+                "- This story uses a SINGLE narrator voice only. NO character dialogue allowed.\n"
+                "- Do NOT create characters for the purpose of dialogue. A single protagonist is enough.\n"
+                "- The tts_script in Step 2 MUST use ONLY [narrator] tags. NO [male_1], [female_1] tags.\n"
+                "- Treat this as a documentary or audiobook narration, NOT a drama with conversations."
+            )
+
         step1_prompt = f"""
 ROLE: Professional Storyboard Artist & Director.
 TASK: Plan the structure for a {total_duration_sec}-second YouTube Short.
@@ -80,11 +98,7 @@ SCENE COUNT: Approx {min_scenes}-{max_scenes} scenes.
 
 {'USER IDEA: ' + user_idea if user_idea else ''}
 
-[DIALOGUE RULE]
-- If the user idea mentions dialogue, conversation, or multiple speakers (화자, 대화):
-  You MUST create at least 2-3 named characters (male + female) with distinct roles.
-  The tts_script in Step 2 MUST include [male_1], [female_1] speaker tags with actual dialogue lines.
-  DO NOT make a narrator-only story when dialogue is requested.
+{_step1_dialogue_rule}
 
 OUTPUT FORMAT (JSON):
 {{
@@ -127,6 +141,35 @@ OUTPUT FORMAT (JSON):
         # Context from Step 1
         structure_context = json.dumps(structure_data, ensure_ascii=False, indent=2) if structure_data else "No structure generated."
 
+        # DIALOGUE FORMAT 블록: include_dialogue 여부에 따라 분기
+        if include_dialogue:
+            _dialogue_format = (
+                "Multi-speaker dialogue is enabled. Each scene's tts_script MUST use speaker tags:\n"
+                "[narrator] 어두운 밤, 한 남자가 골목을 걸어간다.\n"
+                "[male_1] 누구야? 거기 서!\n"
+                "[female_1] 도망쳐! 빨리!\n"
+                "[narrator] 그녀의 목소리는 절박함으로 가득 차 있었다.\n\n"
+                "Rules:\n"
+                "- [narrator] for narration and description passages\n"
+                "- [male_1], [female_1], [male_2], [female_2]... for character dialogue\n"
+                "- Keep speaker IDs consistent across ALL scenes (same character = same ID)\n"
+                "- Every line MUST start with a speaker tag\n"
+                "- If a scene is pure narration with no character dialogue, use only [narrator]\n"
+                "- Include emotional cues in parentheses when helpful: [male_1](angry) 이게 무슨 소리야!"
+            )
+        else:
+            _dialogue_format = (
+                "[NARRATOR-ONLY MODE] This is a pure narration story. STRICT RULES:\n"
+                "- Use ONLY [narrator] tag. NO other speaker tags allowed.\n"
+                "- Do NOT write any character dialogue lines whatsoever.\n"
+                "- Do NOT use [male_1], [female_1], [male_2], [female_2] or any character tags.\n"
+                "- Every single line MUST start with [narrator]\n"
+                "- Example:\n"
+                "  [narrator] 어두운 밤, 한 남자가 골목을 걸어간다.\n"
+                "  [narrator] 그의 발소리가 빗소리에 묻혀 사라졌다.\n"
+                "  [narrator] 과연 그는 어디로 향하고 있는 걸까?"
+            )
+
         step2_prompt = f"""
 ROLE: Screenwriter & Visual Director.
 TASK: Generate detailed scene specs based on the approved structure.
@@ -142,19 +185,7 @@ REQUIREMENTS:
 - "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
 
 ## DIALOGUE FORMAT (CRITICAL)
-Each scene's tts_script MUST use speaker tags when characters speak:
-[narrator] 어두운 밤, 한 남자가 골목을 걸어간다.
-[male_1] 누구야? 거기 서!
-[female_1] 도망쳐! 빨리!
-[narrator] 그녀의 목소리는 절박함으로 가득 차 있었다.
-
-Rules:
-- [narrator] for narration and description passages
-- [male_1], [female_1], [male_2], [female_2]... for character dialogue
-- Keep speaker IDs consistent across ALL scenes (same character = same ID)
-- Every line MUST start with a speaker tag
-- If a scene is pure narration with no character dialogue, use only [narrator]
-- Include emotional cues in parentheses when helpful: [male_1](angry) 이게 무슨 소리야!
+{_dialogue_format}
 
 [CRITICAL] STORYTELLING NARRATION RULE (스토리텔링 필수):
 You are a PROFESSIONAL STORYTELLER for YouTube. Each "tts_script" MUST be rich and immersive!
