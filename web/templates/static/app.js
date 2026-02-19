@@ -2050,7 +2050,9 @@ class StorycutApp {
     async loadHistory() {
         try {
             let urlToUse = this.getApiBaseUrl();
-            const response = await fetch(`${urlToUse}/api/history`);
+            const response = await fetch(`${urlToUse}/api/history`, {
+                headers: this.getAuthHeaders(),
+            });
 
             if (!response.ok) throw new Error('History 로드 실패');
 

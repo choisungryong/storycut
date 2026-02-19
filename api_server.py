@@ -2605,17 +2605,18 @@ async def get_history_list(request: Request):
     all_projects.sort(key=lambda p: p.get("created_at") or "", reverse=True)
 
     # user_id 필터링: X-User-Id 헤더가 있으면 해당 유저 프로젝트만 반환
+    # user_id 없는 구버전 프로젝트는 모든 인증 유저에게 노출 (하위 호환)
     if filter_user_id:
         def _matches_user(p):
             pid = p.get("project_id", "")
             m_path = os.path.join(outputs_dir, pid, "manifest.json")
             if not os.path.exists(m_path):
-                return False  # manifest 없는 프로젝트는 숨김
+                return True  # R2 전용 구버전 프로젝트 — 포함 (user_id 기록 없음)
             try:
                 with open(m_path, "r", encoding="utf-8") as _f:
                     m = json.load(_f)
-                m_uid = m.get("user_id", "")
-                return not m_uid or m_uid == filter_user_id
+                m_uid = str(m.get("user_id") or "")
+                return not m_uid or m_uid == str(filter_user_id)
             except Exception:
                 return True  # 읽기 실패 시 포함
         all_projects = [p for p in all_projects if _matches_user(p)]
