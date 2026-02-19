@@ -9,6 +9,52 @@ from typing import Dict, Any, List
 from pathlib import Path
 
 
+# 장르별 플롯 씨앗 — 흥미로운 전제를 LLM에 제시하여 진부한 주제를 방지
+GENRE_PLOT_SEEDS = {
+    "mystery": (
+        "진범은 내가 가장 신뢰했던 사람 / 20년 만에 밝혀지는 실종 사건의 진실 / "
+        "피해자가 사실 가해자였다 / 내가 기억하는 사건은 처음부터 조작됐다 / "
+        "완벽해 보이는 삶 뒤에 숨겨진 비밀"
+    ),
+    "romance": (
+        "10년 뒤 재회했는데 두 사람 사이에 알 수 없는 비밀이 있었다 / "
+        "원수라고 생각했던 사람이 내 편이었다 / 그가 나에게 잘해준 진짜 이유 / "
+        "포기하려는 순간 상대방도 포기하려 했다 / 첫사랑이 내 기억과 완전히 달랐다"
+    ),
+    "thriller": (
+        "나를 보호해 주던 사람이 사실 위협이었다 / 안전하다고 믿었던 공간이 함정 / "
+        "내가 처음부터 조작당하고 있었다 / 도망치는 방향이 사실 함정이었다 / "
+        "가장 가까운 사람이 나의 적이었다"
+    ),
+    "emotional": (
+        "상처를 준 사람이 사실 더 큰 상처를 받고 있었다 / "
+        "원망했던 사람의 진심을 뒤늦게 알게 됐다 / 마지막 이별이 사실 새로운 시작 / "
+        "포기했던 꿈이 전혀 다른 방식으로 이루어졌다 / 오해 때문에 잃었던 10년"
+    ),
+    "horror": (
+        "도움을 구했던 상대가 실제 위협이었다 / 가장 안전해 보이는 인물이 거짓 / "
+        "도망치는 방향이 함정이었다 / 내가 피하려 했던 운명이 이미 시작됐다"
+    ),
+    "fantasy": (
+        "세계를 구하러 갔지만 구해야 할 건 자기 자신이었다 / "
+        "악당이 사실 또 다른 피해자였다 / 힘이라고 믿었던 것이 저주였다 / "
+        "영웅이 선택받은 게 아니라 선택된 것처럼 보였을 뿐"
+    ),
+    "action": (
+        "임무가 처음부터 함정이었다 / 믿었던 동료가 배신자 / "
+        "구해야 할 상대가 진짜 적 / 내가 싸우는 이유 자체가 거짓이었다"
+    ),
+    "comedy": (
+        "최악의 상황이 의외의 방식으로 해결됐다 / 연속 오해가 한꺼번에 풀리는 순간 / "
+        "포기하려는 순간 행운이 찾아왔다 / 서로 같은 실수를 반복하던 두 사람의 결말"
+    ),
+    "drama": (
+        "진심을 말하지 못한 채로 10년이 흘렀다 / 완벽한 관계 뒤에 숨겨진 균열 / "
+        "선택의 기로에서 잘못 고른 것의 대가 / 용서하지 못한 채로 마주한 이별"
+    ),
+}
+
+
 class StoryAgent:
     """
     Generates YouTube-optimized stories in Scene JSON format.
@@ -81,13 +127,18 @@ class StoryAgent:
                 "- Treat this as a documentary or audiobook narration, NOT a drama with conversations."
             )
 
+        # 장르별 플롯 씨앗 참조
+        _genre_key = genre.lower().strip()
+        _plot_seeds = GENRE_PLOT_SEEDS.get(_genre_key, GENRE_PLOT_SEEDS.get("drama",
+            "뒤늦게 알게 되는 진실 / 믿었던 사람의 배신 / 선택의 대가 / 감추어진 비밀"))
+
         step1_prompt = f"""
-ROLE: Professional Storyboard Artist & Director.
-TASK: Plan the structure for a {total_duration_sec}-second YouTube Short.
+ROLE: Master Storyteller & Film Director — 20년 경력의 단편 영상 바이럴 콘텐츠 전문가.
+TASK: {total_duration_sec}초짜리 YouTube 영상을 위한 **반전과 서사가 탄탄한** 스토리 구조를 설계하라.
 GENRE: {genre}
 MOOD: {mood}
 STYLE: {style}
-SCENE COUNT: Approx {min_scenes}-{max_scenes} scenes.
+SCENE COUNT: {min_scenes}~{max_scenes}개 씬
 
 [LANGUAGE RULE - CRITICAL]
 - "project_title": 반드시 한국어로 작성 (예: "마지막 편지의 비밀")
@@ -98,15 +149,45 @@ SCENE COUNT: Approx {min_scenes}-{max_scenes} scenes.
 
 {'USER IDEA: ' + user_idea if user_idea else ''}
 
+[CREATIVE TOPIC RULE — 이것이 가장 중요]
+- 진부하고 예측 가능한 전제는 절대 금지. 시청자가 "오, 이건 봐야겠다" 느끼게 만들어라.
+- 장르별 강력한 플롯 씨앗 (참고, 그대로 쓰지 말 것 — 창의적으로 변형):
+  {_plot_seeds}
+- 주제 자체에 반전의 방향이 암시되어야 한다.
+- 제목은 궁금증을 유발하는 질문형 또는 충격적 진술형이어야 한다.
+
+[MANDATORY STORY ARC — 아웃라인 전에 먼저 정의할 것]
+스토리를 설계하기 전에 반드시 5가지 요소를 확정하라:
+1. hook_concept: 시청자가 스크롤을 멈추게 만드는 첫 장면/상황 (구체적으로)
+2. central_conflict: 이 스토리 전체를 끌고 가는 핵심 드라마틱 질문
+3. midpoint_twist: 중반부의 예상치 못한 반전 (이전 씬들의 의미를 바꾸는 것)
+4. climax_revelation: 클라이맥스의 충격적 진실/반전 (복선이 쌓여서 터지는 순간)
+5. resolution_emotion: 마지막 장면의 지배적 감정 (카타르시스/씁쓸함/희망/충격)
+
+[OUTLINE RULE]
+- 각 씬에 "type" 지정 필수: "hook" / "build" / "build_clue" / "twist" / "climax" / "resolution"
+- HOOK: 첫 20% 씬 — 즉각적 흡입력
+- BUILD: 30% — 긴장과 복선 축적 (clue를 심어라)
+- TWIST: 중반 반전 — 모든 것의 의미가 바뀌는 순간
+- CLIMAX: 충격 클라이맥스 — 복선이 폭발하는 지점
+- RESOLUTION: 마지막 25% — 감정적 착지, 여운
+
 {_step1_dialogue_rule}
 
 OUTPUT FORMAT (JSON):
 {{
-  "project_title": "한국어 제목 (Hook처럼 작동)",
-  "logline": "한 문장 요약 (한국어)",
+  "project_title": "한국어 제목 (궁금증 유발 필수)",
+  "logline": "한 문장 요약 (한국어) — 반전의 방향이 암시되어야 함",
+  "story_arc": {{
+    "hook_concept": "구체적인 오프닝 상황",
+    "central_conflict": "핵심 드라마틱 질문",
+    "midpoint_twist": "중반 반전 내용",
+    "climax_revelation": "클라이맥스의 진실/반전",
+    "resolution_emotion": "결말의 지배적 감정"
+  }},
   "global_style": {{
     "art_style": "{style}",
-    "color_palette": "e.g., Cyberpunk Neons",
+    "color_palette": "장르/무드에 맞는 색감",
     "visual_seed": 12345
   }},
   "characters": {{
@@ -121,7 +202,11 @@ OUTPUT FORMAT (JSON):
     }}
   }},
   "outline": [
-    {{ "scene_id": 1, "summary": "Brief summary of what happens", "estimated_duration": 5 }}
+    {{ "scene_id": 1, "type": "hook", "summary": "첫 장면 요약", "estimated_duration": 6, "dramatic_purpose": "시청자 주의 집중 + 핵심 질문 제기" }},
+    {{ "scene_id": 2, "type": "build_clue", "summary": "복선 심기", "estimated_duration": 5, "dramatic_purpose": "첫 번째 단서 + 긴장감 상승" }},
+    {{ "scene_id": 3, "type": "twist", "summary": "중반 반전", "estimated_duration": 7, "dramatic_purpose": "예상 뒤집기 — 이전 씬 의미 변화" }},
+    {{ "scene_id": 4, "type": "climax", "summary": "클라이맥스 진실", "estimated_duration": 8, "dramatic_purpose": "복선 폭발 + 최대 감정 충격" }},
+    {{ "scene_id": 5, "type": "resolution", "summary": "결말 여운", "estimated_duration": 7, "dramatic_purpose": "감정 착지 + 캐릭터 변화 완성" }}
   ]
 }}
 """
@@ -170,15 +255,37 @@ OUTPUT FORMAT (JSON):
                 "  [narrator] 과연 그는 어디로 향하고 있는 걸까?"
             )
 
+        # 클라이맥스/반전 씬 강화 지시
+        _story_arc = structure_data.get("story_arc", {})
+        _twist_note = ""
+        if _story_arc.get("climax_revelation") or _story_arc.get("midpoint_twist"):
+            _twist_note = f"""
+[TWIST SCENE AMPLIFICATION — 반전 씬 필수 강화]
+이 스토리의 반전 포인트:
+- 중반 반전: {_story_arc.get("midpoint_twist", "N/A")}
+- 클라이맥스 진실: {_story_arc.get("climax_revelation", "N/A")}
+
+반전 씬(type=twist/climax)의 tts_script는:
+✅ 이전 씬들의 의미가 완전히 바뀌는 순간을 강렬하게 표현
+✅ "사실은...", "그때서야 깨달았습니다", "모든 것이 달라 보였습니다" 같은 충격 전환 화법 사용
+✅ 복선이 폭발하는 느낌 — 시청자가 "아!" 하는 순간을 만들어라
+✅ 최소 6-8문장 (다른 씬보다 길게)
+✅ 말의 속도와 긴장감이 갑자기 변화하는 느낌을 나레이션으로 표현
+✅ 클라이맥스 image_prompt: 충격/각성/감정 폭발을 시각적으로 표현하는 강렬한 장면
+"""
+
         step2_prompt = f"""
-ROLE: Screenwriter & Visual Director.
-TASK: Generate detailed scene specs based on the approved structure.
+ROLE: Award-winning Screenwriter & Visual Director.
+TASK: 승인된 스토리 아크를 기반으로 각 씬의 상세 스크립트를 작성하라.
+목표: 시청자가 끝까지 보고 감동받거나 충격받는 영상
 
 APPROVED STRUCTURE:
 {structure_context}
 
+{_twist_note}
+
 REQUIREMENTS:
-- Follow the outline exactly.
+- 아웃라인의 outline 순서와 type을 정확히 따를 것.
 - "narrative": 장면 설명 (반드시 한국어). 예: "지민이 카페 문을 열고 들어온다."
 - "tts_script": 풍부한 스토리텔링 나레이션 (반드시 한국어, 최소 4-6문장 필수!)
 - "image_prompt": Visual description for AI Image Generator (MUST BE English). {style} style.
@@ -187,25 +294,26 @@ REQUIREMENTS:
 ## DIALOGUE FORMAT (CRITICAL)
 {_dialogue_format}
 
-[CRITICAL] STORYTELLING NARRATION RULE (스토리텔링 필수):
-You are a PROFESSIONAL STORYTELLER for YouTube. Each "tts_script" MUST be rich and immersive!
-DO NOT write short, boring narrations like "그는 문을 열었다." ❌
+[SCENE CONTINUITY RULE — 씬 연속성 필수]
+각 씬은 반드시 이전 씬에서 이어져야 한다:
+- 씬 N의 tts_script는 씬 N-1에서 일어난 일을 전제로 시작
+- 독립적인 씬 나열 금지 — 각 씬이 감정적 상태를 이어받아야 함
+- 긴장감은 씬마다 한 단계씩 높아져야 함 (평탄한 구간 금지)
+- HOOK 씬: 즉각적 관심 집중 → BUILD 씬: 복선과 의문 심기 → TWIST 씬: 기대 뒤집기 → CLIMAX 씬: 감정 폭발 → RESOLUTION 씬: 감정 착지
 
-Each "tts_script" MUST include (최소 4-6문장):
-1. 상황 묘사: 현재 장면의 분위기와 배경을 생생하게 묘사
-2. 감정 전달: 캐릭터의 내면 심리, 두려움, 희망, 절망 등을 표현
-3. 긴장감/몰입: 시청자가 다음이 궁금해지도록 서스펜스 조성
-4. 디테일: 구체적인 감각 묘사 (소리, 냄새, 촉감, 시각)
-5. 시청자 교감: "과연 그녀는...", "하지만 그것은..." 같은 화법으로 몰입 유도
+[STORYTELLING NARRATION RULE — 필수]
+각 tts_script MUST (최소 4-6문장, 반전 씬은 6-8문장):
+1. 상황 묘사: 장면의 분위기와 배경을 생생하게
+2. 감정 전달: 캐릭터의 내면 심리 (두려움/희망/절망/충격)
+3. 긴장감/몰입: 다음이 궁금해지는 서스펜스
+4. 감각 디테일: 소리, 냄새, 촉감, 시각적 디테일
+5. 시청자 교감: "과연...", "하지만...", "그 순간..." 같은 화법으로 몰입 유도
 
-BAD tts_script (짧고 지루함 - FORBIDDEN):
-- "그녀는 문을 열었다." ❌
-- "편지가 도착했다." ❌
-- "그는 놀랐다." ❌
+BAD (짧고 진부함 — 절대 금지):
+"그녀는 문을 열었다." ❌  "편지가 도착했다." ❌  "그는 놀랐다." ❌
 
-GOOD tts_script (풍부한 스토리텔링 - REQUIRED):
-- "빗소리가 창문을 두드리는 그 밤, 지민의 손은 떨리고 있었습니다. 20년 전 사라진 아버지... 그 이름이 적힌 편지를 손에 쥔 순간, 심장이 멎는 것 같았죠. 과연 이 편지는 진짜일까요? 아니면 누군가의 잔인한 장난일까요?" ✓
-- "카페 문을 밀어젖히는 순간, 익숙한 커피 향이 코끝을 스쳤습니다. 하지만 지민의 눈에 들어온 건 향긋한 라떼가 아니었어요. 구석 자리에 앉아 있는 그 사람... 분명 죽었다고 들었던 그 사람이 거기 있었습니다." ✓
+GOOD (풍부하고 몰입감 있음):
+"빗소리가 창문을 두드리는 그 밤, 지민의 손은 멈추지 않고 떨리고 있었습니다. 20년 전 사라진 아버지의 이름이 적힌 그 편지... 손에 쥔 순간, 심장이 멎는 것 같았죠. 발신 날짜는 오늘이었습니다. 과연 이 편지는 진짜일까요? 아니면 누군가의 잔인한 장난일까요? 지민은 손가락이 떨리는 것도 모른 채 봉투를 뜯기 시작했습니다." ✓
 
 [LANGUAGE RULE - CRITICAL]
 - "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
@@ -298,7 +406,7 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
+                temperature=0.85,
                 response_format={"type": "json_object"}
             )
 
