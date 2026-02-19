@@ -808,6 +808,9 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             style_anchor_agent = StyleAnchorAgent()
 
             if manifest.global_style:
+                manifest.status = "preparing"
+                manifest.message = "스타일 앵커 이미지 생성 중..."
+                self._save_manifest(manifest, project_dir)
                 print(f"\n[StyleAnchor] Generating style anchor image (1장)...")
                 style_anchor_path = style_anchor_agent.generate_style_anchor(
                     global_style=manifest.global_style,
@@ -816,6 +819,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
             # Environment Anchors - 씬별 환경 앵커 이미지 생성
             if manifest.global_style and "scenes" in story_data:
+                manifest.message = f"환경 앵커 이미지 생성 중... ({len(story_data['scenes'])}장)"
+                self._save_manifest(manifest, project_dir)
                 print(f"\n[EnvAnchors] Generating environment anchor images...")
                 env_anchors = style_anchor_agent.generate_environment_anchors(
                     scenes=story_data["scenes"],

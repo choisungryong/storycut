@@ -1558,6 +1558,7 @@ async def get_image_generation_status(project_id: str):
             "completed": completed,
             "total": total,
             "scenes": scene_list,
+            "message": manifest_data.get("message"),
             "error_message": manifest_data.get("error_message"),
         }
 

@@ -2909,14 +2909,16 @@ class StorycutApp {
                 const { completed, total, scenes, status, error_message } = data;
                 console.log(`[Image Polling] status=${status}, completed=${completed}/${total}, scenes=${scenes?.length || 0}`);
 
-                // 상태별 메시지 표시
-                let statusMsg = `Scene ${completed}/${total} 완료`;
+                // 상태별 메시지 표시 (서버 message 우선 사용)
+                let statusMsg = data.message || `Scene ${completed}/${total} 완료`;
                 if (status === 'not_found') {
                     statusMsg = '프로젝트 초기화 중...';
-                } else if (status === 'preparing') {
+                } else if (status === 'preparing' && !data.message) {
                     statusMsg = '스타일/캐릭터 앵커 준비 중...';
-                } else if (status === 'generating_images' && completed === 0) {
+                } else if (status === 'generating_images' && completed === 0 && !data.message) {
                     statusMsg = '이미지 생성 시작 중...';
+                } else if (status === 'generating_images' && completed > 0) {
+                    statusMsg = `Scene ${completed}/${total} 완료`;
                 }
 
                 // 진행 바 업데이트

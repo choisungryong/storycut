@@ -545,6 +545,10 @@ class Manifest(BaseModel):
         default="pending",
         description="상태 (pending/processing/completed/failed)"
     )
+    message: Optional[str] = Field(
+        default=None,
+        description="현재 진행 상태 메시지 (프론트엔드 표시용)"
+    )
     error_message: Optional[str] = Field(
         default=None,
         description="에러 메시지"
