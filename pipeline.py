@@ -429,6 +429,33 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                             cs.master_image_path = image_path
                 self._save_manifest(manifest, project_dir)
                 print(f"  [Manifest] Saved character anchors to disk")
+
+                # _save_manifest()는 Pydantic 모델만 직렬화 →
+                # api_server가 설정한 _images_pregenerated 플래그와 씬 이미지 경로가 사라짐.
+                # 재주입해서 process_story()가 기존 이미지를 재사용할 수 있도록 보장.
+                _reinject = {k: _existing_data[k] for k in ("_images_pregenerated", "_style_anchor_path", "_env_anchors") if k in _existing_data}
+                _ex_scenes = _existing_data.get("scenes", [])
+                if _reinject or _ex_scenes:
+                    try:
+                        with open(_existing_manifest_path, "r", encoding="utf-8") as f:
+                            _mf = json.load(f)
+                        _mf.update(_reinject)
+                        # scenes의 assets.image_path 복원
+                        if _ex_scenes:
+                            _esm = {s.get("scene_id"): s for s in _ex_scenes}
+                            for s in _mf.get("scenes", []):
+                                _sid = s.get("scene_id")
+                                if _sid in _esm:
+                                    _ex_assets = _esm[_sid].get("assets") or {}
+                                    _img = _ex_assets.get("image_path") if isinstance(_ex_assets, dict) else None
+                                    if _img:
+                                        if not isinstance(s.get("assets"), dict):
+                                            s["assets"] = {}
+                                        s["assets"]["image_path"] = _img
+                        with open(_existing_manifest_path, "w", encoding="utf-8") as f:
+                            json.dump(_mf, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
             else:
                 print(f"\n[STEP 1.5] Reusing existing character anchors ({len(manifest.character_sheet)} characters).")
 
