@@ -329,6 +329,17 @@
     });
   }
 
+  // ─── Auth-Aware CTA ───
+  // 로그인 상태면 CTA 버튼을 앱(/)으로 변경
+  (function updateCtaForAuth() {
+    const token = localStorage.getItem('token');
+    if (token) {
+      document.querySelectorAll('a[href="/signup.html"]').forEach((a) => {
+        a.href = '/';
+      });
+    }
+  })();
+
   // Init language
   applyLanguage(currentLang);
 

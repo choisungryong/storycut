@@ -76,7 +76,7 @@ async function handleGoogleCredential(response) {
 
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
-        window.location.href = '/app';
+        window.location.href = '/';
     } catch (err) {
         showAuthError(err.message);
     }
@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('user', JSON.stringify(data.user));
 
-                window.location.href = '/app';
+                window.location.href = '/';
 
             } catch (err) {
                 showAuthError(err.message);
@@ -159,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (loginRes.ok) {
                     localStorage.setItem('token', loginData.token);
                     localStorage.setItem('user', JSON.stringify(loginData.user));
-                    window.location.href = '/app';
+                    window.location.href = '/';
                 } else {
                     _authToast('회원가입이 완료되었습니다! 로그인해 주세요.', 'success');
                     window.location.href = '/login.html';
@@ -184,9 +184,16 @@ function checkAuth() {
     const user = JSON.parse(localStorage.getItem('user') || 'null');
 
     const path = window.location.pathname;
-    if (!token && (path === '/' || path === '/index.html' || path === '/app')) {
-        window.location.href = '/login.html';
-        return;
+    if (!token) {
+        // 루트(/)는 랜딩 페이지로, 앱 직접 접근 시에는 로그인 페이지로
+        if (path === '/') {
+            window.location.href = '/landing.html';
+            return;
+        }
+        if (path === '/index.html' || path === '/app') {
+            window.location.href = '/login.html';
+            return;
+        }
     }
 
     if (user) {
