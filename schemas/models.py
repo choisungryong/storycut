@@ -267,6 +267,12 @@ class CharacterSheet(BaseModel):
         description="마스터 캐릭터 이미지 URL (외부 접근용)"
     )
 
+    # unique identifiers (MV 파이프라인 방식 포팅)
+    unique_features: str = Field(
+        default="",
+        description="고유 식별 특징 — 점, 흉터, 특이한 눈 색깔, 헤어 악세서리, 문신 등 3가지 이상 (영어)"
+    )
+
     # v2.0: 멀티포즈 앵커 세트
     anchor_set: Optional[AnchorSet] = Field(
         default=None,

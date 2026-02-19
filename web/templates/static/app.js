@@ -700,6 +700,17 @@ class StorycutApp {
         // Detect speakers
         this._detectedSpeakers = storyData.detected_speakers || ['narrator'];
 
+        // STORYCUT 토큰 → 실제 캐릭터 이름 매핑 (character_sheet 기반)
+        const tokenToName = {};
+        const charSheet = storyData.character_sheet || {};
+        Object.entries(charSheet).forEach(([token, data]) => {
+            if (data && data.name) tokenToName[token] = data.name;
+        });
+        const replaceTokens = (text) => {
+            if (!text) return '';
+            return text.replace(/STORYCUT_\w+/g, (tok) => tokenToName[tok] || tok);
+        };
+
         storyData.scenes.forEach((scene, index) => {
             const card = document.createElement('div');
             card.className = 'review-card';
@@ -708,6 +719,11 @@ class StorycutApp {
             // Format narration with speaker highlighting
             const narrationText = scene.narration || scene.tts_script || scene.sentence || '';
             const highlightedHtml = this._highlightSpeakerTags(narrationText);
+
+            // Visual prompt: image_prompt 우선, 없으면 visual_description/prompt
+            // STORYCUT 토큰은 실제 캐릭터 이름으로 치환하여 표시
+            const rawVisual = scene.image_prompt || scene.visual_description || scene.prompt || '';
+            const visualText = replaceTokens(rawVisual);
 
             card.innerHTML = `
                 <div class="review-card-header">
@@ -720,7 +736,7 @@ class StorycutApp {
                 <textarea class="review-textarea narration-input" data-idx="${index}">${escapeHtml(narrationText)}</textarea>
 
                 <label>Visual Prompt</label>
-                <textarea class="review-textarea visual-textarea visual-input" data-idx="${index}">${escapeHtml(scene.visual_description || scene.prompt)}</textarea>
+                <textarea class="review-textarea visual-textarea visual-input" data-idx="${index}">${escapeHtml(visualText)}</textarea>
             `;
             grid.appendChild(card);
         });
@@ -1013,6 +1029,7 @@ class StorycutApp {
         visualInputs.forEach((input, idx) => {
             this.currentStoryData.scenes[idx].visual_description = input.value;
             this.currentStoryData.scenes[idx].prompt = input.value;
+            this.currentStoryData.scenes[idx].image_prompt = input.value;
         });
 
         // 생성 시작

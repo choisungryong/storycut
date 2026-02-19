@@ -574,6 +574,66 @@ JSON 형식으로 출력:
 
             scene.negative_prompt = self.build_negative_prompt(style)
 
+            # 캐릭터 외형 설명 주입 — MV 파이프라인 방식 (렌즈/손/의상/unique_features 포함)
+            if scene.characters_in_scene and character_sheet:
+                import re as _re
+                _char_descs = []
+                _outfit_locks = []
+                for _tok in scene.characters_in_scene[:3]:
+                    _cd = character_sheet.get(_tok)
+                    if not _cd:
+                        continue
+                    _name = _cd.get("name", _tok) if isinstance(_cd, dict) else getattr(_cd, "name", _tok)
+                    _app = _cd.get("appearance", "") if isinstance(_cd, dict) else getattr(_cd, "appearance", "")
+                    _cloth = _cd.get("clothing_default", "") if isinstance(_cd, dict) else getattr(_cd, "clothing_default", "")
+                    _uniq = _cd.get("unique_features", "") if isinstance(_cd, dict) else getattr(_cd, "unique_features", "")
+                    if _app:
+                        _parts = [_app]
+                        if _cloth:
+                            _parts.append(f"wearing {_cloth}")
+                        if _uniq:
+                            _parts.append(f"MUST HAVE: {_uniq}")
+                        _char_descs.append(f"[{_name}] {', '.join(_parts)}")
+                    if _cloth:
+                        _outfit_locks.append(f"OUTFIT LOCK: {_name} MUST wear {_cloth} in EVERY scene.")
+                if _char_descs:
+                    _action_pose = self._derive_action_pose(
+                        scene.visual_description, scene.narration, scene.image_prompt
+                    )
+                    _expr = self._derive_expression_from_mood(scene.mood)
+                    _is_cu = any(kw in scene.prompt.lower() for kw in ["close-up", "close up", "portrait", "face"])
+                    _lens = "cinematic 50mm lens, natural facial proportions" if _is_cu else "portrait 85mm lens, natural facial proportions"
+                    _hand = "natural hands, correct fingers, anatomically correct hands" if len(scene.characters_in_scene) >= 2 else ""
+                    _pfx = []
+                    if _action_pose:
+                        _pfx.append(f"POSE: {_action_pose}")
+                    if _expr:
+                        _pfx.append(f"EXPRESSION: {_expr}")
+                    _pfx.append(_lens)
+                    if _hand:
+                        _pfx.append(_hand)
+                    _pfx.append(" | ".join(_char_descs))
+                    _outfit_str = " ".join(_outfit_locks)
+                    _clean = _re.sub(r'STORYCUT_\w+', '', scene.prompt).strip().strip(',').strip()
+                    scene.prompt = f"{'. '.join(_pfx)}.{' ' + _outfit_str if _outfit_str else ''} {_clean}"
+                    # 네거티브 강화 (MV 포팅)
+                    _lens_neg = "wide-angle distortion, fisheye, exaggerated facial features"
+                    _hand_neg = "extra fingers, deformed hands, fused fingers, missing fingers"
+                    _id_neg = "different face, identity change, age change, ethnicity change, different outfit, wardrobe change"
+                    scene.negative_prompt = f"{_lens_neg}, {_hand_neg}, {_id_neg}, {scene.negative_prompt}"
+                else:
+                    _no_people = "random person, unnamed person, bystander, stranger, human figure"
+                    scene.negative_prompt = f"{_no_people}, {scene.negative_prompt}"
+
+            # 인종 런타임 주입
+            _eth_ps = getattr(request, 'character_ethnicity', 'auto') if request else 'auto'
+            _ETH_MAP = {"korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+                        "southeast_asian": "Southeast Asian", "european": "European",
+                        "black": "Black", "hispanic": "Hispanic"}
+            _eth_kw_ps = _ETH_MAP.get(_eth_ps, "")
+            if _eth_kw_ps and _eth_kw_ps.lower() not in scene.prompt.lower():
+                scene.prompt = f"{_eth_kw_ps} characters, {scene.prompt}"
+
             # 카메라 워크 할당 (다양화)
             camera_works = list(CameraWork)
             scene.camera_work = camera_works[i % len(camera_works)]
@@ -926,10 +986,13 @@ JSON 형식으로 출력:
                     name = char_data.get("name", char_token) if isinstance(char_data, dict) else getattr(char_data, "name", char_token)
                     appearance = char_data.get("appearance", "") if isinstance(char_data, dict) else getattr(char_data, "appearance", "")
                     clothing = char_data.get("clothing_default", "") if isinstance(char_data, dict) else getattr(char_data, "clothing_default", "")
+                    unique_features = char_data.get("unique_features", "") if isinstance(char_data, dict) else getattr(char_data, "unique_features", "")
                     if appearance:
                         parts = [appearance]
                         if clothing:
                             parts.append(f"wearing {clothing}")
+                        if unique_features:
+                            parts.append(f"MUST HAVE: {unique_features}")
                         char_descs.append(f"[{name}] {', '.join(parts)}")
                     # 의상 잠금 (MV 포팅 #4)
                     if clothing:
@@ -963,7 +1026,10 @@ JSON 형식으로 출력:
                     char_block = " | ".join(char_descs)
                     prefix_parts.append(char_block)
                     outfit_lock_str = " ".join(outfit_locks)
-                    scene.prompt = f"{'. '.join(prefix_parts)}.{' ' + outfit_lock_str if outfit_lock_str else ''} {scene.prompt}"
+                    # STORYCUT 토큰 제거 (캐릭터 설명으로 대체됐으므로 불필요)
+                    import re as _re
+                    clean_prompt = _re.sub(r'STORYCUT_\w+', '', scene.prompt).strip().strip(',').strip()
+                    scene.prompt = f"{'. '.join(prefix_parts)}.{' ' + outfit_lock_str if outfit_lock_str else ''} {clean_prompt}"
 
                     if action_pose or expression:
                         print(f"  [MV포팅#1] POSE={action_pose or 'N/A'}, EXPR={expression or 'N/A'}")

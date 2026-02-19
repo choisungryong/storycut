@@ -96,10 +96,14 @@ OUTPUT FORMAT (JSON):
     "visual_seed": 12345
   }},
   "characters": {{
-    "Name": {{
-      "name": "Name",
-      "appearance": "Detailed description",
-      "role": "Protagonist/Antagonist"
+    "STORYCUT_HERO_A": {{
+      "name": "한국어 이름",
+      "gender": "male/female",
+      "age": "20s/30s/...",
+      "appearance": "hair color+style, eye color, skin tone, face features (English)",
+      "clothing_default": "specific outfit worn throughout the story (English)",
+      "unique_features": "3+ distinctive marks: scars, tattoos, accessories, unusual eye color, etc. (English)",
+      "role": "Protagonist/Antagonist/Supporting"
     }}
   }},
   "outline": [
