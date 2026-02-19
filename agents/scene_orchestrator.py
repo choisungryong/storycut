@@ -1037,8 +1037,9 @@ JSON 형식으로 출력:
             else:
                 scene.inherited_keywords = []
 
-            # 엔티티 추출
-            scene.entities = self.extract_entities(scene.sentence, scene.inherited_keywords)
+            # 엔티티 추출 — image_prompt가 이미 있으면 건너뛰기 (불필요한 LLM 호출 방지)
+            if not scene.image_prompt:
+                scene.entities = self.extract_entities(scene.sentence, scene.inherited_keywords)
 
             # 프롬프트 생성
             if scene.image_prompt:
