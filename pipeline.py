@@ -484,6 +484,15 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                         pass
             else:
                 print(f"\n[STEP 1.5] Reusing existing character anchors ({len(manifest.character_sheet)} characters).")
+                # story_data에 master_image_path 동기화
+                if "character_sheet" in story_data:
+                    for token, cs in manifest.character_sheet.items():
+                        _mp = cs.master_image_path if hasattr(cs, 'master_image_path') else None
+                        if _mp and token in story_data["character_sheet"]:
+                            story_data["character_sheet"][token]["master_image_path"] = _mp
+                            if hasattr(cs, 'anchor_set') and cs.anchor_set:
+                                story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump() if hasattr(cs.anchor_set, 'model_dump') else None
+                            print(f"    [Sync] {token}: {_mp}")
 
         try:
             print(f"\n{'='*60}")
@@ -955,7 +964,16 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             self._save_manifest(manifest, project_dir)
         elif manifest.character_sheet:
             print(f"\n[Characters] Anchor images already present, skipping re-cast.")
-            print(f"  [Manifest] Saved character anchors to disk")
+            # story_data에 master_image_path 동기화 (generate_images_for_scenes가 story_data를 사용)
+            if "character_sheet" in story_data:
+                for token, cs in manifest.character_sheet.items():
+                    _mp = cs.master_image_path if hasattr(cs, 'master_image_path') else None
+                    if _mp and token in story_data["character_sheet"]:
+                        story_data["character_sheet"][token]["master_image_path"] = _mp
+                        # anchor_set도 동기화
+                        if hasattr(cs, 'anchor_set') and cs.anchor_set:
+                            story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump() if hasattr(cs.anchor_set, 'model_dump') else None
+                        print(f"    [Sync] {token}: {_mp}")
 
         # 준비 완료 → 이미지 생성 시작
         manifest.status = "generating_images"

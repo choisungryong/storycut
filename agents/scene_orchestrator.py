@@ -1136,8 +1136,49 @@ JSON 형식으로 출력:
                         )
                         if pose_path and os.path.exists(pose_path):
                             char_refs.append(pose_path)
+                        elif pose_path and pose_path.startswith("http"):
+                            # R2 URL → 로컬 다운로드
+                            try:
+                                import requests as _req
+                                _resp = _req.get(pose_path, timeout=30)
+                                if _resp.status_code == 200:
+                                    _dl_dir = f"{project_dir}/media/characters"
+                                    os.makedirs(_dl_dir, exist_ok=True)
+                                    _dl_path = f"{_dl_dir}/{os.path.basename(pose_path.split('?')[0])}"
+                                    with open(_dl_path, "wb") as _f:
+                                        _f.write(_resp.content)
+                                    char_refs.append(_dl_path)
+                                    print(f"  [R2->Local] Downloaded anchor for '{char_token}': {os.path.basename(_dl_path)}")
+                                else:
+                                    print(f"  [WARNING] Anchor download failed for '{char_token}': HTTP {_resp.status_code}")
+                            except Exception as _dl_err:
+                                print(f"  [WARNING] Anchor download failed for '{char_token}': {_dl_err}")
                         else:
-                            print(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
+                            # master_image_path 또는 master_image_url 폴백
+                            _char_data = character_sheet.get(char_token, {})
+                            _fallback = None
+                            if isinstance(_char_data, dict):
+                                _fallback = _char_data.get("master_image_url") or _char_data.get("master_image_path")
+                            elif hasattr(_char_data, 'master_image_path'):
+                                _fallback = _char_data.master_image_path
+                            if _fallback and os.path.exists(_fallback):
+                                char_refs.append(_fallback)
+                            elif _fallback and _fallback.startswith("http"):
+                                try:
+                                    import requests as _req
+                                    _resp = _req.get(_fallback, timeout=30)
+                                    if _resp.status_code == 200:
+                                        _dl_dir = f"{project_dir}/media/characters"
+                                        os.makedirs(_dl_dir, exist_ok=True)
+                                        _dl_path = f"{_dl_dir}/{char_token}_master.jpg"
+                                        with open(_dl_path, "wb") as _f:
+                                            _f.write(_resp.content)
+                                        char_refs.append(_dl_path)
+                                        print(f"  [R2->Local] Downloaded master anchor for '{char_token}'")
+                                except Exception:
+                                    pass
+                            else:
+                                print(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
                     if len(char_refs) < len(scene.characters_in_scene):
                         print(f"  [WARNING] Only {len(char_refs)}/{len(scene.characters_in_scene)} character anchors found")
 
