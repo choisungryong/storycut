@@ -893,6 +893,10 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         if _reused:
             print(f"\n[StyleAnchor] Reusing pre-generated style anchor: {style_anchor_path}")
             print(f"[EnvAnchors] Reusing {len(env_anchors)} pre-generated environment anchors")
+            # 앵커 재사용 시 preparing 단계 건너뛰고 바로 generating_images로
+            manifest.status = "generating_images"
+            manifest.message = "이미지 생성 준비 완료"
+            self._save_manifest(manifest, project_dir)
         else:
             style_anchor_agent = StyleAnchorAgent()
 

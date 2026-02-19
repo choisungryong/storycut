@@ -456,10 +456,6 @@ class CharacterManager:
                         _best_score[0] = best_candidate_score
                         _best_pose_key[0] = pose_key
 
-        # reference 없이 생성해야 하는 포즈 (극단적으로 다른 앵글만)
-        # full_body도 reference 사용 → 얼굴/외형 일관성 유지 (프롬프트로 구도 차이 반영)
-        NO_REF_POSES = {"emotion_neutral", "emotion_intense"}
-
         # 1단계: 첫 포즈(기준 앵커)를 먼저 단독 생성
         first_pose = poses[0]
         remaining_poses = poses[1:]
@@ -471,13 +467,14 @@ class CharacterManager:
             first_ref_path = anchor_set.poses[first_pose].image_path
             print(f"      [Reference] First pose ready: {os.path.basename(first_ref_path) if first_ref_path else 'None'}")
 
-        # 2단계: 나머지 포즈들 생성
-        # - 앵글만 다른 포즈(three_quarter)는 reference 사용 → 얼굴 일관성
-        # - 구도가 완전히 다른 포즈(full_body 등)는 reference 없이 → 동일 이미지 방지
+        # 2단계: 나머지 포즈 — reference 이미지 사용하되,
+        # Gemini가 reference를 그대로 복사하는 문제 방지를 위해
+        # three_quarter만 reference 사용, 나머지는 프롬프트로만 일관성 확보
+        REF_POSES = {"three_quarter"}  # 앵글만 살짝 다른 포즈만 reference 사용
         if remaining_poses:
             with ThreadPoolExecutor(max_workers=len(remaining_poses)) as executor:
                 executor.map(
-                    lambda p: _process_pose(p, None if p in NO_REF_POSES else first_ref_path),
+                    lambda p: _process_pose(p, first_ref_path if p in REF_POSES else None),
                     remaining_poses
                 )
 
@@ -571,19 +568,20 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         Returns:
             캐스팅 프롬프트 문자열
         """
-        prompt_parts = [
-            "Character portrait for reference sheet",
-            pose_description,
-            "neutral pose",
-            "clean background, studio lighting",
-        ]
-
+        # 인종/성별/나이를 최상단에 배치 (Gemini가 앞부분을 더 중시)
+        prompt_parts = []
         if appearance:
             prompt_parts.append(appearance)
         if gender and gender != "unknown":
             prompt_parts.append(f"{gender}")
         if age and age != "unknown":
             prompt_parts.append(f"{age}")
+        prompt_parts.extend([
+            "Character portrait for reference sheet",
+            pose_description,
+            "neutral pose",
+            "clean background, studio lighting",
+        ])
         if clothing:
             prompt_parts.append(f"wearing {clothing}")
 
