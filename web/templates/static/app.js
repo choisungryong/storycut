@@ -2967,6 +2967,25 @@ class StorycutApp {
                     clearInterval(this.imagePollingInterval);
                     this.imagePollingInterval = null;
 
+                    // 이미지 경로를 currentStoryData에 저장 (영상 생성 시 재사용)
+                    if (this.currentStoryData && scenes) {
+                        scenes.forEach(scene => {
+                            if (scene.status === 'completed' && scene.image_path) {
+                                const idx = this.currentStoryData.scenes.findIndex(
+                                    s => s.scene_id === scene.scene_id || s.scene_id === String(scene.scene_id)
+                                );
+                                if (idx !== -1) {
+                                    if (!this.currentStoryData.scenes[idx].assets) {
+                                        this.currentStoryData.scenes[idx].assets = {};
+                                    }
+                                    this.currentStoryData.scenes[idx].assets.image_path = scene.image_path;
+                                    console.log(`[Image Sync] Scene ${scene.scene_id} image_path saved to storyData`);
+                                }
+                            }
+                        });
+                        this.currentStoryData._images_pregenerated = true;
+                    }
+
                     this.updateImageProgress(total, total, '모든 이미지 생성 완료!');
 
                     // 진행 바 숨기기 (1초 후)

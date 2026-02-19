@@ -1118,6 +1118,20 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
     else:
         # 새 프로젝트 또는 이미지 미생성 — 초기 manifest 생성
         user_id = request.headers.get("X-User-Id", "")
+
+        # story_data에 이미지 경로가 포함되어 있으면 (프론트엔드에서 전달)
+        # _images_pregenerated 플래그 설정 → 이미지 재생성 방지
+        _has_image_paths = False
+        _sd_scenes = req.story_data.get("scenes", [])
+        for _sc in _sd_scenes:
+            _sc_assets = _sc.get("assets", {})
+            if isinstance(_sc_assets, dict) and _sc_assets.get("image_path"):
+                _has_image_paths = True
+                break
+        # story_data 자체에 플래그가 있어도 인정
+        if req.story_data.get("_images_pregenerated"):
+            _has_image_paths = True
+
         initial_manifest = {
             "project_id": project_id,
             "status": "processing",
@@ -1130,6 +1144,21 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
             "outputs": {},
             "error_message": None
         }
+
+        if _has_image_paths:
+            print(f"[API] story_data contains image paths — setting _images_pregenerated=True", flush=True)
+            initial_manifest["_images_pregenerated"] = True
+            # story_data의 씬 이미지 경로를 manifest에 포함
+            initial_manifest["scenes"] = []
+            for _sc in _sd_scenes:
+                _sc_assets = _sc.get("assets", {})
+                _img = _sc_assets.get("image_path") if isinstance(_sc_assets, dict) else None
+                initial_manifest["scenes"].append({
+                    "scene_id": _sc.get("scene_id"),
+                    "assets": {"image_path": _img} if _img else {},
+                    "narration": _sc.get("narration", ""),
+                })
+
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
 
@@ -1407,6 +1436,36 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
                 project_id
             )
             print(f"[API] Images generated successfully!")
+
+            # 이미지 생성 완료 직후 R2 업로드 (Railway 재시작 대비)
+            try:
+                from utils.storage import StorageManager
+                _storage = StorageManager()
+                _manifest_path = f"outputs/{project_id}/manifest.json"
+                if os.path.exists(_manifest_path):
+                    with open(_manifest_path, 'r', encoding='utf-8') as _f:
+                        _mf = json.load(_f)
+                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    _updated = False
+                    for _sc in _mf.get('scenes', []):
+                        _assets = _sc.get('assets', {})
+                        _img = _assets.get('image_path') if isinstance(_assets, dict) else None
+                        if _img and os.path.exists(_img):
+                            _fname = os.path.basename(_img)
+                            _r2_key = f"images/{project_id}/{_fname}"
+                            if _storage.upload_file(_img, _r2_key):
+                                _assets['image_path'] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
+                                _updated = True
+                                print(f"[R2] Uploaded scene image: {_fname}")
+                    if _updated:
+                        with open(_manifest_path, 'w', encoding='utf-8') as _f:
+                            json.dump(_mf, _f, ensure_ascii=False, indent=2)
+                        # manifest도 R2에 업로드
+                        _storage.upload_file(_manifest_path, f"videos/{project_id}/manifest.json")
+                        print(f"[R2] Image manifest uploaded to R2")
+            except Exception as _r2_err:
+                print(f"[R2] Image upload to R2 failed (non-fatal): {_r2_err}")
+
         except Exception as e:
             print(f"[API] Image generation failed: {e}")
             import traceback

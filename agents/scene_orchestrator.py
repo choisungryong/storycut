@@ -227,6 +227,37 @@ JSON 형식으로 출력:
             print(f"  Entity extraction failed: {e}")
             return SceneEntities()
 
+    def _resolve_image_to_local(self, img_path: str, project_dir: str, scene_id) -> str:
+        """URL 또는 /media/ 경로를 로컬 파일 경로로 변환/다운로드.
+
+        Returns:
+            로컬 파일 경로 (성공 시) 또는 None (실패 시)
+        """
+        import urllib.request
+
+        # /media/{project_id}/media/images/scene_XX.png → outputs/{project_id}/media/images/scene_XX.png
+        if img_path.startswith("/media/"):
+            local_candidate = "outputs/" + img_path[len("/media/"):]
+            if os.path.exists(local_candidate):
+                return local_candidate
+
+        # HTTP(S) URL → 로컬 다운로드
+        if img_path.startswith(("http://", "https://")):
+            os.makedirs(f"{project_dir}/media/images", exist_ok=True)
+            local_path = f"{project_dir}/media/images/scene_{int(scene_id):02d}.png"
+            if os.path.exists(local_path):
+                return local_path
+            try:
+                print(f"  [v2.3] Downloading image: {img_path[:80]}...")
+                urllib.request.urlretrieve(img_path, local_path)
+                if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+                    print(f"  [v2.3] Downloaded to: {local_path}")
+                    return local_path
+            except Exception as e:
+                print(f"  [v2.3] Download failed: {e}")
+
+        return None
+
     def summarize_prev_scene(self, scene: Scene) -> str:
         """
         이전 장면 요약 생성.
@@ -440,12 +471,43 @@ JSON 형식으로 출력:
                         img_path = sc.get('assets', {}).get('image_path') if isinstance(sc.get('assets'), dict) else None
                         if not img_path and isinstance(sc.get('assets'), dict):
                             img_path = sc['assets'].get('image_path')
-                        if sc_id and img_path and os.path.exists(img_path):
-                            existing_images[sc_id] = img_path
+                        if sc_id and img_path:
+                            # 로컬 파일 존재 체크 또는 URL(http/https, /media/) 허용
+                            if os.path.exists(img_path):
+                                existing_images[sc_id] = img_path
+                            elif img_path.startswith(("http://", "https://", "/media/")):
+                                # URL → 로컬 경로 변환 시도
+                                local_path = self._resolve_image_to_local(img_path, project_dir, sc_id)
+                                if local_path:
+                                    existing_images[sc_id] = local_path
+                                else:
+                                    existing_images[sc_id] = img_path  # URL 그대로 사용
                     if existing_images:
                         print(f"\n[v2.2] Loaded {len(existing_images)} existing images from manifest (skipping regeneration)")
             except Exception as e:
                 print(f"[v2.2] Failed to load manifest: {e}")
+
+        # v2.3: story_data에서도 이미지 경로 로드 (프론트엔드가 전달한 경우)
+        if not existing_images and (story_data.get('_images_pregenerated') or any(
+            isinstance(sc.get('assets'), dict) and sc.get('assets', {}).get('image_path')
+            for sc in scenes
+        )):
+            print(f"\n[v2.3] Checking story_data scenes for pre-generated image paths...")
+            for sc in scenes:
+                sc_id = sc.get('scene_id')
+                sc_assets = sc.get('assets', {})
+                img_path = sc_assets.get('image_path') if isinstance(sc_assets, dict) else None
+                if sc_id and img_path:
+                    if os.path.exists(img_path):
+                        existing_images[sc_id] = img_path
+                    elif img_path.startswith(("http://", "https://", "/media/")):
+                        local_path = self._resolve_image_to_local(img_path, project_dir, sc_id)
+                        if local_path:
+                            existing_images[sc_id] = local_path
+                        else:
+                            existing_images[sc_id] = img_path
+            if existing_images:
+                print(f"[v2.3] Loaded {len(existing_images)} images from story_data (skipping regeneration)")
 
         # v2.0: 글로벌 스타일 정보 출력
         if global_style:

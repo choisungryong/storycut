@@ -780,9 +780,36 @@ class VideoAgent:
         # v2.2: Check for existing image (from previous image-only generation)
         existing_image = None
         if scene and hasattr(scene, 'assets') and scene.assets and scene.assets.image_path:
-            if os.path.exists(scene.assets.image_path):
-                existing_image = scene.assets.image_path
+            _img_p = scene.assets.image_path
+            if os.path.exists(_img_p):
+                existing_image = _img_p
                 print(f"     [SKIP] Using existing image: {existing_image}")
+            elif _img_p.startswith("/media/"):
+                # /media/ 웹경로 → outputs/ 로컬경로 변환
+                _local = "outputs/" + _img_p[len("/media/"):]
+                if os.path.exists(_local):
+                    existing_image = _local
+                    scene.assets.image_path = _local
+                    print(f"     [SKIP] Resolved /media/ to local: {existing_image}")
+            elif _img_p.startswith(("http://", "https://")):
+                # URL → 로컬 다운로드
+                os.makedirs(image_dir, exist_ok=True)
+                _dl_path = f"{image_dir}/scene_{scene_id:02d}.png"
+                if os.path.exists(_dl_path):
+                    existing_image = _dl_path
+                    scene.assets.image_path = _dl_path
+                    print(f"     [SKIP] Using previously downloaded: {existing_image}")
+                else:
+                    try:
+                        import urllib.request
+                        print(f"     [DOWNLOAD] Fetching image from URL: {_img_p[:80]}...")
+                        urllib.request.urlretrieve(_img_p, _dl_path)
+                        if os.path.exists(_dl_path) and os.path.getsize(_dl_path) > 0:
+                            existing_image = _dl_path
+                            scene.assets.image_path = _dl_path
+                            print(f"     [SKIP] Downloaded to: {existing_image}")
+                    except Exception as _e:
+                        print(f"     [DOWNLOAD] Failed: {_e} — will regenerate")
 
         if existing_image:
             image_path = existing_image
