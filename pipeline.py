@@ -974,11 +974,16 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 ethnicity=getattr(request, 'character_ethnicity', 'auto')
             )
 
-            # Update story_data with master_image_path
+            # Update story_data with master_image_path + anchor_set
             if "character_sheet" in story_data:
                 for token, image_path in character_images.items():
                     if token in story_data["character_sheet"]:
                         story_data["character_sheet"][token]["master_image_path"] = image_path
+                # anchor_set도 동기화
+                for token in manifest.character_sheet:
+                    cs = manifest.character_sheet[token]
+                    if hasattr(cs, 'anchor_set') and cs.anchor_set and token in story_data["character_sheet"]:
+                        story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump() if hasattr(cs.anchor_set, 'model_dump') else cs.anchor_set
 
             # manifest에도 즉시 반영 + 디스크 저장 (중간 실패 시 anchor 경로 유실 방지)
             for token, image_path in character_images.items():
