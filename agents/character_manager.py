@@ -22,10 +22,10 @@ if TYPE_CHECKING:
 
 # 포즈별 프롬프트 설정
 POSE_CONFIGS = {
-    "front": "portrait, face and upper body, front facing, centered, looking directly at camera",
-    "three_quarter": "portrait, face and upper body, three-quarter view, slight turn to the side",
+    "front": "close-up portrait, face and shoulders only, front facing, centered, looking directly at camera, head-and-shoulders framing",
+    "three_quarter": "upper body portrait, turned 45 degrees to the right, body angled away from camera, looking over shoulder, waist-up framing",
     "side": "portrait, face and upper body, side profile view, looking to the side",
-    "full_body": "full body shot from head to toe, standing pose, entire figure visible, wide framing",
+    "full_body": "full body portrait showing entire figure from head to feet, standing pose, feet visible at bottom of frame, zoomed out wide shot, leave space above head and below feet",
     "emotion_neutral": "portrait, neutral expression, calm, relaxed",
     "emotion_intense": "portrait, intense emotional expression, dramatic lighting",
 }
