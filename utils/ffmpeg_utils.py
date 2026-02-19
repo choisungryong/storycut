@@ -590,16 +590,20 @@ class FFmpegComposer:
                     srt_content.append("")
                     sub_index += 1
                 else:
-                    # 긴 텍스트: 청크별로 균등 시간 분배
-                    chunk_duration_ms = duration_ms / len(chunks)
+                    # 긴 텍스트: 글자 수 비례 시간 분배 (TTS 발화 속도에 근사)
+                    total_chars = sum(len(c) for c in chunks) or 1
+                    elapsed = 0.0
                     for j, chunk in enumerate(chunks):
-                        chunk_start = current_time_ms + j * chunk_duration_ms
-                        chunk_end = chunk_start + chunk_duration_ms
+                        chunk_ratio = len(chunk) / total_chars
+                        chunk_dur = duration_ms * chunk_ratio
+                        chunk_start = current_time_ms + elapsed
+                        chunk_end = chunk_start + chunk_dur
                         srt_content.append(f"{sub_index}")
                         srt_content.append(f"{self._ms_to_srt_time(chunk_start)} --> {self._ms_to_srt_time(chunk_end)}")
                         srt_content.append(chunk)
                         srt_content.append("")
                         sub_index += 1
+                        elapsed += chunk_dur
 
             current_time_ms += duration_ms
 

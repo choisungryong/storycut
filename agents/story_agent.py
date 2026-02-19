@@ -301,8 +301,17 @@ REQUIREMENTS:
 - 긴장감은 씬마다 한 단계씩 높아져야 함 (평탄한 구간 금지)
 - HOOK 씬: 즉각적 관심 집중 → BUILD 씬: 복선과 의문 심기 → TWIST 씬: 기대 뒤집기 → CLIMAX 씬: 감정 폭발 → RESOLUTION 씬: 감정 착지
 
+[NARRATION LENGTH RULE — 영상 길이에 맞춘 나레이션]
+목표 영상 길이: {total_duration_sec}초 / 씬 수: {min_scenes}~{max_scenes}개
+→ 씬당 목표 길이: 약 {total_duration_sec // max(min_scenes, 1)}~{total_duration_sec // max(max_scenes, 1)}초
+
+한국어 TTS는 초당 약 4글자를 읽으므로:
+- 씬당 나레이션 목표: 약 {(total_duration_sec // max(min_scenes, 1)) * 4}자 내외
+- 스토리 몰입이 중요하므로 약간 초과해도 괜찮지만, 목표 길이의 2배를 넘기지 말 것
+- 영상이 짧을수록({total_duration_sec}초) 나레이션도 간결하게. 불필요한 수식어 줄이기.
+
 [STORYTELLING NARRATION RULE — 필수]
-각 tts_script MUST (최소 4-6문장, 반전 씬은 6-8문장):
+각 tts_script는 몰입감 있게 작성:
 1. 상황 묘사: 장면의 분위기와 배경을 생생하게
 2. 감정 전달: 캐릭터의 내면 심리 (두려움/희망/절망/충격)
 3. 긴장감/몰입: 다음이 궁금해지는 서스펜스
