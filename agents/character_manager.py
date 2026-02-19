@@ -22,12 +22,12 @@ if TYPE_CHECKING:
 
 # 포즈별 프롬프트 설정
 POSE_CONFIGS = {
-    "front": "front facing, centered, looking directly at camera",
-    "three_quarter": "three-quarter view, slight angle",
-    "side": "side profile view",
-    "full_body": "full body shot, standing",
-    "emotion_neutral": "neutral expression, calm",
-    "emotion_intense": "intense expression, dramatic",
+    "front": "portrait, face and upper body, front facing, centered, looking directly at camera",
+    "three_quarter": "portrait, face and upper body, three-quarter view, slight turn to the side",
+    "side": "portrait, face and upper body, side profile view, looking to the side",
+    "full_body": "full body shot from head to toe, standing pose, entire figure visible, wide framing",
+    "emotion_neutral": "portrait, neutral expression, calm, relaxed",
+    "emotion_intense": "portrait, intense emotional expression, dramatic lighting",
 }
 
 
@@ -444,6 +444,9 @@ class CharacterManager:
                         _best_score[0] = best_candidate_score
                         _best_pose_key[0] = pose_key
 
+        # reference 없이 생성해야 하는 포즈 (구도가 front와 크게 달라 reference를 주면 오히려 동일하게 나옴)
+        NO_REF_POSES = {"full_body", "side", "emotion_neutral", "emotion_intense"}
+
         # 1단계: 첫 포즈(기준 앵커)를 먼저 단독 생성
         first_pose = poses[0]
         remaining_poses = poses[1:]
@@ -455,10 +458,15 @@ class CharacterManager:
             first_ref_path = anchor_set.poses[first_pose].image_path
             print(f"      [Reference] First pose ready: {os.path.basename(first_ref_path) if first_ref_path else 'None'}")
 
-        # 2단계: 나머지 포즈들을 첫 포즈 reference와 함께 병렬 생성
+        # 2단계: 나머지 포즈들 생성
+        # - 앵글만 다른 포즈(three_quarter)는 reference 사용 → 얼굴 일관성
+        # - 구도가 완전히 다른 포즈(full_body 등)는 reference 없이 → 동일 이미지 방지
         if remaining_poses:
             with ThreadPoolExecutor(max_workers=len(remaining_poses)) as executor:
-                executor.map(lambda p: _process_pose(p, first_ref_path), remaining_poses)
+                executor.map(
+                    lambda p: _process_pose(p, None if p in NO_REF_POSES else first_ref_path),
+                    remaining_poses
+                )
 
         anchor_set.best_pose = _best_pose_key[0]
         return anchor_set

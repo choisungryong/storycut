@@ -2396,6 +2396,7 @@ class StorycutApp {
         const characterTokens = Object.keys(characterSheet);
         if (characterTokens.length === 0) {
             console.log('[Casting] No characters found, skipping to image generation');
+            this.showToast('캐릭터 없는 스토리 — 바로 이미지 생성으로 진행합니다.', 'info');
             this.startImageGeneration();
             return;
         }
