@@ -76,7 +76,7 @@ class CharacterManager:
         global_style: Optional[GlobalStyle],
         project_dir: str,
         poses: Optional[List[str]] = None,
-        candidates_per_pose: int = 2
+        candidates_per_pose: int = 1
     ) -> Dict[str, str]:
         """
         모든 캐릭터의 마스터 앵커 이미지 생성.
@@ -370,22 +370,26 @@ class CharacterManager:
         Returns:
             AnchorSet 객체
         """
-        anchor_set = AnchorSet(character_token=token)
-        best_score = -1.0
-        best_pose_key = poses[0] if poses else "three_quarter"
+        import threading
+        import shutil
+        from concurrent.futures import ThreadPoolExecutor
 
-        for pose_key in poses:
+        anchor_set = AnchorSet(character_token=token)
+        _best_score = [-1.0]
+        _best_pose_key = [poses[0] if poses else "three_quarter"]
+        _lock = threading.Lock()
+
+        def _process_pose(pose_key: str):
+            """단일 포즈 이미지 생성 (스레드에서 병렬 실행)"""
+            from agents.image_agent import ImageAgent as _IA
             pose_desc = POSE_CONFIGS.get(pose_key, pose_key)
-            print(f"      Generating pose: {pose_key} ({pose_desc})")
+            print(f"      [Pose] Generating: {pose_key} ({pose_desc})")
 
             best_candidate_path = None
             best_candidate_score = -1.0
 
             for cand_idx in range(candidates_per_pose):
-                # 후보별 시드 변경
                 candidate_seed = char_seed + cand_idx * 7
-
-                # 포즈별 캐스팅 프롬프트
                 casting_prompt = self._build_casting_prompt(
                     name=name,
                     appearance=appearance,
@@ -396,11 +400,10 @@ class CharacterManager:
                     color_palette=color_palette,
                     pose_description=pose_desc
                 )
-
                 output_path = f"{char_dir}/{pose_key}_cand{cand_idx}.jpg"
-
                 try:
-                    image_path, _ = self.image_agent.generate_image(
+                    _agent = _IA()
+                    image_path, _ = _agent.generate_image(
                         scene_id=0,
                         prompt=casting_prompt,
                         style=art_style,
@@ -408,46 +411,41 @@ class CharacterManager:
                         seed=candidate_seed,
                         image_model="standard"
                     )
-
-                    # 품질 점수 측정
                     score = self._score_candidate(
                         image_path=image_path,
                         pose_key=pose_key,
                         appearance=appearance,
                         art_style=art_style
                     )
-
-                    print(f"        Candidate {cand_idx}: score={score:.2f}")
-
+                    print(f"        [Pose:{pose_key}] cand{cand_idx} score={score:.2f}")
                     if score > best_candidate_score:
                         best_candidate_score = score
                         best_candidate_path = image_path
-
                 except Exception as e:
-                    print(f"        Candidate {cand_idx} failed: {e}")
-                    continue
+                    print(f"        [Pose:{pose_key}] cand{cand_idx} failed: {e}")
 
-            # 최고 후보를 최종 포즈 이미지로 복사
             if best_candidate_path:
                 final_path = f"{char_dir}/{pose_key}.jpg"
                 try:
-                    import shutil
                     shutil.copy2(best_candidate_path, final_path)
                 except Exception:
                     final_path = best_candidate_path
-
                 pose_anchor = PoseAnchor(
                     pose=PoseType(pose_key),
                     image_path=final_path,
                     score=best_candidate_score
                 )
-                anchor_set.poses[pose_key] = pose_anchor
+                with _lock:
+                    anchor_set.poses[pose_key] = pose_anchor
+                    if best_candidate_score > _best_score[0]:
+                        _best_score[0] = best_candidate_score
+                        _best_pose_key[0] = pose_key
 
-                if best_candidate_score > best_score:
-                    best_score = best_candidate_score
-                    best_pose_key = pose_key
+        # 포즈를 병렬로 동시 생성 (3포즈 → 최대 3스레드)
+        with ThreadPoolExecutor(max_workers=len(poses)) as executor:
+            executor.map(_process_pose, poses)
 
-        anchor_set.best_pose = best_pose_key
+        anchor_set.best_pose = _best_pose_key[0]
         return anchor_set
 
     def _score_candidate(

@@ -129,16 +129,18 @@ class StyleAnchorAgent:
                 visual_seed = global_style.get("visual_seed", visual_seed)
 
         env_anchors = {}
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        _lock = threading.Lock()
 
-        for scene_data in scenes:
+        def _generate_one(scene_data):
             scene_id = scene_data.get("scene_id", 0)
             output_path = f"{project_dir}/media/env_anchor_scene_{scene_id:02d}.jpg"
-
             prompt = self._build_environment_prompt(scene_data, global_style)
             print(f"  Scene {scene_id}: {prompt[:60]}...")
-
             try:
-                image_path, _ = self.image_agent.generate_image(
+                from agents.image_agent import ImageAgent as _IA
+                image_path, _ = _IA().generate_image(
                     scene_id=0,
                     prompt=prompt,
                     style=art_style,
@@ -146,13 +148,14 @@ class StyleAnchorAgent:
                     seed=visual_seed + scene_id,
                     image_model="standard"
                 )
-
-                env_anchors[scene_id] = image_path
-                print(f"  [EnvAnchor] Scene {scene_id} anchor saved: {image_path}")
-
+                with _lock:
+                    env_anchors[scene_id] = image_path
+                print(f"  [EnvAnchor] Scene {scene_id} done: {image_path}")
             except Exception as e:
                 print(f"  [EnvAnchor] Scene {scene_id} failed: {e}")
-                continue
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            executor.map(_generate_one, scenes)
 
         # GlobalStyle에 저장
         if isinstance(global_style, GlobalStyle):

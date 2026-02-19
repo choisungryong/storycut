@@ -600,14 +600,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     global_style=manifest.global_style,
                     project_dir=project_dir
                 )
-
-                if "scenes" in story_data:
-                    print(f"\n[EnvAnchors] Generating environment anchor images...")
-                    env_anchors = style_anchor_agent.generate_environment_anchors(
-                        scenes=story_data["scenes"],
-                        global_style=manifest.global_style,
-                        project_dir=project_dir
-                    )
+                # EnvironmentAnchors는 이미지 생성 단계에서 생성 (캐스팅 단계 불필요)
 
             # Character Casting
             if manifest.character_sheet:
@@ -716,6 +709,16 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         if "global_style" in story_data:
             manifest.global_style = GlobalStyle(**story_data["global_style"])
 
+        # 기존 manifest 먼저 읽기 (덮어쓰기 전에 앵커 경로 보존)
+        _existing_manifest_path = os.path.join(project_dir, "manifest.json")
+        _existing_data = {}
+        if os.path.exists(_existing_manifest_path):
+            try:
+                with open(_existing_manifest_path, "r", encoding="utf-8") as f:
+                    _existing_data = json.load(f)
+            except Exception:
+                pass
+
         # 초기 manifest 즉시 저장 (프론트엔드 폴링이 바로 데이터를 받을 수 있도록)
         total_scenes = len(story_data['scenes'])
         manifest.scenes = []
@@ -730,19 +733,22 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             manifest.scenes.append(scene)
         self._save_manifest(manifest, project_dir)
 
+        # _save_manifest()는 Pydantic 모델만 직렬화하므로
+        # 캐스팅 단계에서 저장한 비모델 필드(_style_anchor_path 등)를 재주입
+        _anchor_extras = {k: _existing_data[k] for k in ("_style_anchor_path", "_env_anchors", "casting_status") if k in _existing_data}
+        if _anchor_extras:
+            try:
+                with open(_existing_manifest_path, "r", encoding="utf-8") as f:
+                    _mf = json.load(f)
+                _mf.update(_anchor_extras)
+                with open(_existing_manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(_mf, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
         # Style Anchor 생성 (v2.0) — 캐스팅 단계에서 이미 생성된 경우 재사용
         style_anchor_path = None
         env_anchors = {}
-
-        # 기존 manifest에서 캐스팅 시 저장한 앵커 경로 확인
-        _existing_manifest_path = os.path.join(project_dir, "manifest.json")
-        _existing_data = {}
-        if os.path.exists(_existing_manifest_path):
-            try:
-                with open(_existing_manifest_path, "r", encoding="utf-8") as f:
-                    _existing_data = json.load(f)
-            except Exception:
-                pass
 
         _saved_style = _existing_data.get("_style_anchor_path")
         _saved_envs = _existing_data.get("_env_anchors", {})
@@ -852,10 +858,26 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             manifest.scenes = self._convert_scenes_to_schema(scenes_with_images)
             manifest.status = "images_ready"
             manifest.execution_time_sec = time.time() - start_time
-            
+
             # Save manifest
             self._save_manifest(manifest, project_dir)
-            
+
+            # 앵커 경로는 Pydantic 모델 외부 필드 → 최종 manifest에 재주입
+            _final_extras = {}
+            if style_anchor_path:
+                _final_extras["_style_anchor_path"] = style_anchor_path
+            if env_anchors:
+                _final_extras["_env_anchors"] = {str(k): v for k, v in env_anchors.items()}
+            if _final_extras:
+                try:
+                    with open(_existing_manifest_path, "r", encoding="utf-8") as f:
+                        _mf = json.load(f)
+                    _mf.update(_final_extras)
+                    with open(_existing_manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(_mf, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+
             # Return image info for frontend
             result = {
                 "project_id": project_id,
