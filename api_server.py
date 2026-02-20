@@ -1439,14 +1439,26 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
     print(f"[API] Project ID: {project_id}")
     print(f"[API] Scene count: {total_scenes}")
 
-    # 초기 manifest에 user_id 기록 (history 필터링용)
+    # manifest에 user_id 기록 (history 필터링용)
     user_id = request.headers.get("X-User-Id", "")
     if user_id:
         from pathlib import Path
         proj_dir = f"outputs/{project_id}"
         Path(proj_dir).mkdir(parents=True, exist_ok=True)
         manifest_path_stub = f"{proj_dir}/manifest.json"
-        if not os.path.exists(manifest_path_stub):
+        if os.path.exists(manifest_path_stub):
+            # 기존 manifest에 user_id 추가
+            try:
+                import json as _json
+                with open(manifest_path_stub, "r", encoding="utf-8") as _f:
+                    _existing = _json.load(_f)
+                if not _existing.get("user_id"):
+                    _existing["user_id"] = user_id
+                    with open(manifest_path_stub, "w", encoding="utf-8") as _f:
+                        _json.dump(_existing, _f, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pass
+        else:
             import json as _json
             with open(manifest_path_stub, "w", encoding="utf-8") as _f:
                 _json.dump({"project_id": project_id, "user_id": user_id, "status": "processing"}, _f)
@@ -2823,20 +2835,20 @@ async def get_history_list(request: Request):
             if p_uid:
                 return p_uid == str(filter_user_id)
 
-            # user_id 미기록 레거시 프로젝트 → 원래 소유자(neopioneer0713)에게만 노출
-            _LEGACY_OWNER = "neopioneer0713@gmail.com"
+            # user_id 미기록 레거시 프로젝트 → 원래 소유자(DB id=1)에게만 노출
+            _LEGACY_OWNER_ID = "1"
 
             # 로컬 manifest에서 user_id 확인
             pid = p.get("project_id", "")
             m_path = os.path.join(outputs_dir, pid, "manifest.json")
             if not os.path.exists(m_path):
-                return str(filter_user_id) == _LEGACY_OWNER
+                return str(filter_user_id) == _LEGACY_OWNER_ID
             try:
                 with open(m_path, "r", encoding="utf-8") as _f:
                     m = json.load(_f)
                 m_uid = str(m.get("user_id") or "")
                 if not m_uid:
-                    return str(filter_user_id) == _LEGACY_OWNER
+                    return str(filter_user_id) == _LEGACY_OWNER_ID
                 return m_uid == str(filter_user_id)
             except Exception:
                 return True
@@ -3378,7 +3390,7 @@ async def mv_upload_music(request: Request, music_file: UploadFile = File(...), 
 
 
 @app.post("/api/mv/generate", response_model=MVGenerateResponse)
-async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTasks):
+async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTasks, raw_request: Request):
     """
     Step 2: 뮤직비디오 생성 시작 (비동기)
 
@@ -3403,6 +3415,21 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
     if request.max_scenes and total_scenes > request.max_scenes:
         total_scenes = request.max_scenes
     estimated_time = total_scenes * 30  # 씬당 약 30초
+
+    # user_id를 manifest에 기록 (history 필터링용)
+    _mv_uid = raw_request.headers.get("X-User-Id", "")
+    if _mv_uid:
+        _mv_manifest = f"outputs/{request.project_id}/manifest.json"
+        if os.path.exists(_mv_manifest):
+            try:
+                with open(_mv_manifest, "r", encoding="utf-8") as _mf:
+                    _md = json.load(_mf)
+                if not _md.get("user_id"):
+                    _md["user_id"] = _mv_uid
+                    with open(_mv_manifest, "w", encoding="utf-8") as _mf:
+                        json.dump(_md, _mf, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pass
 
     def run_mv_generation():
         try:
