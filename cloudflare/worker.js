@@ -551,17 +551,15 @@ async function handleRegister(request, env, cors) {
     const passwordHash = await hashPassword(password);
     const now = Math.floor(Date.now() / 1000);
 
-    // id is INTEGER PRIMARY KEY AUTOINCREMENT — do not specify it
-    const result = await env.DB.prepare(
-      `INSERT INTO users (email, password_hash, username, credits, plan_id, created_at)
-       VALUES (?, ?, ?, ?, 'free', ?)`
-    ).bind(cleanEmail, passwordHash, username || cleanEmail.split('@')[0], SIGNUP_BONUS_CLIPS, now).run();
+    // id = email (TEXT PRIMARY KEY)
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, username, credits, plan_id, created_at)
+       VALUES (?, ?, ?, ?, ?, 'free', ?)`
+    ).bind(cleanEmail, cleanEmail, passwordHash, username || cleanEmail.split('@')[0], SIGNUP_BONUS_CLIPS, now).run();
 
-    const userId = result.meta.last_row_id;
+    await recordTransaction(env, cleanEmail, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Signup bonus clips');
 
-    await recordTransaction(env, userId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Signup bonus clips');
-
-    return jsonResponse({ message: 'Registered successfully', user: { id: userId, email: cleanEmail, clips: SIGNUP_BONUS_CLIPS } }, 201, cors);
+    return jsonResponse({ message: 'Registered successfully', user: { id: cleanEmail, email: cleanEmail, clips: SIGNUP_BONUS_CLIPS } }, 201, cors);
   } catch (error) {
     console.error('Register error:', error);
     return jsonResponse({ error: 'Registration failed' }, 500, cors);
@@ -636,17 +634,16 @@ async function handleGoogleAuth(request, env, cors) {
       .bind(email).first();
 
     if (!user) {
-      // Create new user (Google users have no password)
+      // Create new user (Google users have no password), id = email
       const now = Math.floor(Date.now() / 1000);
-      const result = await env.DB.prepare(
-        `INSERT INTO users (email, password_hash, username, credits, plan_id, created_at)
-         VALUES (?, '', ?, ?, 'free', ?)`
-      ).bind(email, name || email.split('@')[0], SIGNUP_BONUS_CLIPS, now).run();
+      await env.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, username, credits, plan_id, created_at)
+         VALUES (?, ?, '', ?, ?, 'free', ?)`
+      ).bind(email, email, name || email.split('@')[0], SIGNUP_BONUS_CLIPS, now).run();
 
-      const newUserId = result.meta.last_row_id;
-      await recordTransaction(env, newUserId, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Google signup bonus clips');
+      await recordTransaction(env, email, SIGNUP_BONUS_CLIPS, 'signup_bonus', null, 'Google signup bonus clips');
 
-      user = { id: newUserId, email, credits: SIGNUP_BONUS_CLIPS, plan_id: 'free' };
+      user = { id: email, email, credits: SIGNUP_BONUS_CLIPS, plan_id: 'free' };
     }
 
     const token = await createJWT({ sub: user.id, email: user.email }, env.JWT_SECRET);

@@ -2840,7 +2840,7 @@ async def get_history_list(request: Request):
                 return p_uid == str(filter_user_id)
 
             # user_id 미기록 레거시 프로젝트 → 원래 소유자(DB id=1)에게만 노출
-            _LEGACY_OWNER_ID = "1"
+            _LEGACY_OWNER_ID = "neopioneer0713@gmail.com"
 
             # 로컬 manifest에서 user_id 확인
             pid = p.get("project_id", "")
@@ -2859,6 +2859,42 @@ async def get_history_list(request: Request):
         all_projects = [p for p in all_projects if _matches_user(p)]
 
     return {"projects": all_projects}
+
+
+@app.post("/api/admin/migrate-user-ids")
+async def migrate_user_ids(request: Request):
+    """일회성: 모든 manifest의 user_id를 이메일로 마이그레이션"""
+    secret = request.headers.get("X-Worker-Secret", "")
+    if not WORKER_SHARED_SECRET or secret != WORKER_SHARED_SECRET:
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    body = await request.json()
+    target_email = body.get("target_email", "")
+    if not target_email:
+        return JSONResponse({"error": "target_email required"}, status_code=400)
+
+    outputs_dir = "outputs"
+    migrated = 0
+    errors = []
+
+    if os.path.exists(outputs_dir):
+        for pid in os.listdir(outputs_dir):
+            manifest_path = os.path.join(outputs_dir, pid, "manifest.json")
+            if not os.path.exists(manifest_path):
+                continue
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                old_uid = data.get("user_id", "")
+                data["user_id"] = target_email
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                migrated += 1
+                print(f"  [MIGRATE] {pid}: {old_uid!r} → {target_email}")
+            except Exception as e:
+                errors.append(f"{pid}: {e}")
+
+    return {"migrated": migrated, "errors": errors}
 
 
 # ============================================================================
