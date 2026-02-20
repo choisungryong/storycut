@@ -479,7 +479,7 @@ class CharacterManager:
         # 2단계: 나머지 포즈 — reference 이미지 사용하되,
         # Gemini가 reference를 그대로 복사하는 문제 방지를 위해
         # three_quarter만 reference 사용, 나머지는 프롬프트로만 일관성 확보
-        REF_POSES = {"three_quarter"}  # 앵글만 살짝 다른 포즈만 reference 사용
+        REF_POSES = {"three_quarter", "full_body"}  # 스타일/배경 일관성을 위해 reference 사용
         if remaining_poses:
             with ThreadPoolExecutor(max_workers=len(remaining_poses)) as executor:
                 executor.map(
