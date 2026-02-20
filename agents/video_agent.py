@@ -72,6 +72,16 @@ class VideoAgent:
         except Exception:
             return {}
 
+    def apply_kenburns(self, image_path: str, duration_sec: int, output_path: str,
+                       scene_id: int = 1, camera_work: str = None,
+                       resolution: str = "1920x1080") -> str:
+        """이미 존재하는 이미지에 Ken Burns 효과만 적용. 이미지 생성 없음."""
+        if self.feature_flags.ffmpeg_kenburns:
+            return self._apply_kenburns_effect(image_path, duration_sec, output_path,
+                                               scene_id, camera_work, resolution)
+        else:
+            return self._image_to_video(image_path, duration_sec, output_path)
+
     def generate_video(
         self,
         scene_id: int,

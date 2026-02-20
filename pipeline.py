@@ -504,16 +504,28 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             print(f"STORYCUT Pipeline - Video Generation - Project: {project_id}")
             print(f"{'='*60}")
 
-            # Step 2: Scene 처리 (맥락 상속 포함)
-            print("\n[STEP 2/6] Processing scenes with context carry-over...")
+            # Step 2: Scene 처리
             orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
-            final_video = orchestrator.process_story(
-                story_data=story_data,
-                output_path=f"{project_dir}/final_video.mp4",
-                request=request,
-                style_anchor_path=style_anchor_path,
-                environment_anchors=env_anchors,
-            )
+
+            if story_data.get("_images_pregenerated"):
+                # 이미지가 이미 존재 → 이미지 생성 코드를 거치지 않는 전용 경로
+                print("\n[STEP 2/6] Composing video from pre-generated images (skip image gen)...")
+                final_video = orchestrator.compose_scenes_from_images(
+                    story_data=story_data,
+                    output_path=f"{project_dir}/final_video.mp4",
+                    request=request,
+                    style_anchor_path=style_anchor_path,
+                    environment_anchors=env_anchors,
+                )
+            else:
+                print("\n[STEP 2/6] Processing scenes with context carry-over...")
+                final_video = orchestrator.process_story(
+                    story_data=story_data,
+                    output_path=f"{project_dir}/final_video.mp4",
+                    request=request,
+                    style_anchor_path=style_anchor_path,
+                    environment_anchors=env_anchors,
+                )
 
             # Scene 정보 업데이트
             manifest.scenes = self._convert_scenes_to_schema(story_data["scenes"])

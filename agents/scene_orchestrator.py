@@ -906,6 +906,235 @@ JSON 형식으로 출력:
 
         return final_video
 
+    def compose_scenes_from_images(
+        self,
+        story_data: Dict[str, Any],
+        output_path: str = "output/youtube_ready.mp4",
+        request: ProjectRequest = None,
+        progress_callback: Any = None,
+        style_anchor_path: Optional[str] = None,
+        environment_anchors: Optional[Dict[int, str]] = None,
+    ) -> str:
+        """
+        이미 생성된 이미지로부터 영상을 합성하는 전용 경로.
+
+        process_story()와 달리 이미지 생성/스킵 로직이 전혀 없음.
+        각 씬에 image_path가 필수로 존재해야 함.
+
+        흐름: TTS -> Ken Burns -> 자막 -> 클립 수집 -> BGM -> 최종 합성
+        """
+        print(f"\n{'='*60}")
+        print(f"STORYCUT - Compose from Pre-generated Images: {story_data['title']}")
+        print(f"{'='*60}\n")
+
+        # Feature flags 업데이트
+        if request:
+            self.feature_flags = request.feature_flags
+            self.video_agent.feature_flags = request.feature_flags
+
+        # Platform 기반 해상도 결정
+        _req_platform = getattr(request, 'target_platform', None) if request else None
+        _req_platform_val = _req_platform.value if _req_platform else 'youtube_long'
+        _is_shorts = _req_platform_val == 'youtube_shorts'
+        _resolution = "1080x1920" if _is_shorts else "1920x1080"
+
+        if _is_shorts:
+            self.composer_agent = ComposerAgent(resolution=_resolution)
+
+        scenes = story_data["scenes"]
+        total_scenes = len(scenes)
+
+        # TTS Voice 설정
+        if request and hasattr(request, 'voice_id'):
+            self.tts_agent.voice = request.voice_id
+
+        project_dir = os.path.dirname(output_path)
+
+        # 이미지 경로 수집 (씬 데이터 또는 매니페스트에서)
+        image_map = {}  # scene_id -> local image path
+        manifest_path = os.path.join(project_dir, "manifest.json")
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest_data = json.load(f)
+                for sc in manifest_data.get('scenes', []):
+                    sc_id = sc.get('scene_id')
+                    img_path = sc.get('assets', {}).get('image_path') if isinstance(sc.get('assets'), dict) else None
+                    if sc_id and img_path:
+                        if os.path.exists(img_path):
+                            image_map[sc_id] = img_path
+                        elif img_path.startswith(("http://", "https://", "/media/")):
+                            local_path = self._resolve_image_to_local(img_path, project_dir, sc_id)
+                            image_map[sc_id] = local_path or img_path
+            except Exception as e:
+                print(f"[compose] Failed to load manifest images: {e}")
+
+        # story_data scenes에서도 보충
+        for sc in scenes:
+            sc_id = sc.get('scene_id')
+            if sc_id not in image_map:
+                sc_assets = sc.get('assets', {})
+                img_path = sc_assets.get('image_path') if isinstance(sc_assets, dict) else None
+                if sc_id and img_path:
+                    if os.path.exists(img_path):
+                        image_map[sc_id] = img_path
+                    elif img_path.startswith(("http://", "https://", "/media/")):
+                        local_path = self._resolve_image_to_local(img_path, project_dir, sc_id)
+                        image_map[sc_id] = local_path or img_path
+
+        print(f"[compose] {len(image_map)}/{total_scenes} scenes have pre-generated images")
+
+        # 카메라 워크 목록
+        camera_works = list(CameraWork)
+
+        # Scene 처리: TTS → Ken Burns → 자막
+        processed_scenes = []
+
+        for i, scene_data in enumerate(scenes, 1):
+            scene_id = scene_data["scene_id"]
+            print(f"\n{'---'*20}")
+            print(f"[compose] Scene {i}/{total_scenes} (ID: {scene_id})")
+
+            image_path = image_map.get(scene_id)
+            if not image_path or not os.path.exists(str(image_path)):
+                print(f"  [SKIP] No valid image for scene {scene_id}, skipping")
+                continue
+
+            scene = Scene(
+                index=i,
+                scene_id=scene_id,
+                sentence=scene_data.get("narration", ""),
+                narration=scene_data.get("narration"),
+                visual_description=scene_data.get("visual_description"),
+                mood=scene_data.get("mood"),
+                duration_sec=scene_data.get("duration_sec", 5),
+                narrative=scene_data.get("narrative"),
+                image_prompt=scene_data.get("image_prompt"),
+                characters_in_scene=scene_data.get("characters_in_scene", []),
+            )
+            scene.assets.image_path = image_path
+            scene.camera_work = camera_works[i % len(camera_works)]
+
+            try:
+                # Phase 1: TTS
+                scene.status = SceneStatus.GENERATING_TTS
+
+                scene_dict = scenes[i - 1] if isinstance(scenes[i - 1], dict) else {}
+                dialogue_lines = scene_dict.get("dialogue_lines", [])
+                character_voices = story_data.get("character_voices", [])
+
+                if dialogue_lines and character_voices:
+                    output_dir = f"{project_dir}/media/audio"
+                    os.makedirs(output_dir, exist_ok=True)
+                    audio_path = f"{output_dir}/narration_{scene.scene_id:02d}.mp3"
+                    tts_result = self.tts_agent.generate_dialogue_audio(
+                        dialogue_lines=dialogue_lines,
+                        character_voices=character_voices,
+                        output_path=audio_path,
+                    )
+                else:
+                    tts_result = self.tts_agent.generate_speech(
+                        scene_id=scene.scene_id,
+                        narration=scene.narration,
+                        emotion=scene.mood
+                    )
+                scene.assets.narration_path = tts_result.audio_path
+                scene.tts_duration_sec = tts_result.duration_sec
+
+                if tts_result.duration_sec > 0:
+                    import math
+                    scene.duration_sec = max(3, math.ceil(tts_result.duration_sec) + 1)
+                    print(f"  [Duration] {scene.duration_sec}s (TTS: {tts_result.duration_sec:.2f}s)")
+
+                # Phase 2: Ken Burns (이미지 → 비디오)
+                scene.status = SceneStatus.GENERATING_VIDEO
+                video_output_dir = f"{project_dir}/media/video"
+                os.makedirs(video_output_dir, exist_ok=True)
+                video_out = f"{video_output_dir}/scene_{scene.scene_id:02d}.mp4"
+
+                video_path = self.video_agent.apply_kenburns(
+                    image_path=image_path,
+                    duration_sec=scene.duration_sec,
+                    output_path=video_out,
+                    scene_id=scene.scene_id,
+                    camera_work=scene.camera_work.value if hasattr(scene.camera_work, 'value') else None,
+                    resolution=_resolution,
+                )
+                scene.assets.video_path = video_path
+
+                # Phase 3: 자막
+                try:
+                    subtitle_dir = f"{project_dir}/media/subtitles"
+                    self.generate_subtitle_files([scene], subtitle_dir)
+
+                    if getattr(self.feature_flags, 'subtitle_burn_in', True):
+                        subtitled_path = video_path.replace(".mp4", "_sub.mp4")
+                        result_path, subtitle_success = self.composer_agent.composer.overlay_subtitles(
+                            video_in=video_path,
+                            srt_path=scene.assets.subtitle_srt_path,
+                            out_path=subtitled_path,
+                            style={"font_size": 16, "margin_v": 30}
+                        )
+                        if subtitle_success and os.path.exists(result_path):
+                            scene.assets.video_path = result_path
+                except Exception as sub_e:
+                    print(f"  [Warning] Subtitle processing failed: {sub_e}")
+
+                scene.status = SceneStatus.COMPLETED
+
+            except Exception as e:
+                scene.status = SceneStatus.FAILED
+                scene.error_message = str(e)
+                print(f"  [ERROR] Scene {i} failed: {e}")
+
+            processed_scenes.append(scene)
+            print(f"  Scene {i} complete (status: {scene.status})")
+
+            if progress_callback:
+                try:
+                    import asyncio
+                    if not asyncio.iscoroutinefunction(progress_callback):
+                        progress_callback(scene, i)
+                except Exception as cb_error:
+                    print(f"  [WARNING] Progress callback failed: {cb_error}")
+
+        # 클립 수집
+        video_clips = []
+        narration_clips = []
+        scene_durations = []
+
+        for s in processed_scenes:
+            if s.status == SceneStatus.COMPLETED and s.assets.video_path and s.assets.narration_path:
+                video_clips.append(s.assets.video_path)
+                narration_clips.append(s.assets.narration_path)
+                scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
+
+        if not video_clips:
+            raise RuntimeError("No scenes were successfully composed. Cannot produce video.")
+
+        # BGM + 최종 합성
+        music_path = self.music_agent.select_music(
+            genre=story_data.get("genre", "emotional"),
+            mood=story_data.get("mood", "neutral"),
+            duration_sec=story_data.get("total_duration_sec", 60)
+        )
+
+        _use_ducking = getattr(self.feature_flags, 'ffmpeg_audio_ducking', False)
+        final_video = self.composer_agent.compose_video(
+            video_clips=video_clips,
+            narration_clips=narration_clips,
+            music_path=music_path,
+            output_path=output_path,
+            use_ducking=_use_ducking,
+            scene_durations=scene_durations
+        )
+
+        print(f"\n{'='*60}")
+        print(f"SUCCESS! Video composed from pre-generated images")
+        print(f"File: {os.path.abspath(final_video)}\n")
+
+        return final_video
+
     def generate_images_for_scenes(
         self,
         story_data: Dict[str, Any],
