@@ -238,6 +238,16 @@ class StorycutApp {
             this.setNavActive('nav-board');
         });
 
+        // 하단 모바일 탭바 이벤트
+        document.querySelectorAll('.mobile-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                const navId = tab.dataset.nav;
+                // 상단 탭 클릭을 트리거하여 기존 로직 재활용
+                document.getElementById(navId)?.click();
+            });
+        });
+
         // 게시판 글쓰기 버튼
         const writePostBtn = document.getElementById('write-post-btn');
         if (writePostBtn) {
@@ -291,10 +301,16 @@ class StorycutApp {
     }
 
     setNavActive(navId) {
+        // 상단 탭 동기화
         document.querySelectorAll('.nav-link').forEach(link => {
             link.classList.remove('active');
         });
-        document.getElementById(navId).classList.add('active');
+        document.getElementById(navId)?.classList.add('active');
+
+        // 하단 모바일 탭 동기화
+        document.querySelectorAll('.mobile-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.nav === navId);
+        });
     }
 
     updateDurationDisplay() {

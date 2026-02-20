@@ -2567,7 +2567,59 @@ label {
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════ */
+/* ─── Mobile Bottom Tab Bar ─── */
+.mobile-tab-bar {
+  display: none;
+}
+
 @media (max-width: 768px) {
+  /* Show bottom tab bar, hide top tabs */
+  .mobile-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    background: rgba(5, 5, 16, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--glass-border);
+    padding: 6px 0 calc(6px + env(safe-area-inset-bottom, 0px));
+    justify-content: space-around;
+  }
+
+  .mobile-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    transition: color var(--duration-fast);
+    -webkit-tap-highlight-color: transparent;
+    min-width: 64px;
+  }
+
+  .mobile-tab svg {
+    opacity: 0.5;
+    transition: opacity var(--duration-fast);
+  }
+
+  .mobile-tab.active {
+    color: var(--accent-cyan);
+  }
+
+  .mobile-tab.active svg {
+    opacity: 1;
+    stroke: var(--accent-cyan);
+  }
+
+  /* Top nav: hide tabs, keep logo + user only */
   .app-nav {
     padding: var(--space-2) 0;
   }
@@ -2575,22 +2627,22 @@ label {
   .app-nav .sc-nav__inner {
     display: flex;
     align-items: center;
-    padding: 0 var(--space-2);
+    padding: 0 var(--space-3);
     gap: var(--space-2);
   }
 
-  .app-nav .sc-nav__logo {
-    flex-shrink: 0;
+  .app-nav__tabs {
+    display: none;
   }
 
   .app-nav .sc-nav__logo-img {
-    height: 28px;
+    height: 30px;
   }
 
   .app-nav__right {
     display: flex;
     align-items: center;
-    flex-shrink: 0;
+    margin-left: auto;
   }
 
   .app-nav__right>.app-nav__link {
@@ -2598,16 +2650,16 @@ label {
   }
 
   .nav-user-info {
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 
   .nav-clip-badge {
-    padding: 4px 8px;
+    padding: 5px 10px;
     font-size: var(--text-xs);
   }
 
   .nav-user-btn {
-    padding: 4px 8px;
+    padding: 5px 10px;
     font-size: var(--text-xs);
   }
 
@@ -2615,25 +2667,9 @@ label {
     display: none;
   }
 
-  .app-nav__tabs {
-    flex: 1;
-    min-width: 0;
-    border-radius: var(--radius-lg);
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding: 3px;
-  }
-  .app-nav__tabs::-webkit-scrollbar { display: none; }
-
-  .app-nav__tab {
-    font-size: 0.8rem;
-    padding: 10px 14px;
-    min-height: 40px;
-  }
-
-  .app-nav__tab svg {
-    display: none;
+  /* Content padding for bottom bar */
+  .app-main {
+    padding-bottom: 72px;
   }
 
   .app-section-header .section-title {
@@ -2707,27 +2743,22 @@ label {
   }
 
   .app-nav .sc-nav__inner {
-    padding: 0 var(--space-1);
-    gap: var(--space-1);
+    padding: 0 var(--space-2);
   }
 
   .app-nav .sc-nav__logo-img {
-    height: 24px;
+    height: 26px;
   }
 
-  .app-nav__tab {
-    padding: 8px 12px;
-    font-size: 0.75rem;
-    min-height: 36px;
-  }
-
-  .nav-clip-badge {
-    padding: 3px 6px;
+  .mobile-tab {
     font-size: 0.65rem;
+    padding: 5px 8px;
+    min-width: 56px;
   }
 
-  .nav-user-btn {
-    padding: 3px 6px;
+  .mobile-tab svg {
+    width: 20px;
+    height: 20px;
   }
 
   .image-actions {

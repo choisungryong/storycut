@@ -8,7 +8,7 @@
     <meta name="robots" content="noindex">
     <link rel="stylesheet" href="/static/css/design-tokens.css">
     <link rel="stylesheet" href="/static/css/shared.css">
-    <link rel="stylesheet" href="/static/css/app.css?v=20260221_0300">
+    <link rel="stylesheet" href="/static/css/app.css?v=20260221_0310">
     <script src="/static/auth.js"></script>
 </head>
 
@@ -44,6 +44,26 @@
                 <a href="/pricing.html" class="app-nav__link" data-i18n="nav.pricing">요금제</a>
             </div>
         </div>
+    </nav>
+
+    <!-- ═══ MOBILE BOTTOM TAB BAR ═══ -->
+    <nav class="mobile-tab-bar" id="mobileTabBar">
+        <a href="#" class="mobile-tab active" data-nav="nav-create">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M7 2v20M17 2v20M2 12h20"/></svg>
+            <span>새 영상</span>
+        </a>
+        <a href="#" class="mobile-tab" data-nav="nav-mv">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span>뮤비</span>
+        </a>
+        <a href="#" class="mobile-tab" data-nav="nav-history">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            <span>내 영상</span>
+        </a>
+        <a href="#" class="mobile-tab" data-nav="nav-board">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            <span>소통</span>
+        </a>
     </nav>
 
     <!-- ═══ MAIN CONTENT ═══ -->
@@ -1219,7 +1239,7 @@
         <p><a href="/privacy.html">개인정보처리방침</a> | <a href="/terms.html">이용약관</a> | <a href="/docs" target="_blank">API 문서</a></p>
     </footer>
 
-    <script src="/static/app.js?v=20260221_0240"></script>
+    <script src="/static/app.js?v=20260221_0310"></script>
     <script>
     // ─── App i18n (synced with landing page via localStorage) ───
     (function() {
