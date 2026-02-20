@@ -2417,6 +2417,30 @@ class MVPipeline:
             is_emotional = seg_type in _EMOTIONAL_SEGMENTS
             if (pexels and not scene.characters_in_scene and not is_emotional):
                 _vb = project.visual_bible
+                # scene blocking에서 lighting 추출
+                _scene_lighting = None
+                _scene_blocking = None
+                if _vb and _vb.scene_blocking:
+                    _scene_blocking = next((sb for sb in _vb.scene_blocking if sb.scene_id == scene.scene_id), None)
+                    if _scene_blocking:
+                        _scene_lighting = _scene_blocking.lighting
+
+                # image_prompt에서 시간대/날씨/장소 힌트 추출
+                _prompt_lower = (scene.image_prompt or "").lower()
+                _time_hint = None
+                for _tw, _tv in [("night", "night"), ("dawn", "dawn"), ("sunset", "sunset"),
+                                 ("golden hour", "golden hour"), ("morning", "morning"),
+                                 ("dusk", "dusk"), ("midnight", "midnight"), ("twilight", "twilight")]:
+                    if _tw in _prompt_lower:
+                        _time_hint = _tv
+                        break
+                _weather_hint = None
+                for _ww, _wv in [("rain", "rain"), ("snow", "snow"), ("fog", "fog"),
+                                 ("storm", "storm"), ("cloudy", "cloudy"), ("mist", "mist")]:
+                    if _ww in _prompt_lower:
+                        _weather_hint = _wv
+                        break
+
                 queries = pexels.generate_stock_queries(
                     scene_prompt=scene.image_prompt,
                     lyrics_text=scene.lyrics_text,
@@ -2426,6 +2450,12 @@ class MVPipeline:
                     concept=project.concept or None,
                     era_setting=era_prefix or None,
                     color_palette=_vb.color_palette if _vb and _vb.color_palette else None,
+                    locale=ethnicity_keyword or None,
+                    time_of_day=_time_hint,
+                    weather=_weather_hint,
+                    lighting=_scene_lighting or (_vb.lighting_style if _vb else None),
+                    location=None,  # image_prompt에 이미 포함
+                    atmosphere=_vb.atmosphere if _vb else None,
                 )
                 broll_path = f"{project_dir}/media/video/broll_{scene.scene_id:02d}.mp4"
                 os.makedirs(os.path.dirname(broll_path), exist_ok=True)

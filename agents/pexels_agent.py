@@ -30,7 +30,7 @@ SEGMENT_MODIFIERS: Dict[str, str] = {
 
 # LLM 스톡 쿼리 생성 프롬프트
 _STOCK_QUERY_SYSTEM_PROMPT = """You are generating STOCK SEARCH QUERIES for short b-roll video clips (Pexels).
-Input: lyric line + scene description + shot role + genre + mood.
+Input: lyric line + scene description + shot role + genre + mood + environment context.
 Output: JSON with 3-8 English queries.
 
 Rules:
@@ -40,7 +40,15 @@ Rules:
 - role is always "broll" (never "hero"). Avoid identity-specific queries (no character names, no celebrity).
 - Prefer environment/texture/detail shots over faces.
 - Include variety: (place/object) + (time/weather) + (camera/style) combos.
-- CRITICAL: If concept or era_setting is given, ALL queries MUST match that setting. For example, a medieval concept should use castles/stone/candlelight, a futuristic concept should use neon/cyber/hologram, a tropical concept should use beaches/palm trees. Always match the given context.
+
+ENVIRONMENT MATCHING (critical):
+- If concept or era_setting is given, ALL queries MUST match that setting. Medieval → castles/stone/candlelight. Futuristic → neon/cyber/hologram.
+- If locale is given (e.g. "Korean", "Japanese"), prefer that region's urban/cultural aesthetics. Korean → Seoul city, hanok, neon alley. Japanese → Tokyo, shrine. European → cobblestone, cathedral.
+- If time_of_day is given, ALL queries must match: "night" → neon/streetlight/moonlight, "dawn" → sunrise/golden hour, "day" → bright daylight.
+- If weather/climate is given, include it: "rain" → rain drops/wet street, "snow" → snowfall/winter, "fog" → misty/hazy.
+- If lighting is given, match it: "warm golden hour" → golden light, "cold blue" → blue tone night.
+- If location is given, use it directly: "rooftop" → city rooftop b-roll, "forest" → forest b-roll.
+- IMPORTANT: Do NOT default to tropical/beach/palm tree videos. Unless concept explicitly mentions "tropical"/"beach"/"island", avoid tropical imagery. Prefer URBAN, INDOOR, or WEATHER shots as generic fillers.
 
 Return ONLY valid JSON, no markdown:
 {"stock_query":[...],"notes":"brief reasoning"}"""
@@ -178,6 +186,12 @@ class PexelsAgent:
         concept: str = None,
         era_setting: str = None,
         color_palette: List[str] = None,
+        locale: str = None,
+        time_of_day: str = None,
+        weather: str = None,
+        lighting: str = None,
+        location: str = None,
+        atmosphere: str = None,
     ) -> List[str]:
         """Gemini LLM으로 Pexels 검색 쿼리 3-8개 생성
 
@@ -190,6 +204,12 @@ class PexelsAgent:
             concept: 비주얼 컨셉 (예: "중세 유럽 성", "네온 도시")
             era_setting: 시대/배경 (예: "medieval", "futuristic")
             color_palette: 색상 팔레트 (예: ["deep blue", "gold"])
+            locale: 지역/인종 (예: "Korean", "Japanese")
+            time_of_day: 시간대 (예: "night", "dawn", "golden hour")
+            weather: 날씨 (예: "rain", "snow", "fog")
+            lighting: 조명 스타일 (예: "warm golden hour", "cold blue neon")
+            location: 장소 (예: "rooftop", "forest", "city street")
+            atmosphere: 전체 분위기 (예: "melancholic urban decay")
 
         Returns:
             검색 쿼리 리스트 (실패 시 폴백 쿼리)
@@ -211,6 +231,18 @@ class PexelsAgent:
                 context_lines.append(f"era_setting={era_setting}")
             if color_palette:
                 context_lines.append(f"color_palette={', '.join(color_palette[:4])}")
+            if locale:
+                context_lines.append(f"locale={locale}")
+            if time_of_day:
+                context_lines.append(f"time_of_day={time_of_day}")
+            if weather:
+                context_lines.append(f"weather={weather}")
+            if lighting:
+                context_lines.append(f"lighting={lighting}")
+            if location:
+                context_lines.append(f"location={location}")
+            if atmosphere:
+                context_lines.append(f"atmosphere={atmosphere}")
             context_str = "\n".join(context_lines)
 
             user_prompt = (
