@@ -1348,7 +1348,7 @@ class StorycutApp {
                 console.log(`[Fetch] Requesting manifest from: ${targetUrl}`);
 
                 const fetchOpts = {};
-                const token = localStorage.getItem('auth_token');
+                const token = localStorage.getItem('token');
                 if (token) fetchOpts.headers = { 'Authorization': `Bearer ${token}` };
                 const response = await fetch(targetUrl, fetchOpts);
 
@@ -2175,7 +2175,7 @@ class StorycutApp {
         try {
             const baseUrl = this.getApiBaseUrl();
             const archFetchOpts = {};
-            const archToken = localStorage.getItem('auth_token');
+            const archToken = localStorage.getItem('token');
             if (archToken) archFetchOpts.headers = { 'Authorization': `Bearer ${archToken}` };
             const response = await fetch(`${baseUrl}/api/manifest/${projectId}`, archFetchOpts);
             if (!response.ok) throw new Error(`Manifest 로드 실패 (${response.status})`);
@@ -4981,11 +4981,7 @@ class StorycutApp {
             let apiUrl = `${urlToUse}/api/board/posts?page=${pg}&limit=20`;
             if (cat) apiUrl += `&category=${cat}`;
 
-            const headers = {};
-            const token = localStorage.getItem('auth_token');
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-
-            const response = await fetch(apiUrl, { headers });
+            const response = await fetch(apiUrl, { headers: this.getAuthHeaders() });
             if (!response.ok) throw new Error('게시판 로드 실패');
             const data = await response.json();
 
@@ -5076,13 +5072,11 @@ class StorycutApp {
             modal.style.display = 'flex';
 
             let urlToUse = this.getApiBaseUrl();
-            const headers = {};
-            const token = localStorage.getItem('auth_token');
-            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const authHeaders = this.getAuthHeaders();
 
             const [postRes, commentsRes] = await Promise.all([
-                fetch(`${urlToUse}/api/board/posts/${postId}`, { headers }),
-                fetch(`${urlToUse}/api/board/posts/${postId}/comments`, { headers }),
+                fetch(`${urlToUse}/api/board/posts/${postId}`, { headers: authHeaders }),
+                fetch(`${urlToUse}/api/board/posts/${postId}/comments`, { headers: authHeaders }),
             ]);
 
             if (!postRes.ok) throw new Error('게시글 로드 실패');
@@ -5096,8 +5090,8 @@ class StorycutApp {
             const badgeClass = `badge-${post.category || 'general'}`;
             const catLabel = categoryLabels[post.category] || '일반';
             const likedClass = post.liked ? 'liked' : '';
-            const currentUserId = localStorage.getItem('user_id') || '';
-            const isOwner = post.user_id === currentUserId;
+            const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+            const isOwner = currentUser && post.user_id === currentUser.id;
 
             let ownerActions = '';
             if (isOwner) {
@@ -5115,7 +5109,8 @@ class StorycutApp {
                 </div>
             `).join('');
 
-            const commentFormHtml = token ? `
+            const hasToken = !!localStorage.getItem('token');
+            const commentFormHtml = hasToken ? `
                 <div class="comment-form">
                     <textarea id="comment-input" placeholder="댓글을 입력하세요..." maxlength="1000"></textarea>
                     <button onclick="app.addComment(${post.id})">등록</button>
@@ -5153,7 +5148,7 @@ class StorycutApp {
     }
 
     openWritePostModal(editData) {
-        const token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('token');
         if (!token) {
             this.showToast('로그인이 필요합니다.', 'error');
             return;
@@ -5210,7 +5205,7 @@ class StorycutApp {
                 method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
                 },
                 body: JSON.stringify({ title, content, category }),
             });
@@ -5240,7 +5235,7 @@ class StorycutApp {
         try {
             let urlToUse = this.getApiBaseUrl();
             const response = await fetch(`${urlToUse}/api/board/posts/${postId}`, {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
             });
             if (!response.ok) throw new Error();
             const post = await response.json();
@@ -5259,7 +5254,7 @@ class StorycutApp {
             let urlToUse = this.getApiBaseUrl();
             const response = await fetch(`${urlToUse}/api/board/posts/${postId}`, {
                 method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
             });
             if (!response.ok) throw new Error();
 
@@ -5272,7 +5267,7 @@ class StorycutApp {
     }
 
     async toggleLike(postId, btn) {
-        const token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('token');
         if (!token) { this.showToast('로그인이 필요합니다.', 'error'); return; }
 
         try {
@@ -5309,7 +5304,7 @@ class StorycutApp {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
                 },
                 body: JSON.stringify({ content }),
             });
