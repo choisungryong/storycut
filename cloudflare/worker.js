@@ -618,6 +618,7 @@ async function handleLogin(request, env, cors) {
         id: user.id,
         email: user.email,
         username: user.email.split('@')[0],
+        clips: user.credits, // Backward compatibility
         credits: user.credits, // DB column 'credits' → response field 'credits'
         plan_id: user.plan_id || 'free',
       },
@@ -675,6 +676,7 @@ async function handleGoogleAuth(request, env, cors) {
         id: user.id,
         email: user.email,
         username: name || email.split('@')[0],
+        clips: user.credits, // Backward compatibility
         credits: user.credits, // DB column 'credits' → response field 'credits'
         plan_id: user.plan_id || 'free',
       },
@@ -831,6 +833,7 @@ async function handleClipBalance(user, env, cors) {
   }
 
   return jsonResponse({
+    clips: freshUser.credits,   // Keep for backwards compatibility with UI
     credits: freshUser.credits, // DB 'credits' → API 'credits'
     plan_id: freshUser.plan_id || 'free',
     plan_name: planInfo.name,

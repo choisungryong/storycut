@@ -223,7 +223,7 @@ function renderUserHeader(user) {
                 <circle cx="12" cy="12" r="10"/>
                 <text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor">C</text>
             </svg>
-            <span id="clip-count">${user.clips ?? '...'}</span>
+            <span id="clip-count">${user.credits ?? user.clips ?? '...'}</span>
         </a>
         <button class="nav-user-btn" onclick="openProfileModal()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

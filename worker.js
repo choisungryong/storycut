@@ -598,6 +598,7 @@ async function handleLogin(request, env, cors) {
         email: user.email,
         username: user.email.split('@')[0],
         clips: user.credits, // DB column 'credits' → response field 'clips'
+        credits: user.credits,
         plan_id: user.plan_id || 'free',
       },
     }, 200, cors);
@@ -655,6 +656,7 @@ async function handleGoogleAuth(request, env, cors) {
         email: user.email,
         username: name || email.split('@')[0],
         clips: user.credits, // DB column 'credits' → response field 'clips'
+        credits: user.credits,
         plan_id: user.plan_id || 'free',
       },
     }, 200, cors);
@@ -810,7 +812,8 @@ async function handleClipBalance(user, env, cors) {
   }
 
   return jsonResponse({
-    clips: freshUser.credits, // DB 'credits' → API 'clips'
+    clips: freshUser.credits, // Backward compatibility
+    credits: freshUser.credits, // DB 'credits' → API 'credits'
     plan_id: freshUser.plan_id || 'free',
     plan_name: planInfo.name,
     plan_expires_at: freshUser.plan_expires_at,
