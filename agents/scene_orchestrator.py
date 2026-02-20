@@ -227,6 +227,37 @@ JSON 형식으로 출력:
             print(f"  Entity extraction failed: {e}")
             return SceneEntities()
 
+    def _adjust_tts_speed(self, audio_path: str, tts_duration: float, target_duration: float) -> str:
+        """TTS 오디오 속도를 조정하여 target_duration에 맞춤 (FFmpeg atempo)."""
+        import subprocess
+        speed_ratio = tts_duration / target_duration
+        # atempo는 0.5~100.0 범위. 2.0 초과 시 체이닝 필요하지만 현실적으로 2x 이내
+        speed_ratio = min(speed_ratio, 2.5)
+        adjusted_path = audio_path.replace(".mp3", "_adj.mp3")
+
+        # atempo 체이닝: 2.0 초과 시 분할
+        atempo_filters = []
+        remaining = speed_ratio
+        while remaining > 2.0:
+            atempo_filters.append("atempo=2.0")
+            remaining /= 2.0
+        atempo_filters.append(f"atempo={remaining:.4f}")
+        filter_str = ",".join(atempo_filters)
+
+        try:
+            cmd = [
+                "ffmpeg", "-y", "-i", audio_path,
+                "-filter:a", filter_str,
+                "-vn", adjusted_path
+            ]
+            subprocess.run(cmd, capture_output=True, timeout=30)
+            if os.path.exists(adjusted_path) and os.path.getsize(adjusted_path) > 0:
+                print(f"     [TTS Speed] {tts_duration:.1f}s -> {target_duration:.1f}s (x{speed_ratio:.2f})")
+                return adjusted_path
+        except Exception as e:
+            print(f"     [TTS Speed] Failed to adjust: {e}")
+        return audio_path
+
     def _resolve_image_to_local(self, img_path: str, project_dir: str, scene_id) -> str:
         """URL 또는 /media/ 경로를 로컬 파일 경로로 변환/다운로드.
 
@@ -707,7 +738,7 @@ JSON 형식으로 출력:
                 scene.status = SceneStatus.GENERATING_TTS
 
                 # v3.0: 멀티 화자 TTS 지원
-                scene_dict = scenes[i] if isinstance(scenes[i], dict) else {}
+                scene_dict = scenes[i - 1] if isinstance(scenes[i - 1], dict) else {}
                 dialogue_lines = scene_dict.get("dialogue_lines", [])
                 character_voices = story_data.get("character_voices", [])
 
@@ -740,6 +771,11 @@ JSON 형식으로 출력:
                     scene.duration_sec = max(3, min(tts_dur, max_allowed))
                     if tts_dur > max_allowed:
                         print(f"     [Duration] TTS {tts_result.duration_sec:.1f}s exceeds limit, capped: {original_dur}s -> {scene.duration_sec}s (max {max_allowed}s)")
+                        # TTS 오디오를 캡된 duration에 맞게 속도 조정
+                        scene.assets.narration_path = self._adjust_tts_speed(
+                            tts_result.audio_path, tts_result.duration_sec, scene.duration_sec
+                        )
+                        scene.tts_duration_sec = float(scene.duration_sec)
                     else:
                         print(f"     [Duration] Updated to {scene.duration_sec}s (TTS: {tts_result.duration_sec:.1f}s, original: {original_dur}s)")
 
@@ -1054,6 +1090,11 @@ JSON 형식으로 출력:
                     scene.duration_sec = max(3, min(tts_dur, max_allowed))
                     if tts_dur > max_allowed:
                         print(f"  [Duration] TTS {tts_result.duration_sec:.1f}s exceeds limit, capped: {original_dur}s -> {scene.duration_sec}s (max {max_allowed}s)")
+                        # TTS 오디오를 캡된 duration에 맞게 속도 조정
+                        scene.assets.narration_path = self._adjust_tts_speed(
+                            tts_result.audio_path, tts_result.duration_sec, scene.duration_sec
+                        )
+                        scene.tts_duration_sec = float(scene.duration_sec)
                     else:
                         print(f"  [Duration] {scene.duration_sec}s (TTS: {tts_result.duration_sec:.1f}s, original: {original_dur}s)")
 
