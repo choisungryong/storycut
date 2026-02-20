@@ -25,7 +25,7 @@ POSE_CONFIGS = {
     "front": "close-up portrait, face and shoulders only, front facing, centered, looking directly at camera, head-and-shoulders framing",
     "three_quarter": "upper body portrait, turned 45 degrees to the right, body angled away from camera, looking over shoulder, waist-up framing",
     "side": "portrait, face and upper body, side profile view, looking to the side",
-    "full_body": "full body portrait showing entire figure from head to feet, standing pose, feet visible at bottom of frame, zoomed out wide shot, leave space above head and below feet",
+    "full_body": "full body portrait from head to feet, natural relaxed posture, feet visible, medium-wide shot with slight space above and below, same style as close-up shots",
     "emotion_neutral": "portrait, neutral expression, calm, relaxed",
     "emotion_intense": "portrait, intense emotional expression, dramatic lighting",
 }
@@ -577,8 +577,9 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         Returns:
             캐스팅 프롬프트 문자열
         """
-        # 인종/성별/나이를 최상단에 배치 (Gemini가 앞부분을 더 중시)
+        # art_style을 최상단에 배치 (Gemini가 앞부분을 더 중시하므로 스타일 일관성 확보)
         prompt_parts = []
+        prompt_parts.append(art_style)
         if appearance:
             prompt_parts.append(appearance)
         if gender and gender != "unknown":
@@ -594,7 +595,6 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         if clothing:
             prompt_parts.append(f"wearing {clothing}")
 
-        prompt_parts.append(art_style)
         if color_palette:
             prompt_parts.append(color_palette)
 
