@@ -2411,11 +2411,13 @@ class MVPipeline:
             if os.path.exists(cancel_path):
                 return "cancelled"
 
-            # B-roll 시도: 캐릭터 미등장 + 감정적으로 중요하지 않은 세그먼트만 스톡 사용
+            # B-roll 시도: intro/outro/bridge + 캐릭터 미등장 + 감정적으로 중요하지 않은 세그먼트만 스톡 사용
             seg_type = self._extract_segment_type(scene)
             _EMOTIONAL_SEGMENTS = {"chorus", "hook", "pre_chorus"}
             is_emotional = seg_type in _EMOTIONAL_SEGMENTS
-            if (pexels and not scene.characters_in_scene and not is_emotional):
+            is_broll_segment = seg_type in BROLL_SEGMENTS
+            print(f"    [B-roll check] Scene {scene.scene_id}: seg={seg_type}, broll_seg={is_broll_segment}, chars={bool(scene.characters_in_scene)}, emotional={is_emotional}")
+            if (pexels and is_broll_segment and not scene.characters_in_scene and not is_emotional):
                 _vb = project.visual_bible
                 # scene blocking에서 lighting 추출
                 _scene_lighting = None
@@ -2441,21 +2443,28 @@ class MVPipeline:
                         _weather_hint = _wv
                         break
 
+                _broll_concept = project.concept or None
+                _broll_era = era_prefix or None
+                _broll_locale = ethnicity_keyword or None
+                _broll_lighting = _scene_lighting or (_vb.lighting_style if _vb else None)
+                _broll_atmo = _vb.atmosphere if _vb else None
+                print(f"    [B-roll params] concept={_broll_concept}, era={_broll_era}, locale={_broll_locale}, "
+                      f"time={_time_hint}, weather={_weather_hint}, lighting={_broll_lighting}, atmo={str(_broll_atmo)[:40] if _broll_atmo else None}")
                 queries = pexels.generate_stock_queries(
                     scene_prompt=scene.image_prompt,
                     lyrics_text=scene.lyrics_text,
                     segment_type=seg_type,
                     genre=project.genre.value,
                     mood=project.mood.value,
-                    concept=project.concept or None,
-                    era_setting=era_prefix or None,
+                    concept=_broll_concept,
+                    era_setting=_broll_era,
                     color_palette=_vb.color_palette if _vb and _vb.color_palette else None,
-                    locale=ethnicity_keyword or None,
+                    locale=_broll_locale,
                     time_of_day=_time_hint,
                     weather=_weather_hint,
-                    lighting=_scene_lighting or (_vb.lighting_style if _vb else None),
-                    location=None,  # image_prompt에 이미 포함
-                    atmosphere=_vb.atmosphere if _vb else None,
+                    lighting=_broll_lighting,
+                    location=None,
+                    atmosphere=_broll_atmo,
                 )
                 broll_path = f"{project_dir}/media/video/broll_{scene.scene_id:02d}.mp4"
                 os.makedirs(os.path.dirname(broll_path), exist_ok=True)
