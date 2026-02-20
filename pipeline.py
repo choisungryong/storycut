@@ -448,6 +448,11 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     for token, image_path in character_images.items():
                         if token in story_data["character_sheet"]:
                             story_data["character_sheet"][token]["master_image_path"] = image_path
+                    # anchor_set도 story_data에 동기화
+                    for token in manifest.character_sheet:
+                        cs = manifest.character_sheet[token]
+                        if hasattr(cs, 'anchor_set') and cs.anchor_set and token in story_data["character_sheet"]:
+                            story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump()
                 for token, image_path in character_images.items():
                     if token in manifest.character_sheet:
                         cs = manifest.character_sheet[token]
