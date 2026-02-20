@@ -980,7 +980,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
 
 
 @app.post("/api/generate/story")
-async def generate_story(req: GenerateRequest):
+async def generate_story(req: GenerateRequest, request: Request):
     """Step 1: 스토리만 생성"""
     import uuid
     # 1. Request 변환
@@ -1136,6 +1136,11 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
         existing_manifest['progress'] = 25
         existing_manifest['message'] = '영상 생성 시작...'
         existing_manifest['_images_pregenerated'] = True  # 이미지 스킵 플래그
+        # user_id 보존/추가
+        if not existing_manifest.get('user_id'):
+            _uid = request.headers.get("X-User-Id", "")
+            if _uid:
+                existing_manifest['user_id'] = _uid
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(existing_manifest, f, ensure_ascii=False, indent=2)
     else:
