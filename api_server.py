@@ -2685,6 +2685,10 @@ async def get_history_list(request: Request):
     from utils.storage import StorageManager
     filter_user_id = request.headers.get("X-User-Id", "")
 
+    # [SECURITY] user_id 없으면 빈 목록 반환 (Railway 직접 접근 차단)
+    if not filter_user_id:
+        return {"projects": []}
+
     storage = StorageManager()
     outputs_dir = "outputs"
 
@@ -2851,7 +2855,7 @@ async def get_history_list(request: Request):
                     return str(filter_user_id) == _LEGACY_OWNER_ID
                 return m_uid == str(filter_user_id)
             except Exception:
-                return True
+                return False
         all_projects = [p for p in all_projects if _matches_user(p)]
 
     return {"projects": all_projects}
