@@ -2088,12 +2088,22 @@ class StorycutApp {
     // ==================== History 기능 ====================
     async loadHistory() {
         try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('history-grid').innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:40px;">로그인 후 이용할 수 있습니다.</p>';
+                return;
+            }
+
             let urlToUse = this.getApiBaseUrl();
             const response = await fetch(`${urlToUse}/api/history`, {
                 headers: this.getAuthHeaders(),
             });
 
-            if (!response.ok) throw new Error('History 로드 실패');
+            if (!response.ok) {
+                const errBody = await response.text().catch(() => '');
+                console.error(`History API ${response.status}:`, errBody);
+                throw new Error(`History ${response.status}`);
+            }
 
             const data = await response.json();
             this._historyProjects = data.projects || [];
