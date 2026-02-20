@@ -5236,8 +5236,20 @@ class MVPipeline:
             except Exception:
                 pass
 
+        # 기존 manifest에서 user_id 보존 (파이프라인이 덮어쓰지 않도록)
+        _preserved_uid = None
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    _old = json.load(f)
+                _preserved_uid = _old.get("user_id")
+            except Exception:
+                pass
+
         # Pydantic → dict
         data = project.model_dump(mode='json')
+        if _preserved_uid and not data.get("user_id"):
+            data["user_id"] = _preserved_uid
 
         with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2, default=str)

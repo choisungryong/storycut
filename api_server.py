@@ -2776,6 +2776,7 @@ async def get_history_list(request: Request):
                                 "genre": music_analysis.get("genre"),
                                 "style": data.get("style"),
                                 "scene_count": len(scenes),
+                                "user_id": data.get("user_id"),
                             })
                         else:
                             scenes = data.get("scenes", [])
@@ -2797,6 +2798,7 @@ async def get_history_list(request: Request):
                                 "video_url": f"/api/stream/{pid}" if is_completed else None,
                                 "download_url": f"/api/download/{pid}" if is_completed else None,
                                 "scene_count": len(scenes),
+                                "user_id": data.get("user_id"),
                             })
                 except Exception:
                     continue
@@ -2811,17 +2813,23 @@ async def get_history_list(request: Request):
     # user_id 없는 구버전 프로젝트는 모든 인증 유저에게 노출 (하위 호환)
     if filter_user_id:
         def _matches_user(p):
+            # R2 proj_info에 user_id가 있으면 먼저 확인
+            p_uid = str(p.get("user_id") or "")
+            if p_uid:
+                return p_uid == str(filter_user_id)
+
+            # 로컬 manifest에서 user_id 확인
             pid = p.get("project_id", "")
             m_path = os.path.join(outputs_dir, pid, "manifest.json")
             if not os.path.exists(m_path):
-                return True  # R2 전용 구버전 프로젝트 — 포함 (user_id 기록 없음)
+                return False  # user_id 없는 프로젝트는 다른 유저에게 노출하지 않음
             try:
                 with open(m_path, "r", encoding="utf-8") as _f:
                     m = json.load(_f)
                 m_uid = str(m.get("user_id") or "")
                 return not m_uid or m_uid == str(filter_user_id)
             except Exception:
-                return True  # 읽기 실패 시 포함
+                return False
         all_projects = [p for p in all_projects if _matches_user(p)]
 
     return {"projects": all_projects}
@@ -3275,7 +3283,7 @@ from schemas.mv_models import (
 )
 
 @app.post("/api/mv/upload", response_model=MVUploadResponse)
-async def mv_upload_music(music_file: UploadFile = File(...), lyrics: str = Form(""), character_setup: str = Form("auto"), character_ethnicity: str = Form("auto")):
+async def mv_upload_music(request: Request, music_file: UploadFile = File(...), lyrics: str = Form(""), character_setup: str = Form("auto"), character_ethnicity: str = Form("auto")):
     """
     Step 1: 음악 파일 업로드 및 분석
 
@@ -3327,6 +3335,20 @@ async def mv_upload_music(music_file: UploadFile = File(...), lyrics: str = Form
         if user_lyrics:
             print(f"[MV API] User provided lyrics: {len(user_lyrics)} chars")
         project = pipeline.upload_and_analyze(music_path, project_id, user_lyrics=user_lyrics)
+
+        # user_id를 manifest에 기록 (history 필터링용)
+        mv_user_id = request.headers.get("X-User-Id", "")
+        if mv_user_id:
+            mv_manifest_path = f"{project_dir}/manifest.json"
+            if os.path.exists(mv_manifest_path):
+                try:
+                    with open(mv_manifest_path, "r", encoding="utf-8") as _mf:
+                        _mdata = json.load(_mf)
+                    _mdata["user_id"] = mv_user_id
+                    with open(mv_manifest_path, "w", encoding="utf-8") as _mf:
+                        json.dump(_mdata, _mf, ensure_ascii=False, indent=2, default=str)
+                except Exception:
+                    pass
 
         if project.status == MVProjectStatus.FAILED:
             raise HTTPException(status_code=500, detail=project.error_message)

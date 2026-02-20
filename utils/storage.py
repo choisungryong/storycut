@@ -166,6 +166,7 @@ class StorageManager:
                                     'download_url': (f"/api/mv/download/{project_id}" if is_mv else f"/api/download/{project_id}") if is_completed else None,
                                     'thumbnail_url': thumbnail_url,
                                     'scene_count': len(scenes),
+                                    'user_id': manifest.get('user_id'),
                                 }
 
                                 # MV 추가 메타데이터

@@ -1416,7 +1416,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
         # 기존 manifest에서 커스텀 키 보존 (model_dump에 포함 안 되는 키들)
         _CUSTOM_KEYS = ("_style_anchor_path", "_style_anchor_url", "_env_anchors", "_env_anchor_urls",
-                        "casting_status", "casting_message", "casting_error", "_images_pregenerated")
+                        "casting_status", "casting_message", "casting_error", "_images_pregenerated",
+                        "user_id")
         _preserved = {}
         if os.path.exists(manifest_path):
             try:
