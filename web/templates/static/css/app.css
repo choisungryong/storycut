@@ -2604,11 +2604,15 @@ label {
     border-radius: var(--radius-lg);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 3px;
   }
+  .app-nav__tabs::-webkit-scrollbar { display: none; }
 
   .app-nav__tab {
     font-size: var(--text-xs);
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    min-height: 40px;
   }
 
   .app-nav__tab svg {
@@ -2685,9 +2689,14 @@ label {
     grid-template-columns: 1fr;
   }
 
+  .app-nav .sc-nav__inner {
+    gap: var(--space-1);
+  }
+
   .app-nav__tab {
-    padding: var(--space-1) var(--space-3);
+    padding: var(--space-2) var(--space-3);
     font-size: 11px;
+    min-height: 36px;
   }
 
   .image-actions {
