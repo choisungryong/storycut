@@ -293,7 +293,7 @@ APPROVED STRUCTURE:
 REQUIREMENTS:
 - 아웃라인의 outline 순서와 type을 정확히 따를 것.
 - "narrative": 장면 설명 (반드시 한국어). 예: "지민이 카페 문을 열고 들어온다."
-- "tts_script": 풍부한 스토리텔링 나레이션 (반드시 한국어, 최소 4-6문장 필수!)
+- "tts_script": 풍부한 스토리텔링 나레이션 (반드시 한국어). 길이는 duration_sec에 맞출 것 (초당 약 4글자).
 - "image_prompt": Visual description for AI Image Generator (MUST BE English). {style} style.
 - "camera_work": Specific camera movement (e.g., "Close-up", "Pan Right", "Drone Shot").
 
@@ -307,14 +307,16 @@ REQUIREMENTS:
 - 긴장감은 씬마다 한 단계씩 높아져야 함 (평탄한 구간 금지)
 - HOOK 씬: 즉각적 관심 집중 → BUILD 씬: 복선과 의문 심기 → TWIST 씬: 기대 뒤집기 → CLIMAX 씬: 감정 폭발 → RESOLUTION 씬: 감정 착지
 
-[NARRATION LENGTH RULE — 영상 길이에 맞춘 나레이션]
+[NARRATION LENGTH RULE — 가장 중요한 규칙. 반드시 지킬 것!]
 목표 영상 길이: {total_duration_sec}초 / 씬 수: {min_scenes}~{max_scenes}개
 → 씬당 목표 길이: 약 {total_duration_sec // max(min_scenes, 1)}~{total_duration_sec // max(max_scenes, 1)}초
 
-한국어 TTS는 초당 약 4글자를 읽으므로:
-- 씬당 나레이션 목표: 약 {(total_duration_sec // max(min_scenes, 1)) * 4}자 내외
-- 스토리 몰입이 중요하므로 약간 초과해도 괜찮지만, 목표 길이의 2배를 넘기지 말 것
-- 영상이 짧을수록({total_duration_sec}초) 나레이션도 간결하게. 불필요한 수식어 줄이기.
+한국어 TTS는 초당 약 4글자를 읽는다. 각 씬의 tts_script 글자수는 반드시 다음을 지킬 것:
+- 공식: tts_script 글자수 = duration_sec × 4 (±20% 허용)
+- 예: duration_sec=5 → tts_script 16~24자, duration_sec=8 → 26~38자
+- 전체 씬의 tts_script 총 글자수 합계 ≈ {total_duration_sec} × 4 = 약 {total_duration_sec * 4}자
+- 이 공식을 초과하면 영상이 목표보다 길어지므로 절대 초과 금지!
+- 짧은 영상({total_duration_sec}초)일수록 간결하게. 핵심만 전달.
 
 [STORYTELLING NARRATION RULE — 필수]
 각 tts_script는 몰입감 있게 작성:
@@ -327,8 +329,11 @@ REQUIREMENTS:
 BAD (짧고 진부함 — 절대 금지):
 "그녀는 문을 열었다." ❌  "편지가 도착했다." ❌  "그는 놀랐다." ❌
 
-GOOD (풍부하고 몰입감 있음):
-"빗소리가 창문을 두드리는 그 밤, 지민의 손은 멈추지 않고 떨리고 있었습니다. 20년 전 사라진 아버지의 이름이 적힌 그 편지... 손에 쥔 순간, 심장이 멎는 것 같았죠. 발신 날짜는 오늘이었습니다. 과연 이 편지는 진짜일까요? 아니면 누군가의 잔인한 장난일까요? 지민은 손가락이 떨리는 것도 모른 채 봉투를 뜯기 시작했습니다." ✓
+GOOD (duration_sec=8 → 약 32자, 몰입감 있음):
+"빗소리가 창문을 두드리는 그 밤, 지민의 손에 쥔 편지에는 사라진 아버지의 이름이 적혀 있었습니다." ✓ (~38자, 8초 분량)
+
+GOOD (duration_sec=5 → 약 20자):
+"그 순간, 편지 속 진실이 지민의 세계를 무너뜨렸습니다." ✓ (~24자, 5초 분량)
 
 [LANGUAGE RULE - CRITICAL]
 - "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
@@ -371,7 +376,7 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
       "scene_id": 1,
       "narrative": "지민이 급하게 카페 문을 밀치며 들어온다.",
       "image_prompt": "figure bursting through cafe door, body leaning forward in urgent motion, eyes scanning room desperately, one hand pushing door open while other clutches a crumpled letter, dramatic side lighting, {style} style.",
-      "tts_script": "비에 흠뻑 젖은 채로 카페 문을 밀어젖히는 순간, 지민의 심장은 미친 듯이 뛰고 있었습니다. 손에 꼭 쥔 구겨진 편지... 20년 전 사라진 아버지가 보낸 것이라는 그 편지에는 이 카페의 주소가 적혀 있었죠. 과연 이곳에서 무엇을 발견하게 될까요? 지민은 떨리는 눈으로 카페 안을 훑어보았습니다.",
+      "tts_script": "비에 젖은 채 카페 문을 밀어젖히는 순간, 지민의 심장이 멎었습니다. 구겨진 편지 속 주소가 바로 이곳이었죠.",
       "duration_sec": 8,
       "camera_work": "Medium shot, slight low angle",
       "mood": "tense",

@@ -731,12 +731,17 @@ JSON 형식으로 출력:
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
 
-                # TTS 기반으로 duration 업데이트 (TTS 실제 길이 + 1초 여유)
-                # NOTE: 이전 max 15초 캡이 TTS/자막 싱크 불일치의 근본 원인이었음
+                # TTS 기반으로 duration 조정 (원래 duration의 ±50% 범위 내에서 수용)
                 if tts_result.duration_sec > 0:
                     import math
-                    scene.duration_sec = max(3, math.ceil(tts_result.duration_sec) + 1)
-                    print(f"     [Duration] Updated to {scene.duration_sec}s (TTS: {tts_result.duration_sec:.2f}s)")
+                    original_dur = scene.duration_sec
+                    tts_dur = math.ceil(tts_result.duration_sec) + 1
+                    max_allowed = math.ceil(original_dur * 1.5)
+                    scene.duration_sec = max(3, min(tts_dur, max_allowed))
+                    if tts_dur > max_allowed:
+                        print(f"     [Duration] TTS {tts_result.duration_sec:.1f}s exceeds limit, capped: {original_dur}s -> {scene.duration_sec}s (max {max_allowed}s)")
+                    else:
+                        print(f"     [Duration] Updated to {scene.duration_sec}s (TTS: {tts_result.duration_sec:.1f}s, original: {original_dur}s)")
 
                 # 영상 생성 (업데이트된 duration 사용)
                 scene.status = SceneStatus.GENERATING_VIDEO
@@ -1043,8 +1048,14 @@ JSON 형식으로 출력:
 
                 if tts_result.duration_sec > 0:
                     import math
-                    scene.duration_sec = max(3, math.ceil(tts_result.duration_sec) + 1)
-                    print(f"  [Duration] {scene.duration_sec}s (TTS: {tts_result.duration_sec:.2f}s)")
+                    original_dur = scene.duration_sec
+                    tts_dur = math.ceil(tts_result.duration_sec) + 1
+                    max_allowed = math.ceil(original_dur * 1.5)
+                    scene.duration_sec = max(3, min(tts_dur, max_allowed))
+                    if tts_dur > max_allowed:
+                        print(f"  [Duration] TTS {tts_result.duration_sec:.1f}s exceeds limit, capped: {original_dur}s -> {scene.duration_sec}s (max {max_allowed}s)")
+                    else:
+                        print(f"  [Duration] {scene.duration_sec}s (TTS: {tts_result.duration_sec:.1f}s, original: {original_dur}s)")
 
                 # Phase 2: Ken Burns (이미지 → 비디오)
                 scene.status = SceneStatus.GENERATING_VIDEO
