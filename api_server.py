@@ -82,7 +82,7 @@ from utils.storage import StorageManager
 storage_manager = StorageManager()
 
 # FastAPI 앱 생성
-app = FastAPI(title="STORYCUT API", version="2.0")
+app = FastAPI(title="STORYCUT API", version="3.1")
 
 # [보안] CORS 허용 오리진 목록
 ALLOWED_ORIGINS = [
@@ -177,7 +177,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 # Health check
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "version": "2.8.1-security"}
+    return {"status": "ok", "version": "3.1.0"}
 
 
 # ============================================================
@@ -648,15 +648,26 @@ class TrackedPipeline(StorycutPipeline):
                     loop
                 )
 
-            final_video = await loop.run_in_executor(
-                None,
-                lambda: orchestrator.process_story(
-                    story_data=story_data,
-                    output_path=f"{project_dir}/final_video.mp4",
-                    request=request,
-                    progress_callback=on_scene_progress
+            if story_data.get("_images_pregenerated"):
+                final_video = await loop.run_in_executor(
+                    None,
+                    lambda: orchestrator.compose_scenes_from_images(
+                        story_data=story_data,
+                        output_path=f"{project_dir}/final_video.mp4",
+                        request=request,
+                        progress_callback=on_scene_progress,
+                    )
                 )
-            )
+            else:
+                final_video = await loop.run_in_executor(
+                    None,
+                    lambda: orchestrator.process_story(
+                        story_data=story_data,
+                        output_path=f"{project_dir}/final_video.mp4",
+                        request=request,
+                        progress_callback=on_scene_progress
+                    )
+                )
 
             # [R2 Upload]
             if final_video and os.path.exists(final_video) and storage_manager.s3_client:
@@ -767,15 +778,27 @@ class TrackedPipeline(StorycutPipeline):
                     loop
                 )
 
-            final_video = await loop.run_in_executor(
-                None,
-                lambda: orchestrator.process_story(
-                    story_data=story_data,
-                    output_path=f"{project_dir}/final_video.mp4",
-                    request=request,
-                    progress_callback=on_scene_progress
+            if story_data.get("_images_pregenerated"):
+                print(f"[WRAPPER] Using compose_scenes_from_images (pre-generated images detected)")
+                final_video = await loop.run_in_executor(
+                    None,
+                    lambda: orchestrator.compose_scenes_from_images(
+                        story_data=story_data,
+                        output_path=f"{project_dir}/final_video.mp4",
+                        request=request,
+                        progress_callback=on_scene_progress,
+                    )
                 )
-            )
+            else:
+                final_video = await loop.run_in_executor(
+                    None,
+                    lambda: orchestrator.process_story(
+                        story_data=story_data,
+                        output_path=f"{project_dir}/final_video.mp4",
+                        request=request,
+                        progress_callback=on_scene_progress
+                    )
+                )
 
             manifest.scenes = self._convert_scenes_to_schema(story_data["scenes"])
             manifest.outputs.final_video_path = final_video
@@ -791,7 +814,7 @@ class TrackedPipeline(StorycutPipeline):
                     scenes=manifest.scenes,
                     request=request
                 )
-                
+
                 manifest.outputs.title_candidates = opt_package.get("title_candidates", [])
                 manifest.outputs.thumbnail_texts = opt_package.get("thumbnail_texts", [])
                 manifest.outputs.hashtags = opt_package.get("hashtags", [])
@@ -1625,13 +1648,24 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     if _eth_kw and _eth_kw.lower() not in final_prompt.lower():
         final_prompt = f"{_eth_kw} characters, {final_prompt}"
 
-    # 캐릭터 앵커 경로 수집
+    # 캐릭터 앵커 경로 수집 (포즈 선택 활성화)
     character_anchor_paths = []
-    character_sheets = manifest_data.get("character_sheets", [])
-    for cs in character_sheets:
-        master_path = cs.get("master_image_path", "")
-        if master_path and os.path.exists(master_path):
-            character_anchor_paths.append(master_path)
+    character_sheet = manifest_data.get("character_sheet", {})
+    characters_in_scene = target_scene.get("characters_in_scene", [])
+    if characters_in_scene and character_sheet:
+        from agents.character_manager import CharacterManager
+        cm = CharacterManager.__new__(CharacterManager)
+        for char_token in characters_in_scene:
+            pose_path = cm.get_pose_appropriate_image(char_token, character_sheet, final_prompt)
+            if pose_path and os.path.exists(pose_path):
+                character_anchor_paths.append(pose_path)
+            else:
+                # master_image_path 폴백
+                char_data = character_sheet.get(char_token, {})
+                master_path = char_data.get("master_image_path", "") if isinstance(char_data, dict) else ""
+                if master_path and os.path.exists(master_path):
+                    character_anchor_paths.append(master_path)
+    print(f"  [Regenerate] Character anchors: {len(character_anchor_paths)} paths={[os.path.basename(p) for p in character_anchor_paths]}")
 
     # 스타일 앵커 (첫 번째 씬 이미지를 fallback으로 사용)
     style_anchor_path = None
