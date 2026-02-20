@@ -405,7 +405,7 @@ async function loadClipHistory() {
 
         const items = data.history || [];
         if (items.length === 0) {
-            listEl.innerHTML = '<p class="profile-empty-state">아직 클립 사용 내역이 없습니다.</p>';
+            listEl.innerHTML = '<p class="profile-empty-state">아직 크레딧 사용 내역이 없습니다.</p>';
             return;
         }
 
@@ -495,7 +495,7 @@ async function fetchClipBalance() {
             }
             if (!window._clipErrorShown) {
                 window._clipErrorShown = true;
-                _authToast('클립 서비스를 사용할 수 없습니다. 클립 확인 없이 진행합니다.', 'error');
+                _authToast('크레딧 서비스를 사용할 수 없습니다. 크레딧 확인 없이 진행합니다.', 'error');
             }
             return null;
         }
@@ -503,19 +503,19 @@ async function fetchClipBalance() {
         const data = await res.json();
 
         const user = JSON.parse(localStorage.getItem('user') || '{}');
-        user.clips = data.clips;
+        user.clips = data.credits;
         user.plan_id = data.plan_id;
         user.plan_name = data.plan_name;
         if (data.gemini3) user.gemini3 = data.gemini3;
         localStorage.setItem('user', JSON.stringify(user));
 
-        updateClipDisplay(data.clips);
+        updateClipDisplay(data.credits);
 
         return data;
     } catch (err) {
         if (!window._clipErrorShown) {
             window._clipErrorShown = true;
-            _authToast('클립 서비스를 사용할 수 없습니다. 클립 확인 없이 진행합니다.', 'error');
+            _authToast('크레딧 서비스를 사용할 수 없습니다. 크레딧 확인 없이 진행합니다.', 'error');
         }
         return null;
     }
@@ -563,19 +563,19 @@ function showInsufficientClipsModal(action, cost, available) {
             padding: 32px; max-width: 420px; width: 90%; text-align: center;
         ">
             <div style="font-size: 48px; margin-bottom: 16px;">&#x26A0;</div>
-            <h3 style="color: #f59e0b; margin: 0 0 12px;">클립 부족</h3>
+            <h3 style="color: #f59e0b; margin: 0 0 12px;">크레딧 부족</h3>
             <p style="color: #ccc; margin: 0 0 8px;">
-                <strong>${label}</strong>에 <strong style="color:#f59e0b">${cost}</strong> 클립이 필요합니다.
+                <strong>${label}</strong>에 <strong style="color:#f59e0b">${cost}</strong> 크레딧이 필요합니다.
             </p>
             <p style="color: #888; margin: 0 0 24px;">
-                현재 잔액: <strong style="color:#ef4444">${available}</strong> 클립
+                현재 잔액: <strong style="color:#ef4444">${available}</strong> 크레딧
             </p>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <a href="/pricing.html" style="
                     padding: 10px 24px; background: linear-gradient(135deg, #f59e0b, #d97706);
                     border: none; border-radius: 8px; color: #000; font-weight: 600;
                     text-decoration: none; cursor: pointer;
-                ">클립 충전</a>
+                ">크레딧 충전</a>
                 <button onclick="document.getElementById('clip-modal').remove()" style="
                     padding: 10px 24px; background: #333; border: 1px solid #555;
                     border-radius: 8px; color: #ccc; cursor: pointer;
@@ -659,21 +659,21 @@ function showGemini3SurchargeModal(action, required, available, surcharge) {
             </p>
             <p style="color: #ccc; margin: 0 0 8px;">
                 <strong>${label}</strong>에 Gemini 3.0 사용 시
-                <span style="color: #f59e0b; font-weight: 700;">${required} 클립</span>이
+                <span style="color: #f59e0b; font-weight: 700;">${required} 크레딧</span>이
                 필요합니다 (+${surcharge} 추가 요금 포함).
             </p>
             <p style="color: #888; margin: 0 0 8px;">
-                보유: <strong>${available} 클립</strong>
+                보유: <strong>${available} 크레딧</strong>
             </p>
             <p style="color: #777; font-size: 13px; margin: 0 0 24px;">
-                추가 요금을 피하려면 Gemini 2.5로 전환하거나, 클립을 충전하세요.
+                추가 요금을 피하려면 Gemini 2.5로 전환하거나, 크레딧을 충전하세요.
             </p>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <a href="/pricing.html" style="
                     padding: 10px 24px; background: linear-gradient(135deg, #f59e0b, #d97706);
                     border: none; border-radius: 8px; color: #fff; font-weight: 600;
                     text-decoration: none; cursor: pointer;
-                ">클립 충전하기</a>
+                ">크레딧 충전하기</a>
                 <button onclick="document.getElementById('clip-modal').remove()" style="
                     padding: 10px 24px; background: #333; border: 1px solid #555;
                     border-radius: 8px; color: #ccc; cursor: pointer;

@@ -1012,8 +1012,8 @@
         <div class="modal-card" style="max-width:600px;width:95%;">
             <button class="modal-close" onclick="document.getElementById('post-write-modal').style.display='none'">&times;</button>
             <h3 style="margin:0 0 20px;font-size:1.25rem;">글쓰기</h3>
-            <div style="display:flex;flex-direction:column;gap:14px;">
-                <select id="post-category-select" style="padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:0.9rem;">
+            <div class="post-write-form">
+                <select id="post-category-select">
                     <option value="general">일반</option>
                     <option value="feedback">피드백</option>
                     <option value="bug">버그 신고</option>
@@ -1021,11 +1021,11 @@
                     <option value="question">질문</option>
                     <option value="tip">팁 공유</option>
                 </select>
-                <input id="post-title-input" type="text" placeholder="제목 (최대 200자)" maxlength="200"
-                    style="padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:0.95rem;">
-                <textarea id="post-content-input" placeholder="내용을 입력하세요 (최대 5000자)" maxlength="5000" rows="8"
-                    style="padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:0.9rem;resize:vertical;min-height:160px;"></textarea>
-                <button id="post-submit-btn" class="btn btn-primary" style="align-self:flex-end;">등록</button>
+                <input id="post-title-input" type="text" placeholder="제목 (최대 200자)" maxlength="200">
+                <textarea id="post-content-input" placeholder="내용을 입력하세요 (최대 5000자)" maxlength="5000" rows="8"></textarea>
+                <div class="post-write-actions">
+                    <button id="post-submit-btn" class="btn btn-primary">등록</button>
+                </div>
             </div>
         </div>
     </div>

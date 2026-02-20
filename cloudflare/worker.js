@@ -24,7 +24,7 @@ const CLIP_COSTS = {
 
 const PLANS = {
   free: { name: 'Free', monthlyClips: 0, priceKrw: 0, yearlyPriceKrw: 0 },
-  lite: { name: 'Lite', monthlyClips: 150, priceKrw: 11900, yearlyPriceKrw: 119000 },
+  lite: { name: 'Lite', monthlyClips: 150, priceKrw: 9900, yearlyPriceKrw: 99000 },
   pro: { name: 'Pro', monthlyClips: 500, priceKrw: 29900, yearlyPriceKrw: 299000 },
   premium: { name: 'Premium', monthlyClips: 2000, priceKrw: 99000, yearlyPriceKrw: 990000 },
 };

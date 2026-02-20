@@ -23,25 +23,25 @@ const CLIP_COSTS = {
 };
 
 const PLANS = {
-  free:    { name: 'Free',    monthlyClips: 0,     priceKrw: 0,       yearlyPriceKrw: 0 },
-  lite:    { name: 'Lite',    monthlyClips: 150,   priceKrw: 11900,   yearlyPriceKrw: 119000 },
-  pro:     { name: 'Pro',     monthlyClips: 500,   priceKrw: 29900,   yearlyPriceKrw: 299000 },
-  premium: { name: 'Premium', monthlyClips: 2000,  priceKrw: 99000,   yearlyPriceKrw: 990000 },
+  free: { name: 'Free', monthlyClips: 0, priceKrw: 0, yearlyPriceKrw: 0 },
+  lite: { name: 'Lite', monthlyClips: 150, priceKrw: 9900, yearlyPriceKrw: 99000 },
+  pro: { name: 'Pro', monthlyClips: 500, priceKrw: 29900, yearlyPriceKrw: 299000 },
+  premium: { name: 'Premium', monthlyClips: 2000, priceKrw: 99000, yearlyPriceKrw: 990000 },
 };
 
 const CLIP_PACKS = {
-  small:  { clips: 50,  priceKrw: 5900 },
+  small: { clips: 50, priceKrw: 5900 },
   medium: { clips: 200, priceKrw: 17900 },
-  large:  { clips: 500, priceKrw: 35900 },
+  large: { clips: 500, priceKrw: 35900 },
 };
 
 const SIGNUP_BONUS_CLIPS = 30;
 
 const PLAN_LIMITS = {
-  free:    { concurrent: 1, regenPerVideo: 5,  allowI2V: false, watermark: true,  resolution: '720p',  retentionDays: 7,  dailyLimit: 2,  gemini3Free: 0,  gemini3Allowed: false },
-  lite:    { concurrent: 2, regenPerVideo: 10, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 30, dailyLimit: 10, gemini3Free: 3,  gemini3Allowed: true },
-  pro:     { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: 10, gemini3Allowed: true },
-  premium: { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: -1, gemini3Allowed: true },
+  free: { concurrent: 1, regenPerVideo: 5, allowI2V: false, watermark: true, resolution: '720p', retentionDays: 7, dailyLimit: 2, gemini3Free: 0, gemini3Allowed: false },
+  lite: { concurrent: 2, regenPerVideo: 10, allowI2V: true, watermark: false, resolution: '1080p', retentionDays: 30, dailyLimit: 10, gemini3Free: 3, gemini3Allowed: true },
+  pro: { concurrent: 3, regenPerVideo: -1, allowI2V: true, watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: 10, gemini3Allowed: true },
+  premium: { concurrent: 3, regenPerVideo: -1, allowI2V: true, watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: -1, gemini3Allowed: true },
 };
 
 // Gemini 3.0 surcharge: price difference between 3.0 and 2.5 per image
