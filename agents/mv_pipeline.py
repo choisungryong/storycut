@@ -947,7 +947,10 @@ class MVPipeline:
                     "- atmosphere: string describing overall atmosphere\n"
                     "- avoid_keywords: array of visual elements to AVOID\n"
                     "- composition_notes: string with cinematography guidance\n"
-                    "- reference_artists: array of 2-3 reference artists/films\n\n"
+                    f"- reference_artists: array of 2-3 reference artists/films "
+                    f"(MUST match the '{project.style.value}' visual style. "
+                    f"{'For realistic style: ONLY live-action film directors/photographers. NO anime artists, NO illustrators.' if project.style.value in ('realistic', 'cinematic') else ''}"
+                    f"{'For anime/webtoon style: anime directors/mangaka.' if project.style.value in ('anime', 'webtoon') else ''})\n\n"
                     "=== CHARACTERS (Director's Brief) ===\n"
                     "- characters: array of character objects (as many as the story needs), each with:\n"
                     "  - role: string (e.g. 'protagonist', 'love_interest', 'antagonist')\n"
@@ -1186,18 +1189,32 @@ class MVPipeline:
 
         # VisualBible 기반 앵커 프롬프트 구성
         vb = project.visual_bible
+
+        # 스타일 디렉티브 (앵커 프롬프트 최상단에 강제 삽입)
+        _anchor_style_directives = {
+            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster",
+            "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, NOT a photograph",
+            "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, NOT a photograph",
+            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, NOT anime, NOT cartoon, NOT illustration",
+            "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, NOT a photograph",
+            "abstract": "abstract expressionist art, surreal dreamlike, bold geometric shapes",
+            "game_anime": "3D cel-shaded toon-rendered scene, Genshin Impact style, high-fidelity 3D models with toon shader, NOT photorealistic, NOT flat 2D",
+        }
+        _style_directive = _anchor_style_directives.get(project.style.value, f"{project.style.value} style")
+
         if vb:
             anchor_parts = [
+                _style_directive,
                 vb.atmosphere if vb.atmosphere else "cinematic atmosphere",
                 f"color palette: {', '.join(vb.color_palette[:5])}" if vb.color_palette else "",
                 f"lighting: {vb.lighting_style}" if vb.lighting_style else "",
                 f"motifs: {', '.join(vb.recurring_motifs[:3])}" if vb.recurring_motifs else "",
-                f"inspired by {', '.join(vb.reference_artists[:2])}" if vb.reference_artists else "",
             ]
+            # reference_artists는 스타일과 충돌할 수 있으므로 제외
             anchor_prompt = ", ".join([p for p in anchor_parts if p])
         else:
             # VisualBible 없이 기본 앵커 생성
-            anchor_prompt = f"{project.style.value} style, {project.mood.value} mood, {project.genre.value} genre, establishing shot, cinematic"
+            anchor_prompt = f"{_style_directive}, {project.mood.value} mood, {project.genre.value} genre, establishing shot"
 
         anchor_prompt += ", no text, no letters, no words, no watermark, landscape scene, 16:9"
 
