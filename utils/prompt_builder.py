@@ -418,7 +418,9 @@ class MultimodalPromptBuilder:
                     "CRITICAL FRAMING RULE - WIDE SHOT: "
                     "Show FULL BODY plus surrounding environment. "
                     "Character occupies 30-50% of frame height, centered. "
-                    "Establish location context with visible background details."
+                    "Establish location context with visible background details. "
+                    "Character must have idealized body proportions (7.5-8 heads tall), "
+                    "NOT stubby, NOT short-limbed, NOT chibi proportions."
                 ),
             }
             # camera_directive에서 shot_type 추출

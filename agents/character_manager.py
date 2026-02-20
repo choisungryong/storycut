@@ -25,7 +25,7 @@ POSE_CONFIGS = {
     "front": "close-up portrait, face and shoulders only, front facing, centered, looking directly at camera, head-and-shoulders framing",
     "three_quarter": "upper body portrait, turned 45 degrees to the right, body angled away from camera, looking over shoulder, waist-up framing",
     "side": "portrait, face and upper body, side profile view, looking to the side",
-    "full_body": "full body portrait from head to feet, natural relaxed posture, feet visible, medium-wide shot with slight space above and below, same style as close-up shots",
+    "full_body": "full body portrait from head to feet, natural relaxed posture, feet visible, medium-wide shot with slight space above and below, same style as close-up shots, idealized body proportions (7.5-8 heads tall), slim and well-proportioned figure, NOT stubby NOT short-limbed NOT chibi NOT cartoonish proportions",
     "emotion_neutral": "portrait, neutral expression, calm, relaxed",
     "emotion_intense": "portrait, intense emotional expression, dramatic lighting",
 }
