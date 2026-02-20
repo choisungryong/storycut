@@ -2864,12 +2864,12 @@ async def get_history_list(request: Request):
 @app.post("/api/admin/migrate-user-ids")
 async def migrate_user_ids(request: Request):
     """일회성: 모든 manifest의 user_id를 이메일로 마이그레이션"""
-    # Worker secret 또는 Google API key로 인증 (admin 전용)
+    # Worker secret 또는 일회성 마이그레이션 토큰으로 인증
     secret = request.headers.get("X-Worker-Secret", "")
     admin_key = request.headers.get("X-Admin-Key", "")
-    google_key = os.getenv("GOOGLE_API_KEY", "")
+    _MIGRATE_TOKEN = "storycut_migrate_2026_temp"
     worker_ok = WORKER_SHARED_SECRET and secret == WORKER_SHARED_SECRET
-    admin_ok = google_key and admin_key == google_key
+    admin_ok = admin_key == _MIGRATE_TOKEN
     if not (worker_ok or admin_ok):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
