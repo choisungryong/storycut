@@ -35,6 +35,10 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                     <span data-i18n="nav.history">내 영상</span>
                 </a>
+                <a href="#" id="nav-board" class="app-nav__tab nav-link">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                    <span>커뮤니티</span>
+                </a>
             </div>
             <div class="app-nav__right">
                 <a href="/pricing.html" class="app-nav__link" data-i18n="nav.pricing">요금제</a>
@@ -964,7 +968,67 @@
             </div>
         </div>
 
+        <!-- ══════════════════════════════════════
+             BOARD (COMMUNITY) SECTION
+             ══════════════════════════════════════ -->
+        <div id="board-section" class="section hidden">
+            <div class="app-wide-container">
+                <div class="app-section-header">
+                    <span class="section-label">소통</span>
+                    <h2 class="section-title">커뮤니티</h2>
+                    <p class="section-subtitle">피드백, 버그 신고, 기능 요청, 팁 공유 등 자유롭게 소통하세요.</p>
+                </div>
+
+                <div class="board-container">
+                    <div class="board-toolbar">
+                        <div class="board-filter-tabs">
+                            <button class="board-filter-btn active" data-category="">전체</button>
+                            <button class="board-filter-btn" data-category="feedback">피드백</button>
+                            <button class="board-filter-btn" data-category="bug">버그</button>
+                            <button class="board-filter-btn" data-category="feature">기능 요청</button>
+                            <button class="board-filter-btn" data-category="question">질문</button>
+                            <button class="board-filter-btn" data-category="tip">팁 공유</button>
+                        </div>
+                        <button id="write-post-btn" class="btn btn-primary btn-small">글쓰기</button>
+                    </div>
+                    <div id="board-grid" class="board-grid"></div>
+                    <div id="board-pagination" class="board-pagination"></div>
+                </div>
+            </div>
+        </div>
+
     </main>
+
+    <!-- Post Detail Modal -->
+    <div id="post-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)document.getElementById('post-modal').style.display='none'">
+        <div class="modal-card" style="max-width:720px;width:95%;max-height:85vh;overflow-y:auto;">
+            <button class="modal-close" onclick="document.getElementById('post-modal').style.display='none'">&times;</button>
+            <div id="post-modal-content"></div>
+        </div>
+    </div>
+
+    <!-- Post Write/Edit Modal -->
+    <div id="post-write-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)document.getElementById('post-write-modal').style.display='none'">
+        <div class="modal-card" style="max-width:600px;width:95%;">
+            <button class="modal-close" onclick="document.getElementById('post-write-modal').style.display='none'">&times;</button>
+            <h3 style="margin:0 0 20px;font-size:1.25rem;">글쓰기</h3>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+                <select id="post-category-select" style="padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:0.9rem;">
+                    <option value="general">일반</option>
+                    <option value="feedback">피드백</option>
+                    <option value="bug">버그 신고</option>
+                    <option value="feature">기능 요청</option>
+                    <option value="question">질문</option>
+                    <option value="tip">팁 공유</option>
+                </select>
+                <input id="post-title-input" type="text" placeholder="제목 (최대 200자)" maxlength="200"
+                    style="padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:0.95rem;">
+                <textarea id="post-content-input" placeholder="내용을 입력하세요 (최대 5000자)" maxlength="5000" rows="8"
+                    style="padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:0.9rem;resize:vertical;min-height:160px;"></textarea>
+                <button id="post-submit-btn" class="btn btn-primary" style="align-self:flex-end;">등록</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Profile Modal -->
     <div id="profile-modal" class="modal-overlay" onclick="if(event.target===this)closeProfileModal()">

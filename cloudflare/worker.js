@@ -23,25 +23,25 @@ const CLIP_COSTS = {
 };
 
 const PLANS = {
-  free:    { name: 'Free',    monthlyClips: 0,     priceKrw: 0,       yearlyPriceKrw: 0 },
-  lite:    { name: 'Lite',    monthlyClips: 150,   priceKrw: 11900,   yearlyPriceKrw: 119000 },
-  pro:     { name: 'Pro',     monthlyClips: 500,   priceKrw: 29900,   yearlyPriceKrw: 299000 },
-  premium: { name: 'Premium', monthlyClips: 2000,  priceKrw: 99000,   yearlyPriceKrw: 990000 },
+  free: { name: 'Free', monthlyClips: 0, priceKrw: 0, yearlyPriceKrw: 0 },
+  lite: { name: 'Lite', monthlyClips: 150, priceKrw: 11900, yearlyPriceKrw: 119000 },
+  pro: { name: 'Pro', monthlyClips: 500, priceKrw: 29900, yearlyPriceKrw: 299000 },
+  premium: { name: 'Premium', monthlyClips: 2000, priceKrw: 99000, yearlyPriceKrw: 990000 },
 };
 
 const CLIP_PACKS = {
-  small:  { clips: 50,  priceKrw: 5900 },
+  small: { clips: 50, priceKrw: 5900 },
   medium: { clips: 200, priceKrw: 17900 },
-  large:  { clips: 500, priceKrw: 35900 },
+  large: { clips: 500, priceKrw: 35900 },
 };
 
 const SIGNUP_BONUS_CLIPS = 30;
 
 const PLAN_LIMITS = {
-  free:    { concurrent: 1, regenPerVideo: 5,  allowI2V: false, watermark: true,  resolution: '720p',  retentionDays: 7,  dailyLimit: 2,  gemini3Free: 0,  gemini3Allowed: false },
-  lite:    { concurrent: 2, regenPerVideo: 10, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 30, dailyLimit: 10, gemini3Free: 3,  gemini3Allowed: true },
-  pro:     { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: 10, gemini3Allowed: true },
-  premium: { concurrent: 3, regenPerVideo: -1, allowI2V: true,  watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: -1, gemini3Allowed: true },
+  free: { concurrent: 1, regenPerVideo: 5, allowI2V: false, watermark: true, resolution: '720p', retentionDays: 7, dailyLimit: 2, gemini3Free: 0, gemini3Allowed: false },
+  lite: { concurrent: 2, regenPerVideo: 10, allowI2V: true, watermark: false, resolution: '1080p', retentionDays: 30, dailyLimit: 10, gemini3Free: 3, gemini3Allowed: true },
+  pro: { concurrent: 3, regenPerVideo: -1, allowI2V: true, watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: 10, gemini3Allowed: true },
+  premium: { concurrent: 3, regenPerVideo: -1, allowI2V: true, watermark: false, resolution: '1080p', retentionDays: 90, dailyLimit: -1, gemini3Free: -1, gemini3Allowed: true },
 };
 
 // Gemini 3.0 surcharge: price difference between 3.0 and 2.5 per image
@@ -156,12 +156,33 @@ async function routeRequest(url, request, env, ctx, cors) {
   if (path.startsWith('/api/stream/')) return proxyToRailwayPublic(request, env, path, cors);
   if (path.startsWith('/api/download/')) return proxyToRailwayPublic(request, env, path, cors);
 
+  // ---------- 게시판 (인증 선택적) ----------
+  // 게시글 목록/상세는 비로그인도 가능
+  if (path === '/api/board/posts' && method === 'GET') {
+    const optUser = await authenticateUser(request, env);
+    return handleGetPosts(url, env, cors, optUser);
+  }
+  if (path.match(/^\/api\/board\/posts\/\d+$/) && method === 'GET') {
+    const optUser = await authenticateUser(request, env);
+    return handleGetPost(url, env, cors, optUser);
+  }
+  if (path.match(/^\/api\/board\/posts\/\d+\/comments$/) && method === 'GET') {
+    return handleGetComments(url, env, cors);
+  }
+
   // ---------- 인증 필요 라우트 ----------
   const user = await authenticateUser(request, env);
   if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
 
   // [SECURITY] Check plan expiration
   await enforcePlanExpiration(env, user);
+
+  // 게시판 (인증 필요)
+  if (path === '/api/board/posts' && method === 'POST') return handleCreatePost(request, user, env, cors);
+  if (path.match(/^\/api\/board\/posts\/\d+$/) && method === 'PUT') return handleUpdatePost(url, request, user, env, cors);
+  if (path.match(/^\/api\/board\/posts\/\d+$/) && method === 'DELETE') return handleDeletePost(url, user, env, cors);
+  if (path.match(/^\/api\/board\/posts\/\d+\/comments$/) && method === 'POST') return handleCreateComment(url, request, user, env, cors);
+  if (path.match(/^\/api\/board\/posts\/\d+\/like$/) && method === 'POST') return handleToggleLike(url, user, env, cors);
 
   // Clips (legacy /api/credits/* routes also supported)
   if ((path === '/api/clips/balance' || path === '/api/credits/balance') && method === 'GET') return handleClipBalance(user, env, cors);
@@ -597,7 +618,7 @@ async function handleLogin(request, env, cors) {
         id: user.id,
         email: user.email,
         username: user.email.split('@')[0],
-        clips: user.credits, // DB column 'credits' → response field 'clips'
+        credits: user.credits, // DB column 'credits' → response field 'credits'
         plan_id: user.plan_id || 'free',
       },
     }, 200, cors);
@@ -654,7 +675,7 @@ async function handleGoogleAuth(request, env, cors) {
         id: user.id,
         email: user.email,
         username: name || email.split('@')[0],
-        clips: user.credits, // DB column 'credits' → response field 'clips'
+        credits: user.credits, // DB column 'credits' → response field 'credits'
         plan_id: user.plan_id || 'free',
       },
     }, 200, cors);
@@ -810,11 +831,11 @@ async function handleClipBalance(user, env, cors) {
   }
 
   return jsonResponse({
-    clips: freshUser.credits, // DB 'credits' → API 'clips'
+    credits: freshUser.credits, // DB 'credits' → API 'credits'
     plan_id: freshUser.plan_id || 'free',
     plan_name: planInfo.name,
     plan_expires_at: freshUser.plan_expires_at,
-    monthly_clips: freshUser.monthly_credits, // DB 'monthly_credits' → API 'monthly_clips'
+    monthly_credits: freshUser.monthly_credits, // DB 'monthly_credits' → API 'monthly_credits'
     costs: CLIP_COSTS,
     limits: planLimits,
     gemini3: {
@@ -1014,9 +1035,9 @@ async function handlePaymentComplete(request, user, env, cors) {
   const freshUser = await env.DB.prepare('SELECT credits FROM users WHERE id = ?').bind(user.id).first();
 
   return jsonResponse({
-    message: `${clips} clips added`,
-    clips_added: clips,
-    clips_total: freshUser.credits, // DB column
+    message: `${clips} credits added`,
+    credits_added: clips,
+    credits_total: freshUser.credits, // DB column
   }, 200, cors);
 }
 
@@ -1081,11 +1102,11 @@ async function handleSubscribe(request, user, env, cors) {
   const freshUser = await env.DB.prepare('SELECT credits FROM users WHERE id = ?').bind(user.id).first();
 
   return jsonResponse({
-    message: `${plan.name} 구독 시작! ${plan.monthlyClips} clips 충전됨`,
+    message: `${plan.name} 구독 시작! ${plan.monthlyClips} credits 충전됨`,
     plan_id: plan_id,
     plan_name: plan.name,
-    clips_added: plan.monthlyClips,
-    clips_total: freshUser.credits,
+    credits_added: plan.monthlyClips,
+    credits_total: freshUser.credits,
     next_renewal: nextMonth.toISOString(),
   }, 200, cors);
 }
@@ -1339,7 +1360,235 @@ async function handleAdminGrantClips(request, user, env, cors) {
   await addClips(env, targetId, amount, 'purchase', 'admin_grant',
     `Admin grant by ${user.email}: ${reason || 'no reason'}`);
 
-  return jsonResponse({ message: `Granted ${amount} clips`, target_user_id: targetId }, 200, cors);
+  return jsonResponse({ message: `Granted ${amount} credits`, target_user_id: targetId }, 200, cors);
+}
+
+// ==================== 게시판 핸들러 ====================
+
+async function handleGetPosts(url, env, cors, user) {
+  try {
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1') || 1);
+    const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') || '20') || 20), 50);
+    const offset = (page - 1) * limit;
+    const category = url.searchParams.get('category') || '';
+
+    let whereClause = 'WHERE p.is_deleted = 0';
+    const binds = [];
+    if (category && ['feedback', 'bug', 'feature', 'question', 'tip', 'general'].includes(category)) {
+      whereClause += ' AND p.category = ?';
+      binds.push(category);
+    }
+
+    const total = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts p ${whereClause}`
+    ).bind(...binds).first();
+
+    const posts = await env.DB.prepare(
+      `SELECT p.id, p.title, p.category, p.view_count, p.like_count, p.comment_count,
+              p.is_pinned, p.created_at, p.user_id,
+              COALESCE(u.username, SUBSTR(u.email, 1, INSTR(u.email, '@') - 1)) as author_name
+       FROM posts p
+       LEFT JOIN users u ON p.user_id = u.id
+       ${whereClause}
+       ORDER BY p.is_pinned DESC, p.created_at DESC
+       LIMIT ? OFFSET ?`
+    ).bind(...binds, limit, offset).all();
+
+    return jsonResponse({
+      posts: posts.results,
+      pagination: { page, limit, total: total.count, pages: Math.ceil(total.count / limit) },
+    }, 200, cors);
+  } catch (error) {
+    console.error('GetPosts error:', error);
+    return jsonResponse({ error: 'Failed to load posts' }, 500, cors);
+  }
+}
+
+async function handleGetPost(url, env, cors, user) {
+  try {
+    const postId = parseInt(url.pathname.split('/').pop());
+
+    const post = await env.DB.prepare(
+      `SELECT p.*, COALESCE(u.username, SUBSTR(u.email, 1, INSTR(u.email, '@') - 1)) as author_name
+       FROM posts p LEFT JOIN users u ON p.user_id = u.id
+       WHERE p.id = ? AND p.is_deleted = 0`
+    ).bind(postId).first();
+
+    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+
+    // 조회수 증가
+    await env.DB.prepare(
+      'UPDATE posts SET view_count = view_count + 1 WHERE id = ?'
+    ).bind(postId).run();
+
+    // 현재 유저의 좋아요 여부
+    let liked = false;
+    if (user) {
+      const like = await env.DB.prepare(
+        'SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?'
+      ).bind(postId, user.id).first();
+      liked = !!like;
+    }
+
+    return jsonResponse({ ...post, view_count: post.view_count + 1, liked }, 200, cors);
+  } catch (error) {
+    console.error('GetPost error:', error);
+    return jsonResponse({ error: 'Failed to load post' }, 500, cors);
+  }
+}
+
+async function handleCreatePost(request, user, env, cors) {
+  try {
+    const { title, content, category } = await request.json();
+
+    if (!title || !content) return jsonResponse({ error: 'Title and content required' }, 400, cors);
+    if (typeof title !== 'string' || title.length > 200) return jsonResponse({ error: 'Title must be under 200 characters' }, 400, cors);
+    if (typeof content !== 'string' || content.length > 5000) return jsonResponse({ error: 'Content must be under 5000 characters' }, 400, cors);
+
+    const validCategories = ['feedback', 'bug', 'feature', 'question', 'tip', 'general'];
+    const cat = validCategories.includes(category) ? category : 'general';
+    const now = new Date().toISOString();
+
+    const result = await env.DB.prepare(
+      `INSERT INTO posts (user_id, title, content, category, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(user.id, title.trim(), content.trim(), cat, now, now).run();
+
+    return jsonResponse({ id: result.meta.last_row_id, message: 'Post created' }, 201, cors);
+  } catch (error) {
+    console.error('CreatePost error:', error);
+    return jsonResponse({ error: 'Failed to create post' }, 500, cors);
+  }
+}
+
+async function handleUpdatePost(url, request, user, env, cors) {
+  try {
+    const postId = parseInt(url.pathname.split('/').pop());
+    const post = await env.DB.prepare('SELECT user_id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
+
+    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+    if (post.user_id !== user.id) return jsonResponse({ error: 'Forbidden' }, 403, cors);
+
+    const { title, content, category } = await request.json();
+    if (!title || !content) return jsonResponse({ error: 'Title and content required' }, 400, cors);
+    if (typeof title !== 'string' || title.length > 200) return jsonResponse({ error: 'Title must be under 200 characters' }, 400, cors);
+    if (typeof content !== 'string' || content.length > 5000) return jsonResponse({ error: 'Content must be under 5000 characters' }, 400, cors);
+
+    const validCategories = ['feedback', 'bug', 'feature', 'question', 'tip', 'general'];
+    const cat = validCategories.includes(category) ? category : 'general';
+
+    await env.DB.prepare(
+      'UPDATE posts SET title = ?, content = ?, category = ?, updated_at = ? WHERE id = ?'
+    ).bind(title.trim(), content.trim(), cat, new Date().toISOString(), postId).run();
+
+    return jsonResponse({ message: 'Post updated' }, 200, cors);
+  } catch (error) {
+    console.error('UpdatePost error:', error);
+    return jsonResponse({ error: 'Failed to update post' }, 500, cors);
+  }
+}
+
+async function handleDeletePost(url, user, env, cors) {
+  try {
+    const postId = parseInt(url.pathname.split('/').pop());
+    const post = await env.DB.prepare('SELECT user_id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
+
+    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+    if (post.user_id !== user.id) return jsonResponse({ error: 'Forbidden' }, 403, cors);
+
+    await env.DB.prepare(
+      'UPDATE posts SET is_deleted = 1, updated_at = ? WHERE id = ?'
+    ).bind(new Date().toISOString(), postId).run();
+
+    return jsonResponse({ message: 'Post deleted' }, 200, cors);
+  } catch (error) {
+    console.error('DeletePost error:', error);
+    return jsonResponse({ error: 'Failed to delete post' }, 500, cors);
+  }
+}
+
+async function handleGetComments(url, env, cors) {
+  try {
+    const postId = parseInt(url.pathname.split('/')[4]);
+
+    const comments = await env.DB.prepare(
+      `SELECT c.id, c.content, c.created_at, c.user_id,
+              COALESCE(u.username, SUBSTR(u.email, 1, INSTR(u.email, '@') - 1)) as author_name
+       FROM comments c
+       LEFT JOIN users u ON c.user_id = u.id
+       WHERE c.post_id = ? AND c.is_deleted = 0
+       ORDER BY c.created_at ASC`
+    ).bind(postId).all();
+
+    return jsonResponse({ comments: comments.results }, 200, cors);
+  } catch (error) {
+    console.error('GetComments error:', error);
+    return jsonResponse({ error: 'Failed to load comments' }, 500, cors);
+  }
+}
+
+async function handleCreateComment(url, request, user, env, cors) {
+  try {
+    const postId = parseInt(url.pathname.split('/')[4]);
+    const { content } = await request.json();
+
+    if (!content || typeof content !== 'string' || content.length > 1000) {
+      return jsonResponse({ error: 'Content must be 1-1000 characters' }, 400, cors);
+    }
+
+    // 게시글 존재 확인
+    const post = await env.DB.prepare('SELECT id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
+    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        'INSERT INTO comments (post_id, user_id, content, created_at) VALUES (?, ?, ?, ?)'
+      ).bind(postId, user.id, content.trim(), now),
+      env.DB.prepare(
+        'UPDATE posts SET comment_count = comment_count + 1, updated_at = ? WHERE id = ?'
+      ).bind(now, postId),
+    ]);
+
+    return jsonResponse({ message: 'Comment created' }, 201, cors);
+  } catch (error) {
+    console.error('CreateComment error:', error);
+    return jsonResponse({ error: 'Failed to create comment' }, 500, cors);
+  }
+}
+
+async function handleToggleLike(url, user, env, cors) {
+  try {
+    const postId = parseInt(url.pathname.split('/')[4]);
+
+    // 게시글 존재 확인
+    const post = await env.DB.prepare('SELECT id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
+    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+
+    // 기존 좋아요 확인
+    const existing = await env.DB.prepare(
+      'SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?'
+    ).bind(postId, user.id).first();
+
+    if (existing) {
+      // 좋아요 취소
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?').bind(postId, user.id),
+        env.DB.prepare('UPDATE posts SET like_count = MAX(0, like_count - 1) WHERE id = ?').bind(postId),
+      ]);
+      return jsonResponse({ liked: false, message: 'Like removed' }, 200, cors);
+    } else {
+      // 좋아요 추가
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, ?)').bind(postId, user.id, new Date().toISOString()),
+        env.DB.prepare('UPDATE posts SET like_count = like_count + 1 WHERE id = ?').bind(postId),
+      ]);
+      return jsonResponse({ liked: true, message: 'Like added' }, 200, cors);
+    }
+  } catch (error) {
+    console.error('ToggleLike error:', error);
+    return jsonResponse({ error: 'Failed to toggle like' }, 500, cors);
+  }
 }
 
 // ==================== 기존 핸들러 ====================

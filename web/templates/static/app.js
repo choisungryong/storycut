@@ -231,6 +231,25 @@ class StorycutApp {
             this.setNavActive('nav-history');
         });
 
+        document.getElementById('nav-board').addEventListener('click', (e) => {
+            e.preventDefault();
+            this.loadBoard();
+            this.showSection('board');
+            this.setNavActive('nav-board');
+        });
+
+        // 게시판 글쓰기 버튼
+        const writePostBtn = document.getElementById('write-post-btn');
+        if (writePostBtn) {
+            writePostBtn.addEventListener('click', () => this.openWritePostModal());
+        }
+
+        // 게시판 등록 버튼
+        const postSubmitBtn = document.getElementById('post-submit-btn');
+        if (postSubmitBtn) {
+            postSubmitBtn.addEventListener('click', () => this.submitPost());
+        }
+
         // 보관함 새로고침 버튼
         const refreshHistoryBtn = document.getElementById('refresh-history-btn');
         if (refreshHistoryBtn) {
@@ -382,7 +401,7 @@ class StorycutApp {
 
             // 가짜 진행률 애니메이션 (체감 속도 개선)
             const storyMessages = [
-                { pct: 8,  msg: '장르와 분위기를 분석하고 있습니다...' },
+                { pct: 8, msg: '장르와 분위기를 분석하고 있습니다...' },
                 { pct: 15, msg: '캐릭터와 세계관을 설계하고 있습니다...' },
                 { pct: 22, msg: '스토리 구조를 잡고 있습니다...' },
                 { pct: 30, msg: '기승전결 아크를 설계하고 있습니다...' },
@@ -440,7 +459,7 @@ class StorycutApp {
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.error || errorMsg;
-                } catch (e) {}
+                } catch (e) { }
                 throw new Error(errorMsg);
             }
 
@@ -606,7 +625,7 @@ class StorycutApp {
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.error || errorMsg;
-                } catch (e) {}
+                } catch (e) { }
                 throw new Error(errorMsg);
             }
 
@@ -826,8 +845,8 @@ class StorycutApp {
                 </div>
                 <div class="speaker-badges">${badgesHtml}</div>
                 ${hasMultiple
-                    ? '<p class="voice-panel-hint">AI가 여러 화자를 감지했습니다. 각 화자에 맞는 음성을 선택하세요.</p>'
-                    : '<p class="voice-panel-hint">내레이터 음성을 선택하세요. 미리듣기 버튼으로 확인할 수 있습니다.</p>'}
+                ? '<p class="voice-panel-hint">AI가 여러 화자를 감지했습니다. 각 화자에 맞는 음성을 선택하세요.</p>'
+                : '<p class="voice-panel-hint">내레이터 음성을 선택하세요. 미리듣기 버튼으로 확인할 수 있습니다.</p>'}
             </div>
             <div class="voice-assignments" id="voice-assignments"></div>
         `;
@@ -972,7 +991,7 @@ class StorycutApp {
             if (g3.willSurcharge) {
                 hint.style.display = 'block';
                 hint.style.color = '#f59e0b';
-                hint.textContent = `무료 할당량 소진 (${g3.used}/${g3.freeLimit}). 이미지당 +${g3.surchargePerImage} 클립 추가 차감됩니다.`;
+                hint.textContent = `무료 할당량 소진 (${g3.used}/${g3.freeLimit}). 이미지당 +${g3.surchargePerImage} 크레딧 추가 차감됩니다.`;
             } else if (g3.freeLimit >= 0) {
                 hint.style.display = 'block';
                 hint.style.color = '#22c55e';
@@ -1632,6 +1651,7 @@ class StorycutApp {
         document.getElementById('result-section').classList.add('hidden');
         document.getElementById('review-section').classList.add('hidden');
         document.getElementById('history-section').classList.add('hidden');
+        document.getElementById('board-section')?.classList.add('hidden');
         document.getElementById('image-preview-section').classList.add('hidden');
         document.getElementById('character-casting-section')?.classList.add('hidden');
         // MV 섹션들
@@ -1675,6 +1695,9 @@ class StorycutApp {
                 break;
             case 'character-casting':
                 document.getElementById('character-casting-section')?.classList.remove('hidden');
+                break;
+            case 'board':
+                document.getElementById('board-section')?.classList.remove('hidden');
                 break;
         }
     }
@@ -2157,7 +2180,7 @@ class StorycutApp {
             const response = await fetch(`${baseUrl}/api/manifest/${projectId}`, archFetchOpts);
             if (!response.ok) throw new Error(`Manifest 로드 실패 (${response.status})`);
             const manifest = await response.json();
-            console.log(`[Archive] Manifest loaded: status=${manifest.status}, scenes=${(manifest.scenes||[]).length}`);
+            console.log(`[Archive] Manifest loaded: status=${manifest.status}, scenes=${(manifest.scenes || []).length}`);
 
             const isMV = type === 'mv';
 
@@ -2360,7 +2383,7 @@ class StorycutApp {
                 if (mediaMatch) {
                     return `/media/${mediaMatch[1]}`;
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
         if (imagePath.startsWith('http')) return imagePath;
         // outputs/xxx → /media/xxx 변환 (FastAPI StaticFiles 마운트: /media = outputs/)
@@ -2432,7 +2455,7 @@ class StorycutApp {
                 try {
                     const errorBody = await response.json();
                     errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
-                } catch (e) {}
+                } catch (e) { }
                 throw new Error(`${response.status}: ${errorDetail}`);
             }
 
@@ -2826,7 +2849,7 @@ class StorycutApp {
                     const errorBody = await response.json();
                     errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
                 } catch (e) {
-                    try { errorDetail = await response.text(); } catch (e2) {}
+                    try { errorDetail = await response.text(); } catch (e2) { }
                 }
                 throw new Error(`${response.status}: ${errorDetail}`);
             }
@@ -3145,7 +3168,7 @@ class StorycutApp {
                     const errorBody = await response.json();
                     errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
                 } catch (e) {
-                    try { errorDetail = await response.text(); } catch (e2) {}
+                    try { errorDetail = await response.text(); } catch (e2) { }
                 }
                 throw new Error(`${response.status}: ${errorDetail}`);
             }
@@ -3285,7 +3308,7 @@ class StorycutApp {
                     const errorBody = await response.json();
                     errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
                 } catch (e) {
-                    try { errorDetail = await response.text(); } catch (e2) {}
+                    try { errorDetail = await response.text(); } catch (e2) { }
                 }
                 throw new Error(`${response.status}: ${errorDetail}`);
             }
@@ -3366,7 +3389,7 @@ class StorycutApp {
                     const errorBody = await response.json();
                     errorDetail = errorBody.detail || errorBody.error || errorBody.message || JSON.stringify(errorBody);
                 } catch (e) {
-                    try { errorDetail = await response.text(); } catch (e2) {}
+                    try { errorDetail = await response.text(); } catch (e2) { }
                 }
                 throw new Error(`${response.status}: ${errorDetail}`);
             }
@@ -3506,7 +3529,7 @@ class StorycutApp {
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.message || errorMsg;
-                } catch (e) {}
+                } catch (e) { }
                 throw new Error(errorMsg);
             }
 
@@ -3667,7 +3690,7 @@ class StorycutApp {
                 try {
                     const error = await response.json();
                     errorMsg = error.detail || error.message || errorMsg;
-                } catch (e) {}
+                } catch (e) { }
                 throw new Error(errorMsg);
             }
 
@@ -4176,9 +4199,9 @@ class StorycutApp {
             card.innerHTML = `
                 <div class="mv-review-img-wrap">
                     ${imageUrl
-                        ? `<img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
+                    ? `<img src="${imageUrl}?t=${Date.now()}" alt="Scene ${scene.scene_id}"
                             onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src=this.src.split('?')[0]+'?retry='+Date.now();}">`
-                        : '<div style="width:100%;aspect-ratio:16/9;background:#2a2d35;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#666;font-size:2rem;">📷</div>'}
+                    : '<div style="width:100%;aspect-ratio:16/9;background:#2a2d35;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#666;font-size:2rem;">📷</div>'}
                     ${hasI2V ? '<span class="i2v-badge">I2V</span>' : ''}
                 </div>
                 <div class="mv-review-info">
@@ -4943,6 +4966,374 @@ class StorycutApp {
 
         this.showSection('mv');
         this.setNavActive('nav-mv');
+    }
+
+    // ==================== 게시판 (커뮤니티) ====================
+
+    async loadBoard(category, page) {
+        try {
+            const cat = category || this._boardCategory || '';
+            const pg = page || 1;
+            this._boardCategory = cat;
+            this._boardPage = pg;
+
+            let urlToUse = this.getApiBaseUrl();
+            let apiUrl = `${urlToUse}/api/board/posts?page=${pg}&limit=20`;
+            if (cat) apiUrl += `&category=${cat}`;
+
+            const headers = {};
+            const token = localStorage.getItem('auth_token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const response = await fetch(apiUrl, { headers });
+            if (!response.ok) throw new Error('게시판 로드 실패');
+            const data = await response.json();
+
+            this._boardPosts = data.posts || [];
+            this._boardPagination = data.pagination || {};
+
+            // 필터 탭 이벤트 (1회만)
+            if (!this._boardFilterBound) {
+                document.querySelectorAll('.board-filter-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.board-filter-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.loadBoard(btn.dataset.category, 1);
+                    });
+                });
+                this._boardFilterBound = true;
+            }
+
+            this._renderBoardGrid();
+            this._renderBoardPagination();
+        } catch (error) {
+            console.error('게시판 로드 실패:', error);
+            document.getElementById('board-grid').innerHTML = '<p style="text-align:center;color:#f66;padding:20px;">게시판 로드 실패</p>';
+        }
+    }
+
+    _renderBoardGrid() {
+        const grid = document.getElementById('board-grid');
+        grid.innerHTML = '';
+
+        const posts = this._boardPosts || [];
+        if (posts.length === 0) {
+            grid.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:40px;">아직 게시글이 없습니다.</p>';
+            return;
+        }
+
+        const categoryLabels = {
+            feedback: '피드백', bug: '버그', feature: '기능 요청',
+            question: '질문', tip: '팁', general: '일반'
+        };
+
+        posts.forEach(post => {
+            const row = document.createElement('div');
+            row.className = 'board-row';
+
+            const catLabel = categoryLabels[post.category] || '일반';
+            const badgeClass = `badge-${post.category || 'general'}`;
+            const pinIcon = post.is_pinned ? '<span class="pinned-icon">📌</span>' : '';
+            const timeAgo = this._timeAgo(post.created_at);
+
+            row.innerHTML = `
+                <span class="category-badge ${badgeClass}">${catLabel}</span>
+                <span class="post-title">${pinIcon}${escapeHtml(post.title)}</span>
+                <span class="post-meta">${escapeHtml(post.author_name || '익명')}</span>
+                <span class="post-stats">
+                    <span>👁 ${post.view_count || 0}</span>
+                    <span>❤ ${post.like_count || 0}</span>
+                    <span>💬 ${post.comment_count || 0}</span>
+                </span>
+                <span class="post-meta">${timeAgo}</span>
+            `;
+
+            row.addEventListener('click', () => this.openPost(post.id));
+            grid.appendChild(row);
+        });
+    }
+
+    _renderBoardPagination() {
+        const container = document.getElementById('board-pagination');
+        container.innerHTML = '';
+        const pg = this._boardPagination;
+        if (!pg || pg.pages <= 1) return;
+
+        for (let i = 1; i <= pg.pages; i++) {
+            const btn = document.createElement('button');
+            btn.textContent = i;
+            if (i === pg.page) btn.classList.add('active');
+            btn.addEventListener('click', () => this.loadBoard(this._boardCategory, i));
+            container.appendChild(btn);
+        }
+    }
+
+    async openPost(postId) {
+        try {
+            const modal = document.getElementById('post-modal');
+            const content = document.getElementById('post-modal-content');
+            content.innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted);">로딩 중...</p>';
+            modal.style.display = 'flex';
+
+            let urlToUse = this.getApiBaseUrl();
+            const headers = {};
+            const token = localStorage.getItem('auth_token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const [postRes, commentsRes] = await Promise.all([
+                fetch(`${urlToUse}/api/board/posts/${postId}`, { headers }),
+                fetch(`${urlToUse}/api/board/posts/${postId}/comments`, { headers }),
+            ]);
+
+            if (!postRes.ok) throw new Error('게시글 로드 실패');
+            const post = await postRes.json();
+            const commentsData = commentsRes.ok ? await commentsRes.json() : { comments: [] };
+
+            const categoryLabels = {
+                feedback: '피드백', bug: '버그', feature: '기능 요청',
+                question: '질문', tip: '팁', general: '일반'
+            };
+            const badgeClass = `badge-${post.category || 'general'}`;
+            const catLabel = categoryLabels[post.category] || '일반';
+            const likedClass = post.liked ? 'liked' : '';
+            const currentUserId = localStorage.getItem('user_id') || '';
+            const isOwner = post.user_id === currentUserId;
+
+            let ownerActions = '';
+            if (isOwner) {
+                ownerActions = `
+                    <button onclick="app.editPost(${post.id})">수정</button>
+                    <button onclick="app.deletePost(${post.id})">삭제</button>
+                `;
+            }
+
+            const commentsHtml = (commentsData.comments || []).map(c => `
+                <div class="comment-item">
+                    <span class="comment-author">${escapeHtml(c.author_name || '익명')}</span>
+                    <span class="comment-date">${this._timeAgo(c.created_at)}</span>
+                    <div class="comment-text">${escapeHtml(c.content)}</div>
+                </div>
+            `).join('');
+
+            const commentFormHtml = token ? `
+                <div class="comment-form">
+                    <textarea id="comment-input" placeholder="댓글을 입력하세요..." maxlength="1000"></textarea>
+                    <button onclick="app.addComment(${post.id})">등록</button>
+                </div>
+            ` : '<p style="font-size:0.82rem;color:var(--text-muted);">댓글을 작성하려면 로그인하세요.</p>';
+
+            content.innerHTML = `
+                <div class="post-detail-header">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                        <span class="category-badge ${badgeClass}">${catLabel}</span>
+                    </div>
+                    <h2>${escapeHtml(post.title)}</h2>
+                    <div class="post-detail-meta">
+                        <span>${escapeHtml(post.author_name || '익명')}</span>
+                        <span>${new Date(post.created_at).toLocaleDateString('ko-KR')} ${new Date(post.created_at).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'})}</span>
+                        <span>조회 ${post.view_count || 0}</span>
+                    </div>
+                </div>
+                <div class="post-detail-body">${escapeHtml(post.content)}</div>
+                <div class="post-actions">
+                    <button class="${likedClass}" onclick="app.toggleLike(${post.id}, this)">❤ 좋아요 ${post.like_count || 0}</button>
+                    ${ownerActions}
+                </div>
+                <div class="comments-section">
+                    <h4>💬 댓글 ${commentsData.comments?.length || 0}</h4>
+                    ${commentsHtml}
+                    ${commentFormHtml}
+                </div>
+            `;
+        } catch (error) {
+            console.error('게시글 열기 실패:', error);
+            document.getElementById('post-modal-content').innerHTML =
+                '<p style="text-align:center;color:#f66;padding:20px;">게시글을 불러올 수 없습니다.</p>';
+        }
+    }
+
+    openWritePostModal(editData) {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            this.showToast('로그인이 필요합니다.', 'error');
+            return;
+        }
+
+        const modal = document.getElementById('post-write-modal');
+        const titleInput = document.getElementById('post-title-input');
+        const contentInput = document.getElementById('post-content-input');
+        const categorySelect = document.getElementById('post-category-select');
+        const submitBtn = document.getElementById('post-submit-btn');
+
+        if (editData) {
+            titleInput.value = editData.title || '';
+            contentInput.value = editData.content || '';
+            categorySelect.value = editData.category || 'general';
+            submitBtn.textContent = '수정';
+            submitBtn.dataset.editId = editData.id;
+        } else {
+            titleInput.value = '';
+            contentInput.value = '';
+            categorySelect.value = 'general';
+            submitBtn.textContent = '등록';
+            delete submitBtn.dataset.editId;
+        }
+
+        modal.style.display = 'flex';
+    }
+
+    async submitPost() {
+        const titleInput = document.getElementById('post-title-input');
+        const contentInput = document.getElementById('post-content-input');
+        const categorySelect = document.getElementById('post-category-select');
+        const submitBtn = document.getElementById('post-submit-btn');
+
+        const title = titleInput.value.trim();
+        const content = contentInput.value.trim();
+        const category = categorySelect.value;
+
+        if (!title) { this.showToast('제목을 입력하세요.', 'error'); return; }
+        if (!content) { this.showToast('내용을 입력하세요.', 'error'); return; }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = '처리 중...';
+
+        try {
+            let urlToUse = this.getApiBaseUrl();
+            const editId = submitBtn.dataset.editId;
+            const method = editId ? 'PUT' : 'POST';
+            const apiUrl = editId
+                ? `${urlToUse}/api/board/posts/${editId}`
+                : `${urlToUse}/api/board/posts`;
+
+            const response = await fetch(apiUrl, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+                },
+                body: JSON.stringify({ title, content, category }),
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || '요청 실패');
+            }
+
+            document.getElementById('post-write-modal').style.display = 'none';
+            this.showToast(editId ? '수정되었습니다.' : '등록되었습니다.', 'success');
+            this.loadBoard(this._boardCategory, this._boardPage);
+
+            if (editId) {
+                // 수정 후 상세 모달도 새로고침
+                this.openPost(parseInt(editId));
+            }
+        } catch (error) {
+            this.showToast(error.message, 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = submitBtn.dataset.editId ? '수정' : '등록';
+        }
+    }
+
+    async editPost(postId) {
+        try {
+            let urlToUse = this.getApiBaseUrl();
+            const response = await fetch(`${urlToUse}/api/board/posts/${postId}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
+            });
+            if (!response.ok) throw new Error();
+            const post = await response.json();
+
+            document.getElementById('post-modal').style.display = 'none';
+            this.openWritePostModal({ id: post.id, title: post.title, content: post.content, category: post.category });
+        } catch {
+            this.showToast('게시글을 불러올 수 없습니다.', 'error');
+        }
+    }
+
+    async deletePost(postId) {
+        if (!confirm('정말 삭제하시겠습니까?')) return;
+
+        try {
+            let urlToUse = this.getApiBaseUrl();
+            const response = await fetch(`${urlToUse}/api/board/posts/${postId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
+            });
+            if (!response.ok) throw new Error();
+
+            document.getElementById('post-modal').style.display = 'none';
+            this.showToast('삭제되었습니다.', 'success');
+            this.loadBoard(this._boardCategory, this._boardPage);
+        } catch {
+            this.showToast('삭제에 실패했습니다.', 'error');
+        }
+    }
+
+    async toggleLike(postId, btn) {
+        const token = localStorage.getItem('auth_token');
+        if (!token) { this.showToast('로그인이 필요합니다.', 'error'); return; }
+
+        try {
+            let urlToUse = this.getApiBaseUrl();
+            const response = await fetch(`${urlToUse}/api/board/posts/${postId}/like`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            if (!response.ok) throw new Error();
+            const data = await response.json();
+
+            // 버튼 UI 업데이트
+            if (data.liked) {
+                btn.classList.add('liked');
+            } else {
+                btn.classList.remove('liked');
+            }
+
+            // 좋아요 수 갱신 — 상세 모달 다시 로드
+            this.openPost(postId);
+        } catch {
+            this.showToast('좋아요 처리에 실패했습니다.', 'error');
+        }
+    }
+
+    async addComment(postId) {
+        const input = document.getElementById('comment-input');
+        const content = input?.value.trim();
+        if (!content) { this.showToast('댓글을 입력하세요.', 'error'); return; }
+
+        try {
+            let urlToUse = this.getApiBaseUrl();
+            const response = await fetch(`${urlToUse}/api/board/posts/${postId}/comments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+                },
+                body: JSON.stringify({ content }),
+            });
+            if (!response.ok) throw new Error();
+
+            this.openPost(postId); // 댓글 목록 새로고침
+        } catch {
+            this.showToast('댓글 작성에 실패했습니다.', 'error');
+        }
+    }
+
+    _timeAgo(dateStr) {
+        if (!dateStr) return '';
+        const now = new Date();
+        const date = new Date(dateStr);
+        const diffMs = now - date;
+        const diffMin = Math.floor(diffMs / 60000);
+        if (diffMin < 1) return '방금';
+        if (diffMin < 60) return `${diffMin}분 전`;
+        const diffHour = Math.floor(diffMin / 60);
+        if (diffHour < 24) return `${diffHour}시간 전`;
+        const diffDay = Math.floor(diffHour / 24);
+        if (diffDay < 30) return `${diffDay}일 전`;
+        return date.toLocaleDateString('ko-KR');
     }
 }
 
