@@ -2822,14 +2822,16 @@ async def get_history_list(request: Request):
             pid = p.get("project_id", "")
             m_path = os.path.join(outputs_dir, pid, "manifest.json")
             if not os.path.exists(m_path):
-                return False  # user_id 없는 프로젝트는 다른 유저에게 노출하지 않음
+                return True  # user_id 없는 구버전 프로젝트 — 모든 인증 유저에게 노출
             try:
                 with open(m_path, "r", encoding="utf-8") as _f:
                     m = json.load(_f)
                 m_uid = str(m.get("user_id") or "")
-                return not m_uid or m_uid == str(filter_user_id)
+                if not m_uid:
+                    return True  # user_id 미기록 레거시 프로젝트 — 모든 인증 유저에게 노출
+                return m_uid == str(filter_user_id)
             except Exception:
-                return False
+                return True
         all_projects = [p for p in all_projects if _matches_user(p)]
 
     return {"projects": all_projects}
