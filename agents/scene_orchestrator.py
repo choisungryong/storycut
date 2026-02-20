@@ -227,36 +227,33 @@ JSON 형식으로 출력:
             print(f"  Entity extraction failed: {e}")
             return SceneEntities()
 
-    def _adjust_tts_speed(self, audio_path: str, tts_duration: float, target_duration: float) -> str:
-        """TTS 오디오 속도를 조정하여 target_duration에 맞춤 (FFmpeg atempo)."""
-        import subprocess
-        speed_ratio = tts_duration / target_duration
-        # atempo는 0.5~100.0 범위. 2.0 초과 시 체이닝 필요하지만 현실적으로 2x 이내
-        speed_ratio = min(speed_ratio, 2.5)
-        adjusted_path = audio_path.replace(".mp3", "_adj.mp3")
+    def _shorten_narration(self, narration: str, target_duration: float) -> str:
+        """LLM으로 narration을 target_duration에 맞게 축약. 스토리 핵심은 보존."""
+        if not self.llm_client:
+            return narration
 
-        # atempo 체이닝: 2.0 초과 시 분할
-        atempo_filters = []
-        remaining = speed_ratio
-        while remaining > 2.0:
-            atempo_filters.append("atempo=2.0")
-            remaining /= 2.0
-        atempo_filters.append(f"atempo={remaining:.4f}")
-        filter_str = ",".join(atempo_filters)
-
+        target_chars = int(target_duration * 4)  # 한국어 TTS 초당 ~4글자
+        prompt = (
+            f"다음 나레이션을 {target_chars}자 이내로 축약하세요.\n"
+            f"규칙:\n"
+            f"- 스토리의 핵심 사건과 감정은 반드시 보존\n"
+            f"- 수식어, 반복, 부가 설명만 제거\n"
+            f"- 자연스러운 문장 유지\n"
+            f"- 축약된 나레이션만 출력 (설명 없이)\n\n"
+            f"원문 ({len(narration)}자):\n{narration}"
+        )
         try:
-            cmd = [
-                "ffmpeg", "-y", "-i", audio_path,
-                "-filter:a", filter_str,
-                "-vn", adjusted_path
-            ]
-            subprocess.run(cmd, capture_output=True, timeout=30)
-            if os.path.exists(adjusted_path) and os.path.getsize(adjusted_path) > 0:
-                print(f"     [TTS Speed] {tts_duration:.1f}s -> {target_duration:.1f}s (x{speed_ratio:.2f})")
-                return adjusted_path
+            response = self.llm_client.generate_content(
+                prompt,
+                generation_config={"temperature": 0.3, "max_output_tokens": 1000}
+            )
+            shortened = response.text.strip()
+            if shortened and len(shortened) < len(narration):
+                print(f"     [Narration] Shortened: {len(narration)}자 → {len(shortened)}자 (target: {target_chars}자)")
+                return shortened
         except Exception as e:
-            print(f"     [TTS Speed] Failed to adjust: {e}")
-        return audio_path
+            print(f"     [Narration] Shorten failed: {e}")
+        return narration
 
     def _resolve_image_to_local(self, img_path: str, project_dir: str, scene_id) -> str:
         """URL 또는 /media/ 경로를 로컬 파일 경로로 변환/다운로드.
@@ -762,22 +759,40 @@ JSON 형식으로 출력:
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
 
-                # TTS 기반으로 duration 조정 (원래 duration의 ±50% 범위 내에서 수용)
+                # TTS 기반으로 duration 조정
+                # - 2배 이내: 씬 duration을 TTS에 맞춤 (스토리 보존 우선)
+                # - 2배 초과: LLM으로 narration 축약 후 TTS 재생성
                 if tts_result.duration_sec > 0:
                     import math
                     original_dur = scene.duration_sec
                     tts_dur = math.ceil(tts_result.duration_sec) + 1
-                    max_allowed = math.ceil(original_dur * 1.5)
-                    scene.duration_sec = max(3, min(tts_dur, max_allowed))
-                    if tts_dur > max_allowed:
-                        print(f"     [Duration] TTS {tts_result.duration_sec:.1f}s exceeds limit, capped: {original_dur}s -> {scene.duration_sec}s (max {max_allowed}s)")
-                        # TTS 오디오를 캡된 duration에 맞게 속도 조정
-                        scene.assets.narration_path = self._adjust_tts_speed(
-                            tts_result.audio_path, tts_result.duration_sec, scene.duration_sec
-                        )
-                        scene.tts_duration_sec = float(scene.duration_sec)
-                    else:
-                        print(f"     [Duration] Updated to {scene.duration_sec}s (TTS: {tts_result.duration_sec:.1f}s, original: {original_dur}s)")
+                    regen_threshold = math.ceil(original_dur * 2.0)
+
+                    if tts_dur > regen_threshold:
+                        # 2배 초과 → LLM narration 축약 + TTS 재생성
+                        print(f"     [Duration] TTS {tts_result.duration_sec:.1f}s > 2x original ({original_dur}s), shortening narration...")
+                        shortened = self._shorten_narration(scene.narration, original_dur * 1.5)
+                        scene.narration = shortened
+                        if dialogue_lines and character_voices:
+                            tts_result2 = self.tts_agent.generate_dialogue_audio(
+                                dialogue_lines=[{"speaker": "[narrator]", "text": shortened}],
+                                character_voices=character_voices,
+                                output_path=tts_result.audio_path,
+                            )
+                        else:
+                            tts_result2 = self.tts_agent.generate_speech(
+                                scene_id=scene.scene_id,
+                                narration=shortened,
+                                emotion=scene.mood
+                            )
+                        scene.assets.narration_path = tts_result2.audio_path
+                        scene.tts_duration_sec = tts_result2.duration_sec
+                        tts_dur = math.ceil(tts_result2.duration_sec) + 1
+                        print(f"     [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
+
+                    # 씬 duration을 TTS에 맞춤 (최소 3초)
+                    scene.duration_sec = max(3, tts_dur)
+                    print(f"     [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
 
                 # 영상 생성 (업데이트된 duration 사용)
                 scene.status = SceneStatus.GENERATING_VIDEO
@@ -1086,17 +1101,31 @@ JSON 형식으로 출력:
                     import math
                     original_dur = scene.duration_sec
                     tts_dur = math.ceil(tts_result.duration_sec) + 1
-                    max_allowed = math.ceil(original_dur * 1.5)
-                    scene.duration_sec = max(3, min(tts_dur, max_allowed))
-                    if tts_dur > max_allowed:
-                        print(f"  [Duration] TTS {tts_result.duration_sec:.1f}s exceeds limit, capped: {original_dur}s -> {scene.duration_sec}s (max {max_allowed}s)")
-                        # TTS 오디오를 캡된 duration에 맞게 속도 조정
-                        scene.assets.narration_path = self._adjust_tts_speed(
-                            tts_result.audio_path, tts_result.duration_sec, scene.duration_sec
-                        )
-                        scene.tts_duration_sec = float(scene.duration_sec)
-                    else:
-                        print(f"  [Duration] {scene.duration_sec}s (TTS: {tts_result.duration_sec:.1f}s, original: {original_dur}s)")
+                    regen_threshold = math.ceil(original_dur * 2.0)
+
+                    if tts_dur > regen_threshold:
+                        print(f"  [Duration] TTS {tts_result.duration_sec:.1f}s > 2x original ({original_dur}s), shortening narration...")
+                        shortened = self._shorten_narration(scene.narration, original_dur * 1.5)
+                        scene.narration = shortened
+                        if dialogue_lines and character_voices:
+                            tts_result2 = self.tts_agent.generate_dialogue_audio(
+                                dialogue_lines=[{"speaker": "[narrator]", "text": shortened}],
+                                character_voices=character_voices,
+                                output_path=tts_result.audio_path,
+                            )
+                        else:
+                            tts_result2 = self.tts_agent.generate_speech(
+                                scene_id=scene.scene_id,
+                                narration=shortened,
+                                emotion=scene.mood
+                            )
+                        scene.assets.narration_path = tts_result2.audio_path
+                        scene.tts_duration_sec = tts_result2.duration_sec
+                        tts_dur = math.ceil(tts_result2.duration_sec) + 1
+                        print(f"  [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
+
+                    scene.duration_sec = max(3, tts_dur)
+                    print(f"  [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
 
                 # Phase 2: Ken Burns (이미지 → 비디오)
                 scene.status = SceneStatus.GENERATING_VIDEO
