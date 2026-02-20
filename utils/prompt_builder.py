@@ -146,8 +146,14 @@ class MultimodalPromptBuilder:
         # ──────────────────────────────────────────────────────────
         # STEP 5: 금지/고정 규칙 (REQUIRED)
         # ──────────────────────────────────────────────────────────
+        _art_style = "cinematic"
+        if global_style:
+            if isinstance(global_style, GlobalStyle):
+                _art_style = global_style.art_style or "cinematic"
+            elif isinstance(global_style, dict):
+                _art_style = global_style.get("art_style", "cinematic")
         prohibition_rules = MultimodalPromptBuilder._build_prohibition_rules(
-            character_descriptions, global_style
+            character_descriptions, global_style, style=_art_style
         )
         parts.append({"text": prohibition_rules})
         
@@ -279,60 +285,46 @@ class MultimodalPromptBuilder:
                     if image_part:
                         parts.append(image_part)
 
-        # 참조 지시문 (이미지가 있는 경우)
+        # 참조 지시문 (이미지가 있는 경우) — 스타일별 적응형
         has_images = any("inline_data" in p for p in parts)
         if has_images:
             if character_reference_paths and any(p and os.path.exists(p) for p in character_reference_paths):
-                parts.append({"text": (
-                    "[CHARACTER LOCK] The character portrait(s) above are DEFINITIVE references. "
-                    "Maintain EXACT face shape, eye shape, nose, skin tone, hair color/length/style, "
-                    "body proportions, and clothing. "
-                    "Do NOT change ethnicity, age, or any facial features.\n"
-                    "STRICT RULES:\n"
-                    "- IDENTITY PRESERVATION: Character faces must be pixel-level consistent with anchors\n"
-                    "- STYLE PRESERVATION: Art style and color palette must match the style anchor exactly\n"
-                    "- ENVIRONMENT PRESERVATION: Background must match the environment anchor\n"
-                    "- NO identity drift: faces, hair, eyes, body shape must not change\n"
-                    "- NO style drift: lighting, color grading, rendering style must not change\n"
-                    "- OUTFIT LOCK: Character clothing and accessories MUST remain EXACTLY as described in the prompt. "
-                    "Do NOT invent new outfits, change colors, add or remove clothing items. "
-                    "The outfit described in the character block is the ONLY correct outfit.\n"
-                    "- NO spontaneous props or background elements not described in the prompt\n"
-                    "- Characters in this scene must match their respective anchor images EXACTLY"
-                )})
+                _char_lock = MultimodalPromptBuilder._build_character_lock(style)
+                parts.append({"text": _char_lock})
             else:
                 parts.append({
                     "text": "Using the above reference image(s), maintain character and style consistency in the generated image."
                 })
 
         # 스타일별 강력한 이미지 생성 지시 (positive + negative)
+        # NOTE: 각 스타일의 positive에 "캐릭터 디자인은 참조 이미지 기반" 명시
         style_directives = {
             "cinematic": {
-                "positive": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster. Natural skin texture, real-world imperfections.",
+                "positive": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster. Natural skin texture, real-world imperfections. If character reference images are provided, the characters MUST look identical to those references.",
                 "negative": "NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT airbrushed, NOT uncanny valley."
             },
             "anime": {
-                "positive": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art.",
+                "positive": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art. If character reference images are provided, adapt their design to anime style while preserving hair color, eye color, outfit design, and distinguishing features.",
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
             },
             "webtoon": {
-                "positive": "Generate a Korean webtoon (manhwa) style digital art with clean sharp lines, flat color blocks, and stylized character design. This MUST look like a webtoon panel.",
+                "positive": "Generate a Korean webtoon (manhwa) style digital art with clean sharp lines, flat color blocks, and stylized character design. This MUST look like a webtoon panel. If character reference images are provided, adapt their design to webtoon style while preserving hair color, eye color, outfit design, and distinguishing features.",
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
             },
             "realistic": {
-                "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting with subtle imperfections, sharp focus, real-world textures, photojournalistic quality. Visible skin texture (pores, fine lines, subtle blemishes), natural asymmetry, candid photography feel. Shot on 35mm film grain. This MUST be indistinguishable from a real photograph.",
+                "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting with subtle imperfections, sharp focus, real-world textures, photojournalistic quality. Visible skin texture (pores, fine lines, subtle blemishes), natural asymmetry, candid photography feel. Shot on 35mm film grain. This MUST be indistinguishable from a real photograph. Characters MUST look identical to their reference images.",
                 "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT symmetrical face, NOT glowing eyes, NOT airbrushed, NOT uncanny valley, NOT stock photo, NOT oversaturated."
             },
             "illustration": {
-                "positive": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork.",
+                "positive": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork. If character reference images are provided, paint the SAME characters in illustration style — preserve their hair color, eye color, skin tone, outfit design, and body proportions. The characters must be recognizably the same people, just rendered as a painting.",
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic."
             },
             "abstract": {
-                "positive": "Generate an abstract expressionist artwork with surreal dreamlike imagery, bold geometric shapes, and non-representational color fields. This MUST be abstract art.",
+                "positive": "Generate an abstract expressionist artwork with surreal dreamlike imagery, bold geometric shapes, and non-representational color fields. This MUST be abstract art. If character silhouettes are present, maintain their color palette and general form from reference images.",
                 "negative": "ABSOLUTELY NOT realistic, NOT photorealistic, NOT representational."
             },
             "game_anime": {
-                "positive": "Generate a 3D cel-shaded toon-rendered character scene in the style of modern anime action RPG games (Genshin Impact, Honkai Star Rail, Wuthering Waves). High-fidelity 3D models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, detailed ornate costumes and fantasy weapons, dynamic hair and cloth physics, Unreal Engine quality rendering, vibrant saturated colors with high contrast, epic open-world fantasy backgrounds.",
+                "positive": "Generate a 3D cel-shaded toon-rendered character scene in the style of modern anime action RPG games (Genshin Impact, Honkai Star Rail, Wuthering Waves). High-fidelity 3D models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, detailed ornate costumes and fantasy weapons, dynamic hair and cloth physics, Unreal Engine quality rendering, vibrant saturated colors with high contrast, epic open-world fantasy backgrounds. If character reference images are provided, model the SAME characters — preserve their hair color/style, eye color, outfit design, weapon/accessory design, and body proportions.",
                 "negative": "ABSOLUTELY NOT photorealistic, NOT western cartoon, NOT flat 2D illustration, NOT hand-drawn anime, NOT watercolor, NOT oil painting, NOT low-poly, NOT chibi deformed, NOT mundane everyday objects, NOT real-world brands, NOT pixel art."
             },
         }
@@ -479,32 +471,132 @@ class MultimodalPromptBuilder:
         """LOCK 선언 텍스트 생성."""
         return (
             "VISUAL IDENTITY LOCK: DO NOT change any of the following across frames:\n"
-            "- Character faces, body proportions, hair style, hair color\n"
-            "- Character clothing, accessories, distinctive features\n"
-            "- Art style, color palette, lighting scheme\n"
+            "- Character identity: face structure, hair style/color, eye color, body proportions\n"
+            "- Character outfit: clothing design, colors, accessories, distinctive features\n"
+            "- Art style: rendering technique, color palette, lighting scheme\n"
             "- Background environment, props, spatial layout\n"
-            "All visual elements must remain EXACTLY consistent with the reference anchors below."
+            "All character designs must remain consistent with the reference anchors below."
         )
+
+    # ── 스타일별 CHARACTER LOCK 지시문 ──────────────────────────
+
+    # 실사/시네마틱: 얼굴 디테일까지 엄격 매칭
+    _CHAR_LOCK_PHOTOREALISTIC = (
+        "[CHARACTER LOCK - PHOTOREALISTIC] The character portrait(s) above are DEFINITIVE references.\n"
+        "Maintain EXACT face shape, eye shape, nose, skin tone, hair color/length/style, "
+        "body proportions, and clothing.\n"
+        "Do NOT change ethnicity, age, or any facial features.\n"
+        "STRICT RULES:\n"
+        "- IDENTITY: Character faces must be pixel-level consistent with anchors\n"
+        "- SKIN: Maintain exact skin tone, texture, and complexion from anchor\n"
+        "- OUTFIT LOCK: Clothing and accessories MUST remain EXACTLY as in the anchor\n"
+        "- NO identity drift: faces, hair, eyes, body shape must not change\n"
+        "- NO spontaneous props or background elements not described in the prompt\n"
+        "- Characters in this scene must match their respective anchor images EXACTLY"
+    )
+
+    # 일러스트/디지털 아트: 디자인 특징 매칭 (렌더링 스타일은 달라도 됨)
+    _CHAR_LOCK_ILLUSTRATION = (
+        "[CHARACTER LOCK - ILLUSTRATION] The character portrait(s) above are DESIGN references.\n"
+        "You MUST reproduce the SAME character in illustration/painting style.\n"
+        "WHAT TO PRESERVE (design-level consistency):\n"
+        "- SAME hair color, hair length, hairstyle silhouette\n"
+        "- SAME eye color and eye shape\n"
+        "- SAME face shape (round/oval/angular) and facial proportions\n"
+        "- SAME clothing DESIGN: outfit type, color scheme, distinctive patterns/accessories\n"
+        "- SAME body build (slim/muscular/petite) and height ratio\n"
+        "- SAME skin tone (light/medium/dark)\n"
+        "- SAME age range and gender\n"
+        "WHAT CHANGES (style adaptation):\n"
+        "- Rendering technique adapts to illustration/painting style\n"
+        "- Brush strokes, line quality, and shading follow the art style\n"
+        "FORBIDDEN:\n"
+        "- Do NOT invent a new character. The person in the output MUST be recognizably the SAME person from the anchor\n"
+        "- Do NOT change hair color, eye color, outfit colors, or skin tone\n"
+        "- Do NOT add/remove clothing items or accessories not in the anchor"
+    )
+
+    # 애니메이션/웹툰: 캐릭터 디자인 시트 수준 매칭
+    _CHAR_LOCK_ANIME = (
+        "[CHARACTER LOCK - ANIME/WEBTOON] The character portrait(s) above are CHARACTER DESIGN SHEETS.\n"
+        "You MUST draw the SAME character in anime/webtoon style.\n"
+        "WHAT TO PRESERVE (character design consistency):\n"
+        "- SAME hair color AND hairstyle (bangs, length, accessories like ribbons/clips)\n"
+        "- SAME eye color AND eye design (shape, size relative to face)\n"
+        "- SAME outfit DESIGN: uniform type, color scheme, distinctive elements\n"
+        "- SAME body proportions relative to other characters\n"
+        "- SAME distinguishing features (scars, tattoos, piercings, glasses)\n"
+        "- SAME skin tone and age appearance\n"
+        "WHAT CHANGES (style adaptation):\n"
+        "- Face proportions adapt to anime/webtoon conventions (larger eyes, simplified nose)\n"
+        "- Line art style follows cel-shading/flat coloring conventions\n"
+        "- Shading follows the target art style\n"
+        "FORBIDDEN:\n"
+        "- Do NOT create a different character. Must be the SAME person from the anchor\n"
+        "- Do NOT change hair color, eye color, outfit color scheme\n"
+        "- Do NOT swap gender, age range, or body type"
+    )
+
+    # 게임 애니메이션(3D 툰셰이딩): 3D 모델 수준 매칭
+    _CHAR_LOCK_GAME_ANIME = (
+        "[CHARACTER LOCK - 3D GAME ANIME] The character portrait(s) above are 3D CHARACTER MODEL references.\n"
+        "You MUST render the SAME character in 3D cel-shaded toon style.\n"
+        "WHAT TO PRESERVE:\n"
+        "- SAME hair color, style, and physics direction\n"
+        "- SAME eye color and facial structure\n"
+        "- SAME outfit design with all ornamental details (armor pieces, belts, capes, jewelry)\n"
+        "- SAME weapon/prop design if present\n"
+        "- SAME body proportions and build\n"
+        "- SAME skin tone\n"
+        "WHAT CHANGES:\n"
+        "- Rendering adapts to 3D toon-shader with rim lighting and bloom\n"
+        "- Material quality follows game-engine rendering (Unreal/Unity quality)\n"
+        "FORBIDDEN:\n"
+        "- Do NOT redesign the character's outfit or accessories\n"
+        "- Do NOT change the character's identity features"
+    )
+
+    @staticmethod
+    def _build_character_lock(style: str) -> str:
+        """스타일에 맞는 CHARACTER LOCK 지시문 반환."""
+        _STYLE_LOCK_MAP = {
+            "realistic": MultimodalPromptBuilder._CHAR_LOCK_PHOTOREALISTIC,
+            "cinematic": MultimodalPromptBuilder._CHAR_LOCK_PHOTOREALISTIC,
+            "illustration": MultimodalPromptBuilder._CHAR_LOCK_ILLUSTRATION,
+            "abstract": MultimodalPromptBuilder._CHAR_LOCK_ILLUSTRATION,
+            "anime": MultimodalPromptBuilder._CHAR_LOCK_ANIME,
+            "webtoon": MultimodalPromptBuilder._CHAR_LOCK_ANIME,
+            "game_anime": MultimodalPromptBuilder._CHAR_LOCK_GAME_ANIME,
+        }
+        return _STYLE_LOCK_MAP.get(style, MultimodalPromptBuilder._CHAR_LOCK_ILLUSTRATION)
 
     @staticmethod
     def _build_prohibition_rules(
         character_descriptions: List[str],
-        global_style: Optional[GlobalStyle]
+        global_style: Optional[GlobalStyle],
+        style: str = "cinematic"
     ) -> str:
-        """금지/고정 규칙 텍스트 생성."""
+        """금지/고정 규칙 텍스트 생성 (스타일 적응형)."""
+        _is_photo = style in ("realistic", "cinematic")
+        _identity_rule = (
+            "- IDENTITY PRESERVATION: Character faces must be pixel-level consistent with anchors"
+            if _is_photo else
+            "- IDENTITY PRESERVATION: Character design (hair color/style, eye color, outfit, body type) must match anchors"
+        )
+
         rules = [
             "STRICT RULES:",
-            "- IDENTITY PRESERVATION: Character faces must be pixel-level consistent with anchors",
+            _identity_rule,
             "- STYLE PRESERVATION: Art style and color palette must match the style anchor exactly",
             "- ENVIRONMENT PRESERVATION: Background must match the environment anchor",
-            "- NO identity drift: faces, hair, eyes, body shape must not change",
-            "- NO style drift: lighting, color grading, rendering style must not change",
-            "- NO wardrobe change: clothing, accessories must remain exactly as in reference",
+            "- NO identity drift: hair color, eye color, outfit design, body shape must not change",
+            "- NO style drift: rendering technique, color grading must not change",
+            "- NO wardrobe change: clothing design, colors, accessories must remain as in reference",
             "- NO spontaneous props or background elements not in the anchor",
         ]
 
         if character_descriptions:
-            rules.append(f"- Characters in this scene must match their respective anchor images EXACTLY")
+            rules.append("- Characters in this scene must be recognizably the SAME individuals from their anchor images")
 
         return "\n".join(rules)
 
