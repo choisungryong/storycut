@@ -122,6 +122,23 @@ class CharacterManager:
                 color_palette = global_style.get("color_palette", "")
                 visual_seed = global_style.get("visual_seed", visual_seed)
 
+        # 스타일 directive 강화 (MV와 동일): LLM이 생성한 art_style 대신 명시적 스타일 지시
+        _STYLE_DIRECTIVES = {
+            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, color graded like a Hollywood blockbuster",
+            "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime character proportions, NOT a photograph, NOT photorealistic",
+            "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, manhwa character design, NOT a photograph, NOT photorealistic",
+            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",
+            "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph, NOT photorealistic",
+            "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, non-representational",
+            "game_anime": "3D cel-shaded toon-rendered character, modern anime action RPG game quality (Genshin Impact style), high-fidelity 3D model with toon shader, cel-shading outlines, rim lighting with bloom, Unreal Engine quality, NOT photorealistic, NOT flat 2D, NOT western cartoon",
+        }
+        _art_lower = art_style.lower()
+        for _key, _directive in _STYLE_DIRECTIVES.items():
+            if _key in _art_lower or _key.replace("_", " ") in _art_lower:
+                art_style = _directive
+                print(f"  [Style] Applied directive for '{_key}'")
+                break
+
         character_images = {}
         total_chars = len(character_sheet)
 
