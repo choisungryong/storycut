@@ -2818,17 +2818,20 @@ async def get_history_list(request: Request):
             if p_uid:
                 return p_uid == str(filter_user_id)
 
+            # user_id 미기록 레거시 프로젝트 → 원래 소유자(neopioneer0713)에게만 노출
+            _LEGACY_OWNER = "neopioneer0713@gmail.com"
+
             # 로컬 manifest에서 user_id 확인
             pid = p.get("project_id", "")
             m_path = os.path.join(outputs_dir, pid, "manifest.json")
             if not os.path.exists(m_path):
-                return True  # user_id 없는 구버전 프로젝트 — 모든 인증 유저에게 노출
+                return str(filter_user_id) == _LEGACY_OWNER
             try:
                 with open(m_path, "r", encoding="utf-8") as _f:
                     m = json.load(_f)
                 m_uid = str(m.get("user_id") or "")
                 if not m_uid:
-                    return True  # user_id 미기록 레거시 프로젝트 — 모든 인증 유저에게 노출
+                    return str(filter_user_id) == _LEGACY_OWNER
                 return m_uid == str(filter_user_id)
             except Exception:
                 return True
