@@ -2566,7 +2566,11 @@ class MVPipeline:
                         # QA 실패 시 1회 재생성 (더 강한 CHARACTER LOCK)
                         if any_failed:
                             print(f"    [CharacterQA] Retrying scene {scene.scene_id} with stronger lock...")
-                            retry_prompt = f"CRITICAL: Character face MUST be IDENTICAL to the reference image. Do NOT change any facial features. {final_prompt}"
+                            _is_photo_style = project.style.value in ("realistic", "cinematic")
+                            if _is_photo_style:
+                                retry_prompt = f"CRITICAL: Character face MUST be IDENTICAL to the reference image. Do NOT change any facial features. {final_prompt}"
+                            else:
+                                retry_prompt = f"CRITICAL: Character design MUST match the reference image EXACTLY — same hair color/style, eye color, outfit design, skin tone, body proportions. The character must be recognizably the SAME person. {final_prompt}"
                             try:
                                 retry_path, _ = self.image_agent.generate_image(
                                     scene_id=scene.scene_id,
