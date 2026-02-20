@@ -2879,9 +2879,11 @@ async def migrate_user_ids(request: Request):
         return JSONResponse({"error": "target_email required"}, status_code=400)
 
     outputs_dir = "outputs"
-    migrated = 0
+    migrated_local = 0
+    migrated_r2 = 0
     errors = []
 
+    # 1) 로컬 manifest 마이그레이션
     if os.path.exists(outputs_dir):
         for pid in os.listdir(outputs_dir):
             manifest_path = os.path.join(outputs_dir, pid, "manifest.json")
@@ -2894,12 +2896,48 @@ async def migrate_user_ids(request: Request):
                 data["user_id"] = target_email
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-                migrated += 1
-                print(f"  [MIGRATE] {pid}: {old_uid!r} → {target_email}")
+                migrated_local += 1
+                print(f"  [MIGRATE-LOCAL] {pid}: {old_uid!r} → {target_email}")
             except Exception as e:
-                errors.append(f"{pid}: {e}")
+                errors.append(f"local/{pid}: {e}")
 
-    return {"migrated": migrated, "errors": errors}
+    # 2) R2 manifest 마이그레이션
+    try:
+        from utils.storage import StorageManager
+        storage = StorageManager()
+        if storage.s3_client:
+            paginator = storage.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=storage.bucket_name, Prefix='videos/')
+            for page in pages:
+                for obj in page.get('Contents', []):
+                    key = obj['Key']
+                    if not key.endswith('/manifest.json'):
+                        continue
+                    try:
+                        raw = storage.get_object(key)
+                        if not raw:
+                            continue
+                        data = json.loads(raw.decode('utf-8'))
+                        old_uid = data.get("user_id", "")
+                        if old_uid == target_email:
+                            continue  # 이미 마이그레이션됨
+                        data["user_id"] = target_email
+                        updated = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+                        storage.s3_client.put_object(
+                            Bucket=storage.bucket_name,
+                            Key=key,
+                            Body=updated,
+                            ContentType='application/json'
+                        )
+                        migrated_r2 += 1
+                        pid = key.split('/')[1] if '/' in key else key
+                        print(f"  [MIGRATE-R2] {pid}: {old_uid!r} → {target_email}")
+                    except Exception as e:
+                        errors.append(f"r2/{key}: {e}")
+    except Exception as e:
+        errors.append(f"r2-init: {e}")
+
+    return {"migrated_local": migrated_local, "migrated_r2": migrated_r2, "errors": errors}
 
 
 # ============================================================================
