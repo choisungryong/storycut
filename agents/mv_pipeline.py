@@ -2075,7 +2075,12 @@ class MVPipeline:
 
         results = []
         for role in (scene.characters_in_scene or [])[:5]:
+            # 정확 매칭 → 부분 매칭 (LLM이 role 이름을 미묘하게 다르게 생성하는 경우 대비)
             char = next((c for c in project.visual_bible.characters if c.role == role), None)
+            if not char:
+                role_lower = role.lower().strip()
+                char = next((c for c in project.visual_bible.characters
+                             if role_lower in c.role.lower() or c.role.lower() in role_lower), None)
             if not char:
                 continue
             # 포즈별 앵커에서 최적 포즈 선택
@@ -2153,9 +2158,15 @@ class MVPipeline:
             return self._strip_people_from_prompt(prompt)
 
         char_map = {c.role: c for c in project.visual_bible.characters}
+        # 부분 매칭용 역매핑
+        char_map_lower = {c.role.lower(): c for c in project.visual_bible.characters}
         char_descs = []
         for role in scene.characters_in_scene[:5]:
             char = char_map.get(role)
+            if not char:
+                role_lower = role.lower().strip()
+                char = next((c for r, c in char_map_lower.items()
+                             if role_lower in r or r in role_lower), None)
             if not char:
                 continue
             parts = [char.description] if char.description else []
@@ -2226,7 +2237,9 @@ class MVPipeline:
         # 의상 잠금 강조
         outfit_lock = ""
         for role in scene.characters_in_scene[:5]:
-            char = char_map.get(role)
+            char = char_map.get(role) or next(
+                (c for r, c in char_map_lower.items()
+                 if role.lower().strip() in r or r in role.lower().strip()), None)
             if char and char.outfit:
                 outfit_lock += f" OUTFIT LOCK: {role} MUST wear {char.outfit} in EVERY scene."
 
@@ -2542,16 +2555,14 @@ class MVPipeline:
                 if era_negative:
                     _scene_neg = f"{era_negative}, {_scene_neg}" if _scene_neg else era_negative
 
-                # 스타일별 런타임 프리픽스 + 네거티브 강제 주입
+                # 스타일별 런타임 프리픽스 + 네거티브 강제 주입 (항상)
                 _sr = _STYLE_RUNTIME.get(project.style.value)
                 if _sr:
-                    _low = final_prompt.lower()
-                    if not any(kw in _low for kw in _sr["check"]):
-                        final_prompt = f"{_sr['prefix']}, {final_prompt}"
+                    final_prompt = f"{_sr['prefix']}, {final_prompt}"
                     _scene_neg = f"{_sr['negative']}, {_scene_neg}" if _scene_neg else _sr["negative"]
 
-                # 캐릭터 미등장 씬: 스타일 앵커 제외 (앵커에 인물이 있으면 복제됨)
-                _scene_style_anchor = style_anchor_path if scene.characters_in_scene else None
+                # 스타일 앵커는 캐릭터-free 이미지이므로 모든 씬에 전달
+                _scene_style_anchor = style_anchor_path
 
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
@@ -4673,12 +4684,10 @@ class MVPipeline:
         if era_negative:
             _regen_neg = f"{era_negative}, {_regen_neg}" if _regen_neg else era_negative
 
-        # 스타일별 런타임 프리픽스 + 네거티브 강제 주입
+        # 스타일별 런타임 프리픽스 + 네거티브 강제 주입 (항상)
         _sr = _STYLE_RUNTIME.get(project.style.value)
         if _sr:
-            _low = final_prompt.lower()
-            if not any(kw in _low for kw in _sr["check"]):
-                final_prompt = f"{_sr['prefix']}, {final_prompt}"
+            final_prompt = f"{_sr['prefix']}, {final_prompt}"
             _regen_neg = f"{_sr['negative']}, {_regen_neg}" if _regen_neg else _sr["negative"]
 
         try:
