@@ -215,8 +215,8 @@ class FFmpegComposer:
             출력 영상 경로
         """
         # 프리스케일 해상도 (줌 헤드룸 확보)
-        prescale_w = 3840
-        prescale_h = 2160
+        prescale_w = 2560
+        prescale_h = 1440
 
         # 리프레이밍별 크롭 영역
         reframe_ratios = {

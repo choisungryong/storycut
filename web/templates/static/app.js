@@ -2126,7 +2126,7 @@ class StorycutApp {
                     <p class="history-title">${escapeHtml(project.title)}</p>
                     ${mvInfo}
                     <p class="history-date">${new Date(project.created_at).toLocaleDateString('ko-KR')}</p>
-                    <span class="history-status ${project.status === 'completed' ? 'completed' : project.status === 'images_ready' ? 'images-ready' : ''}">${project.status === 'completed' ? '완료' : project.status === 'images_ready' ? '이미지 완료' : project.status === 'failed' ? '실패' : '처리 중'}</span>
+                    <span class="history-status ${project.status === 'completed' ? 'completed' : project.status === 'images_ready' ? 'images-ready' : project.status === 'anchors_ready' ? 'images-ready' : ''}">${project.status === 'completed' ? '완료' : project.status === 'anchors_ready' ? '앵커 리뷰' : project.status === 'images_ready' ? '이미지 완료' : project.status === 'failed' ? '실패' : '처리 중'}</span>
                 </div>
             `;
 
@@ -2165,6 +2165,13 @@ class StorycutApp {
                 // MV 프로젝트: 씬 이미지가 있으면 편집 가능한 결과 화면으로
                 const scenes = manifest.scenes || [];
                 const hasImages = scenes.some(s => s.image_path);
+
+                // anchors_ready: 앵커 리뷰 화면으로 이동
+                if (manifest.status === 'anchors_ready') {
+                    const characters = manifest.visual_bible?.characters || manifest.characters || [];
+                    this.showMVCharacterReview(projectId, characters);
+                    return;
+                }
 
                 if (manifest.status === 'completed' || (hasImages && (manifest.status === 'failed' || manifest.status === 'images_ready'))) {
                     const isCompleted = manifest.status === 'completed';
@@ -3721,7 +3728,13 @@ class StorycutApp {
                 const data = await response.json();
 
                 // 상태별 처리
-                if (data.status === 'images_ready') {
+                if (data.status === 'anchors_ready') {
+                    this.mvAddLog('SUCCESS', 'Character anchors ready. Moving to review.');
+                    this.updateMVProgress(40, '캐릭터 앵커 리뷰 대기');
+                    this.stopMVPolling();
+                    this.showMVCharacterReview(projectId, data.characters || []);
+
+                } else if (data.status === 'images_ready') {
                     this.mvAddLog('SUCCESS', 'Image generation complete. Moving to review.');
                     this.updateMVProgress(70, '이미지 리뷰 대기');
                     this.stopMVPolling();
@@ -4006,6 +4019,120 @@ class StorycutApp {
         `;
         logContent.appendChild(entry);
         logContent.scrollTop = logContent.scrollHeight;
+    }
+
+    // ==================== MV Character Anchor Review ====================
+
+    showMVCharacterReview(projectId, characters) {
+        const mainContent = document.getElementById('main-content');
+        if (!mainContent) return;
+
+        const baseUrl = this.getApiBaseUrl();
+
+        // 앵커 이미지 경로를 웹 URL로 변환
+        const toWebUrl = (path) => {
+            if (!path) return '';
+            if (path.startsWith('http')) return path;
+            // outputs/{id}/media/characters/xxx.png → /media/{id}/media/characters/xxx.png
+            if (path.startsWith('outputs/')) {
+                return `/media/${path.substring('outputs/'.length)}`;
+            }
+            return path;
+        };
+
+        const characterCards = characters.map((char, idx) => {
+            const frontImg = toWebUrl(char.anchor_image_path);
+            const poses = char.anchor_poses || {};
+            const fullBodyImg = toWebUrl(poses.full_body || '');
+            const threeQuarterImg = toWebUrl(poses.three_quarter || '');
+
+            return `
+                <div class="mv-char-card" data-role="${char.role}" style="
+                    background: var(--card-bg, #1a1a2e);
+                    border-radius: 12px;
+                    padding: 16px;
+                    border: 1px solid rgba(255,255,255,0.1);
+                ">
+                    <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; justify-content:center;">
+                        ${frontImg ? `<img src="${baseUrl}${frontImg}" alt="front" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:2px solid #6c5ce7;">` : ''}
+                        ${threeQuarterImg ? `<img src="${baseUrl}${threeQuarterImg}" alt="3/4" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">` : ''}
+                        ${fullBodyImg ? `<img src="${baseUrl}${fullBodyImg}" alt="full" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">` : ''}
+                    </div>
+                    <h4 style="margin:0 0 4px; color:#fff; font-size:14px;">${char.role}</h4>
+                    <p style="margin:0 0 8px; color:rgba(255,255,255,0.6); font-size:12px; line-height:1.4;">
+                        ${char.description || ''}
+                    </p>
+                    ${char.outfit ? `<p style="margin:0; color:rgba(255,255,255,0.5); font-size:11px;">👗 ${char.outfit}</p>` : ''}
+                </div>
+            `;
+        }).join('');
+
+        const reviewHtml = `
+            <div style="max-width:900px; margin:0 auto; padding:20px;">
+                <div style="text-align:center; margin-bottom:24px;">
+                    <h2 style="color:#fff; margin:0 0 8px;">캐릭터 앵커 리뷰</h2>
+                    <p style="color:rgba(255,255,255,0.6); margin:0;">
+                        생성된 캐릭터를 확인하세요. 승인하면 씬 이미지 생성이 시작됩니다.
+                    </p>
+                </div>
+
+                <div style="
+                    display:grid;
+                    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    gap:16px;
+                    margin-bottom:24px;
+                ">
+                    ${characterCards}
+                </div>
+
+                <div style="display:flex; gap:12px; justify-content:center;">
+                    <button id="mv-approve-anchors-btn" style="
+                        background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+                        color:#fff; border:none; padding:14px 32px;
+                        border-radius:8px; font-size:16px; font-weight:600;
+                        cursor:pointer; transition: opacity 0.2s;
+                    ">승인 및 이미지 생성</button>
+                </div>
+            </div>
+        `;
+
+        mainContent.innerHTML = reviewHtml;
+
+        // 승인 버튼 이벤트
+        const approveBtn = document.getElementById('mv-approve-anchors-btn');
+        if (approveBtn) {
+            approveBtn.addEventListener('click', async () => {
+                approveBtn.disabled = true;
+                approveBtn.textContent = '이미지 생성 시작 중...';
+                approveBtn.style.opacity = '0.6';
+
+                try {
+                    const resp = await fetch(`${baseUrl}/api/mv/generate/images/${projectId}`, {
+                        method: 'POST',
+                        headers: this.getAuthHeaders()
+                    });
+
+                    if (!resp.ok) {
+                        const err = await resp.json();
+                        throw new Error(err.detail || 'Failed to start image generation');
+                    }
+
+                    this.showToast('이미지 생성이 시작되었습니다', 'success');
+
+                    // MV 생성 UI로 돌아가서 폴링 재개
+                    this.showSection('mv-progress');
+                    this.updateMVProgress(45, '이미지 생성 중...');
+                    this.startMVPolling(projectId);
+
+                } catch (error) {
+                    console.error('Failed to start image generation:', error);
+                    this.showToast(`이미지 생성 시작 실패: ${error.message}`, 'error');
+                    approveBtn.disabled = false;
+                    approveBtn.textContent = '승인 및 이미지 생성';
+                    approveBtn.style.opacity = '1';
+                }
+            });
+        }
     }
 
     // ==================== MV Image Review ====================

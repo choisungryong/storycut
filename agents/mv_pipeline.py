@@ -2795,16 +2795,22 @@ class MVPipeline:
             if scene.image_path and os.path.exists(scene.image_path):
                 unique_images.add(scene.image_path)
 
-        print(f"  [BBOX] Extracting subject bbox for {len(unique_images)} unique images...")
-        for img_path in unique_images:
+        print(f"  [BBOX] Extracting subject bbox for {len(unique_images)} unique images (parallel)...")
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        def _extract_bbox(path):
             try:
-                bbox_cache[img_path] = self._extract_subject_bbox(img_path)
+                return path, self._extract_subject_bbox(path)
             except Exception as e:
-                print(f"    [BBOX] Failed for {os.path.basename(img_path)}: {str(e)[:100]}")
-                bbox_cache[img_path] = {
+                print(f"    [BBOX] Failed for {os.path.basename(path)}: {str(e)[:100]}")
+                return path, {
                     "face_bbox": None, "person_bbox": None,
                     "saliency_center": {"x": 0.5, "y": 0.4}, "bbox_source": "saliency"
                 }
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [executor.submit(_extract_bbox, p) for p in unique_images]
+            for future in as_completed(futures):
+                path, result = future.result()
+                bbox_cache[path] = result
 
         bbox_sources = {}
         for v in bbox_cache.values():
@@ -3886,7 +3892,7 @@ class MVPipeline:
             _cut_done = [0]
             _cut_lock = threading.Lock()
 
-            with ThreadPoolExecutor(max_workers=2) as executor:
+            with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {executor.submit(_render_cut, ci, cut): ci for ci, cut in enumerate(cut_plan)}
                 for future in as_completed(futures):
                     ci, clip = future.result()
@@ -4453,6 +4459,76 @@ class MVPipeline:
         return project
 
     # ================================================================
+    # 2-Phase 분리 실행 (앵커 리뷰 워크플로우)
+    # ================================================================
+
+    def run_until_anchors(
+        self,
+        project: MVProject,
+        request: MVProjectRequest,
+    ) -> MVProject:
+        """
+        Phase A-1: 씬 생성 ~ 캐릭터 앵커까지 실행 후 ANCHORS_READY로 멈춤.
+        프론트엔드에서 앵커 리뷰 후 run_from_images()로 이어짐.
+        """
+        cancel_path = f"outputs/{project.project_id}/.cancel"
+
+        # Step 2: 씬 골격 생성
+        project = self.generate_scenes(project, request)
+        if os.path.exists(cancel_path):
+            return project
+
+        # Step 2.1: 가사 서사 분석
+        project = self.analyze_story(project)
+
+        # Step 2.5: Visual Bible 생성
+        project = self.generate_visual_bible(project)
+        if os.path.exists(cancel_path):
+            return project
+
+        # Step 2.6: 스타일 앵커 생성
+        project = self.generate_style_anchor(project)
+
+        # Step 2.7: 캐릭터 앵커 생성
+        project = self.generate_character_anchors(project)
+
+        # ANCHORS_READY 상태로 전환 (리뷰 대기)
+        project.status = MVProjectStatus.ANCHORS_READY
+        project.progress = 40
+        project.current_step = "캐릭터 앵커 생성 완료 - 리뷰 대기"
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        self._save_manifest(project, project_dir)
+
+        print(f"[MV] Anchors ready, waiting for user review: {project.project_id}")
+        return project
+
+    def run_from_images(
+        self,
+        project: MVProject,
+        request: MVProjectRequest,
+    ) -> MVProject:
+        """
+        Phase A-2: 앵커 리뷰 승인 후 씬 프롬프트 + 이미지 생성 → IMAGES_READY.
+        """
+        cancel_path = f"outputs/{project.project_id}/.cancel"
+
+        project.status = MVProjectStatus.GENERATING
+        project.progress = 45
+        project.current_step = "씬 프롬프트 생성 중..."
+        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        self._save_manifest(project, project_dir)
+
+        # Step 2.8: 씬 프롬프트 생성
+        project = self.generate_scene_prompts(project, request)
+        if os.path.exists(cancel_path):
+            return project
+
+        # Step 3: 이미지 생성 (IMAGES_READY에서 멈춤)
+        project = self.generate_images(project)
+
+        return project
+
+    # ================================================================
     # 전체 파이프라인 실행
     # ================================================================
 
@@ -4819,7 +4895,7 @@ class MVPipeline:
             "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-profile:v", "high", "-level", "4.1",
-            "-preset", "medium", "-crf", "20",
+            "-preset", "fast", "-crf", "20",
             "-r", "30",
             "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
             out_abs

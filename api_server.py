@@ -3374,44 +3374,12 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
 
     def run_mv_generation():
         try:
-            print(f"[MV Thread] Starting generation for {request.project_id}")
-            cancel_path = f"outputs/{request.project_id}/.cancel"
+            print(f"[MV Thread] Starting generation (until anchors) for {request.project_id}")
 
-            # Step 2: 씬 골격 생성 (타이밍+가사, 프롬프트 아직 없음)
-            project_updated = pipeline.generate_scenes(project, request)
+            # Phase A-1: 씬 생성 ~ 캐릭터 앵커까지 (ANCHORS_READY에서 멈춤)
+            project_updated = pipeline.run_until_anchors(project, request)
 
-            if os.path.exists(cancel_path):
-                print(f"[MV Thread] Cancelled before story analysis")
-                return
-
-            # Step 2.1: 가사 서사 분석 (전체 가사 → 씬별 이벤트+중요도)
-            project_updated = pipeline.analyze_story(project_updated)
-
-            # Step 2.5: Visual Bible 생성 (전체 가사 + Story Analysis 반영)
-            project_updated = pipeline.generate_visual_bible(project_updated)
-
-            if os.path.exists(cancel_path):
-                print(f"[MV Thread] Cancelled before style anchor")
-                return
-
-            # Step 2.6: 전용 스타일 앵커 생성
-            project_updated = pipeline.generate_style_anchor(project_updated)
-
-            # Step 2.7: 캐릭터 앵커 생성
-            project_updated = pipeline.generate_character_anchors(project_updated)
-
-            # Step 2.8: 씬 프롬프트 생성 (Visual Bible + Story 반영)
-            project_updated = pipeline.generate_scene_prompts(project_updated, request)
-
-            if os.path.exists(cancel_path):
-                print(f"[MV Thread] Cancelled before image generation")
-                return
-
-            # Step 3: 이미지 생성 (IMAGES_READY에서 멈춤)
-            project_updated = pipeline.generate_images(project_updated)
-
-            # compose_video()는 사용자 리뷰 후 /api/mv/compose에서 별도 호출
-            print(f"[MV Thread] Images ready, waiting for user review: {project_updated.status}")
+            print(f"[MV Thread] Anchors ready, waiting for user review: {project_updated.status}")
 
             # R2에 매니페스트 업로드 (history 목록 조회용)
             try:
@@ -3421,7 +3389,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                 manifest_path = f"{project_dir}/manifest.json"
                 if os.path.exists(manifest_path):
                     if storage.upload_file(manifest_path, f"videos/{request.project_id}/manifest.json"):
-                        print(f"[MV Thread] Manifest uploaded to R2 (images_ready)")
+                        print(f"[MV Thread] Manifest uploaded to R2 (anchors_ready)")
             except Exception as e:
                 print(f"[MV Thread] R2 manifest upload error (non-fatal): {e}")
 
@@ -3451,6 +3419,79 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
         estimated_time_sec=estimated_time,
         message="뮤직비디오 생성이 시작되었습니다"
     )
+
+
+@app.post("/api/mv/generate/images/{project_id}")
+async def mv_generate_images(project_id: str):
+    """
+    Step 2.5: 캐릭터 앵커 승인 후 이미지 생성 시작 (비동기)
+
+    anchors_ready 상태에서 호출. 씬 프롬프트 생성 + 이미지 생성을 실행합니다.
+    """
+    from agents.mv_pipeline import MVPipeline
+    from schemas.mv_models import MVProjectRequest
+    import threading
+
+    validate_project_id(project_id)
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if project.status != MVProjectStatus.ANCHORS_READY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project is not in anchors_ready state (current: {project.status})"
+        )
+
+    # 원본 request 복원 (manifest에 저장된 정보 활용)
+    request = MVProjectRequest(
+        project_id=project_id,
+        style=getattr(project, 'style', None),
+        max_scenes=len(project.scenes) if project.scenes else None,
+    )
+
+    def run_mv_image_generation():
+        try:
+            print(f"[MV Thread] Starting image generation for {project_id}")
+            project_updated = pipeline.run_from_images(project, request)
+            print(f"[MV Thread] Images ready: {project_updated.status}")
+
+            # R2에 매니페스트 업로드
+            try:
+                from utils.storage import StorageManager
+                storage = StorageManager()
+                project_dir = f"outputs/{project_id}"
+                manifest_path = f"{project_dir}/manifest.json"
+                if os.path.exists(manifest_path):
+                    if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
+                        print(f"[MV Thread] Manifest uploaded to R2 (images_ready)")
+            except Exception as e:
+                print(f"[MV Thread] R2 manifest upload error (non-fatal): {e}")
+
+        except Exception as e:
+            print(f"[MV Thread] Image generation error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                project.status = MVProjectStatus.FAILED
+                project.error_message = str(e)[:500]
+                project.progress = 0
+                project_dir = f"outputs/{project_id}"
+                pipeline._save_manifest(project, project_dir)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=run_mv_image_generation, daemon=True)
+    thread.start()
+
+    return {
+        "project_id": project_id,
+        "status": "generating",
+        "message": "이미지 생성이 시작되었습니다"
+    }
 
 
 @app.post("/api/mv/cancel/{project_id}")
@@ -3483,12 +3524,18 @@ async def mv_status(project_id: str):
     if not project:
         raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
+    # 캐릭터 앵커 데이터 (Visual Bible에서 추출)
+    characters = None
+    if project.visual_bible and project.visual_bible.characters:
+        characters = project.visual_bible.characters
+
     return MVStatusResponse(
         project_id=project.project_id,
         status=project.status,
         progress=project.progress,
         current_step=project.current_step,
         scenes=project.scenes,
+        characters=characters,
         error_message=project.error_message
     )
 

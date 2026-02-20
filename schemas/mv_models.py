@@ -122,6 +122,7 @@ class MVProjectStatus(str, Enum):
     ANALYZING = "analyzing"
     READY = "ready"
     GENERATING = "generating"
+    ANCHORS_READY = "anchors_ready"  # 캐릭터 앵커 생성 완료, 리뷰 대기
     IMAGES_READY = "images_ready"  # 이미지 생성 완료, 리뷰 대기
     COMPOSING = "composing"
     COMPLETED = "completed"
@@ -365,6 +366,7 @@ class MVStatusResponse(BaseModel):
     progress: int
     current_step: Optional[str]
     scenes: List[MVScene]
+    characters: Optional[List[MVCharacter]] = None
     error_message: Optional[str] = None
 
 
