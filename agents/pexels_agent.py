@@ -278,6 +278,17 @@ class PexelsAgent:
             notes = data.get("notes", "")
 
             if queries and isinstance(queries, list):
+                # tropical/palm/beach 쿼리 필터링 (concept에 명시적으로 없는 경우)
+                _concept_lower = (concept or "").lower()
+                _allow_tropical = any(kw in _concept_lower for kw in ["tropical", "beach", "island", "hawaii", "bali", "caribbean"])
+                if not _allow_tropical:
+                    _BANNED = {"tropical", "palm", "palm tree", "beach", "coconut", "ocean wave", "island"}
+                    filtered = [q for q in queries if not any(b in q.lower() for b in _BANNED)]
+                    if filtered:
+                        removed = len(queries) - len(filtered)
+                        if removed > 0:
+                            print(f"    [Pexels] Filtered {removed} tropical queries")
+                        queries = filtered
                 print(f"    [Pexels] LLM generated {len(queries)} queries: {queries[:3]}...")
                 if notes:
                     print(f"    [Pexels] Reasoning: {notes[:80]}")
