@@ -335,6 +335,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             status="processing",
             title=story_data.get("title"),
             hook_text=story_data.get("hook_text"),
+            user_id=story_data.get("user_id", ""),
             script=json.dumps(story_data, ensure_ascii=False)
         )
 
@@ -831,6 +832,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             input=request,
             status="preparing",  # 준비 단계
             title=story_data.get("title"),
+            user_id=story_data.get("user_id", ""),
             script=json.dumps(story_data, ensure_ascii=False)
         )
 

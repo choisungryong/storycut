@@ -748,6 +748,7 @@ class TrackedPipeline(StorycutPipeline):
             input=request,
             status="processing",
             title=story_data.get("title"),
+            user_id=story_data.get("user_id", ""),
             script=json.dumps(story_data, ensure_ascii=False)
         )
         
@@ -1205,6 +1206,11 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
     if req.character_voices:
         req.story_data["character_voices"] = [cv.model_dump() for cv in req.character_voices]
 
+    # user_id를 story_data에 포함시켜 파이프라인까지 전달
+    _user_id = request.headers.get("X-User-Id", "")
+    if _user_id:
+        req.story_data["user_id"] = _user_id
+
     # 별도 스레드에서 실행 (BackgroundTask 대신 Threading 사용)
     def run_pipeline_thread():
         print(f"[THREAD] Starting pipeline thread for project: {project_id}", flush=True)
@@ -1369,11 +1375,22 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                     except Exception as e:
                         print(f"[WRAPPER] Asset upload error: {e}")
 
-                    # Manifest 저장
+                    # Manifest 저장 — 디스크의 기존 user_id 보존
                     manifest.outputs.final_video_path = public_url # Main video
-                    
+
+                    # _save_manifest 대신 직접 쓰되, 기존 user_id를 반드시 보존
+                    _manifest_dict = manifest.model_dump(mode='json')
+                    if os.path.exists(manifest_path):
+                        try:
+                            with open(manifest_path, "r", encoding="utf-8") as _rf:
+                                _old_m = json.load(_rf)
+                            # user_id가 null이면 기존 값으로 복원
+                            if not _manifest_dict.get("user_id") and _old_m.get("user_id"):
+                                _manifest_dict["user_id"] = _old_m["user_id"]
+                        except Exception:
+                            pass
                     with open(manifest_path, "w", encoding="utf-8") as f:
-                        f.write(json.dumps(manifest.model_dump(mode='json'), ensure_ascii=False, indent=2))
+                        f.write(json.dumps(_manifest_dict, ensure_ascii=False, indent=2))
                     
                     # manifest.json도 R2에 업로드 (history 조회용)
                     manifest_r2_key = f"videos/{project_id}/manifest.json"
