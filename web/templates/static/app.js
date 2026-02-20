@@ -4972,7 +4972,7 @@ class StorycutApp {
 
     async loadBoard(category, page) {
         try {
-            const cat = category || this._boardCategory || '';
+            const cat = category !== undefined ? category : (this._boardCategory || '');
             const pg = page || 1;
             this._boardCategory = cat;
             this._boardPage = pg;
