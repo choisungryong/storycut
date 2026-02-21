@@ -4241,18 +4241,12 @@ class MVPipeline:
                         aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
                         timeline_mode = "uniform_fallback"
 
-                    # ASS 출력 (pysubs2) -> SRT fallback
-                    try:
-                        srt_path = gemini_ass
-                        write_ass(aligned, srt_path)
-                        print(f"    ASS: {n_lines} lines -> {srt_path}")
-                    except Exception as ass_err:
-                        print(f"    [ASS Error] {ass_err}, falling back to SRT...")
-                        srt_path = gemini_srt
-                        srt_timeline = [SubtitleLine(a.start, a.end, a.text) for a in aligned]
-                        write_srt(srt_timeline, srt_path)
-                        timeline_mode += "+srt_fallback"
-                        print(f"    SRT: {n_lines} lines -> {srt_path}")
+                    # ASS 출력 (render_ass: 순수 문자열, pysubs2 불필요)
+                    from utils.lyrics_aligner import render_ass as _render_ass, Caption as _Caption
+                    _caps = [_Caption(a.start, a.end, a.text) for a in aligned]
+                    srt_path = gemini_ass
+                    _render_ass(_caps, srt_path)
+                    print(f"    ASS: {n_lines} lines -> {srt_path}")
 
                     # alignment.json 저장 (디버깅용)
                     project.aligned_lyrics = [
