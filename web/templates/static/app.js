@@ -4126,9 +4126,9 @@ class StorycutApp {
                     border: 1px solid rgba(255,255,255,0.1);
                 ">
                     <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; justify-content:center;">
-                        ${frontImg ? `<img src="${baseUrl}${frontImg}" alt="front" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:2px solid #6c5ce7;">` : ''}
-                        ${threeQuarterImg ? `<img src="${baseUrl}${threeQuarterImg}" alt="3/4" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">` : ''}
-                        ${fullBodyImg ? `<img src="${baseUrl}${fullBodyImg}" alt="full" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">` : ''}
+                        ${frontImg ? `<img src="${frontImg.startsWith('http') ? frontImg : baseUrl + frontImg}" alt="front" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:2px solid #6c5ce7;">` : ''}
+                        ${threeQuarterImg ? `<img src="${threeQuarterImg.startsWith('http') ? threeQuarterImg : baseUrl + threeQuarterImg}" alt="3/4" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">` : ''}
+                        ${fullBodyImg ? `<img src="${fullBodyImg.startsWith('http') ? fullBodyImg : baseUrl + fullBodyImg}" alt="full" style="width:120px; height:160px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">` : ''}
                     </div>
                     <h4 style="margin:0 0 4px; color:#fff; font-size:14px;">${char.role}</h4>
                     <p style="margin:0 0 8px; color:rgba(255,255,255,0.6); font-size:12px; line-height:1.4;">

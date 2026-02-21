@@ -3536,17 +3536,65 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
 
             print(f"[MV Thread] Anchors ready, waiting for user review: {project_updated.status}")
 
-            # R2에 매니페스트 업로드 (history 목록 조회용)
+            # R2에 앵커 이미지 + 매니페스트 업로드
             try:
                 from utils.storage import StorageManager
                 storage = StorageManager()
-                project_dir = f"outputs/{request.project_id}"
+                project_id = request.project_id
+                project_dir = f"outputs/{project_id}"
                 manifest_path = f"{project_dir}/manifest.json"
+                backend_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+                if backend_url and not backend_url.startswith("http"):
+                    backend_url = f"https://{backend_url}"
+                if not backend_url:
+                    backend_url = "https://web-production-bb6bf.up.railway.app"
+
+                # 1) 캐릭터 앵커 이미지 R2 업로드 + 경로 변환
+                if project_updated.visual_bible and project_updated.visual_bible.characters:
+                    for char in project_updated.visual_bible.characters:
+                        # front (anchor_image_path)
+                        if char.anchor_image_path and os.path.exists(char.anchor_image_path):
+                            fname = os.path.basename(char.anchor_image_path)
+                            safe_role = char.role.replace(' ', '_')[:20]
+                            r2_key = f"images/{project_id}/char_{safe_role}_{fname}"
+                            if storage.upload_file(char.anchor_image_path, r2_key):
+                                char.anchor_image_path = f"{backend_url}/api/asset/{project_id}/image/char_{safe_role}_{fname}"
+                                print(f"[MV Thread] Uploaded anchor: {char.role} front -> {r2_key}")
+
+                        # 멀티포즈 (anchor_poses)
+                        if char.anchor_poses:
+                            updated_poses = {}
+                            for pose_name, pose_path in char.anchor_poses.items():
+                                if pose_path and os.path.exists(pose_path):
+                                    fname = os.path.basename(pose_path)
+                                    safe_role = char.role.replace(' ', '_')[:20]
+                                    r2_key = f"images/{project_id}/char_{safe_role}_{pose_name}_{fname}"
+                                    if storage.upload_file(pose_path, r2_key):
+                                        updated_poses[pose_name] = f"{backend_url}/api/asset/{project_id}/image/char_{safe_role}_{pose_name}_{fname}"
+                                        print(f"[MV Thread] Uploaded anchor: {char.role} {pose_name} -> {r2_key}")
+                                    else:
+                                        updated_poses[pose_name] = pose_path
+                                else:
+                                    updated_poses[pose_name] = pose_path
+                            char.anchor_poses = updated_poses
+
+                # 2) 스타일 앵커 이미지 R2 업로드
+                if project_updated.style_anchor_path and os.path.exists(project_updated.style_anchor_path):
+                    fname = os.path.basename(project_updated.style_anchor_path)
+                    r2_key = f"images/{project_id}/{fname}"
+                    if storage.upload_file(project_updated.style_anchor_path, r2_key):
+                        project_updated.style_anchor_path = f"{backend_url}/api/asset/{project_id}/image/{fname}"
+                        print(f"[MV Thread] Uploaded style anchor -> {r2_key}")
+
+                # 3) 변환된 경로로 매니페스트 재저장 + R2 업로드
+                pipeline._save_manifest(project_updated, project_dir)
                 if os.path.exists(manifest_path):
-                    if storage.upload_file(manifest_path, f"videos/{request.project_id}/manifest.json"):
+                    if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
                         print(f"[MV Thread] Manifest uploaded to R2 (anchors_ready)")
             except Exception as e:
-                print(f"[MV Thread] R2 manifest upload error (non-fatal): {e}")
+                print(f"[MV Thread] R2 upload error (non-fatal): {e}")
+                import traceback
+                traceback.print_exc()
 
         except Exception as e:
             print(f"[MV Thread] Error: {e}")
