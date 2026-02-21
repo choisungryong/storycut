@@ -4157,7 +4157,13 @@ class StorycutApp {
                     ${characterCards}
                 </div>
 
-                <div style="display:flex; gap:12px; justify-content:center;">
+                <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+                    <button id="mv-regenerate-anchors-btn" style="
+                        background: rgba(255,255,255,0.1);
+                        color:#fff; border:1px solid rgba(255,255,255,0.3); padding:14px 24px;
+                        border-radius:8px; font-size:14px; font-weight:500;
+                        cursor:pointer; transition: opacity 0.2s;
+                    ">캐릭터 재생성</button>
                     <button id="mv-approve-anchors-btn" style="
                         background: linear-gradient(135deg, #6c5ce7, #a29bfe);
                         color:#fff; border:none; padding:14px 32px;
@@ -4169,6 +4175,40 @@ class StorycutApp {
         `;
 
         mainContent.innerHTML = reviewHtml;
+
+        // 재생성 버튼 이벤트
+        const regenBtn = document.getElementById('mv-regenerate-anchors-btn');
+        if (regenBtn) {
+            regenBtn.addEventListener('click', async () => {
+                regenBtn.disabled = true;
+                regenBtn.textContent = '재생성 중...';
+                regenBtn.style.opacity = '0.6';
+
+                try {
+                    const resp = await fetch(`${baseUrl}/api/mv/regenerate/anchors/${projectId}`, {
+                        method: 'POST',
+                        headers: this.getAuthHeaders()
+                    });
+
+                    if (!resp.ok) {
+                        const err = await resp.json();
+                        throw new Error(err.detail || 'Failed to regenerate anchors');
+                    }
+
+                    this.showToast('캐릭터를 재생성합니다', 'success');
+                    this.showSection('mv-progress');
+                    this.updateMVProgress(30, '캐릭터 앵커 재생성 중...');
+                    this.startMVPolling(projectId);
+
+                } catch (error) {
+                    console.error('Failed to regenerate anchors:', error);
+                    this.showToast(`재생성 실패: ${error.message}`, 'error');
+                    regenBtn.disabled = false;
+                    regenBtn.textContent = '캐릭터 재생성';
+                    regenBtn.style.opacity = '1';
+                }
+            });
+        }
 
         // 승인 버튼 이벤트
         const approveBtn = document.getElementById('mv-approve-anchors-btn');

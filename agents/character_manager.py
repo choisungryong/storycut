@@ -334,12 +334,12 @@ class CharacterManager:
             visual_seed=42,
         )
 
-        mv_poses = ["front", "full_body"]
+        mv_poses = ["front", "three_quarter", "full_body"]
         print(f"  Characters: {len(character_sheet)}")
         print(f"  Style: {global_style.art_style}")
         print(f"  Poses: {mv_poses}, Candidates: {candidates_per_pose}")
 
-        # cast_characters 호출 (front + full_body 포즈)
+        # cast_characters 호출 (front + three_quarter + full_body 포즈)
         token_to_path = self.cast_characters(
             character_sheet=character_sheet,
             global_style=global_style,

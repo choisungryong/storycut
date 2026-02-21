@@ -3653,6 +3653,108 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
     )
 
 
+@app.post("/api/mv/regenerate/anchors/{project_id}")
+async def mv_regenerate_anchors(project_id: str):
+    """
+    캐릭터 앵커 재생성: 기존 Visual Bible 유지, 앵커 이미지만 재생성
+    """
+    from agents.mv_pipeline import MVPipeline
+    import threading
+
+    validate_project_id(project_id)
+
+    pipeline = MVPipeline()
+    project = pipeline.load_project(project_id)
+
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    if project.status != MVProjectStatus.ANCHORS_READY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project is not in anchors_ready state (current: {project.status})"
+        )
+
+    def run_regeneration():
+        try:
+            # 상태를 GENERATING으로 변경
+            project.status = MVProjectStatus.GENERATING
+            project.progress = 30
+            project.current_step = "캐릭터 앵커 재생성 중"
+            project_dir = f"outputs/{project_id}"
+            pipeline._save_manifest(project, project_dir)
+
+            # 캐릭터 앵커만 재생성
+            project_updated = pipeline.generate_character_anchors(project)
+
+            # R2 업로드 + ANCHORS_READY 전환 (기존 로직 재사용)
+            try:
+                from utils.storage import StorageManager
+                storage = StorageManager()
+                manifest_path = f"{project_dir}/manifest.json"
+                backend_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+                if backend_url and not backend_url.startswith("http"):
+                    backend_url = f"https://{backend_url}"
+                if not backend_url:
+                    backend_url = "https://web-production-bb6bf.up.railway.app"
+
+                if project_updated.visual_bible and project_updated.visual_bible.characters:
+                    for char in project_updated.visual_bible.characters:
+                        safe_role = char.role.replace(' ', '_')[:20]
+                        if char.anchor_poses:
+                            updated_poses = {}
+                            for pose_name, pose_path in char.anchor_poses.items():
+                                if pose_path and os.path.exists(pose_path):
+                                    ext = os.path.splitext(pose_path)[1] or '.jpg'
+                                    r2_name = f"char_{safe_role}_{pose_name}{ext}"
+                                    r2_key = f"images/{project_id}/{r2_name}"
+                                    if storage.upload_file(pose_path, r2_key):
+                                        updated_poses[pose_name] = f"{backend_url}/api/asset/{project_id}/image/{r2_name}"
+                                    else:
+                                        updated_poses[pose_name] = pose_path
+                                else:
+                                    updated_poses[pose_name] = pose_path
+                            char.anchor_poses = updated_poses
+                            if 'front' in updated_poses and updated_poses['front'].startswith('http'):
+                                char.anchor_image_path = updated_poses['front']
+                        elif char.anchor_image_path and os.path.exists(char.anchor_image_path):
+                            ext = os.path.splitext(char.anchor_image_path)[1] or '.jpg'
+                            r2_name = f"char_{safe_role}_front{ext}"
+                            r2_key = f"images/{project_id}/{r2_name}"
+                            if storage.upload_file(char.anchor_image_path, r2_key):
+                                char.anchor_image_path = f"{backend_url}/api/asset/{project_id}/image/{r2_name}"
+
+                project_updated.status = MVProjectStatus.ANCHORS_READY
+                project_updated.progress = 40
+                project_updated.current_step = "캐릭터 앵커 재생성 완료 - 리뷰 대기"
+                pipeline._save_manifest(project_updated, project_dir)
+                if os.path.exists(manifest_path):
+                    storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json")
+            except Exception as e:
+                print(f"[MV Regen] R2 upload error: {e}")
+                import traceback
+                traceback.print_exc()
+                project_updated.status = MVProjectStatus.ANCHORS_READY
+                project_updated.progress = 40
+                project_updated.current_step = "캐릭터 앵커 재생성 완료 - 리뷰 대기"
+                pipeline._save_manifest(project_updated, project_dir)
+
+            print(f"[MV Regen] Anchors regenerated for {project_id}")
+        except Exception as e:
+            print(f"[MV Regen] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            project.status = MVProjectStatus.ANCHORS_READY
+            project.progress = 40
+            project.current_step = "앵커 재생성 실패 - 기존 앵커 유지"
+            pipeline._save_manifest(project, f"outputs/{project_id}")
+
+    thread = threading.Thread(target=run_regeneration, daemon=True)
+    thread.start()
+
+    return {"status": "regenerating", "message": "캐릭터 앵커를 재생성합니다"}
+
+
 @app.post("/api/mv/generate/images/{project_id}")
 async def mv_generate_images(project_id: str):
     """
