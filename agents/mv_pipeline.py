@@ -4615,14 +4615,16 @@ class MVPipeline:
             print(f"[MV] FAILED - No character anchors generated: {project.project_id}")
             return project
 
-        # ANCHORS_READY 상태로 전환 (리뷰 대기)
-        project.status = MVProjectStatus.ANCHORS_READY
-        project.progress = 40
-        project.current_step = "캐릭터 앵커 생성 완료 - 리뷰 대기"
+        # 앵커 생성 완료 → 아직 ANCHORS_READY로 전환하지 않음
+        # R2 업로드 후 api_server.py에서 ANCHORS_READY로 전환
+        # (레이스 컨디션 방지: 프론트가 로컬 경로를 받는 문제)
+        project.status = MVProjectStatus.GENERATING
+        project.progress = 38
+        project.current_step = "앵커 이미지 업로드 중"
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         self._save_manifest(project, project_dir)
 
-        print(f"[MV] Anchors ready ({len(characters_with_anchors)} characters), waiting for user review: {project.project_id}")
+        print(f"[MV] Anchors generated ({len(characters_with_anchors)} characters), uploading to R2: {project.project_id}")
         return project
 
     def run_from_images(

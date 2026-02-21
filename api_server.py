@@ -2620,12 +2620,19 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     if not resolved_path.startswith(outputs_base):
         raise HTTPException(status_code=403, detail="접근이 거부되었습니다.")
 
-    # MV 프로젝트: media/images/ 경로도 확인 (fallback)
+    # MV 프로젝트: 대체 경로 순회 (fallback)
     if not os.path.exists(local_path) and asset_type == "image":
-        alt_path = f"outputs/{project_id}/media/images/{filename}"
-        alt_resolved = os.path.realpath(alt_path)
-        if alt_resolved.startswith(outputs_base) and os.path.exists(alt_path):
-            local_path = alt_path
+        import glob as _glob
+        alt_paths = [
+            f"outputs/{project_id}/media/images/{filename}",
+            # 캐릭터 앵커: media/characters/*/filename 패턴
+            *_glob.glob(f"outputs/{project_id}/media/characters/*/{filename}"),
+        ]
+        for alt_path in alt_paths:
+            alt_resolved = os.path.realpath(alt_path)
+            if alt_resolved.startswith(outputs_base) and os.path.exists(alt_path):
+                local_path = alt_path
+                break
 
     if os.path.exists(local_path):
         media_types = {
@@ -3592,15 +3599,31 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                         project_updated.style_anchor_path = f"{backend_url}/api/asset/{project_id}/image/{fname}"
                         print(f"[MV Thread] Uploaded style anchor -> {r2_key}")
 
-                # 3) 변환된 경로로 매니페스트 재저장 + R2 업로드
+                # 3) R2 업로드 완료 후 ANCHORS_READY로 전환
+                #    (레이스 컨디션 방지: 프론트가 로컬 경로를 받는 문제)
+                from schemas.mv_models import MVProjectStatus as _MVStatus
+                project_updated.status = _MVStatus.ANCHORS_READY
+                project_updated.progress = 40
+                project_updated.current_step = "캐릭터 앵커 생성 완료 - 리뷰 대기"
+
                 pipeline._save_manifest(project_updated, project_dir)
                 if os.path.exists(manifest_path):
                     if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
                         print(f"[MV Thread] Manifest uploaded to R2 (anchors_ready)")
+                print(f"[MV Thread] ANCHORS_READY set after R2 upload complete")
             except Exception as e:
-                print(f"[MV Thread] R2 upload error (non-fatal): {e}")
+                print(f"[MV Thread] R2 upload error: {e}")
                 import traceback
                 traceback.print_exc()
+                # R2 실패해도 ANCHORS_READY로 전환 (로컬 경로라도 표시)
+                try:
+                    from schemas.mv_models import MVProjectStatus as _MVStatus
+                    project_updated.status = _MVStatus.ANCHORS_READY
+                    project_updated.progress = 40
+                    project_updated.current_step = "캐릭터 앵커 생성 완료 - 리뷰 대기"
+                    pipeline._save_manifest(project_updated, project_dir)
+                except Exception:
+                    pass
 
         except Exception as e:
             print(f"[MV Thread] Error: {e}")
