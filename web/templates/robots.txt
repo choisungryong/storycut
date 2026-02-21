@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /landing
+Allow: /about.html
+Allow: /pricing.html
+Allow: /terms.html
+Allow: /privacy.html
+Disallow: /index.html
+Disallow: /login.html
+Disallow: /signup.html
+Disallow: /static/
+Disallow: /api/
+
+Sitemap: https://storycut.pages.dev/sitemap.xml
