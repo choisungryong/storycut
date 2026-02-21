@@ -4087,12 +4087,30 @@ class StorycutApp {
         const toWebUrl = (path) => {
             if (!path) return '';
             if (path.startsWith('http')) return path;
-            // outputs/{id}/media/characters/xxx.png → /media/{id}/media/characters/xxx.png
+            // outputs/{project_id}/media/characters/xxx.png → /api/asset/{project_id}/image/xxx.png
             if (path.startsWith('outputs/')) {
-                return `/media/${path.substring('outputs/'.length)}`;
+                const parts = path.replace(/\\/g, '/').split('/');
+                // parts: ["outputs", "{project_id}", "media", "characters", "xxx.png"]
+                const pid = parts[1];
+                const filename = parts[parts.length - 1];
+                return `/api/asset/${pid}/image/${filename}`;
             }
             return path;
         };
+
+        if (!characters || characters.length === 0) {
+            mainContent.innerHTML = `
+                <div style="max-width:900px; margin:0 auto; padding:40px 20px; text-align:center;">
+                    <h2 style="color:#fff; margin:0 0 12px;">캐릭터 앵커 리뷰</h2>
+                    <p style="color:rgba(255,255,255,0.6); margin:0 0 24px;">캐릭터 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.</p>
+                    <button onclick="location.reload()" style="
+                        background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+                        color:#fff; border:none; padding:12px 24px;
+                        border-radius:8px; font-size:14px; cursor:pointer;
+                    ">새로고침</button>
+                </div>`;
+            return;
+        }
 
         const characterCards = characters.map((char, idx) => {
             const frontImg = toWebUrl(char.anchor_image_path);
