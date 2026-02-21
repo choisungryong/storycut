@@ -739,22 +739,25 @@ JSON 형식으로 출력:
                 dialogue_lines = scene_dict.get("dialogue_lines", [])
                 character_voices = story_data.get("character_voices", [])
 
+                # 프로젝트별 TTS 출력 경로 (동시 생성 시 파일 충돌 방지)
+                _audio_dir = f"{os.path.dirname(output_path)}/media/audio"
+                os.makedirs(_audio_dir, exist_ok=True)
+                _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
+
                 if dialogue_lines and character_voices:
                     # 멀티 화자 TTS
-                    output_dir = f"{os.path.dirname(output_path)}/media/audio"
-                    os.makedirs(output_dir, exist_ok=True)
-                    audio_path = f"{output_dir}/narration_{scene.scene_id:02d}.mp3"
                     tts_result = self.tts_agent.generate_dialogue_audio(
                         dialogue_lines=dialogue_lines,
                         character_voices=character_voices,
-                        output_path=audio_path,
+                        output_path=_audio_path,
                     )
                 else:
-                    # 기존 단일 내레이션 TTS
+                    # 단일 내레이션 TTS
                     tts_result = self.tts_agent.generate_speech(
                         scene_id=scene.scene_id,
                         narration=scene.narration,
-                        emotion=scene.mood
+                        emotion=scene.mood,
+                        output_path=_audio_path
                     )
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
@@ -783,7 +786,8 @@ JSON 형식으로 출력:
                             tts_result2 = self.tts_agent.generate_speech(
                                 scene_id=scene.scene_id,
                                 narration=shortened,
-                                emotion=scene.mood
+                                emotion=scene.mood,
+                                output_path=tts_result.audio_path
                             )
                         scene.assets.narration_path = tts_result2.audio_path
                         scene.tts_duration_sec = tts_result2.duration_sec
@@ -1079,20 +1083,23 @@ JSON 형식으로 출력:
                 dialogue_lines = scene_dict.get("dialogue_lines", [])
                 character_voices = story_data.get("character_voices", [])
 
+                # 프로젝트별 TTS 출력 경로 (동시 생성 시 파일 충돌 방지)
+                _audio_dir = f"{project_dir}/media/audio"
+                os.makedirs(_audio_dir, exist_ok=True)
+                _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
+
                 if dialogue_lines and character_voices:
-                    output_dir = f"{project_dir}/media/audio"
-                    os.makedirs(output_dir, exist_ok=True)
-                    audio_path = f"{output_dir}/narration_{scene.scene_id:02d}.mp3"
                     tts_result = self.tts_agent.generate_dialogue_audio(
                         dialogue_lines=dialogue_lines,
                         character_voices=character_voices,
-                        output_path=audio_path,
+                        output_path=_audio_path,
                     )
                 else:
                     tts_result = self.tts_agent.generate_speech(
                         scene_id=scene.scene_id,
                         narration=scene.narration,
-                        emotion=scene.mood
+                        emotion=scene.mood,
+                        output_path=_audio_path
                     )
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
@@ -1117,7 +1124,8 @@ JSON 형식으로 출력:
                             tts_result2 = self.tts_agent.generate_speech(
                                 scene_id=scene.scene_id,
                                 narration=shortened,
-                                emotion=scene.mood
+                                emotion=scene.mood,
+                                output_path=tts_result.audio_path
                             )
                         scene.assets.narration_path = tts_result2.audio_path
                         scene.tts_duration_sec = tts_result2.duration_sec
@@ -1752,7 +1760,8 @@ JSON 형식으로 출력:
     def retry_scene(
         self,
         scene: Dict[str, Any],
-        story_style: str = "cinematic"
+        story_style: str = "cinematic",
+        project_dir: str = None
     ) -> tuple[str, str]:
         """
         단일 Scene 재처리.
@@ -1760,6 +1769,7 @@ JSON 형식으로 출력:
         Args:
             scene: Scene 데이터
             story_style: 영상 스타일
+            project_dir: 프로젝트 디렉토리 (TTS 파일 격리용)
 
         Returns:
             (video_path, audio_path) 튜플
@@ -1774,10 +1784,18 @@ JSON 형식으로 출력:
             duration_sec=scene["duration_sec"]
         )
 
+        # 프로젝트별 TTS 경로
+        _tts_output = None
+        if project_dir:
+            _audio_dir = f"{project_dir}/media/audio"
+            os.makedirs(_audio_dir, exist_ok=True)
+            _tts_output = f"{_audio_dir}/narration_{scene['scene_id']:02d}.mp3"
+
         tts_result = self.tts_agent.generate_speech(
             scene_id=scene["scene_id"],
             narration=scene["narration"],
-            emotion=scene["mood"]
+            emotion=scene["mood"],
+            output_path=_tts_output
         )
         audio_path = tts_result.audio_path
 

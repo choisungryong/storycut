@@ -3147,7 +3147,8 @@ async def regenerate_scene(
         # 재생성
         video_path, audio_path = orchestrator.retry_scene(
             scene=target_scene,
-            story_style=style
+            story_style=style,
+            project_dir=f"outputs/{project_id}"
         )
 
         # 결과 업데이트

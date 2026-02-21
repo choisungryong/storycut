@@ -49,7 +49,8 @@ class TTSAgent:
         self,
         scene_id: int,
         narration: str,
-        emotion: str = "neutral"
+        emotion: str = "neutral",
+        output_path: str = None
     ) -> TTSResult:
         """
         Generate narration audio for a scene.
@@ -58,6 +59,7 @@ class TTSAgent:
             scene_id: Scene identifier
             narration: Text to speak
             emotion: Emotional tone (for compatible TTS services)
+            output_path: 프로젝트별 출력 경로 (미지정 시 공유 경로 fallback)
 
         Returns:
             TTSResult with audio_path and duration_sec
@@ -65,10 +67,13 @@ class TTSAgent:
         print(f"  [TTS Agent] Generating narration for scene {scene_id}...")
         print(f"     Text: {narration[:60]}...")
 
-        # Build output path
-        output_dir = "media/audio"
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = f"{output_dir}/narration_{scene_id:02d}.mp3"
+        # Build output path — 프로젝트별 경로 우선, 미지정 시 공유 경로 fallback
+        if output_path:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        else:
+            output_dir = "media/audio"
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = f"{output_dir}/narration_{scene_id:02d}.mp3"
 
         audio_path = None
 
