@@ -3552,31 +3552,37 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                 # 1) 캐릭터 앵커 이미지 R2 업로드 + 경로 변환
                 if project_updated.visual_bible and project_updated.visual_bible.characters:
                     for char in project_updated.visual_bible.characters:
-                        # front (anchor_image_path)
-                        if char.anchor_image_path and os.path.exists(char.anchor_image_path):
-                            fname = os.path.basename(char.anchor_image_path)
-                            safe_role = char.role.replace(' ', '_')[:20]
-                            r2_key = f"images/{project_id}/char_{safe_role}_{fname}"
-                            if storage.upload_file(char.anchor_image_path, r2_key):
-                                char.anchor_image_path = f"{backend_url}/api/asset/{project_id}/image/char_{safe_role}_{fname}"
-                                print(f"[MV Thread] Uploaded anchor: {char.role} front -> {r2_key}")
+                        safe_role = char.role.replace(' ', '_')[:20]
 
-                        # 멀티포즈 (anchor_poses)
+                        # 멀티포즈 (anchor_poses) — front 포함 모든 포즈
                         if char.anchor_poses:
                             updated_poses = {}
                             for pose_name, pose_path in char.anchor_poses.items():
                                 if pose_path and os.path.exists(pose_path):
-                                    fname = os.path.basename(pose_path)
-                                    safe_role = char.role.replace(' ', '_')[:20]
-                                    r2_key = f"images/{project_id}/char_{safe_role}_{pose_name}_{fname}"
+                                    ext = os.path.splitext(pose_path)[1] or '.jpg'
+                                    r2_name = f"char_{safe_role}_{pose_name}{ext}"
+                                    r2_key = f"images/{project_id}/{r2_name}"
                                     if storage.upload_file(pose_path, r2_key):
-                                        updated_poses[pose_name] = f"{backend_url}/api/asset/{project_id}/image/char_{safe_role}_{pose_name}_{fname}"
+                                        url = f"{backend_url}/api/asset/{project_id}/image/{r2_name}"
+                                        updated_poses[pose_name] = url
                                         print(f"[MV Thread] Uploaded anchor: {char.role} {pose_name} -> {r2_key}")
                                     else:
                                         updated_poses[pose_name] = pose_path
                                 else:
                                     updated_poses[pose_name] = pose_path
                             char.anchor_poses = updated_poses
+                            # anchor_image_path를 front 포즈 URL로 동기화
+                            if 'front' in updated_poses and updated_poses['front'].startswith('http'):
+                                char.anchor_image_path = updated_poses['front']
+
+                        # front만 있고 poses가 없는 경우
+                        elif char.anchor_image_path and os.path.exists(char.anchor_image_path):
+                            ext = os.path.splitext(char.anchor_image_path)[1] or '.jpg'
+                            r2_name = f"char_{safe_role}_front{ext}"
+                            r2_key = f"images/{project_id}/{r2_name}"
+                            if storage.upload_file(char.anchor_image_path, r2_key):
+                                char.anchor_image_path = f"{backend_url}/api/asset/{project_id}/image/{r2_name}"
+                                print(f"[MV Thread] Uploaded anchor: {char.role} front -> {r2_key}")
 
                 # 2) 스타일 앵커 이미지 R2 업로드
                 if project_updated.style_anchor_path and os.path.exists(project_updated.style_anchor_path):
