@@ -2228,6 +2228,7 @@ class StorycutApp {
                 // anchors_ready: 앵커 리뷰 화면으로 이동
                 if (manifest.status === 'anchors_ready') {
                     const characters = manifest.visual_bible?.characters || manifest.characters || [];
+                    this.showSection('mv-progress');
                     this.showMVCharacterReview(projectId, characters);
                     return;
                 }
