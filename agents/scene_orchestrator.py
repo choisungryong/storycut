@@ -759,8 +759,8 @@ JSON 형식으로 출력:
                         output_path=_audio_path,
                     )
                 else:
-                    # 문장별 TTS 생성 (실제 발화 타이밍 측정)
-                    tts_result = self.tts_agent.generate_speech_with_timing(
+                    # alignment 포함 TTS 생성 (정밀 자막 싱크)
+                    tts_result = self.tts_agent.generate_speech(
                         scene_id=scene.scene_id,
                         narration=scene.narration,
                         emotion=scene.mood,
@@ -771,6 +771,10 @@ JSON 형식으로 출력:
                 # 실제 발화 타이밍 저장 (SRT 생성에 사용)
                 if tts_result.sentence_timings:
                     scene._sentence_timings = tts_result.sentence_timings
+                # ElevenLabs 캐릭터별 정밀 alignment 저장
+                if getattr(tts_result, 'char_alignment', None):
+                    scene._char_alignment = tts_result.char_alignment
+                    print(f"     [TTS] Scene {scene.scene_id}: char_alignment 저장 ({len(tts_result.char_alignment['characters'])} chars)")
 
                 # TTS 기반으로 duration 조정
                 # - 2배 이내: 씬 duration을 TTS에 맞춤 (스토리 보존 우선)
@@ -793,7 +797,7 @@ JSON 형식으로 출력:
                                 output_path=tts_result.audio_path,
                             )
                         else:
-                            tts_result2 = self.tts_agent.generate_speech_with_timing(
+                            tts_result2 = self.tts_agent.generate_speech(
                                 scene_id=scene.scene_id,
                                 narration=shortened,
                                 emotion=scene.mood,
@@ -803,6 +807,8 @@ JSON 형식으로 출력:
                         scene.tts_duration_sec = tts_result2.duration_sec
                         if tts_result2.sentence_timings:
                             scene._sentence_timings = tts_result2.sentence_timings
+                        if getattr(tts_result2, 'char_alignment', None):
+                            scene._char_alignment = tts_result2.char_alignment
                         tts_dur = math.ceil(tts_result2.duration_sec) + 1
                         print(f"     [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
 
@@ -1150,8 +1156,8 @@ JSON 형식으로 출력:
                         output_path=_audio_path,
                     )
                 else:
-                    # 문장별 TTS 생성 (실제 발화 타이밍 측정)
-                    tts_result = self.tts_agent.generate_speech_with_timing(
+                    # alignment 포함 TTS 생성 (정밀 자막 싱크)
+                    tts_result = self.tts_agent.generate_speech(
                         scene_id=scene.scene_id,
                         narration=scene.narration,
                         emotion=scene.mood,
@@ -1162,6 +1168,8 @@ JSON 형식으로 출력:
                 # 실제 발화 타이밍 저장 (SRT 생성에 사용)
                 if tts_result.sentence_timings:
                     scene._sentence_timings = tts_result.sentence_timings
+                if getattr(tts_result, 'char_alignment', None):
+                    scene._char_alignment = tts_result.char_alignment
 
                 if tts_result.duration_sec > 0:
                     import math
@@ -1180,7 +1188,7 @@ JSON 형식으로 출력:
                                 output_path=tts_result.audio_path,
                             )
                         else:
-                            tts_result2 = self.tts_agent.generate_speech_with_timing(
+                            tts_result2 = self.tts_agent.generate_speech(
                                 scene_id=scene.scene_id,
                                 narration=shortened,
                                 emotion=scene.mood,
@@ -1190,6 +1198,8 @@ JSON 형식으로 출력:
                         scene.tts_duration_sec = tts_result2.duration_sec
                         if tts_result2.sentence_timings:
                             scene._sentence_timings = tts_result2.sentence_timings
+                        if getattr(tts_result2, 'char_alignment', None):
+                            scene._char_alignment = tts_result2.char_alignment
                         tts_dur = math.ceil(tts_result2.duration_sec) + 1
                         print(f"  [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
 
@@ -1871,14 +1881,7 @@ JSON 형식으로 출력:
     ) -> List[str]:
         """
         각 Scene에 대한 SRT 자막 파일 생성.
-        sentence_timings가 있으면 실제 TTS 발화 타이밍 기반, 없으면 글자 수 비례.
-
-        Args:
-            scenes: Scene 목록
-            output_dir: 출력 디렉토리
-
-        Returns:
-            SRT 파일 경로 목록
+        우선순위: char_alignment (정밀) > sentence_timings > 글자 수 비례 (레거시)
         """
         from utils.ffmpeg_utils import FFmpegComposer
 
@@ -1889,20 +1892,35 @@ JSON 형식으로 출력:
 
         for scene in scenes:
             srt_path = f"{output_dir}/scene_{scene.scene_id:02d}.srt"
+            narration = scene.narration or scene.sentence or ""
 
-            # sentence_timings가 있으면 실제 발화 타이밍 기반 SRT 생성
-            _timings = getattr(scene, '_sentence_timings', None)
-            if _timings and len(_timings) > 0:
-                self._generate_srt_from_timings(_timings, srt_path, composer)
-                print(f"  [SRT] Scene {scene.scene_id}: 실제 발화 타이밍 기반 SRT ({len(_timings)}문장)")
+            # 1순위: ElevenLabs char_alignment (캐릭터별 정밀 타이밍)
+            _alignment = getattr(scene, '_char_alignment', None)
+            if _alignment and _alignment.get('characters'):
+                self._generate_srt_from_alignment(_alignment, narration, srt_path, composer)
+                print(f"  [SRT] Scene {scene.scene_id}: char_alignment 기반 정밀 SRT")
+            # 2순위: sentence_timings (문장별 타이밍)
+            elif getattr(scene, '_sentence_timings', None):
+                self._generate_srt_from_timings(scene._sentence_timings, srt_path, composer)
+                print(f"  [SRT] Scene {scene.scene_id}: sentence_timings 기반 SRT ({len(scene._sentence_timings)}문장)")
             else:
-                # 기존 방식: 글자 수 비례
+                # 3순위: 글자 수 비례 (레거시 fallback)
                 actual_duration = scene.tts_duration_sec if scene.tts_duration_sec else scene.duration_sec
                 scene_data = [{
-                    "narration": scene.narration or scene.sentence,
+                    "narration": narration,
                     "duration_sec": actual_duration
                 }]
                 composer.generate_srt_from_scenes(scene_data, srt_path)
+                print(f"  [SRT] Scene {scene.scene_id}: 글자수 비례 fallback SRT")
+
+            # 디버그 로그: SRT 내용 출력
+            try:
+                with open(srt_path, 'r', encoding='utf-8') as _f:
+                    _srt_content = _f.read()
+                print(f"  [SRT DEBUG] Scene {scene.scene_id} narration: {narration[:80]}...")
+                print(f"  [SRT DEBUG] Scene {scene.scene_id} SRT content:\n{_srt_content[:500]}")
+            except Exception:
+                pass
 
             scene.assets.subtitle_srt_path = srt_path
             srt_paths.append(srt_path)
@@ -1960,6 +1978,103 @@ JSON 형식으로 출력:
         os.makedirs(os.path.dirname(srt_path) or ".", exist_ok=True)
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write("\n".join(srt_content))
+
+    def _generate_srt_from_alignment(
+        self,
+        alignment: Dict[str, Any],
+        narration: str,
+        srt_path: str,
+        composer=None
+    ):
+        """
+        ElevenLabs char_alignment 데이터로 정밀 SRT 생성.
+        각 자막 청크의 시작/끝 시간을 실제 TTS 발화 타이밍에서 가져옴.
+        """
+        if composer is None:
+            from utils.ffmpeg_utils import FFmpegComposer
+            composer = FFmpegComposer()
+
+        chars = alignment["characters"]
+        starts = alignment["start_times"]
+        ends = alignment["end_times"]
+
+        # 화자 태그 제거한 텍스트 — SRT에 표시할 텍스트
+        clean_text = re.sub(r'\[[\w_]+\](?:\([^)]*\))?\s*', '', narration).strip()
+        if not clean_text:
+            clean_text = narration.strip()
+
+        # alignment 캐릭터를 합쳐서 원본 텍스트 재구성
+        aligned_text = "".join(chars)
+        print(f"     [Alignment] chars={len(chars)}, aligned_text[:60]={aligned_text[:60]}")
+        print(f"     [Alignment] clean_text[:60]={clean_text[:60]}")
+
+        # 자막 청크 분할 (최대 20자)
+        chunks = composer._split_subtitle_text(clean_text, max_chars=20)
+        print(f"     [Alignment] {len(chunks)} chunks: {[c[:15] for c in chunks]}")
+
+        # 각 청크의 시작/끝 글자 위치를 찾고 alignment에서 타이밍 매핑
+        srt_content = []
+        sub_index = 1
+        char_offset = 0  # alignment 캐릭터 배열에서의 현재 위치
+
+        for chunk in chunks:
+            chunk_stripped = chunk.strip()
+            if not chunk_stripped:
+                continue
+
+            # 청크의 첫 글자/마지막 글자를 alignment에서 찾기
+            # alignment 텍스트와 clean_text가 다를 수 있으므로 글자 단위 매칭
+            chunk_start_time = None
+            chunk_end_time = None
+            matched_chars = 0
+
+            # 청크의 각 글자를 alignment에서 순차 탐색
+            chunk_char_idx = 0
+            scan_start = max(0, char_offset - 5)  # 약간의 여유
+
+            for ai in range(scan_start, len(chars)):
+                if chunk_char_idx >= len(chunk_stripped):
+                    break
+                # 공백/특수문자 스킵 (alignment에서)
+                if chars[ai].strip() == '' or chars[ai] == ' ':
+                    continue
+                # 현재 청크 글자와 매칭 시도
+                if chunk_stripped[chunk_char_idx] == ' ':
+                    chunk_char_idx += 1
+                    if chunk_char_idx >= len(chunk_stripped):
+                        break
+                if chars[ai] == chunk_stripped[chunk_char_idx]:
+                    if chunk_start_time is None:
+                        chunk_start_time = starts[ai]
+                    chunk_end_time = ends[ai]
+                    matched_chars += 1
+                    chunk_char_idx += 1
+                    char_offset = ai + 1
+
+            # 매칭 실패 시 fallback: 이전 끝 시간 ~ 비례 추정
+            if chunk_start_time is None:
+                if sub_index > 1 and srt_content:
+                    # 이전 엔트리의 끝 시간에서 시작
+                    chunk_start_time = ends[min(char_offset, len(ends) - 1)] if char_offset < len(ends) else ends[-1]
+                else:
+                    chunk_start_time = 0.0
+            if chunk_end_time is None:
+                chunk_end_time = chunk_start_time + 2.0  # fallback 2초
+
+            start_ms = int(chunk_start_time * 1000)
+            end_ms = int(chunk_end_time * 1000)
+
+            srt_content.append(f"{sub_index}")
+            srt_content.append(f"{composer._ms_to_srt_time(start_ms)} --> {composer._ms_to_srt_time(end_ms)}")
+            srt_content.append(chunk_stripped)
+            srt_content.append("")
+            sub_index += 1
+
+        os.makedirs(os.path.dirname(srt_path) or ".", exist_ok=True)
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(srt_content))
+
+        print(f"     [Alignment SRT] {sub_index - 1} entries written to {srt_path}")
 
     def get_processing_stats(
         self,

@@ -24,6 +24,7 @@ class TTSResult:
     audio_path: str
     duration_sec: float  # 실제 오디오 길이
     sentence_timings: Optional[List[Dict[str, Any]]] = None  # 문장별 실제 발화 타이밍
+    char_alignment: Optional[Dict[str, Any]] = None  # ElevenLabs 캐릭터별 정밀 타이밍
 
 
 class TTSAgent:
@@ -77,11 +78,14 @@ class TTSAgent:
             output_path = f"{output_dir}/narration_{scene_id:02d}.mp3"
 
         audio_path = None
+        char_alignment = None
 
-        # 1. Try ElevenLabs
+        # 1. Try ElevenLabs with alignment (자막 정밀 싱크용)
         if self.elevenlabs_key:
             try:
-                audio_path = self._call_elevenlabs_api(narration, self.voice, output_path)
+                result = self._call_elevenlabs_with_alignment(narration, self.voice, output_path)
+                audio_path = result["audio_path"]
+                char_alignment = result.get("alignment")
             except Exception as e:
                 print(f"     [Warning] ElevenLabs TTS failed: {e}")
                 audio_path = None
@@ -95,7 +99,7 @@ class TTSAgent:
         duration_sec = self._get_audio_duration(audio_path, narration_text=narration)
 
         print(f"     [TTS Agent] Audio saved: {audio_path} (duration: {duration_sec:.2f}s)")
-        return TTSResult(audio_path=audio_path, duration_sec=duration_sec)
+        return TTSResult(audio_path=audio_path, duration_sec=duration_sec, char_alignment=char_alignment)
 
     def get_available_voices(self) -> List[Dict[str, Any]]:
         """
@@ -426,31 +430,20 @@ class TTSAgent:
     def _call_elevenlabs_api(self, text: str, voice_id: str, output_path: str) -> str:
         """
         Call ElevenLabs API for high-quality TTS (v2.x API).
-
-        Args:
-            text: Text to convert to speech
-            voice_id: ElevenLabs voice ID
-            output_path: Where to save the audio
-
-        Returns:
-            Path to generated audio file
+        alignment 없이 오디오만 생성 (멀티화자 TTS 등 alignment 불필요한 경우).
         """
         try:
             from elevenlabs.client import ElevenLabs
 
             print(f"     Using ElevenLabs API (Voice: {voice_id[:8]}...)...")
-
-            # Initialize client
             client = ElevenLabs(api_key=self.elevenlabs_key)
 
-            # Generate audio using text_to_speech.convert()
             audio_generator = client.text_to_speech.convert(
                 text=text,
                 voice_id=voice_id,
-                model_id="eleven_multilingual_v2"  # 다국어 지원 모델
+                model_id="eleven_multilingual_v2"
             )
 
-            # Save to file
             with open(output_path, "wb") as f:
                 for chunk in audio_generator:
                     f.write(chunk)
@@ -460,11 +453,64 @@ class TTSAgent:
 
         except ImportError as e:
             print(f"     [Warning] ElevenLabs library import failed: {e}")
-            print("     Try: pip install --upgrade elevenlabs")
             raise RuntimeError("ElevenLabs library not properly installed")
         except Exception as e:
             print(f"     [Error] ElevenLabs API call failed: {e}")
             raise
+
+    def _call_elevenlabs_with_alignment(self, text: str, voice_id: str, output_path: str) -> Dict[str, Any]:
+        """
+        ElevenLabs convert_with_timestamps API 호출.
+        오디오 + 캐릭터별 정밀 타이밍을 함께 반환.
+
+        Returns:
+            {"audio_path": str, "alignment": {"characters": [...], "start_times": [...], "end_times": [...]}}
+        """
+        try:
+            from elevenlabs.client import ElevenLabs
+            import base64
+
+            print(f"     Using ElevenLabs API with alignment (Voice: {voice_id[:8]}...)...")
+            client = ElevenLabs(api_key=self.elevenlabs_key)
+
+            response = client.text_to_speech.convert_with_timestamps(
+                text=text,
+                voice_id=voice_id,
+                model_id="eleven_multilingual_v2"
+            )
+
+            # base64 오디오 디코딩 → 파일 저장
+            audio_bytes = base64.b64decode(response.audio_base_64)
+            os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+            with open(output_path, "wb") as f:
+                f.write(audio_bytes)
+
+            # alignment 추출
+            alignment_data = None
+            _align = response.normalized_alignment or response.alignment
+            if _align:
+                alignment_data = {
+                    "characters": list(_align.characters),
+                    "start_times": list(_align.character_start_times_seconds),
+                    "end_times": list(_align.character_end_times_seconds),
+                }
+                print(f"     ElevenLabs alignment: {len(_align.characters)} chars, "
+                      f"duration {_align.character_end_times_seconds[-1]:.2f}s")
+            else:
+                print(f"     [Warning] ElevenLabs returned no alignment data")
+
+            print(f"     ElevenLabs TTS+alignment generated: {output_path}")
+            return {"audio_path": output_path, "alignment": alignment_data}
+
+        except ImportError as e:
+            print(f"     [Warning] ElevenLabs library import failed: {e}")
+            raise RuntimeError("ElevenLabs library not properly installed")
+        except Exception as e:
+            print(f"     [Error] ElevenLabs API with alignment failed: {e}")
+            # fallback: alignment 없이 일반 호출
+            print(f"     [Fallback] Trying without alignment...")
+            path = self._call_elevenlabs_api(text, voice_id, output_path)
+            return {"audio_path": path, "alignment": None}
 
     def _generate_placeholder_audio(
         self,
