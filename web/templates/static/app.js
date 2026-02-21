@@ -3774,7 +3774,7 @@ class StorycutApp {
         this.mvPollingFailCount = 0;
         // 단계 역행 방지: 한 번 지나간 단계로 되돌아가지 않음
         const _MV_STAGE_ORDER = ['generating', 'anchors_ready', 'images_ready', 'composing', 'completed', 'failed', 'cancelled'];
-        if (!this._mvMinStageIdx) this._mvMinStageIdx = 0;
+        if (this._mvMinStageIdx === undefined) this._mvMinStageIdx = 0;
 
         this.mvPollingInterval = setInterval(async () => {
             try {
