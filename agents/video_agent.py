@@ -391,8 +391,8 @@ class VideoAgent:
             # v2.0: Image-to-Video 전용 API 호출
             from google.genai import types as genai_types
 
-            # SDK 내장 이미지 로더 사용
-            first_frame = genai_types.Image.from_file(first_frame_image)
+            # SDK 내장 이미지 로더 사용 (keyword-only arg)
+            first_frame = genai_types.Image.from_file(location=first_frame_image)
 
             # Image-to-Video API 호출
             operation = client.models.generate_videos(
