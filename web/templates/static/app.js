@@ -3880,6 +3880,17 @@ class StorycutApp {
         }
     }
 
+    _restoreMVProgressUI() {
+        // showMVCharacterReview가 덮어쓴 진행률 UI를 원본으로 복원
+        if (this._mvProgressOriginalHTML) {
+            const mvSection = document.getElementById('mv-progress-section');
+            const container = mvSection ? mvSection.querySelector('.app-wide-container') : null;
+            if (container) {
+                container.innerHTML = this._mvProgressOriginalHTML;
+            }
+        }
+    }
+
     async cancelMVGeneration() {
         if (!this.mvProjectId) return;
 
@@ -4103,6 +4114,11 @@ class StorycutApp {
         const mainContent = mvSection ? mvSection.querySelector('.app-wide-container') : document.getElementById('main-content');
         if (!mainContent) return;
 
+        // 원본 진행률 UI 백업 (앵커 승인/compose 시 복원용)
+        if (!this._mvProgressOriginalHTML) {
+            this._mvProgressOriginalHTML = mainContent.innerHTML;
+        }
+
         // MV 진행 섹션이 보이도록 보장
         if (mvSection) mvSection.classList.remove('hidden');
 
@@ -4255,6 +4271,9 @@ class StorycutApp {
                     }
 
                     this.showToast('이미지 생성이 시작되었습니다', 'success');
+
+                    // 앵커 리뷰로 덮어쓴 진행률 UI 복원
+                    this._restoreMVProgressUI();
 
                     // MV 생성 UI로 돌아가서 폴링 재개 — anchors_ready 이후이므로 역행 방지
                     this._mvMinStageIdx = 2; // 'images_ready' 이전 단계(generating)로 역행 불가
@@ -4565,7 +4584,8 @@ class StorycutApp {
                 throw new Error(err.detail || 'Compose failed');
             }
 
-            // 진행률 화면으로 전환
+            // 앵커 리뷰로 덮어쓴 진행률 UI 복원 + 화면 전환
+            this._restoreMVProgressUI();
             this.showSection('mv-progress');
             this.updateMVProgress(75, '영상 합성 중...');
             this.updateMVStepStatus('compose', '영상 합성 중...');
