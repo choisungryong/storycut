@@ -389,25 +389,20 @@ class VideoAgent:
             print(f"     Sending request to Veo 3.1...")
 
             # v2.0: Image-to-Video 전용 API 호출
-            # 이미지 데이터 인코딩
-            with open(first_frame_image, "rb") as f:
-                image_data = base64.b64encode(f.read()).decode()
+            from google.genai import types as genai_types
 
-            # MIME type 추론
-            ext = os.path.splitext(first_frame_image)[1].lower()
-            mime_type = "image/png" if ext == ".png" else "image/jpeg"
+            # SDK 내장 이미지 로더 사용
+            first_frame = genai_types.Image.from_file(first_frame_image)
 
             # Image-to-Video API 호출
             operation = client.models.generate_videos(
                 model="veo-3.1-generate-preview",
                 prompt=full_prompt,
-                image={
-                    "image_bytes": image_data,
-                    "mime_type": mime_type
-                },
-                config={
-                    'aspect_ratio': '16:9',
-                }
+                image=first_frame,
+                config=genai_types.GenerateVideosConfig(
+                    aspect_ratio="16:9",
+                    number_of_videos=1,
+                )
             )
             
             print(f"     Operation started: {operation.name}")
