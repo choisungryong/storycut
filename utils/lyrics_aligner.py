@@ -307,13 +307,21 @@ def _wrap(text: str, mx: int = MAX_LINE_CHARS) -> str:
     return text
 
 
+_SECTION_BARE_RE = re.compile(
+    r'^(?:verse|chorus|pre[-\s]?chorus|post[-\s]?chorus|hook|bridge|'
+    r'outro|intro|interlude|instrumental|refrain|final\s+chorus|rap)'
+    r'\s*\d*\s*$',
+    re.IGNORECASE
+)
+
+
 def preprocess_lyrics(lyrics_text: str) -> List[str]:
     raw = lyrics_text.replace('\r\n', '\n').replace('\r', '\n').strip()
     raw = re.sub(r'\[.*?\]', '', raw)
     result = []
     for ln in raw.split('\n'):
         ln = ln.strip()
-        if ln and re.sub(r'[\s.,;:!?\-~(){}]', '', ln):
+        if ln and re.sub(r'[\s.,;:!?\-~(){}]', '', ln) and not _SECTION_BARE_RE.match(ln):
             result.append(ln)
     return result
 
@@ -427,6 +435,9 @@ def generate_from_gemini_alignment(
         if not text and 0 <= idx < n_lyrics:
             text = lyrics_lines[idx]
         if not text:
+            continue
+        # 섹션 마커 필터 (Gemini가 text에 마커를 포함할 수 있음)
+        if _SECTION_BARE_RE.match(text):
             continue
 
         # Enforce minimum duration

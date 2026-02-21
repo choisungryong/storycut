@@ -4,6 +4,14 @@ import subprocess
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
+# 괄호 없는 섹션 마커 패턴 (대소문자 무시)
+_SECTION_BARE_RE = re.compile(
+    r'^(?:verse|chorus|pre[-\s]?chorus|post[-\s]?chorus|hook|bridge|'
+    r'outro|intro|interlude|instrumental|refrain|final\s+chorus|rap)'
+    r'\s*\d*\s*$',
+    re.IGNORECASE
+)
+
 
 @dataclass
 class SubtitleLine:
@@ -62,6 +70,9 @@ def split_lyrics_lines(user_lyrics_text: str) -> List[str]:
         # 마커 제거 (줄 전체가 마커면 빈 문자열이 됨)
         txt = strip_bracket.sub('', txt).strip()
         txt = strip_paren.sub('', txt).strip()
+        # 괄호 없는 섹션 마커 제거 (Verse 1, Pre-Chorus 등)
+        if _SECTION_BARE_RE.match(txt):
+            txt = ''
         cleaned.append(txt)
     return [ln for ln in cleaned if ln]
 
