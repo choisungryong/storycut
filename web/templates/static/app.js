@@ -4073,8 +4073,13 @@ class StorycutApp {
     // ==================== MV Character Anchor Review ====================
 
     showMVCharacterReview(projectId, characters) {
-        const mainContent = document.getElementById('main-content');
+        // mv-progress-section 내부 컨테이너를 사용 (main-content는 index.html에 없음)
+        const mvSection = document.getElementById('mv-progress-section');
+        const mainContent = mvSection ? mvSection.querySelector('.app-wide-container') : document.getElementById('main-content');
         if (!mainContent) return;
+
+        // MV 진행 섹션이 보이도록 보장
+        if (mvSection) mvSection.classList.remove('hidden');
 
         const baseUrl = this.getApiBaseUrl();
 
