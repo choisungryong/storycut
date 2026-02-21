@@ -202,11 +202,14 @@
                     <!-- Duration & Platform (버튼 위에 배치) -->
                     <div class="app-card">
                         <div class="form-group">
-                            <label for="duration">영상 길이: <span id="duration-display">30</span>초</label>
+                            <label for="duration">영상 길이: <span id="duration-display">30초</span></label>
                             <input type="range" id="duration" name="duration" min="30" max="180" value="30" step="10"
                                 class="form-slider" />
-                            <div class="slider-labels">
-                                <span>30초</span><span>1분</span><span>2분</span><span>3분</span>
+                            <div class="slider-labels" style="position:relative;height:16px;">
+                                <span style="position:absolute;left:0%;">30초</span>
+                                <span style="position:absolute;left:20%;transform:translateX(-50%);">1분</span>
+                                <span style="position:absolute;left:60%;transform:translateX(-50%);">2분</span>
+                                <span style="position:absolute;right:0;">3분</span>
                             </div>
                         </div>
 
@@ -1248,7 +1251,7 @@
         <p><a href="/privacy.html">개인정보처리방침</a> | <a href="/terms.html">이용약관</a> | <a href="/docs" target="_blank">API 문서</a></p>
     </footer>
 
-    <script src="/static/app.js?v=20260221_1710"></script>
+    <script src="/static/app.js?v=20260221_1720"></script>
     <script>
     // ─── App i18n (synced with landing page via localStorage) ───
     (function() {

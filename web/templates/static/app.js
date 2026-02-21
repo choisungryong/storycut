@@ -314,8 +314,18 @@ class StorycutApp {
     }
 
     updateDurationDisplay() {
-        const duration = document.getElementById('duration').value;
-        document.getElementById('duration-display').textContent = duration;
+        const sec = parseInt(document.getElementById('duration').value);
+        const min = Math.floor(sec / 60);
+        const remSec = sec % 60;
+        let text;
+        if (min === 0) {
+            text = `${sec}초`;
+        } else if (remSec === 0) {
+            text = `${min}분`;
+        } else {
+            text = `${min}분 ${remSec}초`;
+        }
+        document.getElementById('duration-display').textContent = text;
     }
 
     getApiBaseUrl() {
