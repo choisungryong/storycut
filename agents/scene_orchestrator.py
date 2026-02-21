@@ -8,6 +8,7 @@ P1 핵심 기능:
 
 import os
 import json
+import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 import sys
@@ -736,8 +737,14 @@ JSON 형식으로 출력:
 
                 # v3.0: 멀티 화자 TTS 지원
                 scene_dict = scenes[i - 1] if isinstance(scenes[i - 1], dict) else {}
-                dialogue_lines = scene_dict.get("dialogue_lines", [])
                 character_voices = story_data.get("character_voices", [])
+
+                # dialogue_lines를 현재 narration에서 재파싱 (프론트엔드 편집 반영)
+                _current_narration = scene.narration or ""
+                dialogue_lines = []
+                if character_voices and re.search(r'\[[^\]]+\]', _current_narration):
+                    from agents.story_agent import StoryAgent
+                    dialogue_lines = StoryAgent.parse_dialogue_lines(_current_narration)
 
                 # 프로젝트별 TTS 출력 경로 (동시 생성 시 파일 충돌 방지)
                 _audio_dir = f"{os.path.dirname(output_path)}/media/audio"
@@ -1117,8 +1124,14 @@ JSON 형식으로 출력:
                 scene.status = SceneStatus.GENERATING_TTS
 
                 scene_dict = scenes[i - 1] if isinstance(scenes[i - 1], dict) else {}
-                dialogue_lines = scene_dict.get("dialogue_lines", [])
                 character_voices = story_data.get("character_voices", [])
+
+                # dialogue_lines를 현재 narration에서 재파싱 (프론트엔드 편집 반영)
+                _current_narration = scene.narration or ""
+                dialogue_lines = []
+                if character_voices and re.search(r'\[[^\]]+\]', _current_narration):
+                    from agents.story_agent import StoryAgent
+                    dialogue_lines = StoryAgent.parse_dialogue_lines(_current_narration)
 
                 # 프로젝트별 TTS 출력 경로 (동시 생성 시 파일 충돌 방지)
                 _audio_dir = f"{project_dir}/media/audio"
