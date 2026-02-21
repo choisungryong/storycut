@@ -1165,8 +1165,84 @@ class MVPipeline:
             print(f"    Avoid: {project.visual_bible.avoid_keywords}")
 
         except Exception as e:
-            print(f"  [Visual Bible] Generation failed (non-fatal): {e}")
-            # Non-fatal: 기존 파이프라인 동작 유지
+            import traceback
+            print(f"  [Visual Bible] Generation failed (attempt 1): {e}")
+            traceback.print_exc()
+
+            # ── 재시도 (1회) ──
+            try:
+                print(f"  [Visual Bible] Retrying...")
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=user_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=0.5,  # 재시도 시 temperature 낮춤
+                        response_mime_type="application/json",
+                    )
+                )
+                result_text = response.text.strip()
+                import json as _json
+                vb_data = _json.loads(result_text)
+
+                era_from_vb = vb_data.pop("era_setting", "")
+                if era_from_vb:
+                    project.era_setting = era_from_vb
+                location_palette = vb_data.pop("location_palette", [])
+
+                characters_data = vb_data.pop("characters", [])
+                scene_blocking_data = vb_data.pop("scene_blocking", [])
+                narrative_arc_data = vb_data.pop("narrative_arc", None)
+
+                mv_characters = [MVCharacter(**c) for c in characters_data] if characters_data else []
+                mv_blocking = [MVSceneBlocking(**b) for b in scene_blocking_data] if scene_blocking_data else []
+                mv_arc = MVNarrativeArc(**narrative_arc_data) if narrative_arc_data else None
+
+                if has_genre_profile:
+                    palette_mode = gp.get("palette_mode", "guide")
+                    llm_palette = vb_data.get("color_palette", [])
+                    if palette_mode == "lock":
+                        vb_data["color_palette"] = gp.get("palette_base", [])
+                    elif palette_mode == "guide" and llm_palette:
+                        vb_data["color_palette"] = llm_palette
+                    else:
+                        vb_data["color_palette"] = gp.get("palette_base", [])
+                    vb_data.setdefault("lighting_style", gp.get("lighting", ""))
+                    vb_data.setdefault("recurring_motifs", gp.get("motif_library", []))
+                    vb_data.setdefault("atmosphere", gp.get("atmosphere", ""))
+                    vb_data.setdefault("avoid_keywords", gp.get("avoid_keywords", []))
+                    vb_data.setdefault("composition_notes", gp.get("composition_guide", ""))
+                    vb_data.setdefault("reference_artists", gp.get("reference_artists", []))
+                    vb_data.setdefault("character_archetypes", [])
+
+                vb_data["characters"] = mv_characters
+                vb_data["scene_blocking"] = mv_blocking
+                vb_data["narrative_arc"] = mv_arc
+                project.visual_bible = VisualBible(**vb_data)
+
+                if location_palette and project.visual_bible:
+                    project.visual_bible.location_palette = location_palette
+
+                for blocking in mv_blocking:
+                    idx = blocking.scene_id - 1
+                    if 0 <= idx < len(project.scenes):
+                        project.scenes[idx].characters_in_scene = blocking.characters
+                        cam_parts = []
+                        if blocking.shot_type:
+                            cam_parts.append(blocking.shot_type)
+                        if blocking.expression:
+                            cam_parts.append(f"expression: {blocking.expression}")
+                        if blocking.lighting:
+                            cam_parts.append(f"lighting: {blocking.lighting}")
+                        if cam_parts:
+                            project.scenes[idx].camera_directive = ", ".join(cam_parts)
+
+                print(f"  [Visual Bible] Retry succeeded! Characters: {[c.role for c in mv_characters]}")
+
+            except Exception as retry_err:
+                print(f"  [Visual Bible] Retry also failed: {retry_err}")
+                traceback.print_exc()
+                project.error_message = f"Visual Bible 생성 실패: {str(e)[:200]}"
 
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         self._save_manifest(project, project_dir)
