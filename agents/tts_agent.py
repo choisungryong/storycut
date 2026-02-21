@@ -357,17 +357,19 @@ class TTSAgent:
         # Build FFmpeg filter for concat with silence gaps
         inputs = []
         filter_parts = []
+        input_idx = 0
 
         for i, path in enumerate(clip_paths):
             inputs.extend(["-i", path])
-            filter_parts.append(f"[{i}:a]")
+            filter_parts.append(f"[{input_idx}:a]")
+            input_idx += 1
 
             # Add silence between clips (not after last)
             if i < len(clip_paths) - 1 and silence_gap > 0:
-                silence_idx = len(clip_paths) + i
                 inputs.extend(["-f", "lavfi", "-t", str(silence_gap),
                              "-i", "anullsrc=r=44100:cl=mono"])
-                filter_parts.append(f"[{silence_idx}:a]")
+                filter_parts.append(f"[{input_idx}:a]")
+                input_idx += 1
 
         filter_str = "".join(filter_parts) + f"concat=n={len(filter_parts)}:v=0:a=1[out]"
 
