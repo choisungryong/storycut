@@ -1012,6 +1012,41 @@ JSON 형식으로 출력:
 
         # 이미지 경로 수집 (씬 데이터 또는 매니페스트에서)
         image_map = {}  # scene_id -> local image path
+
+        def _resolve_to_local(img_path, sc_id):
+            """이미지 경로를 로컬 파일 경로로 정규화"""
+            if not img_path:
+                return None
+            # 이미 로컬에 존재하면 그대로
+            if os.path.exists(img_path):
+                return img_path
+            # outputs/ 상대경로가 project_dir과 다른 경우 보정
+            if "media/images/" in img_path:
+                local_candidate = os.path.join(project_dir, "media/images", f"scene_{int(sc_id):02d}.png")
+                if os.path.exists(local_candidate):
+                    return local_candidate
+            # /media/{project_id}/... → outputs/{project_id}/... 변환
+            if img_path.startswith("/media/"):
+                local_candidate = "outputs/" + img_path[len("/media/"):]
+                if os.path.exists(local_candidate):
+                    return local_candidate
+            # /api/asset/{project_id}/... → outputs/{project_id}/... 변환
+            if "/api/asset/" in img_path:
+                _after = img_path.split("/api/asset/", 1)[-1]
+                local_candidate = f"outputs/{_after}"
+                if os.path.exists(local_candidate):
+                    return local_candidate
+            # HTTP URL → 로컬 다운로드 시도
+            if img_path.startswith(("http://", "https://")):
+                local_path = self._resolve_image_to_local(img_path, project_dir, sc_id)
+                if local_path and os.path.exists(local_path):
+                    return local_path
+            # 최종 fallback: project_dir 기준 직접 탐색
+            fallback = os.path.join(project_dir, "media", "images", f"scene_{int(sc_id):02d}.png")
+            if os.path.exists(fallback):
+                return fallback
+            return None
+
         manifest_path = os.path.join(project_dir, "manifest.json")
         if os.path.exists(manifest_path):
             try:
@@ -1021,11 +1056,9 @@ JSON 형식으로 출력:
                     sc_id = sc.get('scene_id')
                     img_path = sc.get('assets', {}).get('image_path') if isinstance(sc.get('assets'), dict) else None
                     if sc_id and img_path:
-                        if os.path.exists(img_path):
-                            image_map[sc_id] = img_path
-                        elif img_path.startswith(("http://", "https://", "/media/")):
-                            local_path = self._resolve_image_to_local(img_path, project_dir, sc_id)
-                            image_map[sc_id] = local_path or img_path
+                        resolved = _resolve_to_local(img_path, sc_id)
+                        if resolved:
+                            image_map[sc_id] = resolved
             except Exception as e:
                 print(f"[compose] Failed to load manifest images: {e}")
 
@@ -1036,11 +1069,9 @@ JSON 형식으로 출력:
                 sc_assets = sc.get('assets', {})
                 img_path = sc_assets.get('image_path') if isinstance(sc_assets, dict) else None
                 if sc_id and img_path:
-                    if os.path.exists(img_path):
-                        image_map[sc_id] = img_path
-                    elif img_path.startswith(("http://", "https://", "/media/")):
-                        local_path = self._resolve_image_to_local(img_path, project_dir, sc_id)
-                        image_map[sc_id] = local_path or img_path
+                    resolved = _resolve_to_local(img_path, sc_id)
+                    if resolved:
+                        image_map[sc_id] = resolved
 
         print(f"[compose] {len(image_map)}/{total_scenes} scenes have pre-generated images")
 
@@ -1057,8 +1088,14 @@ JSON 형식으로 출력:
 
             image_path = image_map.get(scene_id)
             if not image_path or not os.path.exists(str(image_path)):
-                print(f"  [SKIP] No valid image for scene {scene_id}, skipping")
-                continue
+                # 최종 fallback: 디스크에서 직접 탐색
+                fallback_path = os.path.join(project_dir, "media", "images", f"scene_{int(scene_id):02d}.png")
+                if os.path.exists(fallback_path):
+                    image_path = fallback_path
+                    print(f"  [compose] Fallback image found: {fallback_path}")
+                else:
+                    print(f"  [SKIP] No valid image for scene {scene_id} (path={image_path}), skipping")
+                    continue
 
             scene = Scene(
                 index=i,
