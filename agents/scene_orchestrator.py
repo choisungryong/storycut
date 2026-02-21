@@ -752,15 +752,15 @@ JSON 형식으로 출력:
                 _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
 
                 if dialogue_lines and character_voices:
-                    # 멀티 화자 TTS
+                    # 멀티 화자 TTS (line_timings 포함)
                     tts_result = self.tts_agent.generate_dialogue_audio(
                         dialogue_lines=dialogue_lines,
                         character_voices=character_voices,
                         output_path=_audio_path,
                     )
                 else:
-                    # 단일 내레이션 TTS
-                    tts_result = self.tts_agent.generate_speech(
+                    # 문장별 TTS 생성 (실제 발화 타이밍 측정)
+                    tts_result = self.tts_agent.generate_speech_with_timing(
                         scene_id=scene.scene_id,
                         narration=scene.narration,
                         emotion=scene.mood,
@@ -768,6 +768,9 @@ JSON 형식으로 출력:
                     )
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
+                # 실제 발화 타이밍 저장 (SRT 생성에 사용)
+                if tts_result.sentence_timings:
+                    scene._sentence_timings = tts_result.sentence_timings
 
                 # TTS 기반으로 duration 조정
                 # - 2배 이내: 씬 duration을 TTS에 맞춤 (스토리 보존 우선)
@@ -790,7 +793,7 @@ JSON 형식으로 출력:
                                 output_path=tts_result.audio_path,
                             )
                         else:
-                            tts_result2 = self.tts_agent.generate_speech(
+                            tts_result2 = self.tts_agent.generate_speech_with_timing(
                                 scene_id=scene.scene_id,
                                 narration=shortened,
                                 emotion=scene.mood,
@@ -798,6 +801,8 @@ JSON 형식으로 출력:
                             )
                         scene.assets.narration_path = tts_result2.audio_path
                         scene.tts_duration_sec = tts_result2.duration_sec
+                        if tts_result2.sentence_timings:
+                            scene._sentence_timings = tts_result2.sentence_timings
                         tts_dur = math.ceil(tts_result2.duration_sec) + 1
                         print(f"     [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
 
@@ -942,7 +947,7 @@ JSON 형식으로 출력:
                 print(f"  + Added Scene {s.scene_id}")
             else:
                 print(f"  - Skipped Scene {s.scene_id} (Status: {s.status})")
-                
+
         if not video_clips:
             raise RuntimeError("No scenes were successfully generated. Cannot compose video.")
 
@@ -1145,7 +1150,8 @@ JSON 형식으로 출력:
                         output_path=_audio_path,
                     )
                 else:
-                    tts_result = self.tts_agent.generate_speech(
+                    # 문장별 TTS 생성 (실제 발화 타이밍 측정)
+                    tts_result = self.tts_agent.generate_speech_with_timing(
                         scene_id=scene.scene_id,
                         narration=scene.narration,
                         emotion=scene.mood,
@@ -1153,6 +1159,9 @@ JSON 형식으로 출력:
                     )
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
+                # 실제 발화 타이밍 저장 (SRT 생성에 사용)
+                if tts_result.sentence_timings:
+                    scene._sentence_timings = tts_result.sentence_timings
 
                 if tts_result.duration_sec > 0:
                     import math
@@ -1171,7 +1180,7 @@ JSON 형식으로 출력:
                                 output_path=tts_result.audio_path,
                             )
                         else:
-                            tts_result2 = self.tts_agent.generate_speech(
+                            tts_result2 = self.tts_agent.generate_speech_with_timing(
                                 scene_id=scene.scene_id,
                                 narration=shortened,
                                 emotion=scene.mood,
@@ -1179,6 +1188,8 @@ JSON 형식으로 출력:
                             )
                         scene.assets.narration_path = tts_result2.audio_path
                         scene.tts_duration_sec = tts_result2.duration_sec
+                        if tts_result2.sentence_timings:
+                            scene._sentence_timings = tts_result2.sentence_timings
                         tts_dur = math.ceil(tts_result2.duration_sec) + 1
                         print(f"  [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
 
@@ -1242,19 +1253,11 @@ JSON 형식으로 출력:
         narration_clips = []
         scene_durations = []
 
-        print(f"\n[DEBUG-SYNC] ====== 클립 수집 시작 ======")
         for s in processed_scenes:
             if s.status == SceneStatus.COMPLETED and s.assets.video_path and s.assets.narration_path:
                 video_clips.append(s.assets.video_path)
                 narration_clips.append(s.assets.narration_path)
                 scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
-                _narr_preview = (s.narration or "")[:60].replace("\n", " ")
-                print(f"[DEBUG-SYNC] Scene {s.scene_id}: video={os.path.basename(s.assets.video_path)} | audio={os.path.basename(s.assets.narration_path)} | dur={s.duration_sec}s | narr={_narr_preview}")
-
-        print(f"[DEBUG-SYNC] video_clips 순서: {[os.path.basename(v) for v in video_clips]}")
-        print(f"[DEBUG-SYNC] narration_clips 순서: {[os.path.basename(n) for n in narration_clips]}")
-        print(f"[DEBUG-SYNC] scene_durations: {scene_durations}")
-        print(f"[DEBUG-SYNC] ====== 클립 수집 완료 ======\n")
 
         if not video_clips:
             raise RuntimeError("No scenes were successfully composed. Cannot produce video.")
@@ -1868,6 +1871,7 @@ JSON 형식으로 출력:
     ) -> List[str]:
         """
         각 Scene에 대한 SRT 자막 파일 생성.
+        sentence_timings가 있으면 실제 TTS 발화 타이밍 기반, 없으면 글자 수 비례.
 
         Args:
             scenes: Scene 목록
@@ -1886,21 +1890,76 @@ JSON 형식으로 출력:
         for scene in scenes:
             srt_path = f"{output_dir}/scene_{scene.scene_id:02d}.srt"
 
-            # CRITICAL FIX: Use tts_duration_sec if available, otherwise fallback to duration_sec
-            # This ensures subtitle timing matches actual TTS audio length
-            actual_duration = scene.tts_duration_sec if scene.tts_duration_sec else scene.duration_sec
+            # sentence_timings가 있으면 실제 발화 타이밍 기반 SRT 생성
+            _timings = getattr(scene, '_sentence_timings', None)
+            if _timings and len(_timings) > 0:
+                self._generate_srt_from_timings(_timings, srt_path, composer)
+                print(f"  [SRT] Scene {scene.scene_id}: 실제 발화 타이밍 기반 SRT ({len(_timings)}문장)")
+            else:
+                # 기존 방식: 글자 수 비례
+                actual_duration = scene.tts_duration_sec if scene.tts_duration_sec else scene.duration_sec
+                scene_data = [{
+                    "narration": scene.narration or scene.sentence,
+                    "duration_sec": actual_duration
+                }]
+                composer.generate_srt_from_scenes(scene_data, srt_path)
 
-            # 단일 Scene용 SRT 생성
-            scene_data = [{
-                "narration": scene.narration or scene.sentence,
-                "duration_sec": actual_duration  # Use ACTUAL TTS duration
-            }]
-
-            composer.generate_srt_from_scenes(scene_data, srt_path)
             scene.assets.subtitle_srt_path = srt_path
             srt_paths.append(srt_path)
 
         return srt_paths
+
+    def _generate_srt_from_timings(self, timings: List[Dict], srt_path: str, composer=None):
+        """실제 TTS 발화 타이밍으로 SRT 생성. 각 문장의 start/end 시간을 그대로 사용."""
+        if composer is None:
+            from utils.ffmpeg_utils import FFmpegComposer
+            composer = FFmpegComposer()
+
+        srt_content = []
+        sub_index = 1
+
+        for timing in timings:
+            text = timing.get("text", "").strip()
+            if not text:
+                continue
+
+            # 화자 태그 제거
+            text = re.sub(r'\[[\w_]+\](?:\([^)]*\))?\s*', '', text).strip()
+            if not text:
+                continue
+
+            start_ms = int(timing["start"] * 1000)
+            end_ms = int(timing["end"] * 1000)
+
+            # 긴 문장은 자막 표시용으로 분할 (같은 시간대 안에서)
+            chunks = composer._split_subtitle_text(text, max_chars=25)
+
+            if len(chunks) == 1:
+                srt_content.append(f"{sub_index}")
+                srt_content.append(f"{composer._ms_to_srt_time(start_ms)} --> {composer._ms_to_srt_time(end_ms)}")
+                srt_content.append(chunks[0])
+                srt_content.append("")
+                sub_index += 1
+            else:
+                # 문장 내 청크를 글자 수 비례로 시간 분배 (이 범위 안에서만)
+                total_chars = sum(len(c) for c in chunks) or 1
+                elapsed = 0.0
+                chunk_total_ms = end_ms - start_ms
+                for chunk in chunks:
+                    chunk_ratio = len(chunk) / total_chars
+                    chunk_dur = chunk_total_ms * chunk_ratio
+                    chunk_start = start_ms + elapsed
+                    chunk_end = chunk_start + chunk_dur
+                    srt_content.append(f"{sub_index}")
+                    srt_content.append(f"{composer._ms_to_srt_time(int(chunk_start))} --> {composer._ms_to_srt_time(int(chunk_end))}")
+                    srt_content.append(chunk)
+                    srt_content.append("")
+                    sub_index += 1
+                    elapsed += chunk_dur
+
+        os.makedirs(os.path.dirname(srt_path) or ".", exist_ok=True)
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(srt_content))
 
     def get_processing_stats(
         self,

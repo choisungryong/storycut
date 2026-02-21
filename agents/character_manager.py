@@ -133,11 +133,25 @@ class CharacterManager:
             "game_anime": "3D cel-shaded toon-rendered character, modern anime action RPG game quality (Genshin Impact style), high-fidelity 3D model with toon shader, cel-shading outlines, rim lighting with bloom, Unreal Engine quality, NOT photorealistic, NOT flat 2D, NOT western cartoon",
         }
         _art_lower = art_style.lower()
+        # "NOT anime" 같은 부정 표현 속 키워드 오탐 방지:
+        # 부정 접두사(not/no/non) 뒤의 단어는 제외한 후 매칭
+        import re as _re
+        _negated = set()
+        for _m in _re.finditer(r'\b(?:not|no|non)[- _](\w+)', _art_lower):
+            _negated.add(_m.group(1))
+        _matched_style = None
         for _key, _directive in _STYLE_DIRECTIVES.items():
-            if _key in _art_lower or _key.replace("_", " ") in _art_lower:
-                art_style = _directive
-                print(f"  [Style] Applied directive for '{_key}'")
+            _search_key = _key.replace("_", " ")
+            # 부정 표현으로 언급된 키는 스킵
+            if _key in _negated or _search_key in _negated:
+                continue
+            if _key in _art_lower or _search_key in _art_lower:
+                _matched_style = (_key, _directive)
                 break
+        if _matched_style:
+            art_style = _matched_style[1]
+            print(f"  [Style] Applied directive for '{_matched_style[0]}'")
+        del _negated, _matched_style
 
         character_images = {}
         total_chars = len(character_sheet)

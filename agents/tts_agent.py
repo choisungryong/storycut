@@ -23,6 +23,7 @@ class TTSResult:
     """TTS 생성 결과"""
     audio_path: str
     duration_sec: float  # 실제 오디오 길이
+    sentence_timings: Optional[List[Dict[str, Any]]] = None  # 문장별 실제 발화 타이밍
 
 
 class TTSAgent:
@@ -235,7 +236,111 @@ class TTSAgent:
             pass
 
         print(f"  [TTS] Dialogue audio: {len(clip_paths)} clips, {total_duration:.1f}s total")
-        return TTSResult(audio_path=output_path, duration_sec=total_duration)
+        return TTSResult(audio_path=output_path, duration_sec=total_duration, sentence_timings=line_timings)
+
+    def generate_speech_with_timing(
+        self,
+        scene_id: int,
+        narration: str,
+        emotion: str = "neutral",
+        output_path: str = None
+    ) -> TTSResult:
+        """
+        나레이션을 문장 단위로 TTS 생성하여 실제 발화 타이밍을 측정.
+        자막과 TTS 싱크를 정확하게 맞추기 위한 메서드.
+
+        Returns:
+            TTSResult with sentence_timings populated
+        """
+        import re
+
+        if not narration or not narration.strip():
+            return self.generate_speech(scene_id, narration, emotion, output_path)
+
+        # 문장 분리 (. ? ! 기준)
+        sentences = re.split(r'(?<=[.?!。])\s+', narration.strip())
+        # 빈 문장 제거 + 너무 짧은 문장 병합
+        merged = []
+        for s in sentences:
+            s = s.strip()
+            if not s:
+                continue
+            if merged and len(merged[-1]) < 10:
+                merged[-1] = merged[-1] + " " + s
+            else:
+                merged.append(s)
+        sentences = merged if merged else [narration.strip()]
+
+        # 문장이 1개면 일반 TTS로 처리
+        if len(sentences) <= 1:
+            result = self.generate_speech(scene_id, narration, emotion, output_path)
+            result.sentence_timings = [{
+                "text": narration.strip(),
+                "start": 0.0,
+                "end": result.duration_sec,
+                "duration": result.duration_sec,
+            }]
+            return result
+
+        print(f"  [TTS] 문장별 TTS 생성: {len(sentences)}개 문장")
+
+        # 문장별 TTS 생성
+        temp_dir = tempfile.mkdtemp(prefix="tts_sentence_")
+        clip_paths = []
+        sentence_timings = []
+        current_time = 0.0
+
+        if output_path:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        else:
+            output_dir = "media/audio"
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = f"{output_dir}/narration_{scene_id:02d}.mp3"
+
+        for i, sentence in enumerate(sentences):
+            clip_path = os.path.join(temp_dir, f"sent_{i:03d}.mp3")
+
+            try:
+                if self.elevenlabs_key:
+                    self._call_elevenlabs_api(sentence, self.voice, clip_path)
+                else:
+                    self._generate_placeholder_audio(i, sentence, clip_path)
+            except Exception as e:
+                print(f"  [TTS] Sentence {i} failed: {e}. Using placeholder.")
+                self._generate_placeholder_audio(i, sentence, clip_path)
+
+            duration = self._get_audio_duration(clip_path, narration_text=sentence)
+
+            sentence_timings.append({
+                "text": sentence,
+                "start": current_time,
+                "end": current_time + duration,
+                "duration": duration,
+            })
+            clip_paths.append(clip_path)
+            current_time += duration
+            print(f"    문장 {i+1}: {sentence[:30]}... → {duration:.1f}s")
+
+        if not clip_paths:
+            return self.generate_speech(scene_id, narration, emotion, output_path)
+
+        # 오디오 스티칭 (무음 없이 — 단일 화자 연속 발화)
+        self._stitch_audio_clips(clip_paths, output_path, silence_gap=0.0)
+        total_duration = self._get_audio_duration(output_path)
+
+        # 정리
+        for p in clip_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(temp_dir)
+        except OSError:
+            pass
+
+        print(f"  [TTS] 문장별 TTS 완료: {len(sentences)}문장, {total_duration:.1f}s")
+        return TTSResult(audio_path=output_path, duration_sec=total_duration, sentence_timings=sentence_timings)
 
     def _stitch_audio_clips(self, clip_paths: List[str], output_path: str, silence_gap: float = 0.3):
         """FFmpeg로 오디오 클립들을 무음 간격과 함께 연결."""

@@ -1000,14 +1000,12 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         ) if manifest.character_sheet else True
 
         if manifest.character_sheet and not _all_have_anchors:
-            print(f"\n[Characters] Casting character anchor images (1 pose, 1 candidate)...")
+            print(f"\n[Characters] Casting character anchor images...")
             character_manager = CharacterManager()
             character_images = character_manager.cast_characters(
                 character_sheet=manifest.character_sheet,
                 global_style=manifest.global_style,
                 project_dir=project_dir,
-                poses=["front"],
-                candidates_per_pose=1,
                 ethnicity=getattr(request, 'character_ethnicity', 'auto')
             )
 

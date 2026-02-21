@@ -3750,7 +3750,8 @@ class StorycutApp {
             this.updateMVProgress(5, '씬 프롬프트 생성 중...');
             this.updateMVStepStatus('scenes', '진행 중');
 
-            // 폴링 시작
+            // 폴링 시작 (새 생성이므로 단계 리셋)
+            this._mvMinStageIdx = 0;
             this.startMVPolling(this.mvProjectId);
 
         } catch (error) {
@@ -3771,6 +3772,10 @@ class StorycutApp {
         const baseUrl = this.getApiBaseUrl();
 
         this.mvPollingFailCount = 0;
+        // 단계 역행 방지: 한 번 지나간 단계로 되돌아가지 않음
+        const _MV_STAGE_ORDER = ['generating', 'anchors_ready', 'images_ready', 'composing', 'completed', 'failed', 'cancelled'];
+        if (!this._mvMinStageIdx) this._mvMinStageIdx = 0;
+
         this.mvPollingInterval = setInterval(async () => {
             try {
                 const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`, {
@@ -3786,6 +3791,14 @@ class StorycutApp {
                 this.mvPollingFailCount = 0;
 
                 const data = await response.json();
+
+                // 단계 역행 방지: 서버가 이전 단계 상태를 반환하면 무시
+                const _stageIdx = _MV_STAGE_ORDER.indexOf(data.status);
+                if (_stageIdx >= 0 && _stageIdx < this._mvMinStageIdx) {
+                    console.warn(`[MV] Ignoring stale status '${data.status}' (min stage: ${_MV_STAGE_ORDER[this._mvMinStageIdx]})`);
+                    return;
+                }
+                if (_stageIdx >= 0) this._mvMinStageIdx = _stageIdx;
 
                 // 상태별 처리
                 if (data.status === 'anchors_ready') {
@@ -4242,7 +4255,8 @@ class StorycutApp {
 
                     this.showToast('이미지 생성이 시작되었습니다', 'success');
 
-                    // MV 생성 UI로 돌아가서 폴링 재개
+                    // MV 생성 UI로 돌아가서 폴링 재개 — anchors_ready 이후이므로 역행 방지
+                    this._mvMinStageIdx = 2; // 'images_ready' 이전 단계(generating)로 역행 불가
                     this.showSection('mv-progress');
                     this.updateMVProgress(45, '이미지 생성 중...');
                     this.startMVPolling(projectId);
@@ -4556,7 +4570,8 @@ class StorycutApp {
             this.updateMVStepStatus('compose', '영상 합성 중...');
             this.mvAddLog('INFO', '🎬 최종 뮤직비디오 합성을 시작합니다.');
 
-            // 폴링 재시작 (completed 대기)
+            // 폴링 재시작 (completed 대기) — composing 이전 단계로 역행 방지
+            this._mvMinStageIdx = 3; // 'composing' index in _MV_STAGE_ORDER
             this.startMVPolling(projectId);
         } catch (error) {
             console.error('MV compose failed:', error);
