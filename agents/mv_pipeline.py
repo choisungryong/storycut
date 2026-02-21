@@ -503,6 +503,18 @@ class MVPipeline:
                         analysis_result["timed_lyrics"] = timed_lyrics
                         print(f"  [Gemini-Align] {len(timed_lyrics)} entries, "
                               f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
+
+                        # ASS/SRT를 R2에 업로드 (배포 시 로컬 파일 삭제 대비)
+                        try:
+                            from utils.storage import StorageManager
+                            _storage = StorageManager()
+                            for _sub_file in [ass_path, srt_path]:
+                                if os.path.exists(_sub_file):
+                                    _r2_key = f"{project_id}/{os.path.relpath(_sub_file, project_dir).replace(os.sep, '/')}"
+                                    _storage.upload_file(_sub_file, _r2_key)
+                                    print(f"    [R2] Uploaded subtitle: {_r2_key}")
+                        except Exception as _r2_err:
+                            print(f"    [R2] Subtitle upload failed (non-fatal): {_r2_err}")
                     else:
                         print("  [Gemini-Align] No captions generated")
                 else:
@@ -4158,6 +4170,21 @@ class MVPipeline:
                 # upload_and_analyze()에서 Gemini 정렬로 만든 전용 파일 우선 재사용
                 gemini_ass = f"{project_dir}/media/subtitles/lyrics_gemini.ass"
                 gemini_srt = f"{project_dir}/media/subtitles/lyrics_gemini.srt"
+
+                # 로컬에 없으면 R2에서 복구 (배포 시 로컬 파일 삭제 대비)
+                if not os.path.exists(gemini_ass) or os.path.getsize(gemini_ass) <= 100:
+                    try:
+                        from utils.storage import StorageManager
+                        _storage = StorageManager()
+                        _r2_key = f"{project.project_id}/media/subtitles/lyrics_gemini.ass"
+                        _data = _storage.get_object(_r2_key)
+                        if _data:
+                            os.makedirs(os.path.dirname(gemini_ass), exist_ok=True)
+                            with open(gemini_ass, "wb") as _f:
+                                _f.write(_data)
+                            print(f"    [R2] Restored ASS from R2: {_r2_key} ({len(_data)} bytes)")
+                    except Exception as _r2_err:
+                        print(f"    [R2] ASS restore failed: {_r2_err}")
 
                 if os.path.exists(gemini_ass) and os.path.getsize(gemini_ass) > 100:
                     srt_path = gemini_ass
