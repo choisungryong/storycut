@@ -858,11 +858,13 @@ class MVPipeline:
                     "eye shape, face shape, skin tone, body type. Be CONCRETE "
                     f"{self._get_ethnicity_description_example(project)}\n"
                     "  - unique_features: REQUIRED - 3+ UNIQUE IDENTIFYING FEATURES that distinguish this character "
-                    "from all others and remain constant across every scene. Examples: "
-                    "'small mole below left eye, silver pendant necklace, distinctive sharp eyebrows', "
-                    "'red hair ribbon on right side, heterochromia (left blue right amber), thin scar on left cheek', "
-                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring'. "
-                    "These must be VISIBLE and SPECIFIC enough to identify the character in any scene.\n"
+                    "from all others and remain constant across every scene. "
+                    "CRITICAL: Include PRECISE ANATOMICAL POSITION for each mark (e.g., 'centered on forehead' not just 'on forehead'). "
+                    "The position MUST NEVER change between scenes. Examples: "
+                    "'small mole 1cm below left eye, silver pendant necklace, distinctive sharp eyebrows', "
+                    "'red hair ribbon on right side of head, heterochromia (left eye blue, right eye amber), thin scar on left cheek near jawline', "
+                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring on left ear'. "
+                    "These must be VISIBLE, SPECIFIC, and POSITIONALLY FIXED to identify the character in any scene.\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
                     "=== SCENE BLOCKING ===\n"
@@ -959,11 +961,13 @@ class MVPipeline:
                     "eye shape, face shape, skin tone, body type. Be CONCRETE "
                     f"{self._get_ethnicity_description_example(project)}\n"
                     "  - unique_features: REQUIRED - 3+ UNIQUE IDENTIFYING FEATURES that distinguish this character "
-                    "from all others and remain constant across every scene. Examples: "
-                    "'small mole below left eye, silver pendant necklace, distinctive sharp eyebrows', "
-                    "'red hair ribbon on right side, heterochromia (left blue right amber), thin scar on left cheek', "
-                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring'. "
-                    "These must be VISIBLE and SPECIFIC enough to identify the character in any scene.\n"
+                    "from all others and remain constant across every scene. "
+                    "CRITICAL: Include PRECISE ANATOMICAL POSITION for each mark (e.g., 'centered on forehead' not just 'on forehead'). "
+                    "The position MUST NEVER change between scenes. Examples: "
+                    "'small mole 1cm below left eye, silver pendant necklace, distinctive sharp eyebrows', "
+                    "'red hair ribbon on right side of head, heterochromia (left eye blue, right eye amber), thin scar on left cheek near jawline', "
+                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring on left ear'. "
+                    "These must be VISIBLE, SPECIFIC, and POSITIONALLY FIXED to identify the character in any scene.\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
                     "=== SCENE BLOCKING ===\n"
@@ -1424,7 +1428,7 @@ class MVPipeline:
                 f"{character.description}"
             )
             if getattr(character, 'unique_features', ''):
-                portrait_prompt += f", MUST INCLUDE: {character.unique_features}"
+                portrait_prompt += f", MANDATORY IDENTIFYING MARKS at EXACT positions (DO NOT relocate/mirror): {character.unique_features}"
             if character.outfit:
                 portrait_prompt += f", wearing {character.outfit}"
             portrait_prompt += (
@@ -2262,7 +2266,7 @@ class MVPipeline:
                 parts.append(f"wearing {char.outfit}")
             # 고유 식별 특징 주입 (일관성 핵심)
             if getattr(char, 'unique_features', ''):
-                parts.append(f"MUST HAVE: {char.unique_features}")
+                parts.append(f"IDENTIFYING MARKS at EXACT positions (DO NOT relocate/mirror): {char.unique_features}")
             if parts:
                 char_descs.append(f"[{role.upper()}] {', '.join(parts)}")
 

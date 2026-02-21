@@ -684,7 +684,7 @@ JSON 형식으로 출력:
                         if _cloth:
                             _parts.append(f"wearing {_cloth}")
                         if _uniq:
-                            _parts.append(f"MUST HAVE: {_uniq}")
+                            _parts.append(f"IDENTIFYING MARKS at EXACT positions (DO NOT relocate/mirror): {_uniq}")
                         _char_descs.append(f"[{_name}] {', '.join(_parts)}")
                     if _cloth:
                         _outfit_locks.append(f"OUTFIT LOCK: {_name} MUST wear {_cloth} in EVERY scene.")
@@ -1383,7 +1383,7 @@ JSON 형식으로 출력:
                         if clothing:
                             parts.append(f"wearing {clothing}")
                         if unique_features:
-                            parts.append(f"MUST HAVE: {unique_features}")
+                            parts.append(f"IDENTIFYING MARKS at EXACT positions (DO NOT relocate/mirror): {unique_features}")
                         char_descs.append(f"[{name}] {', '.join(parts)}")
                     # 의상 잠금 (MV 포팅 #4)
                     if clothing:

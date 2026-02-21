@@ -184,6 +184,14 @@ class CharacterManager:
             char_dir = f"{project_dir}/media/characters/{token}"
             os.makedirs(char_dir, exist_ok=True)
 
+            # unique_features 추출
+            if isinstance(char_data, CharacterSheet):
+                _unique_features = getattr(char_data, 'unique_features', '') or ""
+            elif isinstance(char_data, dict):
+                _unique_features = char_data.get("unique_features", "")
+            else:
+                _unique_features = ""
+
             # 멀티포즈 앵커 생성
             anchor_set = self._generate_pose_candidates(
                 token=token,
@@ -197,7 +205,8 @@ class CharacterManager:
                 char_seed=char_seed,
                 poses=poses,
                 candidates_per_pose=candidates_per_pose,
-                char_dir=char_dir
+                char_dir=char_dir,
+                unique_features=_unique_features,
             )
 
             # CharacterSheet에 anchor_set 저장
@@ -307,6 +316,7 @@ class CharacterManager:
                 age="unknown",
                 appearance=appearance,
                 clothing_default=char.outfit or "",
+                unique_features=getattr(char, 'unique_features', '') or "",
                 visual_seed=42,
             )
             character_sheet[token] = sheet
@@ -382,7 +392,8 @@ class CharacterManager:
         char_seed: int,
         poses: List[str],
         candidates_per_pose: int,
-        char_dir: str
+        char_dir: str,
+        unique_features: str = "",
     ) -> AnchorSet:
         """
         포즈별 후보 이미지 생성 및 best 선택.
@@ -434,7 +445,8 @@ class CharacterManager:
                     clothing=clothing,
                     art_style=art_style,
                     color_palette=color_palette,
-                    pose_description=pose_desc
+                    pose_description=pose_desc,
+                    unique_features=unique_features,
                 )
                 # 참조 이미지가 있으면 "포즈는 무시, 얼굴/의상만 참조" 지시 추가
                 if reference_image_path:
@@ -585,7 +597,8 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         clothing: str,
         art_style: str,
         color_palette: str,
-        pose_description: str = "three-quarter view or front facing"
+        pose_description: str = "three-quarter view or front facing",
+        unique_features: str = "",
     ) -> str:
         """
         캐스팅 이미지 생성을 위한 프롬프트 구성.
@@ -599,6 +612,7 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
             art_style: 아트 스타일
             color_palette: 색상 팔레트
             pose_description: 포즈 설명
+            unique_features: 고유 식별 특징 (점, 흉터, 문신 등)
 
         Returns:
             캐스팅 프롬프트 문자열
@@ -620,6 +634,13 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         ])
         if clothing:
             prompt_parts.append(f"wearing {clothing}")
+
+        # unique_features를 정확한 위치 고정 지시와 함께 주입
+        if unique_features:
+            prompt_parts.append(
+                f"MANDATORY IDENTIFYING MARKS at EXACT positions: {unique_features}. "
+                f"These marks must appear at the PRECISE locations described — never shifted, mirrored, or relocated"
+            )
 
         if color_palette:
             prompt_parts.append(color_palette)
