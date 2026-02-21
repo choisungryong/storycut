@@ -23,6 +23,11 @@ _STRIP_PAREN_RE = re.compile(r'^\(.*?\)\s*|\s*\(.*?\)$')
 
 # 스타일별 런타임 프리픽스 + 네거티브 (generate_images / regenerate 공용)
 _STYLE_RUNTIME = {
+    "cinematic": {
+        "prefix": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, real human skin texture with pores",
+        "check": ("cinematic", "film still", "dramatic lighting"),
+        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin",
+    },
     "game_anime": {
         "prefix": "3D cel-shaded toon-rendered scene, Genshin Impact / Honkai Star Rail style, high-fidelity 3D models with toon shader and bloom",
         "check": ("cel-shaded", "toon"),
@@ -39,9 +44,9 @@ _STYLE_RUNTIME = {
         "negative": "photorealistic, photograph, 3D render, western cartoon, oil painting, anime cel-shading",
     },
     "realistic": {
-        "prefix": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus",
+        "prefix": "RAW photograph shot on Canon EOS R5 85mm f/1.8, hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, real human skin texture with pores and fine lines",
         "check": ("photorealistic", "photograph", "dslr"),
-        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look",
+        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin",
     },
     "illustration": {
         "prefix": "digital painting illustration, painterly brushstrokes, concept art quality",
@@ -1304,7 +1309,7 @@ class MVPipeline:
 
         # 스타일 디렉티브 (앵커 프롬프트 최상단에 강제 삽입)
         _anchor_style_directives = {
-            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster",
+            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader",
             "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, NOT a photograph",
             "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, NOT a photograph",
             "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, NOT anime, NOT cartoon, NOT illustration",
@@ -1425,10 +1430,10 @@ class MVPipeline:
 
         # 스타일별 전용 캐릭터 앵커 directive
         _style_directives = {
-            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster",
+            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader",
             "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime proportions, NOT a photograph",
             "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, NOT a photograph",
-            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin",
+            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin, NOT 3D render, NOT CGI, NOT toon shader, NOT doll-like",
             "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, NOT a photograph",
             "abstract": "abstract expressionist art, surreal dreamlike, bold geometric shapes",
             "game_anime": "3D cel-shaded toon-rendered scene, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn illustration, NOT western cartoon",
@@ -1968,6 +1973,7 @@ class MVPipeline:
 
                 f"[NEGATIVE LOCK]\n"
                 f"{'no cartoon, no anime, no illustration, ' if request.style not in (MVStyle.ANIME, MVStyle.WEBTOON) else ''}"
+                f"{'no 3D render, no CGI, no Unreal Engine, no toon shader, no game screenshot, ' if request.style in (MVStyle.REALISTIC, MVStyle.CINEMATIC) else ''}"
                 f"{'no photorealistic, no photograph, ' if request.style not in (MVStyle.REALISTIC, MVStyle.CINEMATIC) else ''}"
                 f"no different ethnicity, no different skin tone, "
                 f"no different outfit colors, keep signature outfit, "

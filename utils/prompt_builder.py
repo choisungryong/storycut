@@ -301,7 +301,7 @@ class MultimodalPromptBuilder:
         style_directives = {
             "cinematic": {
                 "positive": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster. Natural skin texture, real-world imperfections. If character reference images are provided, the characters MUST look identical to those references.",
-                "negative": "NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT airbrushed, NOT uncanny valley."
+                "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT cel-shaded, NOT stylized, NOT 3D render, NOT 3D animation, NOT CGI, NOT Unreal Engine, NOT game screenshot, NOT toon shader. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT doll-like, NOT porcelain skin, NOT airbrushed, NOT uncanny valley."
             },
             "anime": {
                 "positive": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art. If character reference images are provided, adapt their design to anime style while preserving hair color, eye color, outfit design, and distinguishing features.",
@@ -313,7 +313,7 @@ class MultimodalPromptBuilder:
             },
             "realistic": {
                 "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting with subtle imperfections, sharp focus, real-world textures, photojournalistic quality. Visible skin texture (pores, fine lines, subtle blemishes), natural asymmetry, candid photography feel. Shot on 35mm film grain. This MUST be indistinguishable from a real photograph. Characters MUST look identical to their reference images.",
-                "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT symmetrical face, NOT glowing eyes, NOT airbrushed, NOT uncanny valley, NOT stock photo, NOT oversaturated."
+                "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized, NOT 3D render, NOT 3D animation, NOT CGI, NOT Unreal Engine, NOT game screenshot, NOT toon shader. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT doll-like, NOT porcelain skin, NOT symmetrical face, NOT glowing eyes, NOT airbrushed, NOT uncanny valley, NOT stock photo, NOT oversaturated."
             },
             "illustration": {
                 "positive": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork. If character reference images are provided, paint the SAME characters in illustration style — preserve their hair color, eye color, skin tone, outfit design, and body proportions. The characters must be recognizably the same people, just rendered as a painting.",
