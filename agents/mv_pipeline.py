@@ -4500,8 +4500,32 @@ class MVPipeline:
         # Step 2.6: 스타일 앵커 생성
         project = self.generate_style_anchor(project)
 
+        # Visual Bible 생성 실패 시 FAILED 처리 (characters 없으면 앵커 리뷰 불가)
+        if not project.visual_bible or not project.visual_bible.characters:
+            project.status = MVProjectStatus.FAILED
+            project.error_message = "Visual Bible 생성에 실패했습니다. 다시 시도해주세요."
+            project.current_step = "Visual Bible 생성 실패"
+            project_dir = f"{self.output_base_dir}/{project.project_id}"
+            self._save_manifest(project, project_dir)
+            print(f"[MV] FAILED - No visual_bible or characters: {project.project_id}")
+            return project
+
         # Step 2.7: 캐릭터 앵커 생성
         project = self.generate_character_anchors(project)
+
+        # 캐릭터 앵커가 하나도 생성 안 된 경우 FAILED 처리
+        characters_with_anchors = [
+            c for c in project.visual_bible.characters
+            if c.anchor_image_path
+        ]
+        if not characters_with_anchors:
+            project.status = MVProjectStatus.FAILED
+            project.error_message = "캐릭터 앵커 이미지 생성에 실패했습니다. 다시 시도해주세요."
+            project.current_step = "캐릭터 앵커 생성 실패"
+            project_dir = f"{self.output_base_dir}/{project.project_id}"
+            self._save_manifest(project, project_dir)
+            print(f"[MV] FAILED - No character anchors generated: {project.project_id}")
+            return project
 
         # ANCHORS_READY 상태로 전환 (리뷰 대기)
         project.status = MVProjectStatus.ANCHORS_READY
@@ -4510,7 +4534,7 @@ class MVPipeline:
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         self._save_manifest(project, project_dir)
 
-        print(f"[MV] Anchors ready, waiting for user review: {project.project_id}")
+        print(f"[MV] Anchors ready ({len(characters_with_anchors)} characters), waiting for user review: {project.project_id}")
         return project
 
     def run_from_images(
@@ -4580,6 +4604,12 @@ class MVPipeline:
 
         # Visual Bible + Style Anchor + Character Anchors
         project = self.generate_visual_bible(project)
+        if not project.visual_bible or not project.visual_bible.characters:
+            project.status = MVProjectStatus.FAILED
+            project.error_message = "Visual Bible 생성에 실패했습니다. 다시 시도해주세요."
+            project_dir = f"{self.output_base_dir}/{project.project_id}"
+            self._save_manifest(project, project_dir)
+            return project
         project = self.generate_style_anchor(project)
         project = self.generate_character_anchors(project)
 
