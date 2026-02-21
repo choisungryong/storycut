@@ -3787,6 +3787,12 @@ async def mv_generate_images(project_id: str):
         max_scenes=len(project.scenes) if project.scenes else None,
     )
 
+    # 스레드 시작 전에 상태를 즉시 변경 (폴링 레이스 컨디션 방지)
+    project.status = MVProjectStatus.GENERATING
+    project.progress = 45
+    project.current_step = "씬 이미지 생성 준비 중"
+    pipeline._save_manifest(project, f"outputs/{project_id}")
+
     def run_mv_image_generation():
         try:
             print(f"[MV Thread] Starting image generation for {project_id}")
@@ -3994,6 +4000,12 @@ async def mv_compose(project_id: str):
 
     if project.status == MVProjectStatus.COMPOSING:
         raise HTTPException(status_code=400, detail="Composition already in progress")
+
+    # 스레드 시작 전에 상태를 즉시 변경 (폴링 레이스 컨디션 방지)
+    project.status = MVProjectStatus.COMPOSING
+    project.progress = 75
+    project.current_step = "영상 합성 준비 중"
+    pipeline._save_manifest(project, f"outputs/{project_id}")
 
     def run_compose():
         try:

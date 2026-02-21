@@ -2248,11 +2248,12 @@ class StorycutApp {
                         if (musicBtn) musicBtn.style.display = 'inline-flex';
                     }
                 } else if (manifest.status === 'processing' || manifest.status === 'composing' || manifest.status === 'generating') {
-                    this.showSection('result');
-                    this.setNavActive('nav-history');
-                    document.getElementById('result-header-text').textContent = "MV 생성 중...";
-                    document.getElementById('result-video-container').innerHTML = '<div style="text-align:center;padding:40px;background:rgba(255,255,255,0.05);border-radius:8px;"><span style="font-size:48px;display:block;margin-bottom:20px;">🎬</span><h3>아직 영상이 만들어지고 있습니다.</h3></div>';
-                    document.getElementById('download-btn').style.display = 'none';
+                    // 진행 중인 MV → progress 화면 + 폴링 재개
+                    this.showSection('mv-progress');
+                    this.mvProjectId = projectId;
+                    const progressVal = manifest.progress || (manifest.status === 'composing' ? 75 : 30);
+                    this.updateMVProgress(progressVal, manifest.current_step || 'MV 생성 중...');
+                    this.startMVPolling(projectId);
                 } else {
                     this.showSection('result');
                     this.setNavActive('nav-history');
