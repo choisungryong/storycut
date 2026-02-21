@@ -2185,7 +2185,7 @@ async def regenerate_character(project_id: str, token: str):
             global_style=global_style,
             project_dir=project_dir,
             poses=["front", "three_quarter", "full_body"],
-            candidates_per_pose=1,
+            candidates_per_pose=2,
             ethnicity=_ethnicity
         )
         # anchor_set 전체 포즈 이미지 경로 반환

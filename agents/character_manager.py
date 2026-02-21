@@ -76,7 +76,7 @@ class CharacterManager:
         global_style: Optional[GlobalStyle],
         project_dir: str,
         poses: Optional[List[str]] = None,
-        candidates_per_pose: int = 1,
+        candidates_per_pose: int = 2,
         ethnicity: str = "auto",
         progress_callback: Optional[callable] = None
     ) -> Dict[str, str]:

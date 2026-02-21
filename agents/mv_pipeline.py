@@ -1110,6 +1110,10 @@ class MVPipeline:
                         c[str_field] = ", ".join(str(x) for x in c[str_field])
 
             mv_characters = [MVCharacter(**c) for c in characters_data] if characters_data else []
+            # 캐릭터별 고유 visual_seed 자동 할당 (LLM이 반환하지 않은 경우)
+            for _ci, _mc in enumerate(mv_characters):
+                if _mc.visual_seed == 42:  # 기본값이면 고유 seed 할당
+                    _mc.visual_seed = 42 + _ci * 7919  # 소수 간격으로 분산
             mv_blocking = [MVSceneBlocking(**b) for b in scene_blocking_data] if scene_blocking_data else []
             mv_arc = MVNarrativeArc(**narrative_arc_data) if narrative_arc_data else None
 
@@ -1211,6 +1215,10 @@ class MVPipeline:
                             c[str_field] = ", ".join(str(x) for x in c[str_field])
 
                 mv_characters = [MVCharacter(**c) for c in characters_data] if characters_data else []
+                # 캐릭터별 고유 visual_seed 자동 할당 (재시도 경로)
+                for _ci, _mc in enumerate(mv_characters):
+                    if _mc.visual_seed == 42:
+                        _mc.visual_seed = 42 + _ci * 7919
                 mv_blocking = [MVSceneBlocking(**b) for b in scene_blocking_data] if scene_blocking_data else []
                 mv_arc = MVNarrativeArc(**narrative_arc_data) if narrative_arc_data else None
 
@@ -2656,11 +2664,25 @@ class MVPipeline:
                 # 스타일 앵커는 캐릭터-free 이미지이므로 모든 씬에 전달
                 _scene_style_anchor = style_anchor_path
 
+                # visual_seed 결합: 씬에 등장하는 캐릭터들의 seed를 합산하여 씬별 고유 seed 생성
+                _scene_seed = None
+                if scene.characters_in_scene and project.visual_bible and project.visual_bible.characters:
+                    _all_seeds = []
+                    for _role in scene.characters_in_scene:
+                        for _mc in project.visual_bible.characters:
+                            if _mc.role == _role:
+                                _all_seeds.append(_mc.visual_seed)
+                                break
+                    if _all_seeds:
+                        _base = sum(_all_seeds) % (2**31) if len(_all_seeds) > 1 else _all_seeds[0]
+                        _scene_seed = (_base + scene.scene_id * 31337) % (2**31)
+
                 image_path, _ = self.image_agent.generate_image(
                     scene_id=scene.scene_id,
                     prompt=final_prompt,
                     style=project.style.value,
                     output_dir=image_dir,
+                    seed=_scene_seed,
                     style_anchor_path=_scene_style_anchor,
                     genre=project.genre.value,
                     mood=project.mood.value,
