@@ -1242,11 +1242,19 @@ JSON 형식으로 출력:
         narration_clips = []
         scene_durations = []
 
+        print(f"\n[DEBUG-SYNC] ====== 클립 수집 시작 ======")
         for s in processed_scenes:
             if s.status == SceneStatus.COMPLETED and s.assets.video_path and s.assets.narration_path:
                 video_clips.append(s.assets.video_path)
                 narration_clips.append(s.assets.narration_path)
                 scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
+                _narr_preview = (s.narration or "")[:60].replace("\n", " ")
+                print(f"[DEBUG-SYNC] Scene {s.scene_id}: video={os.path.basename(s.assets.video_path)} | audio={os.path.basename(s.assets.narration_path)} | dur={s.duration_sec}s | narr={_narr_preview}")
+
+        print(f"[DEBUG-SYNC] video_clips 순서: {[os.path.basename(v) for v in video_clips]}")
+        print(f"[DEBUG-SYNC] narration_clips 순서: {[os.path.basename(n) for n in narration_clips]}")
+        print(f"[DEBUG-SYNC] scene_durations: {scene_durations}")
+        print(f"[DEBUG-SYNC] ====== 클립 수집 완료 ======\n")
 
         if not video_clips:
             raise RuntimeError("No scenes were successfully composed. Cannot produce video.")
@@ -1712,10 +1720,12 @@ JSON 형식으로 출력:
                     except Exception as exc:
                         print(f"  [ERROR] Scene thread exception: {exc}")
 
-        # None 제거 (실패 시 방어)
+        # None 제거 (실패 시 방어) + scene_id 순서 복원 (병렬 처리 시 완료 순서 ≠ 원래 순서)
         processed_scenes = [s for s in processed_scenes if s is not None]
+        processed_scenes.sort(key=lambda s: s.scene_id)
 
         print(f"\n[SUCCESS] {len(processed_scenes)} images generated!")
+        print(f"[DEBUG-SYNC] processed_scenes order: {[s.scene_id for s in processed_scenes]}")
         return processed_scenes
 
 
