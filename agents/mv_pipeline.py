@@ -1099,6 +1099,12 @@ class MVPipeline:
             scene_blocking_data = vb_data.pop("scene_blocking", [])
             narrative_arc_data = vb_data.pop("narrative_arc", None)
 
+            # LLM이 문자열 필드를 리스트로 반환하는 경우 변환
+            for c in characters_data:
+                for str_field in ("unique_features", "description", "outfit", "role"):
+                    if isinstance(c.get(str_field), list):
+                        c[str_field] = ", ".join(str(x) for x in c[str_field])
+
             mv_characters = [MVCharacter(**c) for c in characters_data] if characters_data else []
             mv_blocking = [MVSceneBlocking(**b) for b in scene_blocking_data] if scene_blocking_data else []
             mv_arc = MVNarrativeArc(**narrative_arc_data) if narrative_arc_data else None
@@ -1193,6 +1199,12 @@ class MVPipeline:
                 characters_data = vb_data.pop("characters", [])
                 scene_blocking_data = vb_data.pop("scene_blocking", [])
                 narrative_arc_data = vb_data.pop("narrative_arc", None)
+
+                # LLM이 문자열 필드를 리스트로 반환하는 경우 변환
+                for c in characters_data:
+                    for str_field in ("unique_features", "description", "outfit", "role"):
+                        if isinstance(c.get(str_field), list):
+                            c[str_field] = ", ".join(str(x) for x in c[str_field])
 
                 mv_characters = [MVCharacter(**c) for c in characters_data] if characters_data else []
                 mv_blocking = [MVSceneBlocking(**b) for b in scene_blocking_data] if scene_blocking_data else []
