@@ -794,41 +794,11 @@ JSON 형식으로 출력:
                     scene._char_alignment = tts_result.char_alignment
                     print(f"     [TTS] Scene {scene.scene_id}: char_alignment 저장 ({len(tts_result.char_alignment['characters'])} chars)")
 
-                # TTS 기반으로 duration 조정
-                # - 2배 이내: 씬 duration을 TTS에 맞춤 (스토리 보존 우선)
-                # - 2배 초과: LLM으로 narration 축약 후 TTS 재생성
+                # TTS 기반으로 duration 조정 — 나레이션 원본 보존, duration만 TTS에 맞춤
                 if tts_result.duration_sec > 0:
                     import math
                     original_dur = scene.duration_sec
                     tts_dur = math.ceil(tts_result.duration_sec) + 1
-                    regen_threshold = math.ceil(original_dur * 2.0)
-
-                    if tts_dur > regen_threshold:
-                        # 2배 초과 → LLM narration 축약 + TTS 재생성
-                        print(f"     [Duration] TTS {tts_result.duration_sec:.1f}s > 2x original ({original_dur}s), shortening narration...")
-                        shortened = self._shorten_narration(scene.narration, original_dur * 1.5)
-                        scene.narration = shortened
-                        if dialogue_lines and character_voices:
-                            tts_result2 = self.tts_agent.generate_dialogue_audio(
-                                dialogue_lines=[{"speaker": "[narrator]", "text": shortened}],
-                                character_voices=character_voices,
-                                output_path=tts_result.audio_path,
-                            )
-                        else:
-                            tts_result2 = self.tts_agent.generate_speech(
-                                scene_id=scene.scene_id,
-                                narration=shortened,
-                                emotion=scene.mood,
-                                output_path=tts_result.audio_path
-                            )
-                        scene.assets.narration_path = tts_result2.audio_path
-                        scene.tts_duration_sec = tts_result2.duration_sec
-                        if tts_result2.sentence_timings:
-                            scene._sentence_timings = tts_result2.sentence_timings
-                        if getattr(tts_result2, 'char_alignment', None):
-                            scene._char_alignment = tts_result2.char_alignment
-                        tts_dur = math.ceil(tts_result2.duration_sec) + 1
-                        print(f"     [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
 
                     # 씬 duration을 TTS에 맞춤 (최소 3초)
                     scene.duration_sec = max(3, tts_dur)
@@ -1193,37 +1163,11 @@ JSON 형식으로 출력:
                 if getattr(tts_result, 'char_alignment', None):
                     scene._char_alignment = tts_result.char_alignment
 
+                # TTS 기반으로 duration 조정 — 나레이션 원본 보존, duration만 TTS에 맞춤
                 if tts_result.duration_sec > 0:
                     import math
                     original_dur = scene.duration_sec
                     tts_dur = math.ceil(tts_result.duration_sec) + 1
-                    regen_threshold = math.ceil(original_dur * 2.0)
-
-                    if tts_dur > regen_threshold:
-                        print(f"  [Duration] TTS {tts_result.duration_sec:.1f}s > 2x original ({original_dur}s), shortening narration...")
-                        shortened = self._shorten_narration(scene.narration, original_dur * 1.5)
-                        scene.narration = shortened
-                        if dialogue_lines and character_voices:
-                            tts_result2 = self.tts_agent.generate_dialogue_audio(
-                                dialogue_lines=[{"speaker": "[narrator]", "text": shortened}],
-                                character_voices=character_voices,
-                                output_path=tts_result.audio_path,
-                            )
-                        else:
-                            tts_result2 = self.tts_agent.generate_speech(
-                                scene_id=scene.scene_id,
-                                narration=shortened,
-                                emotion=scene.mood,
-                                output_path=tts_result.audio_path
-                            )
-                        scene.assets.narration_path = tts_result2.audio_path
-                        scene.tts_duration_sec = tts_result2.duration_sec
-                        if tts_result2.sentence_timings:
-                            scene._sentence_timings = tts_result2.sentence_timings
-                        if getattr(tts_result2, 'char_alignment', None):
-                            scene._char_alignment = tts_result2.char_alignment
-                        tts_dur = math.ceil(tts_result2.duration_sec) + 1
-                        print(f"  [Duration] Re-TTS: {tts_result2.duration_sec:.1f}s (was {tts_result.duration_sec:.1f}s)")
 
                     scene.duration_sec = max(3, tts_dur)
                     print(f"  [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
