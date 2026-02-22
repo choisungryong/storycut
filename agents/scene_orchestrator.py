@@ -1053,6 +1053,7 @@ JSON 형식으로 출력:
                 return fallback
             return None
 
+        i2v_video_map = {}  # scene_id → I2V 변환된 비디오 경로
         manifest_path = os.path.join(project_dir, "manifest.json")
         if os.path.exists(manifest_path):
             try:
@@ -1065,6 +1066,12 @@ JSON 형식으로 출력:
                         resolved = _resolve_to_local(img_path, sc_id)
                         if resolved:
                             image_map[sc_id] = resolved
+                    # I2V 변환된 비디오 경로 수집
+                    if sc_id and sc.get('i2v_converted'):
+                        vid_path = sc.get('assets', {}).get('video_path') if isinstance(sc.get('assets'), dict) else None
+                        if vid_path and os.path.exists(str(vid_path)):
+                            i2v_video_map[sc_id] = vid_path
+                            print(f"[compose] Scene {sc_id}: I2V video found → {vid_path}")
             except Exception as e:
                 print(f"[compose] Failed to load manifest images: {e}")
 
@@ -1172,20 +1179,25 @@ JSON 형식으로 출력:
                     scene.duration_sec = max(3, tts_dur)
                     print(f"  [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
 
-                # Phase 2: Ken Burns (이미지 → 비디오)
+                # Phase 2: I2V 비디오 사용 또는 Ken Burns (이미지 → 비디오)
                 scene.status = SceneStatus.GENERATING_VIDEO
                 video_output_dir = f"{project_dir}/media/video"
                 os.makedirs(video_output_dir, exist_ok=True)
                 video_out = f"{video_output_dir}/scene_{scene.scene_id:02d}.mp4"
 
-                video_path = self.video_agent.apply_kenburns(
-                    image_path=image_path,
-                    duration_sec=scene.duration_sec,
-                    output_path=video_out,
-                    scene_id=scene.scene_id,
-                    camera_work=scene.camera_work.value if hasattr(scene.camera_work, 'value') else None,
-                    resolution=_resolution,
-                )
+                i2v_path = i2v_video_map.get(scene_id)
+                if i2v_path:
+                    print(f"  [compose] Using I2V video for scene {scene_id}: {i2v_path}")
+                    video_path = i2v_path
+                else:
+                    video_path = self.video_agent.apply_kenburns(
+                        image_path=image_path,
+                        duration_sec=scene.duration_sec,
+                        output_path=video_out,
+                        scene_id=scene.scene_id,
+                        camera_work=scene.camera_work.value if hasattr(scene.camera_work, 'value') else None,
+                        resolution=_resolution,
+                    )
                 scene.assets.video_path = video_path
 
                 # Phase 3: 자막
