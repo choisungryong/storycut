@@ -249,9 +249,23 @@ JSON 형식으로 출력:
                 generation_config={"temperature": 0.3, "max_output_tokens": 1000}
             )
             shortened = response.text.strip()
+            print(f"     [Narration] LLM raw response: {shortened[:200]}")
+
+            # Gemini 메타데이터 누출 제거: (36chars), *Refining:*, 마크다운 등
+            shortened = re.sub(r'\(\d+chars?\)', '', shortened)
+            shortened = re.sub(r'\*[A-Za-z_]+:?\*\s*', '', shortened)
+            shortened = re.sub(r'^[\s\-\*#>:`]+', '', shortened).strip()
+            # 여러 줄이면 첫 번째 비어있지 않은 줄부터 사용 (메타 헤더 제거)
+            lines = [l for l in shortened.split('\n') if l.strip()]
+            if lines:
+                shortened = '\n'.join(lines)
+
             if shortened and len(shortened) < len(narration):
                 print(f"     [Narration] Shortened: {len(narration)}자 → {len(shortened)}자 (target: {target_chars}자)")
+                print(f"     [Narration] Result: {shortened[:100]}")
                 return shortened
+            else:
+                print(f"     [Narration] Shorten result invalid (len={len(shortened) if shortened else 0}), keeping original")
         except Exception as e:
             print(f"     [Narration] Shorten failed: {e}")
         return narration
@@ -751,6 +765,10 @@ JSON 형식으로 출력:
                 os.makedirs(_audio_dir, exist_ok=True)
                 _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
 
+                print(f"     [TTS INPUT] Scene {scene.scene_id} narration: {scene.narration[:150]}")
+                if dialogue_lines:
+                    print(f"     [TTS INPUT] Scene {scene.scene_id} dialogue_lines: {dialogue_lines[:3]}")
+
                 if dialogue_lines and character_voices:
                     # 멀티 화자 TTS (line_timings 포함)
                     tts_result = self.tts_agent.generate_dialogue_audio(
@@ -1148,6 +1166,10 @@ JSON 형식으로 출력:
                 _audio_dir = f"{project_dir}/media/audio"
                 os.makedirs(_audio_dir, exist_ok=True)
                 _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
+
+                print(f"     [TTS INPUT] Scene {scene.scene_id} narration: {scene.narration[:150]}")
+                if dialogue_lines:
+                    print(f"     [TTS INPUT] Scene {scene.scene_id} dialogue_lines: {dialogue_lines[:3]}")
 
                 if dialogue_lines and character_voices:
                     tts_result = self.tts_agent.generate_dialogue_audio(
@@ -1735,10 +1757,10 @@ JSON 형식으로 출력:
 
         # None 제거 (실패 시 방어) + scene_id 순서 복원 (병렬 처리 시 완료 순서 ≠ 원래 순서)
         processed_scenes = [s for s in processed_scenes if s is not None]
-        processed_scenes.sort(key=lambda s: s.scene_id)
+        processed_scenes.sort(key=lambda s: s.get("scene_id", 0) if isinstance(s, dict) else s.scene_id)
 
         print(f"\n[SUCCESS] {len(processed_scenes)} images generated!")
-        print(f"[DEBUG-SYNC] processed_scenes order: {[s.scene_id for s in processed_scenes]}")
+        print(f"[DEBUG-SYNC] processed_scenes order: {[s.get('scene_id') if isinstance(s, dict) else s.scene_id for s in processed_scenes]}")
         return processed_scenes
 
 
