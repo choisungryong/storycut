@@ -5062,31 +5062,15 @@ class MVPipeline:
         audio_abs = os.path.abspath(audio_path)
         out_abs = os.path.abspath(out_path)
 
-        # 음악 길이 확보 - 영상보다 길면 마지막 프레임 freeze
+        # 음악 길이 확보 - 영상보다 길면 최종 렌더에서 tpad로 freeze (별도 패스 없이 통합)
+        tpad_filter = ""
         try:
             video_dur = self.ffmpeg_composer.get_video_duration(video_abs)
             audio_dur = ffprobe_duration_sec(audio_abs)
             if audio_dur and video_dur and audio_dur > video_dur + 0.5:
                 gap = audio_dur - video_dur
-                print(f"  [Final Render] Video ({video_dur:.1f}s) shorter than audio ({audio_dur:.1f}s) by {gap:.1f}s - extending with tpad freeze")
-                # tpad: 마지막 프레임을 stop_duration만큼 freeze
-                extended_path = video_abs.rsplit(".", 1)[0] + "_extended.mp4"
-                pad_cmd = [
-                    "ffmpeg", "-y",
-                    "-i", video_abs,
-                    "-vf", f"tpad=stop_mode=clone:stop_duration={gap + 1:.1f}",
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                    "-an", extended_path
-                ]
-                pad_result = subprocess.run(
-                    pad_cmd, capture_output=True, text=True,
-                    encoding='utf-8', errors='replace', timeout=300
-                )
-                if pad_result.returncode == 0:
-                    video_abs = extended_path
-                    print(f"  [Final Render] Extended video to {audio_dur + 1:.1f}s")
-                else:
-                    print(f"  [Final Render] tpad failed, proceeding with original video: {pad_result.stderr[-200:]}")
+                print(f"  [Final Render] Video ({video_dur:.1f}s) shorter than audio ({audio_dur:.1f}s) by {gap:.1f}s - will tpad in final pass")
+                tpad_filter = f"tpad=stop_mode=clone:stop_duration={gap + 1:.1f},"
         except Exception as e:
             print(f"  [Final Render] Duration check skipped: {e}")
 
@@ -5128,17 +5112,17 @@ class MVPipeline:
 
         vf_filter = ",".join(vf_parts)
 
-        # --- FFmpeg 커맨드 ---
+        # --- FFmpeg 커맨드 (tpad 통합 — 별도 인코딩 패스 제거) ---
         cmd = [
             "ffmpeg", "-y",
             "-i", video_abs,
             "-i", audio_abs,
             "-filter_complex",
-            f"[0:v]{vf_filter}[v];[1:a]aresample=48000,asetpts=N/SR/TB[a]",
+            f"[0:v]{tpad_filter}{vf_filter}[v];[1:a]aresample=48000,asetpts=N/SR/TB[a]",
             "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-profile:v", "high", "-level", "4.1",
-            "-preset", "fast", "-crf", "20",
+            "-preset", "veryfast", "-crf", "20",
             "-r", "30",
             "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
             out_abs
