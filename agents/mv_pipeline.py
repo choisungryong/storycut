@@ -2584,7 +2584,7 @@ class MVPipeline:
             else:
                 print(f"  [B-roll] Pexels agent enabled")
 
-        BROLL_SEGMENTS = {"intro", "outro", "bridge"}
+        BROLL_SEGMENTS = set()  # B-roll 비활성화 — 모든 씬 AI 이미지 생성
 
         # 모든 씬에 고유 이미지 생성 (병렬 처리)
         print(f"  Generating {total_scenes} unique images (parallel, max_workers=4)")
