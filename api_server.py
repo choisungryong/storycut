@@ -1851,26 +1851,55 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
 
     # 해당 씬 찾기
     scenes = manifest_data.get("scenes", [])
+    print(f"[I2V DEBUG] Total scenes in manifest: {len(scenes)}")
+    print(f"[I2V DEBUG] Scene IDs: {[s.get('scene_id') for s in scenes]}")
+    print(f"[I2V DEBUG] Looking for scene_id={scene_id} (type={type(scene_id).__name__})")
     target_scene = None
     for scene in scenes:
         if scene.get("scene_id") == scene_id:
             target_scene = scene
             break
-    
+
     if not target_scene:
+        # scene_id 타입 불일치 fallback: str ↔ int
+        for scene in scenes:
+            if str(scene.get("scene_id")) == str(scene_id):
+                target_scene = scene
+                print(f"[I2V DEBUG] Found scene via str comparison (manifest type={type(scene.get('scene_id')).__name__})")
+                break
+
+    if not target_scene:
+        print(f"[I2V ERROR] Scene {scene_id} not found in manifest")
         raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
-    
+
     # 이미지 경로 확인 (웹 URL → 파일시스템 경로 변환)
     image_path = target_scene.get("assets", {}).get("image_path")
+    print(f"[I2V DEBUG] Raw image_path from manifest: {image_path}")
     if image_path:
-        # /media/xxx → outputs/xxx 변환
-        normalized = image_path.replace("\\", "/")
-        if normalized.startswith("/media/"):
-            image_path = f"outputs/{normalized[len('/media/'):]}"
-        elif not os.path.isabs(normalized) and not normalized.startswith("outputs/"):
-            image_path = f"outputs/{project_id}/{normalized}"
+        # http URL → R2에서 로컬로 다운로드
+        if image_path.startswith("http"):
+            import urllib.request
+            local_dir = f"outputs/{project_id}/media/images"
+            os.makedirs(local_dir, exist_ok=True)
+            local_path = f"{local_dir}/scene_{scene_id:02d}.png"
+            if not os.path.exists(local_path):
+                try:
+                    urllib.request.urlretrieve(image_path, local_path)
+                    print(f"[I2V DEBUG] Downloaded from URL to {local_path}")
+                except Exception as dl_err:
+                    print(f"[I2V ERROR] Download failed: {dl_err}")
+            if os.path.exists(local_path):
+                image_path = local_path
+        else:
+            # /media/xxx → outputs/xxx 변환
+            normalized = image_path.replace("\\", "/")
+            if normalized.startswith("/media/"):
+                image_path = f"outputs/{normalized[len('/media/'):]}"
+            elif not os.path.isabs(normalized) and not normalized.startswith("outputs/"):
+                image_path = f"outputs/{project_id}/{normalized}"
+    print(f"[I2V DEBUG] Resolved image_path: {image_path}, exists={os.path.exists(image_path) if image_path else False}")
     if not image_path or not os.path.exists(image_path):
-        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id}")
+        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id} (path: {image_path})")
     
     # I2V 변환
     video_agent = VideoAgent()
