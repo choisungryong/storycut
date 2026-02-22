@@ -2539,7 +2539,7 @@ class MVPipeline:
         if pexels_key:
             from agents.pexels_agent import PexelsAgent
             _prev_pexels_ids: set = set()
-            for sc in scenes:
+            for sc in project.scenes:
                 pid = getattr(sc, 'pexels_video_id', None)
                 if pid:
                     _prev_pexels_ids.add(int(pid))
