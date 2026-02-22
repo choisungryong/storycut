@@ -25,7 +25,7 @@ POSE_CONFIGS = {
     "front": "close-up portrait, face and shoulders only, front facing, centered, looking directly at camera, head-and-shoulders framing, hands NOT visible in frame, arms below frame edge, NO hands touching face or collar",
     "three_quarter": "upper body portrait, turned 45 degrees to the right, body angled away from camera, looking over shoulder, waist-up framing, arms relaxed at sides",
     "side": "portrait, face and upper body, side profile view, looking to the side",
-    "full_body": "full body portrait from head to feet, arms relaxed naturally at sides, feet visible, medium-wide shot with slight space above and below, same style as close-up shots, idealized body proportions (7.5-8 heads tall), slim and well-proportioned figure, NOT stubby NOT short-limbed NOT chibi NOT cartoonish proportions",
+    "full_body": "full body portrait from head to feet, arms relaxed naturally at sides, feet visible, medium-wide shot with slight space above and below, same style and rendering as close-up shots, realistic human body proportions, natural anatomy, NOT stubby NOT short-limbed NOT chibi NOT cartoonish proportions, NOT anime proportions, NOT elongated limbs",
     "emotion_neutral": "portrait, neutral expression, calm, relaxed",
     "emotion_intense": "portrait, intense emotional expression, dramatic lighting",
 }
@@ -463,12 +463,17 @@ class CharacterManager:
                     unique_features=unique_features,
                 )
                 # 참조 이미지가 있으면 "포즈는 무시, 얼굴/의상만 참조" 지시 추가
+                # art_style은 프롬프트 최상단에 유지하여 스타일 일관성 확보
                 if reference_image_path:
                     casting_prompt = (
+                        f"{art_style}, "
                         f"IMPORTANT: The reference image is for FACE and OUTFIT identity ONLY. "
                         f"IGNORE the arm/hand pose from the reference. "
                         f"Use the NEW pose described below instead. "
                         f"Do NOT copy arm positions from the reference image. "
+                        f"Maintain the EXACT SAME visual style and rendering as the reference — "
+                        f"if the reference is photorealistic, the output MUST also be photorealistic. "
+                        f"Do NOT change the art style to anime, illustration, or cartoon. "
                         f"{casting_prompt}"
                     )
                 output_path = f"{char_dir}/{pose_key}_cand{cand_idx}.jpg"
