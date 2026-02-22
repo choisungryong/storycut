@@ -363,9 +363,9 @@ class MusicAnalyzer:
                 dur_hint = (
                     f"\n## AUDIO INFO\n"
                     f"- Total audio duration: {audio_duration_sec:.1f} seconds ({audio_duration_sec/60:.1f} minutes)\n"
-                    f"- The lyrics span the ENTIRE song from beginning to end.\n"
-                    f"- Your timestamps MUST cover the full song duration. The last lyric should end near {audio_duration_sec:.0f}s.\n"
-                    f"- If the last lyric ends before {audio_duration_sec * 0.5:.0f}s, your alignment is WRONG.\n\n"
+                    f"- The audio file is EXACTLY {audio_duration_sec:.1f}s long. No timestamp may exceed {audio_duration_sec:.0f}s.\n"
+                    f"- Lyrics may cover only a portion of the song. Songs often have intro/outro without vocals.\n"
+                    f"- Place lyrics ONLY where you actually HEAR them being sung in the audio.\n\n"
                 )
 
             prompt_text = (
@@ -379,10 +379,10 @@ class MusicAnalyzer:
                 "2. 'start' = the moment the first syllable of that line begins being sung.\n"
                 "3. 'end' = the moment the last syllable of that line finishes being sung.\n"
                 "4. Lines must be in chronological order. start < end for every entry.\n"
-                "5. Do NOT skip any line. Every index (0 to " + str(len(lyrics_lines) - 1) + ") must appear exactly once.\n"
+                "5. If you CANNOT hear a lyric line being sung anywhere in the audio, include it with '\"unheard\": true' and set start/end to 0. Do NOT invent timestamps for lines you cannot hear.\n"
                 "6. Be as precise as possible (0.1 second accuracy).\n"
-                "7. Timestamps are in SECONDS from the start of the audio file.\n"
-                "8. The song has vocals spread across its FULL duration. Do NOT compress all lyrics into the first few seconds.\n\n"
+                "7. Timestamps are in SECONDS from the start of the audio file. No timestamp may exceed the audio duration.\n"
+                "8. Do NOT compress all lyrics into the first few seconds, but also do NOT place lyrics beyond where vocals actually end.\n\n"
                 "## INSTRUMENTAL BREAKS (VERY IMPORTANT)\n"
                 "- If there is an instrumental break (no singing), there MUST be a TIME GAP in your output.\n"
                 "- Do NOT assign lyrics to instrumental sections. Lyrics ONLY appear when the voice is singing.\n"
@@ -392,7 +392,8 @@ class MusicAnalyzer:
                 "- The GAP between consecutive lines should be LARGE (10+ seconds) during instrumental breaks.\n\n"
                 "## OUTPUT FORMAT\n"
                 "JSON array only, one object per line:\n"
-                '[{"index": 0, "start": 12.5, "end": 16.2, "text": "first line"}, ...]\n'
+                '[{"index": 0, "start": 12.5, "end": 16.2, "text": "first line"}, '
+                '{"index": 5, "start": 0, "end": 0, "text": "unheard line", "unheard": true}, ...]\n'
             )
 
             print(f"  [Lyrics-Align] Aligning {len(lyrics_lines)} lines to audio...")
@@ -412,18 +413,41 @@ class MusicAnalyzer:
 
             # Validate + sort by index
             valid = []
+            _n_unheard = 0
+            _n_over_dur = 0
             for entry in result:
                 idx = int(entry.get("index", -1))
                 start = float(entry.get("start", 0))
                 end = float(entry.get("end", 0))
                 text = str(entry.get("text", "")).strip()
-                if 0 <= idx < len(lyrics_lines) and start < end:
-                    valid.append({
-                        "index": idx,
-                        "start": round(start, 2),
-                        "end": round(end, 2),
-                        "text": text or lyrics_lines[idx]
-                    })
+
+                # unheard 마킹된 줄은 건너뜀
+                if entry.get("unheard"):
+                    _n_unheard += 1
+                    continue
+
+                if not (0 <= idx < len(lyrics_lines) and start < end):
+                    continue
+
+                # audio_duration_sec 초과 검증
+                if audio_duration_sec > 0 and start >= audio_duration_sec:
+                    _n_over_dur += 1
+                    continue
+                # end가 살짝 넘는 경우 clamp
+                if audio_duration_sec > 0 and end > audio_duration_sec:
+                    end = audio_duration_sec
+
+                valid.append({
+                    "index": idx,
+                    "start": round(start, 2),
+                    "end": round(end, 2),
+                    "text": text or lyrics_lines[idx]
+                })
+
+            if _n_unheard > 0:
+                print(f"  [Lyrics-Align] {_n_unheard} lines marked as unheard by Gemini")
+            if _n_over_dur > 0:
+                print(f"  [Lyrics-Align] {_n_over_dur} lines rejected (start >= {audio_duration_sec:.1f}s audio duration)")
 
             valid.sort(key=lambda x: x["start"])
 
@@ -449,6 +473,11 @@ class MusicAnalyzer:
                     print(f"  [Lyrics-Align] REJECTED: timestamps end at {valid[-1]['end']:.1f}s "
                           f"but song is {audio_duration_sec:.1f}s - Gemini compressed all lyrics into early section")
                     return None
+
+                # Sanity check: timestamps should not vastly exceed audio duration
+                if audio_duration_sec > 0 and valid[-1]["end"] > audio_duration_sec * 1.1:
+                    print(f"  [Lyrics-Align] WARNING: last timestamp {valid[-1]['end']:.1f}s exceeds "
+                          f"audio duration {audio_duration_sec:.1f}s by {valid[-1]['end'] - audio_duration_sec:.1f}s")
 
                 # Check for compression: if all 72 lines fit in <30s, something is wrong
                 if len(valid) > 10 and time_range < 30.0:

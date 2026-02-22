@@ -406,6 +406,7 @@ def generate_from_gemini_alignment(
     srt_path: str,
     min_dur: float = 1.5,
     max_dur: float = 8.0,
+    audio_duration_sec: float = 0.0,
 ) -> Tuple[List[Caption], str, str]:
     """
     Gemini align_lyrics_to_audio() 결과를 직접 ASS/SRT로 변환.
@@ -425,11 +426,19 @@ def generate_from_gemini_alignment(
     entries = sorted(gemini_aligned, key=lambda x: x.get("start", 0))
 
     captions: List[Caption] = []
+    _n_over = 0
     for entry in entries:
         s = float(entry.get("start", 0))
         e = float(entry.get("end", 0))
         idx = int(entry.get("index", -1))
         text = str(entry.get("text", "")).strip()
+
+        # audio_duration 초과 엔트리 제거 (이중 안전장치)
+        if audio_duration_sec > 0 and s >= audio_duration_sec:
+            _n_over += 1
+            continue
+        if audio_duration_sec > 0 and e > audio_duration_sec:
+            e = audio_duration_sec
 
         # Use original lyrics if text is empty or index is valid
         if not text and 0 <= idx < n_lyrics:
@@ -455,6 +464,10 @@ def generate_from_gemini_alignment(
             e = s + min_dur
 
         captions.append(Caption(round(s, 3), round(e, 3), _wrap(text)))
+
+    if _n_over > 0:
+        _log("GEMINI_ALIGN", {"filtered_over_duration": _n_over,
+                               "audio_duration_sec": round(audio_duration_sec, 1)})
 
     if not captions:
         _log("GEMINI_ALIGN", {"status": "no_captions"})

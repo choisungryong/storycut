@@ -867,4 +867,32 @@ body {
   .final-cta__title br {
     display: none;
   }
+
+  .pipeline__step {
+    gap: var(--space-3);
+  }
+
+  .pipeline__step-number {
+    min-width: 32px;
+    font-size: var(--text-xl);
+  }
+
+  .pipeline__step-content {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .pipeline__step-demo {
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .pipeline__typewriter {
+    white-space: normal;
+    word-break: break-all;
+    border-right: none;
+    width: auto;
+    animation: none;
+    color: var(--text-muted);
+  }
 }

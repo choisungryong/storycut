@@ -49,6 +49,7 @@ ENVIRONMENT MATCHING (critical):
 - If lighting is given, match it: "warm golden hour" → golden light, "cold blue" → blue tone night.
 - If location is given, use it directly: "rooftop" → city rooftop b-roll, "forest" → forest b-roll.
 - IMPORTANT: Do NOT default to tropical/beach/palm tree videos. Unless concept explicitly mentions "tropical"/"beach"/"island", avoid tropical imagery. Prefer URBAN, INDOOR, or WEATHER shots as generic fillers.
+- AVOID: flags, banners, national flags, waving flags, flagpoles, pennants, signage with text. These look generic and break immersion. Prefer textures, weather, architecture, light/shadow, and motion shots instead.
 
 Return ONLY valid JSON, no markdown:
 {"stock_query":[...],"notes":"brief reasoning"}"""
@@ -57,11 +58,11 @@ Return ONLY valid JSON, no markdown:
 class PexelsAgent:
     """Pexels Video Search API를 통해 B-roll 영상을 검색/다운로드"""
 
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, used_video_ids: Set[int] = None):
         self.api_key = api_key or os.getenv("PEXELS_API_KEY")
         self.base_url = "https://api.pexels.com/videos"
-        # 세션 내 중복 방지: 이미 사용된 영상 ID 추적
-        self.used_video_ids: Set[int] = set()
+        # 세션 내 중복 방지: 이미 사용된 영상 ID 추적 (외부 주입 가능)
+        self.used_video_ids: Set[int] = set(used_video_ids) if used_video_ids else set()
 
     def search_videos(
         self,
@@ -76,8 +77,8 @@ class PexelsAgent:
             return []
 
         headers = {"Authorization": self.api_key}
-        # 랜덤 페이지(1-3)로 다양한 결과 확보
-        page = random.randint(1, 3)
+        # 랜덤 페이지(1-5)로 다양한 결과 확보
+        page = random.randint(1, 5)
         params = {
             "query": query,
             "per_page": per_page,
@@ -104,7 +105,23 @@ class PexelsAgent:
                 v for v in videos
                 if min_duration <= v.get("duration", 0) <= max_duration
             ]
-            return filtered
+
+            # 태그 기반 깃발/배너 필터링
+            _TAG_BANNED = {"flag", "flags", "banner", "banners", "national flag",
+                           "flagpole", "pennant", "patriotic", "country flag"}
+            tag_filtered = []
+            for v in filtered:
+                tags = {t.lower() for t in v.get("tags", [])} if v.get("tags") else set()
+                # Pexels video_pictures URL에 flag 키워드가 있는 경우도 체크
+                url_str = (v.get("url") or "").lower()
+                if tags & _TAG_BANNED:
+                    print(f"    [Pexels] Filtered video id={v.get('id')} by tag: {tags & _TAG_BANNED}")
+                    continue
+                if "flag" in url_str and "flagship" not in url_str:
+                    print(f"    [Pexels] Filtered video id={v.get('id')} by URL keyword")
+                    continue
+                tag_filtered.append(v)
+            return tag_filtered if tag_filtered else filtered
 
         except Exception as e:
             print(f"    [Pexels] Search error: {e}")
@@ -261,7 +278,7 @@ class PexelsAgent:
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=_STOCK_QUERY_SYSTEM_PROMPT,
-                    temperature=0.7,
+                    temperature=1.0,
                 )
             )
 
@@ -289,6 +306,13 @@ class PexelsAgent:
                         if removed > 0:
                             print(f"    [Pexels] Filtered {removed} tropical queries")
                         queries = filtered
+                # 깃발/배너 관련 쿼리 필터링
+                _BANNED_CONTENT = {"flag", "flags", "banner", "banners", "pennant", "flagpole", "깃발"}
+                content_filtered = [q for q in queries if not any(b in q.lower() for b in _BANNED_CONTENT)]
+                if content_filtered and len(content_filtered) < len(queries):
+                    print(f"    [Pexels] Filtered {len(queries) - len(content_filtered)} flag/banner queries")
+                    queries = content_filtered
+
                 print(f"    [Pexels] LLM generated {len(queries)} queries: {queries[:3]}...")
                 if notes:
                     print(f"    [Pexels] Reasoning: {notes[:80]}")
@@ -314,7 +338,7 @@ class PexelsAgent:
         queries: List[str],
         duration_sec: float,
         out_path: str,
-    ) -> Optional[str]:
+    ) -> tuple:
         """여러 검색 쿼리를 순차 시도하여 B-roll 다운로드
 
         Args:
@@ -323,7 +347,7 @@ class PexelsAgent:
             out_path: 저장 경로
 
         Returns:
-            다운로드된 파일 경로 또는 None
+            (다운로드된 파일 경로, Pexels video ID) 또는 (None, None)
         """
         for qi, query in enumerate(queries):
             videos = self.search_videos(
@@ -354,6 +378,6 @@ class PexelsAgent:
                     if vid_id:
                         self.used_video_ids.add(vid_id)
                     print(f"    [Pexels] Found with query #{qi+1}: '{query}' (id={vid_id}, used={len(self.used_video_ids)})")
-                    return result
+                    return result, vid_id
 
-        return None
+        return None, None

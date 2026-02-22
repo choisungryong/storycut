@@ -201,6 +201,7 @@ class MVScene(BaseModel):
     image_path: Optional[str] = Field(None, description="생성된 이미지 경로")
     video_path: Optional[str] = Field(None, description="생성된 비디오 경로")
     is_broll: bool = Field(default=False, description="Pexels B-roll 씬 여부")
+    pexels_video_id: Optional[int] = Field(None, description="Pexels 영상 ID (재생성 시 중복 방지용)")
 
     # 연출
     transition: str = Field(default="crossfade", description="전환 효과 (cut, crossfade, fade)")

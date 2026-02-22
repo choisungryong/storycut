@@ -498,7 +498,8 @@ class MVPipeline:
                     srt_path = os.path.join(sub_dir, "lyrics_gemini.srt")
 
                     captions, _, _ = generate_from_gemini_alignment(
-                        gemini_aligned, lyrics_lines, ass_path, srt_path
+                        gemini_aligned, lyrics_lines, ass_path, srt_path,
+                        audio_duration_sec=_dur,
                     )
                     if captions:
                         timed_lyrics = [
@@ -2532,13 +2533,21 @@ class MVPipeline:
         if era_prefix:
             print(f"  [Era Lock] Detected historical setting: {era_prefix[:40]}...")
 
-        # Pexels B-roll 에이전트 초기화
+        # Pexels B-roll 에이전트 초기화 (기존 사용 ID 로드하여 재생성 시 중복 방지)
         pexels = None
         pexels_key = os.environ.get("PEXELS_API_KEY")
         if pexels_key:
             from agents.pexels_agent import PexelsAgent
-            pexels = PexelsAgent(api_key=pexels_key)
-            print(f"  [B-roll] Pexels agent enabled")
+            _prev_pexels_ids: set = set()
+            for sc in scenes:
+                pid = getattr(sc, 'pexels_video_id', None)
+                if pid:
+                    _prev_pexels_ids.add(int(pid))
+            pexels = PexelsAgent(api_key=pexels_key, used_video_ids=_prev_pexels_ids)
+            if _prev_pexels_ids:
+                print(f"  [B-roll] Pexels agent enabled (excluding {len(_prev_pexels_ids)} previously used IDs)")
+            else:
+                print(f"  [B-roll] Pexels agent enabled")
 
         BROLL_SEGMENTS = {"intro", "outro", "bridge"}
 
@@ -2615,10 +2624,11 @@ class MVPipeline:
                 )
                 broll_path = f"{project_dir}/media/video/broll_{scene.scene_id:02d}.mp4"
                 os.makedirs(os.path.dirname(broll_path), exist_ok=True)
-                video = pexels.fetch_broll(queries, scene.duration_sec, broll_path)
+                video, pexels_vid_id = pexels.fetch_broll(queries, scene.duration_sec, broll_path)
                 if video:
                     scene.video_path = video
                     scene.is_broll = True
+                    scene.pexels_video_id = pexels_vid_id
                     scene.status = MVSceneStatus.COMPLETED
                     thumb_path = f"{image_dir}/scene_{scene.scene_id:02d}.png"
                     self._extract_thumbnail(video, thumb_path)
@@ -4405,7 +4415,8 @@ class MVPipeline:
                 )
                 if gemini_aligned:
                     captions, _, _ = generate_from_gemini_alignment(
-                        gemini_aligned, lines, gemini_ass, gemini_srt
+                        gemini_aligned, lines, gemini_ass, gemini_srt,
+                        audio_duration_sec=_sub_dur,
                     )
                     aligner_ass = gemini_ass  # 이후 참조용 갱신
                     if captions:
