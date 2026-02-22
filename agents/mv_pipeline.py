@@ -2564,8 +2564,7 @@ class MVPipeline:
             _EMOTIONAL_SEGMENTS = {"chorus", "hook", "pre_chorus"}
             is_emotional = seg_type in _EMOTIONAL_SEGMENTS
             is_broll_segment = seg_type in BROLL_SEGMENTS
-            # TODO: B-roll 임시 비활성화 — 모든 씬 AI 이미지 + I2V로 생성
-            if False:  # (pexels and is_broll_segment and not scene.characters_in_scene and not is_emotional):
+            if (pexels and is_broll_segment and not scene.characters_in_scene and not is_emotional):
                 _vb = project.visual_bible
                 # scene blocking에서 lighting 추출
                 _scene_lighting = None
