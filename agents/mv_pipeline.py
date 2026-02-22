@@ -2360,7 +2360,10 @@ class MVPipeline:
         # 프롬프트 조립: action_pose를 최우선에 배치 (앵커 이미지의 직립 자세 덮어쓰기)
         prefix_parts = []
         if action_pose:
-            prefix_parts.append(f"POSE: {action_pose}")
+            prefix_parts.append(
+                f"ACTION POSE (OVERRIDE anchor stance): {action_pose}. "
+                f"The character MUST be in this exact physical action, NOT standing still."
+            )
         if expression:
             prefix_parts.append(f"EXPRESSION: {expression}")
         prefix_parts.append(lens_token)

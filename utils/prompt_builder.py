@@ -284,6 +284,7 @@ class MultimodalPromptBuilder:
                     image_part = MultimodalPromptBuilder._encode_image_part(path)
                     if image_part:
                         parts.append(image_part)
+                        parts.append({"text": "[CHARACTER ANCHOR] Copy ONLY face, hair, outfit, skin tone. IGNORE arm/hand/body pose entirely."})
 
         # 참조 지시문 (이미지가 있는 경우) — 스타일별 적응형
         has_images = any("inline_data" in p for p in parts)
@@ -494,7 +495,11 @@ class MultimodalPromptBuilder:
         "- OUTFIT LOCK: Clothing and accessories MUST remain EXACTLY as in the anchor\n"
         "- NO identity drift: faces, hair, eyes, body shape must not change\n"
         "- NO spontaneous props or background elements not described in the prompt\n"
-        "- Characters in this scene must match their respective anchor images EXACTLY"
+        "- Characters in this scene must match their respective anchor images EXACTLY\n"
+        "POSE OVERRIDE: The reference image shows a NEUTRAL STANDING POSE for identification only. "
+        "IGNORE the arm position, hand position, body angle, and leg stance from the reference. "
+        "FOLLOW the POSE and EXPRESSION instructions in the text prompt EXACTLY. "
+        "Only preserve IDENTITY features (face, hair, outfit, skin tone) from the reference."
     )
 
     # 일러스트/디지털 아트: 디자인 특징 매칭 (렌더링 스타일은 달라도 됨)
@@ -515,7 +520,11 @@ class MultimodalPromptBuilder:
         "FORBIDDEN:\n"
         "- Do NOT invent a new character. The person in the output MUST be recognizably the SAME person from the anchor\n"
         "- Do NOT change hair color, eye color, outfit colors, or skin tone\n"
-        "- Do NOT add/remove clothing items or accessories not in the anchor"
+        "- Do NOT add/remove clothing items or accessories not in the anchor\n"
+        "POSE OVERRIDE: The reference image shows a NEUTRAL STANDING POSE for identification only. "
+        "IGNORE the arm position, hand position, body angle, and leg stance from the reference. "
+        "FOLLOW the POSE and EXPRESSION instructions in the text prompt EXACTLY. "
+        "Only preserve IDENTITY features (face, hair, outfit, skin tone) from the reference."
     )
 
     # 애니메이션/웹툰: 캐릭터 디자인 시트 수준 매칭
@@ -536,7 +545,11 @@ class MultimodalPromptBuilder:
         "FORBIDDEN:\n"
         "- Do NOT create a different character. Must be the SAME person from the anchor\n"
         "- Do NOT change hair color, eye color, outfit color scheme\n"
-        "- Do NOT swap gender, age range, or body type"
+        "- Do NOT swap gender, age range, or body type\n"
+        "POSE OVERRIDE: The reference image shows a NEUTRAL STANDING POSE for identification only. "
+        "IGNORE the arm position, hand position, body angle, and leg stance from the reference. "
+        "FOLLOW the POSE and EXPRESSION instructions in the text prompt EXACTLY. "
+        "Only preserve IDENTITY features (face, hair, outfit, skin tone) from the reference."
     )
 
     # 게임 애니메이션(3D 툰셰이딩): 3D 모델 수준 매칭
@@ -555,7 +568,11 @@ class MultimodalPromptBuilder:
         "- Material quality follows game-engine rendering (Unreal/Unity quality)\n"
         "FORBIDDEN:\n"
         "- Do NOT redesign the character's outfit or accessories\n"
-        "- Do NOT change the character's identity features"
+        "- Do NOT change the character's identity features\n"
+        "POSE OVERRIDE: The reference image shows a NEUTRAL STANDING POSE for identification only. "
+        "IGNORE the arm position, hand position, body angle, and leg stance from the reference. "
+        "FOLLOW the POSE and EXPRESSION instructions in the text prompt EXACTLY. "
+        "Only preserve IDENTITY features (face, hair, outfit, skin tone) from the reference."
     )
 
     @staticmethod
