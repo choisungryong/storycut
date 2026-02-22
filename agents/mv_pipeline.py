@@ -197,7 +197,7 @@ class MVPipeline:
             # 파일 업로드 + Demucs 실행
             with open(music_path, "rb") as f:
                 output = replicate.run(
-                    "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81571f6571d6c1df",
+                    "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953",
                     input={
                         "audio": f,
                         "stem": "vocals",
@@ -2172,8 +2172,13 @@ class MVPipeline:
 
     def _get_character_anchors_for_scene(self, project: MVProject, scene: MVScene) -> List[str]:
         """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 5개, shot_type 기반 포즈 선택)"""
+        print(f"    [AnchorDebug] scene={scene.scene_id} chars={scene.characters_in_scene}")
         if not project.visual_bible or not project.visual_bible.characters:
+            print(f"    [AnchorDebug] NO visual_bible or no characters → returning []")
             return []
+
+        vb_roles = [c.role for c in project.visual_bible.characters]
+        print(f"    [AnchorDebug] VB roles={vb_roles}")
 
         # shot_type → 최적 포즈 매핑
         _SHOT_TO_POSE = {
@@ -2201,16 +2206,27 @@ class MVPipeline:
                 char = next((c for c in project.visual_bible.characters
                              if role_lower in c.role.lower() or c.role.lower() in role_lower), None)
             if not char:
+                print(f"    [AnchorDebug] role='{role}' NOT FOUND in VB")
                 continue
             # 포즈별 앵커에서 최적 포즈 선택
             if char.anchor_poses and target_pose in char.anchor_poses:
                 pose_path = char.anchor_poses[target_pose]
-                if os.path.exists(pose_path):
+                exists = os.path.exists(pose_path)
+                print(f"    [AnchorDebug] role='{role}' pose={target_pose} path={pose_path} exists={exists}")
+                if exists:
                     results.append(pose_path)
                     continue
+            else:
+                print(f"    [AnchorDebug] role='{role}' anchor_poses={list(char.anchor_poses.keys()) if char.anchor_poses else None} target={target_pose} → no match")
             # 폴백: 기본 anchor_image_path
-            if char.anchor_image_path and os.path.exists(char.anchor_image_path):
-                results.append(char.anchor_image_path)
+            if char.anchor_image_path:
+                exists = os.path.exists(char.anchor_image_path)
+                print(f"    [AnchorDebug] role='{role}' fallback={char.anchor_image_path} exists={exists}")
+                if exists:
+                    results.append(char.anchor_image_path)
+            else:
+                print(f"    [AnchorDebug] role='{role}' NO anchor_image_path")
+        print(f"    [AnchorDebug] scene={scene.scene_id} → returning {len(results)} anchors")
         return results
 
     def _extract_era_setting(self, concept: str, project=None) -> tuple:
@@ -2685,7 +2701,15 @@ class MVPipeline:
                 # 스타일별 런타임 프리픽스 + 네거티브 강제 주입 (항상)
                 _sr = _STYLE_RUNTIME.get(project.style.value)
                 if _sr:
-                    final_prompt = f"{_sr['prefix']}, {final_prompt}"
+                    _prefix = _sr['prefix']
+                    if not scene.characters_in_scene:
+                        # 캐릭터 없는 씬: 인물 특성 토큰 제거 (랜덤 인물 생성 방지)
+                        _prefix = re.sub(
+                            r',?\s*(?:real human skin texture[^,]*|visible skin pores[^,]*|'
+                            r'natural asymmetry[^,]*|candid feel[^,]*|skin texture with pores[^,]*)',
+                            '', _prefix, flags=re.IGNORECASE
+                        ).strip(', ')
+                    final_prompt = f"{_prefix}, {final_prompt}"
                     _scene_neg = f"{_sr['negative']}, {_scene_neg}" if _scene_neg else _sr["negative"]
 
                 # 스타일 앵커는 캐릭터-free 이미지이므로 모든 씬에 전달
@@ -4870,7 +4894,15 @@ class MVPipeline:
         # 스타일별 런타임 프리픽스 + 네거티브 강제 주입 (항상)
         _sr = _STYLE_RUNTIME.get(project.style.value)
         if _sr:
-            final_prompt = f"{_sr['prefix']}, {final_prompt}"
+            _prefix = _sr['prefix']
+            if not scene.characters_in_scene:
+                # 캐릭터 없는 씬: 인물 특성 토큰 제거 (랜덤 인물 생성 방지)
+                _prefix = re.sub(
+                    r',?\s*(?:real human skin texture[^,]*|visible skin pores[^,]*|'
+                    r'natural asymmetry[^,]*|candid feel[^,]*|skin texture with pores[^,]*)',
+                    '', _prefix, flags=re.IGNORECASE
+                ).strip(', ')
+            final_prompt = f"{_prefix}, {final_prompt}"
             _regen_neg = f"{_sr['negative']}, {_regen_neg}" if _regen_neg else _sr["negative"]
 
         try:
