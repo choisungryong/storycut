@@ -239,6 +239,16 @@ class TTSAgent:
         except OSError:
             pass
 
+        # 타이밍 검증: sentence_timings 합산 vs 실제 스티칭 오디오 길이
+        if line_timings:
+            timings_end = line_timings[-1]["end"]
+            timings_sum = sum(t["duration"] for t in line_timings)
+            gap_total = (len(line_timings) - 1) * silence_gap
+            print(f"  [TTS SYNC DEBUG] clips={len(clip_paths)}, silence_gap={silence_gap}")
+            print(f"  [TTS SYNC DEBUG] individual durations: {[round(t['duration'],2) for t in line_timings]}")
+            print(f"  [TTS SYNC DEBUG] timings_last_end={timings_end:.2f}s, clips_sum={timings_sum:.2f}s + gaps={gap_total:.2f}s = {timings_sum+gap_total:.2f}s")
+            print(f"  [TTS SYNC DEBUG] actual_stitched={total_duration:.2f}s, DRIFT={timings_end - total_duration:+.2f}s")
+
         print(f"  [TTS] Dialogue audio: {len(clip_paths)} clips, {total_duration:.1f}s total")
         return TTSResult(audio_path=output_path, duration_sec=total_duration, sentence_timings=line_timings)
 
@@ -342,6 +352,13 @@ class TTSAgent:
             os.rmdir(temp_dir)
         except OSError:
             pass
+
+        # 타이밍 검증
+        if sentence_timings:
+            timings_end = sentence_timings[-1]["end"]
+            timings_sum = sum(t["duration"] for t in sentence_timings)
+            print(f"  [TTS SYNC DEBUG] timings_last_end={timings_end:.2f}s, clips_sum={timings_sum:.2f}s")
+            print(f"  [TTS SYNC DEBUG] actual_stitched={total_duration:.2f}s, DRIFT={timings_end - total_duration:+.2f}s")
 
         print(f"  [TTS] 문장별 TTS 완료: {len(sentences)}문장, {total_duration:.1f}s")
         return TTSResult(audio_path=output_path, duration_sec=total_duration, sentence_timings=sentence_timings)
