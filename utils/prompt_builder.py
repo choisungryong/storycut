@@ -464,7 +464,7 @@ class MultimodalPromptBuilder:
 
         # 프레이밍은 프롬프트 최상단에 배치 (모델이 최우선으로 따르도록)
         framing_prefix = f"{framing_text} " if framing_text else ""
-        full_prompt = f"{framing_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Anatomically correct human body with proper proportions. Aspect ratio 16:9."
+        full_prompt = f"{framing_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Anatomically correct human body with proper proportions, natural hands with exactly five fingers on each hand, correct finger count. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts
