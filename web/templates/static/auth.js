@@ -39,19 +39,48 @@ async function fetchGoogleClientId() {
     }
 }
 
-async function googleSignIn() {
-    const clientId = await fetchGoogleClientId();
-    if (!clientId) {
-        showAuthError('Google 로그인이 설정되지 않았습니다. 이메일 로그인을 사용해 주세요.');
-        return;
-    }
+let _gisInitialized = false;
 
-    // Use Google Identity Services popup flow
+async function initGoogleSignIn() {
+    const clientId = await fetchGoogleClientId();
+    if (!clientId) return;
+
     google.accounts.id.initialize({
         client_id: clientId,
         callback: handleGoogleCredential,
     });
-    google.accounts.id.prompt();
+    _gisInitialized = true;
+
+    // 공식 Google 버튼 렌더링 (One Tap 쿨다운 억제 문제 회피)
+    const container = document.getElementById('google-signin-btn');
+    if (container) {
+        container.innerHTML = '';
+        google.accounts.id.renderButton(container, {
+            type: 'standard',
+            theme: 'outline',
+            size: 'large',
+            shape: 'rectangular',
+            text: 'continue_with',
+            width: 350,
+            logo_alignment: 'left',
+        });
+    }
+}
+
+async function googleSignIn() {
+    if (!_gisInitialized) {
+        await initGoogleSignIn();
+        if (!_gisInitialized) {
+            showAuthError('Google 로그인이 설정되지 않았습니다. 이메일 로그인을 사용해 주세요.');
+            return;
+        }
+    }
+    // renderButton이 이미 처리하므로 prompt는 폴백으로만 사용
+    google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            showAuthError('Google 로그인 팝업이 차단되었습니다. 위 Google 버튼을 직접 클릭해 주세요.');
+        }
+    });
 }
 
 // GIS callback
@@ -168,6 +197,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 showAuthError(err.message);
             }
         });
+    }
+
+    // Google Sign-In 버튼 렌더링 (로그인/회원가입 페이지)
+    if (loginForm || signupForm) {
+        if (typeof google !== 'undefined' && google.accounts) {
+            initGoogleSignIn();
+        } else {
+            // GIS 라이브러리 로드 대기
+            window.addEventListener('load', () => {
+                if (typeof google !== 'undefined' && google.accounts) {
+                    initGoogleSignIn();
+                }
+            });
+        }
     }
 
     // Auth check (index.html)
