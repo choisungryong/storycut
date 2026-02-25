@@ -30,6 +30,9 @@ class StorycutApp {
         // Regeneration tracking (prevent double-click)
         this._regeneratingScenes = new Set();
 
+        // I2V progress banner timers
+        this._i2vTimers = {};
+
         // Input mode: 'ai' or 'script'
         this._inputMode = 'ai';
 
@@ -2972,9 +2975,22 @@ class StorycutApp {
         }
 
         const apiUrl = this.getApiBaseUrl();
+        const pollStartTime = Date.now();
+        const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5분 타임아웃
 
         this.imagePollingInterval = setInterval(async () => {
             try {
+                // 타임아웃 체크 — not_found 무한루프 방지
+                if (Date.now() - pollStartTime > POLL_TIMEOUT_MS) {
+                    clearInterval(this.imagePollingInterval);
+                    this.imagePollingInterval = null;
+                    this.updateImageProgress(0, 0, '서버 응답 시간 초과 — 페이지를 새로고침해주세요.');
+                    this.addLog('ERROR', '이미지 생성 상태 확인 시간 초과 (5분). 서버 로그를 확인하세요.');
+                    const approveBtn = document.getElementById('approve-images-btn');
+                    if (approveBtn) approveBtn.disabled = false;
+                    return;
+                }
+
                 const response = await fetch(`${apiUrl}/api/status/images/${projectId}`);
                 if (!response.ok) {
                     console.warn(`[Image Polling] HTTP ${response.status}`);
@@ -3299,6 +3315,93 @@ class StorycutApp {
         btn.disabled = false;
     }
 
+    // ─── I2V Progress Banner Helpers ───
+
+    _getI2VStageMessage(elapsed) {
+        if (elapsed < 10) return 'Veo API 연결 중...';
+        if (elapsed < 30) return '영상 생성 요청 전송 중...';
+        if (elapsed < 90) return `AI 영상 생성 중... (${elapsed}초 경과)`;
+        if (elapsed < 150) return `영상 생성 거의 완료... (${elapsed}초 경과)`;
+        return `생성 대기 중... (${elapsed}초 경과)`;
+    }
+
+    _createI2VBanner(sceneId) {
+        // 기존 배너 제거
+        this._removeI2VBanner(sceneId);
+
+        const banner = document.createElement('div');
+        banner.className = 'i2v-progress-banner';
+        banner.setAttribute('data-scene-id', sceneId);
+        banner.innerHTML = `
+            <div class="i2v-banner-icon">🎬</div>
+            <div class="i2v-banner-content">
+                <div class="i2v-banner-title">Scene ${sceneId} I2V 변환</div>
+                <div class="i2v-banner-stage">Veo API 연결 중...</div>
+                <div class="i2v-banner-bar">
+                    <div class="i2v-banner-bar-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(banner);
+
+        // 타이머 시작
+        const startTime = Date.now();
+        const estimatedDuration = 120; // 120초 예상
+        this._i2vTimers[sceneId] = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const stageEl = banner.querySelector('.i2v-banner-stage');
+            const fillEl = banner.querySelector('.i2v-banner-bar-fill');
+            if (stageEl) stageEl.textContent = this._getI2VStageMessage(elapsed);
+            if (fillEl) {
+                const pct = Math.min((elapsed / estimatedDuration) * 100, 90);
+                fillEl.style.width = `${pct}%`;
+            }
+            // 기존 오버레이 텍스트도 업데이트
+            this._updateI2VOverlayText(sceneId, elapsed);
+        }, 1000);
+    }
+
+    _updateI2VOverlayText(sceneId, elapsed) {
+        // 표준 I2V 오버레이
+        const stdCard = document.querySelector(`.image-card[data-scene-id="${sceneId}"]`);
+        if (stdCard) {
+            const txt = stdCard.querySelector('.i2v-overlay-text');
+            if (txt) txt.textContent = this._getI2VStageMessage(elapsed);
+        }
+        // MV I2V 오버레이
+        const mvCard = document.querySelector(`.mv-review-card[data-scene-id="${sceneId}"]`);
+        if (mvCard) {
+            const txt = mvCard.querySelector('.regen-text');
+            if (txt && txt.textContent.includes('I2V')) {
+                txt.textContent = this._getI2VStageMessage(elapsed);
+            }
+        }
+    }
+
+    _removeI2VBanner(sceneId, success) {
+        if (this._i2vTimers[sceneId]) {
+            clearInterval(this._i2vTimers[sceneId]);
+            delete this._i2vTimers[sceneId];
+        }
+        const banner = document.querySelector(`.i2v-progress-banner[data-scene-id="${sceneId}"]`);
+        if (!banner) return;
+
+        if (success === true) {
+            banner.querySelector('.i2v-banner-icon').textContent = '✅';
+            banner.querySelector('.i2v-banner-stage').textContent = '변환 완료!';
+            banner.querySelector('.i2v-banner-bar-fill').style.width = '100%';
+            banner.classList.add('i2v-banner-success');
+            setTimeout(() => banner.remove(), 1500);
+        } else if (success === false) {
+            banner.querySelector('.i2v-banner-icon').textContent = '❌';
+            banner.querySelector('.i2v-banner-stage').textContent = '변환 실패';
+            banner.classList.add('i2v-banner-error');
+            setTimeout(() => banner.remove(), 2000);
+        } else {
+            banner.remove();
+        }
+    }
+
     async convertToVideo(projectId, sceneId) {
         // 크레딧 사전 확인 (I2V)
         if (typeof checkCreditsBeforeAction === 'function') {
@@ -3326,6 +3429,9 @@ class StorycutApp {
         // 오버레이 표시
         if (overlay) overlay.style.display = 'flex';
 
+        // 진행 배너 표시
+        this._createI2VBanner(sceneId);
+
         try {
             const response = await fetch(`${this.getApiBaseUrl()}/api/convert/i2v/${projectId}/${sceneId}`, {
                 method: 'POST',
@@ -3339,6 +3445,7 @@ class StorycutApp {
                     btn.disabled = false;
                     if (regenBtn) regenBtn.disabled = false;
                     if (overlay) overlay.style.display = 'none';
+                    this._removeI2VBanner(sceneId);
                     return;
                 }
                 let errorDetail = response.statusText;
@@ -3369,9 +3476,11 @@ class StorycutApp {
                 header.appendChild(badge);
             }
 
+            this._removeI2VBanner(sceneId, true);
             this.showToast(`Scene ${sceneId} I2V 변환 완료!`, 'success');
 
         } catch (error) {
+            this._removeI2VBanner(sceneId, false);
             this.showToast(`I2V 변환 실패: ${error.message}`, 'error');
             btn.textContent = '🎬 I2V';
             btn.disabled = false;
@@ -4510,12 +4619,15 @@ class StorycutApp {
         const imgWrap = card.querySelector('.mv-review-img-wrap');
         const overlay = document.createElement('div');
         overlay.className = 'regen-overlay';
-        overlay.innerHTML = '<div class="regen-spinner"></div><span class="regen-text">I2V 변환 중... (1~2분 소요)</span>';
+        overlay.innerHTML = '<div class="regen-spinner"></div><span class="regen-text">I2V 변환 중...</span>';
         imgWrap.appendChild(overlay);
 
         // 버튼 비활성화
         const btn = card.querySelector('.mv-i2v-btn');
         if (btn) btn.disabled = true;
+
+        // 진행 배너 표시
+        this._createI2VBanner(sceneId);
 
         try {
             const baseUrl = this.getApiBaseUrl();
@@ -4528,6 +4640,7 @@ class StorycutApp {
                 if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'i2v')) {
                     if (btn) btn.disabled = false;
                     overlay.remove();
+                    this._removeI2VBanner(sceneId);
                     return;
                 }
                 const err = await response.json();
@@ -4554,9 +4667,11 @@ class StorycutApp {
             const recomposeBtn = document.getElementById('mv-editor-recompose-btn');
             if (recomposeBtn) recomposeBtn.style.display = 'inline-flex';
 
+            this._removeI2VBanner(sceneId, true);
             this.showToast(`Scene ${sceneId} I2V 변환 완료`, 'success');
         } catch (error) {
             console.error('MV I2V failed:', error);
+            this._removeI2VBanner(sceneId, false);
             overlay.remove();
             this.showToast(`I2V 실패: ${error.message}`, 'error');
         } finally {

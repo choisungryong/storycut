@@ -1456,15 +1456,15 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
     print(f"[API] Project ID: {project_id}")
     print(f"[API] Scene count: {total_scenes}")
 
-    # manifest에 user_id 기록 (history 필터링용)
+    # manifest stub 즉시 생성 (폴링 race condition 방지)
     user_id = request.headers.get("X-User-Id", "")
-    if user_id:
-        from pathlib import Path
-        proj_dir = f"outputs/{project_id}"
-        Path(proj_dir).mkdir(parents=True, exist_ok=True)
-        manifest_path_stub = f"{proj_dir}/manifest.json"
-        if os.path.exists(manifest_path_stub):
-            # 기존 manifest에 user_id 추가
+    from pathlib import Path
+    proj_dir = f"outputs/{project_id}"
+    Path(proj_dir).mkdir(parents=True, exist_ok=True)
+    manifest_path_stub = f"{proj_dir}/manifest.json"
+    if os.path.exists(manifest_path_stub):
+        # 기존 manifest에 user_id 추가
+        if user_id:
             try:
                 import json as _json
                 with open(manifest_path_stub, "r", encoding="utf-8") as _f:
@@ -1475,10 +1475,10 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
                         _json.dump(_existing, _f, ensure_ascii=False, indent=2, default=str)
             except Exception:
                 pass
-        else:
-            import json as _json
-            with open(manifest_path_stub, "w", encoding="utf-8") as _f:
-                _json.dump({"project_id": project_id, "user_id": user_id, "status": "processing"}, _f)
+    else:
+        import json as _json
+        with open(manifest_path_stub, "w", encoding="utf-8") as _f:
+            _json.dump({"project_id": project_id, "user_id": user_id, "status": "processing"}, _f)
 
     # req.request_params는 이미 ProjectRequest 객체
     request_obj = req.request_params
