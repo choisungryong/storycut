@@ -101,8 +101,12 @@ class StoryAgent:
         print(f"[Story Agent] Generating story (2-Step Chain): {genre} / {mood} / {style}")
 
         # Calculate target scene count
-        min_scenes = total_duration_sec // 8
-        max_scenes = total_duration_sec // 4
+        if is_shorts:
+            min_scenes = 3
+            max_scenes = 4
+        else:
+            min_scenes = max(5, total_duration_sec // 8)
+            max_scenes = total_duration_sec // 4
 
         # =================================================================================
         # STEP 1: Story Architecture
@@ -132,14 +136,8 @@ class StoryAgent:
         _plot_seeds = GENRE_PLOT_SEEDS.get(_genre_key, GENRE_PLOT_SEEDS.get("drama",
             "뒤늦게 알게 되는 진실 / 믿었던 사람의 배신 / 선택의 대가 / 감추어진 비밀"))
 
-        step1_prompt = f"""
-ROLE: Master Storyteller & Film Director — 20년 경력의 단편 영상 바이럴 콘텐츠 전문가.
-TASK: {total_duration_sec}초짜리 YouTube 영상을 위한 **반전과 서사가 탄탄한** 스토리 구조를 설계하라.
-GENRE: {genre}
-MOOD: {mood}
-STYLE: {style}
-SCENE COUNT: {min_scenes}~{max_scenes}개 씬
-
+        # ── 공통 블록 ──
+        _common_language_rule = f"""
 [LANGUAGE RULE - CRITICAL]
 - "project_title": 반드시 한국어로 작성 (예: "마지막 편지의 비밀")
 - "logline": 반드시 한국어로 작성
@@ -161,6 +159,101 @@ SCENE COUNT: {min_scenes}~{max_scenes}개 씬
   {_plot_seeds}
 - 주제 자체에 반전의 방향이 암시되어야 한다.
 - 제목은 궁금증을 유발하는 질문형 또는 충격적 진술형이어야 한다.
+"""
+
+        _common_characters_block = f"""
+  "characters": {{
+    "STORYCUT_HERO_A": {{
+      "name": "한국어 이름",
+      "gender": "male/female",
+      "age": "20s/30s/...",
+      "appearance": "hair color+style, eye color, skin tone, face features (English)",
+      "clothing_default": "specific outfit worn throughout the story (English)",
+      "unique_features": "REQUIRED 3+ distinctive marks with PRECISE ANATOMICAL POSITION — e.g. 'small mole below left eye', 'silver chain bracelet on right wrist', 'thin scar across left eyebrow', 'rose tattoo on inner right forearm'. Each mark must specify EXACT body location. (English)",
+      "role": "Protagonist/Antagonist/Supporting"
+    }}
+  }},"""
+
+        # ── 숏폼 vs 롱폼 Step 1 분기 ──
+        if is_shorts:
+            step1_prompt = f"""
+ROLE: Master Storyteller — 유튜브 쇼츠 바이럴 전문가. 30~60초 안에 시청자를 못 놓게 만드는 전문가.
+TASK: {total_duration_sec}초짜리 YouTube Shorts를 위한 **극한 밀도의 4단 구조** 스토리를 설계하라.
+GENRE: {genre}
+MOOD: {mood}
+STYLE: {style}
+SCENE COUNT: 3~4개 씬 (절대 초과 금지)
+
+{_common_language_rule}
+
+[SHORTS 4-BEAT STRUCTURE — 이 구조를 반드시 따라라]
+숏폼은 롱폼과 완전히 다른 문법이다. 30~60초 안에 기승전결을 완성해야 한다.
+
+BEAT 1 — HOOK (첫 3~5초):
+  - 스크롤을 멈추게 하는 충격적 상황/질문/이미지
+  - "왜?", "어떻게?", "말도 안 돼" 반응을 즉시 유발
+  - 설명 금지. 상황 한 방으로 시작.
+  예: "그녀의 결혼식 하객 명단에 3년 전 죽은 남자의 이름이 있었습니다."
+
+BEAT 2 — ESCALATION (5~10초):
+  - 상황이 급격히 악화/심화. 새로운 정보가 모든 것을 바꿈.
+  - 시청자가 "이거 어떻게 되는 거야?" 느끼는 순간.
+  예: "더 충격적인 건, 그 남자가 직접 축의금을 보냈다는 겁니다."
+
+BEAT 3 — TWIST (5~10초):
+  - 완전한 반전. 예상을 180도 뒤집는 정보.
+  - 이전 BEAT들의 의미가 완전히 달라지는 순간.
+  예: "사실 그녀가 죽인 건 남자가 아니라, 남자의 쌍둥이였습니다."
+
+BEAT 4 — PUNCHLINE (3~5초):
+  - 소름/감동/충격 한 줄 마무리. 여운을 남기되 흐지부지 금지.
+  - 시청자가 다시 처음부터 보고 싶게 만드는 결말.
+  예: "그리고 오늘, 진짜 그 남자가 그녀 앞에 나타났습니다."
+
+[MANDATORY STORY ARC]
+스토리 설계 전 반드시 확정:
+1. hook_concept: 스크롤 멈추는 첫 상황 (구체적으로)
+2. central_conflict: 핵심 드라마틱 질문
+3. twist: 모든 것을 뒤집는 반전
+4. punchline: 마지막 한 줄의 충격/여운
+
+{_step1_dialogue_rule}
+
+OUTPUT FORMAT (JSON):
+{{
+  "project_title": "한국어 제목 (궁금증 유발 필수)",
+  "logline": "한 문장 요약 (한국어) — 반전 암시",
+  "story_arc": {{
+    "hook_concept": "구체적인 오프닝 충격",
+    "central_conflict": "핵심 질문",
+    "midpoint_twist": "반전 내용",
+    "climax_revelation": "클라이맥스 진실",
+    "resolution_emotion": "결말 감정"
+  }},
+  "global_style": {{
+    "art_style": "{style}",
+    "color_palette": "장르/무드에 맞는 색감",
+    "visual_seed": 12345
+  }},
+{_common_characters_block}
+  "outline": [
+    {{ "scene_id": 1, "type": "hook", "summary": "HOOK 요약", "estimated_duration": {total_duration_sec // 4}, "dramatic_purpose": "스크롤 정지 + 질문 제기" }},
+    {{ "scene_id": 2, "type": "escalation", "summary": "ESCALATION 요약", "estimated_duration": {total_duration_sec // 3}, "dramatic_purpose": "상황 급격 악화" }},
+    {{ "scene_id": 3, "type": "twist", "summary": "TWIST 요약", "estimated_duration": {total_duration_sec // 3}, "dramatic_purpose": "예상 완전 뒤집기" }},
+    {{ "scene_id": 4, "type": "punchline", "summary": "PUNCHLINE 요약", "estimated_duration": {total_duration_sec // 6}, "dramatic_purpose": "소름/충격 마무리" }}
+  ]
+}}
+"""
+        else:
+            step1_prompt = f"""
+ROLE: Master Storyteller & Film Director — 20년 경력의 단편 영상 바이럴 콘텐츠 전문가.
+TASK: {total_duration_sec}초짜리 YouTube 영상을 위한 **반전과 서사가 탄탄한** 스토리 구조를 설계하라.
+GENRE: {genre}
+MOOD: {mood}
+STYLE: {style}
+SCENE COUNT: {min_scenes}~{max_scenes}개 씬
+
+{_common_language_rule}
 
 [MANDATORY STORY ARC — 아웃라인 전에 먼저 정의할 것]
 스토리를 설계하기 전에 반드시 5가지 요소를 확정하라:
@@ -177,6 +270,22 @@ SCENE COUNT: {min_scenes}~{max_scenes}개 씬
 - TWIST: 중반 반전 — 모든 것의 의미가 바뀌는 순간
 - CLIMAX: 충격 클라이맥스 — 복선이 폭발하는 지점
 - RESOLUTION: 마지막 25% — 감정적 착지, 여운
+
+[ZERO BOREDOM RULE — 지루한 구간 제로]
+- 매 씬은 반드시 새로운 정보, 사건, 또는 감정 변화를 포함해야 한다.
+- "설명만 하는 씬", "분위기만 깔리는 씬"은 절대 금지. 매 씬에 사건(event)이 있어야 한다.
+- 긴장도는 오직 상승 곡선만 허용. 평탄하거나 하강하는 구간이 있으면 실패.
+- 시청자가 어떤 씬에서든 "지루하다"고 느끼는 순간 영상은 끝난다.
+
+[FORESHADOWING RULE — 복선 의무화]
+- build_clue 타입 씬에는 반드시 "clue_name" 필드 추가: 나중에 회수될 구체적 단서 이름.
+- 예: "clue_name": "깨진 시계" → climax에서 "깨진 시계의 의미가 밝혀진다"
+- 복선 없는 build 씬은 금지. 모든 복선은 반드시 twist 또는 climax에서 회수되어야 한다.
+
+[RESOLUTION COMPLETENESS — 결말 완성도]
+- resolution 씬에서 central_conflict의 핵심 질문에 반드시 명확한 답을 제공할 것.
+- "열린 결말", "상상에 맡긴다", "애매한 여운"은 금지. 확실한 마무리.
+- 시청자가 "그래서 어떻게 된 거야?"라고 불만을 느끼면 실패.
 
 {_step1_dialogue_rule}
 
@@ -196,23 +305,13 @@ OUTPUT FORMAT (JSON):
     "color_palette": "장르/무드에 맞는 색감",
     "visual_seed": 12345
   }},
-  "characters": {{
-    "STORYCUT_HERO_A": {{
-      "name": "한국어 이름",
-      "gender": "male/female",
-      "age": "20s/30s/...",
-      "appearance": "hair color+style, eye color, skin tone, face features (English)",
-      "clothing_default": "specific outfit worn throughout the story (English)",
-      "unique_features": "REQUIRED 3+ distinctive marks with PRECISE ANATOMICAL POSITION — e.g. 'small mole below left eye', 'silver chain bracelet on right wrist', 'thin scar across left eyebrow', 'rose tattoo on inner right forearm'. Each mark must specify EXACT body location. (English)",
-      "role": "Protagonist/Antagonist/Supporting"
-    }}
-  }},
+{_common_characters_block}
   "outline": [
     {{ "scene_id": 1, "type": "hook", "summary": "첫 장면 요약", "estimated_duration": 6, "dramatic_purpose": "시청자 주의 집중 + 핵심 질문 제기" }},
-    {{ "scene_id": 2, "type": "build_clue", "summary": "복선 심기", "estimated_duration": 5, "dramatic_purpose": "첫 번째 단서 + 긴장감 상승" }},
+    {{ "scene_id": 2, "type": "build_clue", "summary": "복선 심기", "estimated_duration": 5, "clue_name": "회수될 단서 이름", "dramatic_purpose": "첫 번째 단서 + 긴장감 상승" }},
     {{ "scene_id": 3, "type": "twist", "summary": "중반 반전", "estimated_duration": 7, "dramatic_purpose": "예상 뒤집기 — 이전 씬 의미 변화" }},
     {{ "scene_id": 4, "type": "climax", "summary": "클라이맥스 진실", "estimated_duration": 8, "dramatic_purpose": "복선 폭발 + 최대 감정 충격" }},
-    {{ "scene_id": 5, "type": "resolution", "summary": "결말 여운", "estimated_duration": 7, "dramatic_purpose": "감정 착지 + 캐릭터 변화 완성" }}
+    {{ "scene_id": 5, "type": "resolution", "summary": "결말 — central_conflict의 답", "estimated_duration": 7, "dramatic_purpose": "감정 착지 + 확실한 마무리" }}
   ]
 }}
 """
@@ -280,16 +379,8 @@ OUTPUT FORMAT (JSON):
 ✅ 클라이맥스 image_prompt: 충격/각성/감정 폭발을 시각적으로 표현하는 강렬한 장면
 """
 
-        step2_prompt = f"""
-ROLE: Award-winning Screenwriter & Visual Director.
-TASK: 승인된 스토리 아크를 기반으로 각 씬의 상세 스크립트를 작성하라.
-목표: 시청자가 끝까지 보고 감동받거나 충격받는 영상
-
-APPROVED STRUCTURE:
-{structure_context}
-
-{_twist_note}
-
+        # ── Step 2 공통 블록 ──
+        _common_requirements = f"""
 REQUIREMENTS:
 - 아웃라인의 outline 순서와 type을 정확히 따를 것.
 - "narrative": 장면 설명 (반드시 한국어). 예: "지민이 카페 문을 열고 들어온다."
@@ -299,65 +390,9 @@ REQUIREMENTS:
 
 ## DIALOGUE FORMAT (CRITICAL)
 {_dialogue_format}
+"""
 
-[SCENE CONTINUITY RULE — 씬 연속성 필수. 이것을 어기면 스토리가 산산조각남]
-전체 씬은 하나의 연결된 이야기여야 한다. 각 씬을 독립적 에피소드로 쓰지 말 것!
-- 씬 N의 tts_script 첫 문장은 씬 N-1의 마지막 상황/감정에서 자연스럽게 이어져야 함
-- 모든 씬이 같은 캐릭터, 같은 사건, 같은 시간축 위에 있어야 함
-- 각 씬이 전체 이야기의 "그 다음"이어야 함 — 관계없는 새로운 상황 도입 금지
-- 긴장감은 씬마다 한 단계씩 높아져야 함 (평탄한 구간 금지)
-
-BAD (독립적 나열 — 절대 금지):
-씬1: "지민은 도서관에서 오래된 편지를 발견했습니다."
-씬2: "그날 밤 지민은 꿈을 꿨습니다." ← 씬1과 인과관계 없음!
-씬3: "다음 날 지민은 카페에 갔습니다." ← 편지 내용 언급 없이 새 장면!
-
-GOOD (자연스러운 연결):
-씬1: "지민은 도서관 깊숙한 곳에서 바래진 편지 한 통을 발견했습니다. 발신인은... 10년 전 실종된 언니였습니다."
-씬2: "떨리는 손으로 편지를 펼친 지민의 눈에 가장 먼저 들어온 건, '도망쳐'라는 단어였습니다. 그 순간 도서관의 조명이 일제히 꺼졌습니다."
-씬3: "어둠 속에서 지민의 휴대폰이 울렸습니다. 화면에 뜬 번호는... 언니의 번호였습니다. 10년간 끊겨 있던 그 번호가."
-
-[NARRATION LENGTH RULE — 가장 중요한 규칙. 반드시 지킬 것!]
-목표 영상 길이: {total_duration_sec}초 / 씬 수: {min_scenes}~{max_scenes}개
-→ 씬당 목표 길이: 약 {total_duration_sec // max(min_scenes, 1)}~{total_duration_sec // max(max_scenes, 1)}초
-
-한국어 TTS는 초당 약 5.5글자를 읽는다. 각 씬의 tts_script 글자수는 반드시 다음을 지킬 것:
-- 공식: tts_script 글자수 = duration_sec × 5.5 (±15% 허용)
-- 예: duration_sec=5 → tts_script 23~32자 (2~3문장), duration_sec=8 → 37~51자 (3~4문장)
-- 전체 씬의 tts_script 총 글자수 합계 ≈ {total_duration_sec} × 5.5 = 약 {int(total_duration_sec * 5.5)}자
-- 짧은 영상({total_duration_sec}초)일수록 간결하게. 핵심만 전달.
-
-[STORYTELLING NARRATION RULE — 필수]
-각 tts_script는 시청자가 몰입할 수 있는 구체적이고 생생한 나레이션이어야 한다.
-- 추상적 서술 금지 ("그는 슬펐다") → 구체적 장면으로 보여줄 것 ("그의 손이 부들부들 떨리고 있었습니다")
-- 각 씬의 tts_script는 2~4개의 완전한 문장으로 구성 (마침표로 끝나는 문장)
-- 씬마다 반드시 하나의 새로운 정보/사건/감정 변화가 있어야 함
-- 시청자가 "그래서 어떻게 됐어?"라고 궁금해지도록 마무리할 것
-
-[NARRATION TONE CONSISTENCY — 어미 통일 필수]
-전체 영상에서 나레이션 어미를 반드시 하나로 통일할 것. 혼용 절대 금지!
-→ 기본 어미: "~했습니다/~였습니다/~입니다" (해요체 금지, 해라체 금지)
-→ 감정 강조 시 "~였죠", "~거든요", "~거예요" 허용 (단, 기본 어미와 자연스럽게 섞일 것)
-→ 절대 금지: 같은 씬 안에서 "~했다" (해라체)와 "~했습니다" (합쇼체) 혼용
-BAD: "서연이 문을 열었다. 그 안에는 편지가 있었습니다." ❌ (~다 + ~습니다 혼용)
-GOOD: "서연이 문을 열었습니다. 그 안에는 편지가 있었죠." ✓ (합쇼체 통일)
-
-핵심 요소:
-1. 상황 묘사: 장면의 분위기와 배경을 감각적으로 (소리, 빛, 온도)
-2. 감정 전달: 캐릭터의 내면 심리를 행동으로 보여줌
-3. 긴장감: 다음이 궁금해지는 서스펜스 ("하지만...", "그 순간...", "과연...")
-4. 인과관계: 이전 씬의 결과로 지금 이 상황이 발생했음을 명시
-
-BAD (짧고 맥락 없음 — 절대 금지):
-"그녀는 문을 열었다." ❌  "편지가 도착했다." ❌  "그는 놀랐다." ❌
-"지민은 슬펐다. 세상은 냉정했다." ❌ (추상적, 구체성 없음)
-
-GOOD (duration_sec=8 → 약 44자, 2~3문장, 몰입감):
-"빗소리가 창문을 두드리는 그 밤, 지민의 손에 쥔 편지에는 사라진 아버지의 이름이 적혀 있었습니다. 10년간 감춰져 있던 비밀이 마침내 수면 위로 올라오는 순간이었죠." ✓
-
-GOOD (duration_sec=5 → 약 28자, 2문장):
-"그 순간, 편지 속 진실이 지민의 세계를 무너뜨렸습니다. 아버지는 사라진 게 아니었습니다." ✓
-
+        _common_language_and_image_rules = f"""
 [LANGUAGE RULE - CRITICAL]
 - "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
 - "image_prompt"만 영어로 작성 (이미지 생성 AI용).
@@ -386,7 +421,9 @@ GOOD (Dynamic action, no character token - REQUIRED):
 - "figure bursting through the door, body leaning forward mid-stride, eyes wide with desperation, hand reaching out, rain soaking through clothes, dramatic side lighting" ✓
 - "person collapsed on knees, head thrown back in anguish, tears streaming, fists pounding the ground, dramatic low-angle shot" ✓
 - "silhouette spinning around in shock, body twisted mid-turn, hand flying to mouth, eyes locked on something off-screen, dramatic backlight" ✓
+"""
 
+        _common_output_format = f"""
 OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
 {{
   "title": "{structure_data.get('project_title', '제목 없음')}",
@@ -412,6 +449,147 @@ OUTPUT FORMAT (JSON - title, narrative, tts_script는 반드시 한국어):
     "hashtags": ["#태그1", "#태그2"]
   }}
 }}
+"""
+
+        # ── 숏폼 vs 롱폼 Step 2 분기 ──
+        if is_shorts:
+            step2_prompt = f"""
+ROLE: 유튜브 쇼츠 스크립트 전문 작가. 30~60초 안에 시청자를 못 놓게 하는 기술의 달인.
+TASK: 승인된 4-BEAT 구조를 기반으로 각 씬의 상세 스크립트를 작성하라.
+목표: 30~60초 안에 시청자가 소름 돋거나 충격받는 영상. 흐지부지 끝나면 실패.
+
+APPROVED STRUCTURE:
+{structure_context}
+
+{_twist_note}
+
+{_common_requirements}
+
+[SHORTS NARRATION STYLE — 숏폼 전용 톤]
+숏폼은 매 문장이 펀치다. 군더더기 없이 핵심만.
+- 짧고 강렬한 문장. 한 문장 = 하나의 정보/충격.
+- 전환어 의무 사용: "그런데,", "바로 그 순간,", "문제는,", "하지만,", "더 충격적인 건,"
+- 마지막 씬(PUNCHLINE)의 마지막 문장 = 소름/충격/여운. 이것이 영상의 모든 것.
+- 열린 결말 절대 금지. "과연 어떻게 됐을까요?" 같은 도망치는 결말 금지.
+- 매 씬 끝이 다음 씬의 시작을 당기는 힘이 있어야 함.
+
+BAD (숏폼에서 절대 금지):
+"오늘 이야기를 시작해 보겠습니다." ❌ (도입부 낭비)
+"여러분은 어떻게 생각하시나요?" ❌ (도망치는 결말)
+"그 뒤로 그녀는 행복하게 살았습니다." ❌ (진부한 마무리)
+
+GOOD (숏폼 스타일):
+HOOK: "3년 전 죽은 남자에게서 택배가 도착했습니다." ✓ (즉시 충격)
+ESCALATION: "그런데, 택배 안에는 내일 날짜의 신문이 들어 있었습니다." ✓ (상황 악화)
+TWIST: "바로 그 순간, 현관문 비밀번호가 눌리는 소리가 들렸습니다." ✓ (반전)
+PUNCHLINE: "문이 열리고, 거울 속 자신의 얼굴을 한 남자가 서 있었습니다." ✓ (소름 마무리)
+
+[NARRATION LENGTH RULE]
+목표 영상 길이: {total_duration_sec}초 / 씬 수: 3~4개
+한국어 TTS는 초당 약 5.5글자. 전체 tts_script 총 글자수 ≈ {int(total_duration_sec * 5.5)}자
+- HOOK: 짧고 강렬 (1~2문장)
+- ESCALATION/TWIST: 중간 길이 (2~3문장)
+- PUNCHLINE: 짧고 임팩트 (1~2문장)
+
+[NARRATION TONE CONSISTENCY — 어미 통일 필수]
+→ 기본 어미: "~했습니다/~였습니다/~입니다"
+→ 감정 강조 시 "~였죠", "~거든요" 허용
+→ 혼용 절대 금지
+
+{_common_language_and_image_rules}
+
+{_common_output_format}
+"""
+        else:
+            step2_prompt = f"""
+ROLE: Award-winning Screenwriter & Visual Director.
+TASK: 승인된 스토리 아크를 기반으로 각 씬의 상세 스크립트를 작성하라.
+목표: 시청자가 끝까지 보고 감동받거나 충격받는 영상. "얘기하다 그만둔" 느낌이 들면 실패.
+
+APPROVED STRUCTURE:
+{structure_context}
+
+{_twist_note}
+
+{_common_requirements}
+
+[SCENE CONTINUITY RULE — 씬 연속성 필수. 이것을 어기면 스토리가 산산조각남]
+전체 씬은 하나의 연결된 이야기여야 한다. 각 씬을 독립적 에피소드로 쓰지 말 것!
+- 씬 N의 tts_script 첫 문장은 씬 N-1의 마지막 상황/감정에서 자연스럽게 이어져야 함
+- 모든 씬이 같은 캐릭터, 같은 사건, 같은 시간축 위에 있어야 함
+- 각 씬이 전체 이야기의 "그 다음"이어야 함 — 관계없는 새로운 상황 도입 금지
+- 긴장감은 씬마다 한 단계씩 높아져야 함 (평탄한 구간 금지)
+
+BAD (독립적 나열 — 절대 금지):
+씬1: "지민은 도서관에서 오래된 편지를 발견했습니다."
+씬2: "그날 밤 지민은 꿈을 꿨습니다." ← 씬1과 인과관계 없음!
+씬3: "다음 날 지민은 카페에 갔습니다." ← 편지 내용 언급 없이 새 장면!
+
+GOOD (자연스러운 연결):
+씬1: "지민은 도서관 깊숙한 곳에서 바래진 편지 한 통을 발견했습니다. 발신인은... 10년 전 실종된 언니였습니다."
+씬2: "떨리는 손으로 편지를 펼친 지민의 눈에 가장 먼저 들어온 건, '도망쳐'라는 단어였습니다. 그 순간 도서관의 조명이 일제히 꺼졌습니다."
+씬3: "어둠 속에서 지민의 휴대폰이 울렸습니다. 화면에 뜬 번호는... 언니의 번호였습니다. 10년간 끊겨 있던 그 번호가."
+
+[SCENE-END HOOK RULE — 매 씬 끝 서스펜스 의무]
+- 매 씬의 tts_script 마지막 문장은 반드시 "다음이 궁금한" 서스펜스를 포함해야 한다.
+- 마지막 문장이 사건/정보를 열어야 함 — 단순 감상/정리로 끝내지 말 것.
+- 기법: 미완의 정보 ("하지만 그건 시작에 불과했습니다"), 예고 ("그런데 문제는 그 다음이었습니다"), 충격 전환 ("바로 그때, 전화벨이 울렸습니다")
+- resolution 씬만 예외: 확실한 감정 착지로 마무리.
+
+[EMOTIONAL INTENSITY ESCALATION — 감정 강도 상승 필수]
+- 씬 1의 감정 강도 < 씬 2 < 씬 3 < ... < 클라이맥스
+- 매 씬의 tts_script는 이전 씬보다 더 강한 감정/긴장/충격을 담아야 함
+- 평탄한 감정 씬은 절대 금지. 모든 씬이 이전보다 한 단계 더 강해야 함
+
+[RESOLUTION COMPLETENESS — 결말 완성도 필수]
+- 마지막 씬(resolution)에서 central_conflict의 핵심 질문에 반드시 명확한 답 제공
+- "열린 결말", "상상에 맡긴다"는 금지. 시청자가 만족하는 확실한 마무리.
+- 복선(clue)은 반드시 회수되어야 함. 뿌려놓고 안 거두면 실패.
+
+[NARRATION LENGTH RULE — 가장 중요한 규칙. 반드시 지킬 것!]
+목표 영상 길이: {total_duration_sec}초 / 씬 수: {min_scenes}~{max_scenes}개
+→ 씬당 목표 길이: 약 {total_duration_sec // max(min_scenes, 1)}~{total_duration_sec // max(max_scenes, 1)}초
+
+한국어 TTS는 초당 약 5.5글자를 읽는다. 각 씬의 tts_script 글자수는 반드시 다음을 지킬 것:
+- 공식: tts_script 글자수 = duration_sec × 5.5 (±15% 허용)
+- 예: duration_sec=5 → tts_script 23~32자 (2~3문장), duration_sec=8 → 37~51자 (3~4문장)
+- 전체 씬의 tts_script 총 글자수 합계 ≈ {total_duration_sec} × 5.5 = 약 {int(total_duration_sec * 5.5)}자
+- 짧은 영상({total_duration_sec}초)일수록 간결하게. 핵심만 전달.
+
+[STORYTELLING NARRATION RULE — 필수]
+각 tts_script는 시청자가 몰입할 수 있는 구체적이고 생생한 나레이션이어야 한다.
+- 추상적 서술 금지 ("그는 슬펐다") → 구체적 장면으로 보여줄 것 ("그의 손이 부들부들 떨리고 있었습니다")
+- 각 씬의 tts_script는 2~4개의 완전한 문장으로 구성 (마침표로 끝나는 문장)
+- 씬마다 반드시 하나의 새로운 정보/사건/감정 변화가 있어야 함
+
+[NARRATION TONE CONSISTENCY — 어미 통일 필수]
+전체 영상에서 나레이션 어미를 반드시 하나로 통일할 것. 혼용 절대 금지!
+→ 기본 어미: "~했습니다/~였습니다/~입니다" (해요체 금지, 해라체 금지)
+→ 감정 강조 시 "~였죠", "~거든요", "~거예요" 허용 (단, 기본 어미와 자연스럽게 섞일 것)
+→ 절대 금지: 같은 씬 안에서 "~했다" (해라체)와 "~했습니다" (합쇼체) 혼용
+BAD: "서연이 문을 열었다. 그 안에는 편지가 있었습니다." ❌ (~다 + ~습니다 혼용)
+GOOD: "서연이 문을 열었습니다. 그 안에는 편지가 있었죠." ✓ (합쇼체 통일)
+
+핵심 요소:
+1. 상황 묘사: 장면의 분위기와 배경을 감각적으로 (소리, 빛, 온도)
+2. 감정 전달: 캐릭터의 내면 심리를 행동으로 보여줌
+3. 긴장감: 다음이 궁금해지는 서스펜스 ("하지만...", "그 순간...", "과연...")
+4. 인과관계: 이전 씬의 결과로 지금 이 상황이 발생했음을 명시
+
+BAD (짧고 맥락 없음 — 절대 금지):
+"그녀는 문을 열었다." ❌  "편지가 도착했다." ❌  "그는 놀랐다." ❌
+"지민은 슬펐다. 세상은 냉정했다." ❌ (추상적, 구체성 없음)
+"그렇게 지민은 진실을 알게 되었습니다." ❌ (요약으로 끝내기 — 흐지부지)
+
+GOOD (duration_sec=8 → 약 44자, 2~3문장, 몰입감):
+"빗소리가 창문을 두드리는 그 밤, 지민의 손에 쥔 편지에는 사라진 아버지의 이름이 적혀 있었습니다. 10년간 감춰져 있던 비밀이 마침내 수면 위로 올라오는 순간이었죠. 하지만 진짜 충격은 편지의 다음 장에 있었습니다." ✓
+
+GOOD (duration_sec=5 → 약 28자, 2문장):
+"그 순간, 편지 속 진실이 지민의 세계를 무너뜨렸습니다. 아버지는 사라진 게 아니라, 숨어 있었던 겁니다." ✓
+
+{_common_language_and_image_rules}
+
+{_common_output_format}
 """
         # Shorts: hook_text 필드 추가 요청
         if is_shorts:
