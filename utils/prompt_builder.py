@@ -279,12 +279,20 @@ class MultimodalPromptBuilder:
         if character_reference_paths:
             if len(character_reference_paths) > 3:
                 print(f"  [WARNING] {len(character_reference_paths)} character references but max 3 allowed, dropping: {[os.path.basename(p) for p in character_reference_paths[3:]]}")
+            _style_match_label = {
+                "realistic": "This is a REAL PHOTO — output MUST also be a real photo.",
+                "cinematic": "This is a CINEMATIC photo — output MUST also be cinematic.",
+                "anime": "This is ANIME art — output MUST also be anime.",
+                "webtoon": "This is WEBTOON art — output MUST also be webtoon.",
+                "illustration": "This is a DIGITAL ILLUSTRATION — output MUST also be illustration.",
+                "game_anime": "This is 3D GAME ANIME — output MUST also be 3D game anime.",
+            }.get(style, f"Output MUST match this {style} rendering style.")
             for path in character_reference_paths[:3]:
                 if path and os.path.exists(path):
                     image_part = MultimodalPromptBuilder._encode_image_part(path)
                     if image_part:
                         parts.append(image_part)
-                        parts.append({"text": "[CHARACTER ANCHOR] Copy ONLY face, hair, outfit, skin tone. IGNORE arm/hand/body pose entirely."})
+                        parts.append({"text": f"[CHARACTER ANCHOR] Copy ONLY face, hair, outfit, skin tone. IGNORE arm/hand/body pose entirely. {_style_match_label}"})
 
         # 참조 지시문 (이미지가 있는 경우) — 스타일별 적응형
         has_images = any("inline_data" in p for p in parts)
@@ -464,7 +472,24 @@ class MultimodalPromptBuilder:
 
         # 프레이밍은 프롬프트 최상단에 배치 (모델이 최우선으로 따르도록)
         framing_prefix = f"{framing_text} " if framing_text else ""
-        full_prompt = f"{framing_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}. Anatomically correct human body with proper proportions, natural hands with exactly five fingers on each hand, correct finger count. Aspect ratio 16:9."
+        # 캐릭터 앵커가 있을 때: 마지막에 스타일+앵커 준수 리마인더 (recency bias 활용)
+        _anchor_reminder = ""
+        if character_reference_paths and any(p and os.path.exists(p) for p in character_reference_paths):
+            _style_label = {
+                "realistic": "photorealistic photograph",
+                "cinematic": "cinematic film still",
+                "anime": "anime illustration",
+                "webtoon": "webtoon art",
+                "illustration": "digital illustration",
+                "game_anime": "3D game anime",
+            }.get(style, style)
+            _anchor_reminder = (
+                f" CRITICAL REMINDER: The character reference images above are the GROUND TRUTH. "
+                f"Render them as a {_style_label} — SAME rendering style, SAME ethnicity, SAME face, SAME outfit. "
+                f"If the reference shows a real photo, the output MUST be a real photo. "
+                f"Do NOT convert photorealistic characters to anime/cartoon/illustration or vice versa."
+            )
+        full_prompt = f"{framing_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}.{_anchor_reminder} Anatomically correct human body with proper proportions, natural hands with exactly five fingers on each hand, correct finger count. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts
