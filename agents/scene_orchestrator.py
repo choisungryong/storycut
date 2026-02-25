@@ -937,7 +937,14 @@ JSON 형식으로 출력:
             if s.status == SceneStatus.COMPLETED and s.assets.video_path and s.assets.narration_path:
                 video_clips.append(s.assets.video_path)
                 narration_clips.append(s.assets.narration_path)
-                scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
+                # 실제 비디오 파일 길이 측정 (드리프트 방지)
+                try:
+                    actual_dur = self.composer_agent.composer.get_video_duration(s.assets.video_path)
+                    scene_durations.append(actual_dur)
+                    if abs(actual_dur - (s.duration_sec or 5.0)) > 0.05:
+                        print(f"  [SYNC] Scene {s.scene_id}: video={actual_dur:.3f}s vs planned={s.duration_sec}s (delta={actual_dur - s.duration_sec:+.3f}s)")
+                except Exception:
+                    scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
                 print(f"  + Added Scene {s.scene_id}")
             else:
                 print(f"  - Skipped Scene {s.scene_id} (Status: {s.status})")
@@ -1245,7 +1252,14 @@ JSON 형식으로 출력:
             if s.status == SceneStatus.COMPLETED and s.assets.video_path and s.assets.narration_path:
                 video_clips.append(s.assets.video_path)
                 narration_clips.append(s.assets.narration_path)
-                scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
+                # 실제 비디오 파일 길이 측정 (드리프트 방지)
+                try:
+                    actual_dur = self.composer_agent.composer.get_video_duration(s.assets.video_path)
+                    scene_durations.append(actual_dur)
+                    if abs(actual_dur - (s.duration_sec or 5.0)) > 0.05:
+                        print(f"  [SYNC] Scene {s.scene_id}: video={actual_dur:.3f}s vs planned={s.duration_sec}s (delta={actual_dur - s.duration_sec:+.3f}s)")
+                except Exception:
+                    scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
 
         if not video_clips:
             raise RuntimeError("No scenes were successfully composed. Cannot produce video.")
