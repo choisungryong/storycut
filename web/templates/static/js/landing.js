@@ -129,7 +129,7 @@
       'faq.a7': "We offer a full refund within 7 days of purchase if you're not satisfied. Unused clips can be carried over to the next billing cycle.",
 
       'cta.title': 'Turn your story into video, now.',
-      'cta.sub': 'No account required to start.',
+      'cta.sub': 'Sign up and get 30 free clips.',
       'cta.btn': 'Start Free',
 
       'footer.desc': 'AI-Powered Video Creation Studio. Turn your stories into cinematic videos.',
@@ -260,7 +260,7 @@
       'faq.a7': '\uAD6C\uB9E4 \uD6C4 7\uC77C \uC774\uB0B4 \uBD88\uB9CC\uC871 \uC2DC \uC804\uC561 \uD658\uBD88\uC744 \uC81C\uACF5\uD569\uB2C8\uB2E4. \uBBF8\uC0AC\uC6A9 \uD074\uB9BD\uC740 \uB2E4\uC74C \uACB0\uC81C \uC8FC\uAE30\uB85C \uC774\uC6D4\uB429\uB2C8\uB2E4.',
 
       'cta.title': '\uC9C0\uAE08, \uB2F9\uC2E0\uC758 \uC774\uC57C\uAE30\uB97C \uC601\uC0C1\uC73C\uB85C \uB9CC\uB4E4\uC5B4 \uBCF4\uC138\uC694.',
-      'cta.sub': '\uACC4\uC815 \uC5C6\uC774 \uBC14\uB85C \uCCB4\uD5D8 \uAC00\uB2A5',
+      'cta.sub': '\uAC00\uC785\uD558\uBA74 \uBB34\uB8CC 30\uD074\uB9BD \uC9C0\uAE09',
       'cta.btn': '\uBB34\uB8CC\uB85C \uC2DC\uC791\uD558\uAE30',
 
       'footer.desc': 'AI \uAE30\uBC18 \uC601\uC0C1 \uC81C\uC791 \uC2A4\uD29C\uB514\uC624. \uB2F9\uC2E0\uC758 \uC774\uC57C\uAE30\uB97C \uC2DC\uB124\uB9C8\uD1B1 \uC601\uC0C1\uC73C\uB85C.',

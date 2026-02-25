@@ -156,7 +156,14 @@ class CharacterManager:
         character_images = {}
         total_chars = len(character_sheet)
 
-        for idx, (token, char_data) in enumerate(character_sheet.items(), 1):
+        _ETH_KW = {
+            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
+            "southeast_asian": "Southeast Asian", "european": "European",
+            "black": "Black", "hispanic": "Hispanic", "mixed": "Mixed ethnicity",
+        }
+
+        def _process_single_character(idx, token, char_data):
+            """단일 캐릭터 앵커 생성 (병렬 실행 가능)."""
             print(f"\n  [{idx}/{total_chars}] Casting: {token}")
 
             # CharacterSheet 또는 dict 처리
@@ -176,14 +183,9 @@ class CharacterManager:
                 char_seed = char_data.get("visual_seed", visual_seed)
             else:
                 print(f"    [Warning] Invalid character data for {token}, skipping.")
-                continue
+                return token, None, char_data
 
             # 인종 키워드를 appearance에 주입 (씬 이미지와 동일하게)
-            _ETH_KW = {
-                "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-                "southeast_asian": "Southeast Asian", "european": "European",
-                "black": "Black", "hispanic": "Hispanic", "mixed": "Mixed ethnicity",
-            }
             eth_keyword = _ETH_KW.get(str(ethnicity).lower(), "")
             if eth_keyword and eth_keyword.lower() not in appearance.lower():
                 appearance = f"{eth_keyword}, {appearance}"
@@ -223,24 +225,69 @@ class CharacterManager:
                 unique_features=_unique_features,
             )
 
-            # CharacterSheet에 anchor_set 저장
-            if isinstance(char_data, CharacterSheet):
-                char_data.anchor_set = anchor_set
-                # 하위호환: best_pose 이미지를 master_image_path에 설정
-                best_image = anchor_set.get_pose_image(anchor_set.best_pose)
-                if best_image:
-                    char_data.master_image_path = best_image
-            elif isinstance(char_data, dict):
-                best_image = anchor_set.get_pose_image(anchor_set.best_pose)
-                if best_image:
-                    char_data["master_image_path"] = best_image
-
-            character_images[token] = anchor_set.get_pose_image(anchor_set.best_pose) or ""
             print(f"    [OK] Anchor set complete: {len(anchor_set.poses)} poses")
+            return token, anchor_set, char_data
 
-            # 진행률 콜백
-            if progress_callback:
-                progress_callback(idx, total_chars, name)
+        # 캐릭터 간 병렬 생성 (API rate limit 고려 max_workers=3)
+        if total_chars > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(3, total_chars)) as executor:
+                futures = [
+                    executor.submit(_process_single_character, idx, token, char_data)
+                    for idx, (token, char_data) in enumerate(character_sheet.items(), 1)
+                ]
+                # 순서 보장: futures 리스트 순서대로 결과 수집
+                for idx, fut in enumerate(futures, 1):
+                    token, anchor_set, char_data = fut.result()
+                    if anchor_set is None:
+                        continue
+
+                    # CharacterSheet에 anchor_set 저장
+                    if isinstance(char_data, CharacterSheet):
+                        char_data.anchor_set = anchor_set
+                        best_image = anchor_set.get_pose_image(anchor_set.best_pose)
+                        if best_image:
+                            char_data.master_image_path = best_image
+                    elif isinstance(char_data, dict):
+                        best_image = anchor_set.get_pose_image(anchor_set.best_pose)
+                        if best_image:
+                            char_data["master_image_path"] = best_image
+
+                    character_images[token] = anchor_set.get_pose_image(anchor_set.best_pose) or ""
+
+                    if progress_callback:
+                        name = token
+                        if isinstance(char_data, CharacterSheet):
+                            name = char_data.name
+                        elif isinstance(char_data, dict):
+                            name = char_data.get("name", token)
+                        progress_callback(idx, total_chars, name)
+        else:
+            # 캐릭터 1명이면 병렬화 불필요
+            for idx, (token, char_data) in enumerate(character_sheet.items(), 1):
+                token, anchor_set, char_data = _process_single_character(idx, token, char_data)
+                if anchor_set is None:
+                    continue
+
+                if isinstance(char_data, CharacterSheet):
+                    char_data.anchor_set = anchor_set
+                    best_image = anchor_set.get_pose_image(anchor_set.best_pose)
+                    if best_image:
+                        char_data.master_image_path = best_image
+                elif isinstance(char_data, dict):
+                    best_image = anchor_set.get_pose_image(anchor_set.best_pose)
+                    if best_image:
+                        char_data["master_image_path"] = best_image
+
+                character_images[token] = anchor_set.get_pose_image(anchor_set.best_pose) or ""
+
+                if progress_callback:
+                    name = token
+                    if isinstance(char_data, CharacterSheet):
+                        name = char_data.name
+                    elif isinstance(char_data, dict):
+                        name = char_data.get("name", token)
+                    progress_callback(idx, total_chars, name)
 
         print(f"\n[CharacterManager] Casting complete: {len(character_images)}/{total_chars} characters")
         return character_images

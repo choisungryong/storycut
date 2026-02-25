@@ -3854,3 +3854,93 @@ input.input:focus {
     font-size: 0.72rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   I2V PROGRESS BANNER — fixed bottom overlay
+   ═══════════════════════════════════════════════════════════ */
+.i2v-progress-banner {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  min-width: 340px;
+  max-width: 480px;
+  background: rgba(15, 15, 30, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.1) inset;
+  animation: i2vBannerSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes i2vBannerSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.i2v-banner-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.i2v-banner-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.i2v-banner-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+  margin-bottom: 2px;
+}
+
+.i2v-banner-stage {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #94a3b8);
+  margin-bottom: 8px;
+}
+
+.i2v-banner-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.i2v-banner-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a78bfa);
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+
+.i2v-banner-success .i2v-banner-bar-fill {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.i2v-banner-error .i2v-banner-bar-fill {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+@media (max-width: 480px) {
+  .i2v-progress-banner {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    min-width: auto;
+    max-width: none;
+    bottom: 16px;
+  }
+  @keyframes i2vBannerSlideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
