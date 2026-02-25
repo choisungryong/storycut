@@ -77,8 +77,8 @@ class PexelsAgent:
             return []
 
         headers = {"Authorization": self.api_key}
-        # 랜덤 페이지(1-5)로 다양한 결과 확보
-        page = random.randint(1, 5)
+        # 관련성 높은 1페이지 우선 (80%), 나머지 2~3페이지 (20%)
+        page = 1 if random.random() < 0.8 else random.randint(2, 3)
         params = {
             "query": query,
             "per_page": per_page,
@@ -209,6 +209,7 @@ class PexelsAgent:
         lighting: str = None,
         location: str = None,
         atmosphere: str = None,
+        motifs: List[str] = None,
     ) -> List[str]:
         """Gemini LLM으로 Pexels 검색 쿼리 3-8개 생성
 
@@ -260,6 +261,8 @@ class PexelsAgent:
                 context_lines.append(f"location={location}")
             if atmosphere:
                 context_lines.append(f"atmosphere={atmosphere}")
+            if motifs:
+                context_lines.append(f"recurring_motifs={', '.join(motifs[:5])}")
             context_str = "\n".join(context_lines)
 
             user_prompt = (
@@ -366,10 +369,9 @@ class PexelsAgent:
             if not fresh:
                 fresh = videos  # 모두 사용된 경우 전체에서 다시 선택
 
-            # duration 매칭: 목표 길이에 가장 가까운 순 정렬 후 상위 5개 중 랜덤 선택
+            # duration 매칭: 목표 길이에 가장 가까운 순 정렬 후 상위 3개 (셔플 없이 순서 유지)
             fresh.sort(key=lambda v: abs(v.get("duration", 0) - duration_sec))
-            candidates = fresh[:5]
-            random.shuffle(candidates)
+            candidates = fresh[:3]
 
             for video in candidates:
                 result = self.download_video(video, out_path, target_quality="hd")

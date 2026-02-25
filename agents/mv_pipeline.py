@@ -510,15 +510,23 @@ class MVPipeline:
                         print(f"  [Gemini-Align] {len(timed_lyrics)} entries, "
                               f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
 
-                        # ASS/SRT를 R2에 업로드 (배포 시 로컬 파일 삭제 대비)
+                        # ASS/SRT를 R2에 병렬 업로드 (배포 시 로컬 파일 삭제 대비)
                         try:
                             from utils.storage import StorageManager
+                            from concurrent.futures import ThreadPoolExecutor
                             _storage = StorageManager()
+                            _upload_tasks = []
                             for _sub_file in [ass_path, srt_path]:
                                 if os.path.exists(_sub_file):
                                     _r2_key = f"{project_id}/{os.path.relpath(_sub_file, project_dir).replace(os.sep, '/')}"
-                                    _storage.upload_file(_sub_file, _r2_key)
-                                    print(f"    [R2] Uploaded subtitle: {_r2_key}")
+                                    _upload_tasks.append((_sub_file, _r2_key))
+                            if _upload_tasks:
+                                with ThreadPoolExecutor(max_workers=2) as _executor:
+                                    _futs = [_executor.submit(_storage.upload_file, f, k) for f, k in _upload_tasks]
+                                    for _fut in _futs:
+                                        _fut.result()  # 에러 전파
+                                for _, _k in _upload_tasks:
+                                    print(f"    [R2] Uploaded subtitle: {_k}")
                         except Exception as _r2_err:
                             print(f"    [R2] Subtitle upload failed (non-fatal): {_r2_err}")
                     else:
@@ -2584,7 +2592,7 @@ class MVPipeline:
             else:
                 print(f"  [B-roll] Pexels agent enabled")
 
-        BROLL_SEGMENTS = set()  # B-roll 비활성화 — 모든 씬 AI 이미지 생성
+        BROLL_SEGMENTS = {"intro", "outro", "bridge"}
 
         # 모든 씬에 고유 이미지 생성 (병렬 처리)
         print(f"  Generating {total_scenes} unique images (parallel, max_workers=4)")
@@ -2639,8 +2647,26 @@ class MVPipeline:
                 _broll_locale = ethnicity_keyword or None
                 _broll_lighting = _scene_lighting or (_vb.lighting_style if _vb else None)
                 _broll_atmo = _vb.atmosphere if _vb else None
+                # location_palette에서 장소 추출
+                _broll_location = None
+                if _vb and _vb.location_palette:
+                    if _scene_blocking and _scene_blocking.narrative_beat:
+                        # narrative_beat에서 location 힌트 매칭 시도
+                        _beat_lower = _scene_blocking.narrative_beat.lower()
+                        for _loc in _vb.location_palette:
+                            if _loc.lower() in _beat_lower:
+                                _broll_location = _loc
+                                break
+                    if not _broll_location:
+                        import random as _rand
+                        _broll_location = _rand.choice(_vb.location_palette)
+
+                # recurring_motifs 추출
+                _broll_motifs = _vb.recurring_motifs if _vb and _vb.recurring_motifs else None
+
                 print(f"    [B-roll params] concept={_broll_concept}, era={_broll_era}, locale={_broll_locale}, "
-                      f"time={_time_hint}, weather={_weather_hint}, lighting={_broll_lighting}, atmo={str(_broll_atmo)[:40] if _broll_atmo else None}")
+                      f"time={_time_hint}, weather={_weather_hint}, lighting={_broll_lighting}, "
+                      f"location={_broll_location}, motifs={_broll_motifs}, atmo={str(_broll_atmo)[:40] if _broll_atmo else None}")
                 queries = pexels.generate_stock_queries(
                     scene_prompt=scene.image_prompt,
                     lyrics_text=scene.lyrics_text,
@@ -2654,8 +2680,9 @@ class MVPipeline:
                     time_of_day=_time_hint,
                     weather=_weather_hint,
                     lighting=_broll_lighting,
-                    location=None,
+                    location=_broll_location,
                     atmosphere=_broll_atmo,
+                    motifs=_broll_motifs,
                 )
                 broll_path = f"{project_dir}/media/video/broll_{scene.scene_id:02d}.mp4"
                 os.makedirs(os.path.dirname(broll_path), exist_ok=True)
@@ -3985,6 +4012,9 @@ class MVPipeline:
 
         print(f"  Completed scenes: {len(completed_scenes)}/{len(project.scenes)}")
 
+        # 음악 파일 duration 캐싱 (동일 파일에 대한 ffprobe 중복 호출 방지)
+        _cached_audio_duration = ffprobe_duration_sec(project.music_file_path) if project.music_file_path else 0.0
+
         try:
             # 1. 파생 컷 플래닝 (세그먼트 인식) + 전환 플래닝
             cut_plan = self._generate_cut_plan(completed_scenes, project=project)
@@ -4255,7 +4285,7 @@ class MVPipeline:
                 else:
                     # Gemini 정렬 파일 없음 -> STT fallback
                     print(f"    [No Gemini ASS] Falling back to STT alignment...")
-                    audio_duration = ffprobe_duration_sec(project.music_file_path)
+                    audio_duration = _cached_audio_duration
 
                     # 앵커 추정 (사용자 보정 > 세그먼트 > VAD > fallback)
                     segments = None
@@ -4344,12 +4374,18 @@ class MVPipeline:
                 except Exception as e:
                     print(f"  Preview audio trim failed: {e}, using full audio")
 
+            def _render_progress_cb(pct):
+                project.progress = pct
+                project.current_step = f"최종 렌더링 중... {pct}%"
+                self._save_manifest(project, project_dir)
+
             self._final_render(
                 video_in=concat_video,
                 audio_path=audio_path,
                 out_path=final_video,
                 srt_path=srt_path,
                 watermark_text=watermark,
+                progress_callback=_render_progress_cb,
             )
 
             # render.log 기록
@@ -4414,6 +4450,7 @@ class MVPipeline:
 
         try:
             from agents.subtitle_utils import ffprobe_duration_sec
+            _cached_sub_dur = ffprobe_duration_sec(project.music_file_path)
 
             # ── Step 1: 가사 파싱 ──
             lines = split_lyrics_lines(user_lyrics_text)
@@ -4452,7 +4489,7 @@ class MVPipeline:
                 if hasattr(project, 'music_analysis') and project.music_analysis:
                     _sub_dur = getattr(project.music_analysis, 'duration_sec', 0.0)
                 if _sub_dur <= 0:
-                    _sub_dur = ffprobe_duration_sec(project.music_file_path)
+                    _sub_dur = _cached_sub_dur
                 gemini_aligned = self.music_analyzer.align_lyrics_to_audio(
                     audio_for_align, lines, audio_duration_sec=_sub_dur
                 )
@@ -4515,7 +4552,7 @@ class MVPipeline:
                 if timed and len(timed) >= 2:
                     # aligner ASS 없지만 timed는 있음 - fallback으로 timeline 생성
                     print(f"  [SubTest] Aligner ASS not found, building timeline from timed_lyrics")
-                    audio_duration = ffprobe_duration_sec(project.music_file_path)
+                    audio_duration = _cached_sub_dur
                     timeline = []
                     for i, entry in enumerate(timed):
                         t_start = float(entry.get("t", 0))
@@ -4531,7 +4568,7 @@ class MVPipeline:
                 else:
                     # timed_lyrics 없으면 균등 분배 fallback
                     print(f"  [SubTest] No timed_lyrics, falling back to uniform distribution")
-                    audio_duration = ffprobe_duration_sec(project.music_file_path)
+                    audio_duration = _cached_sub_dur
                     seg_dur = audio_duration / max(1, len(lines))
                     timeline = []
                     for i, line in enumerate(lines):
@@ -4575,7 +4612,7 @@ class MVPipeline:
                 print(f"  [SubTest] ASS read error: {e}")
 
             # ── Step 5: 단일 패스 렌더링 (프로덕션 _final_render와 동일한 ass= 필터) ──
-            audio_duration = ffprobe_duration_sec(project.music_file_path)
+            audio_duration = _cached_sub_dur
             audio_abs = os.path.abspath(project.music_file_path)
             out_path = f"{project_dir}/final_mv_subtitle_test.mp4"
             out_abs = os.path.abspath(out_path)
@@ -5045,6 +5082,7 @@ class MVPipeline:
         srt_path: Optional[str] = None,
         watermark_text: Optional[str] = None,
         watermark_opacity: float = 0.3,
+        progress_callback: Optional[Callable[[int], None]] = None,
     ):
         """
         통합 최종 렌더링: 자막 burn-in + 음악 합성 + 워터마크를 단일 FFmpeg 패스로 처리.
@@ -5139,14 +5177,50 @@ class MVPipeline:
         print(f"  [Final Render] VF: {vf_filter}")
         print(f"  [Final Render] Timeout: {timeout}s")
 
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            encoding='utf-8', errors='replace', timeout=timeout
+        # total_duration 추정 (진행률 계산용)
+        _total_dur = 0.0
+        if progress_callback:
+            try:
+                _total_dur = self.ffmpeg_composer.get_video_duration(video_abs) or 0.0
+            except Exception:
+                pass
+
+        _time_re = re.compile(r'time=(\d+):(\d+):(\d+)\.(\d+)')
+        _stderr_buf = []
+        _last_pct = 95
+
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE, text=True,
+            encoding='utf-8', errors='replace',
         )
 
-        if result.returncode != 0:
-            print(f"  [ERROR] Final render failed (rc={result.returncode})")
-            print(f"  [ERROR] stderr: {result.stderr[-500:] if result.stderr else '(empty)'}")
+        try:
+            for line in process.stderr:
+                _stderr_buf.append(line)
+                if progress_callback and _total_dur > 0:
+                    m = _time_re.search(line)
+                    if m:
+                        cur_sec = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) + int(m.group(4)) / 100
+                        ratio = min(cur_sec / _total_dur, 1.0)
+                        pct = 95 + int(ratio * 4)  # 95~99 범위
+                        if pct > _last_pct:
+                            _last_pct = pct
+                            progress_callback(pct)
+
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            print(f"  [ERROR] Final render timed out after {timeout}s")
+            _stderr_buf.append("[TIMEOUT]")
+
+        returncode = process.returncode
+        stderr_text = "".join(_stderr_buf)
+
+        if returncode != 0:
+            print(f"  [ERROR] Final render failed (rc={returncode})")
+            print(f"  [ERROR] stderr: {stderr_text[-500:] if stderr_text else '(empty)'}")
             # 폴백: 자막 없이 기존 final_encode 사용
             print(f"  [FALLBACK] Retrying without subtitles via final_encode...")
             self.ffmpeg_composer.final_encode(
