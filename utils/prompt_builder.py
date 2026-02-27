@@ -406,7 +406,7 @@ class MultimodalPromptBuilder:
                     "Show head, neck, and upper chest ONLY. "
                     "The FULL FACE must be visible - forehead to chin, ear to ear. "
                     "Face is CENTERED in the frame, occupying 60-70% of frame width. "
-                    "Eyes positioned in upper third. Camera at EYE LEVEL, facing front or slight 3/4 angle. "
+                    "Eyes positioned in upper third. "
                     "Background is BLURRED (shallow depth of field). "
                     "FORBIDDEN: cropped forehead, cropped chin, only one eye visible, "
                     "extreme angle from below, face at edge/corner/bottom of frame, "
@@ -416,7 +416,7 @@ class MultimodalPromptBuilder:
                     "CRITICAL FRAMING RULE - EXTREME CLOSE-UP: "
                     "Show FACE ONLY from chin to forehead, filling 80% of frame. "
                     "Both eyes, nose, and mouth must be FULLY visible. "
-                    "Camera at EYE LEVEL. Sharp focus on eyes. "
+                    "Sharp focus on eyes. "
                     "FORBIDDEN: cropping any facial feature, showing only one eye, "
                     "face at bottom of frame, top-down angle."
                 ),
@@ -452,6 +452,19 @@ class MultimodalPromptBuilder:
             else:
                 # shot_type이 매칭되지 않으면 camera_directive 그대로 사용
                 framing_text = f"[CAMERA] {camera_directive}"
+
+            # camera_angle 기반 앵글 지시 (camera_directive에서 추출)
+            _ANGLE_DIRECTIVES = {
+                "low angle": "Camera BELOW eye level, shooting UPWARD — subject appears powerful/dominant.",
+                "high angle": "Camera ABOVE eye level, shooting DOWNWARD — subject appears vulnerable/small.",
+                "dutch angle": "Camera TILTED 15-25 degrees — creates visual tension and unease.",
+                "over shoulder": "Camera behind one character's shoulder, intimate POV perspective.",
+                "birds eye": "Camera directly ABOVE looking DOWN — shows spatial relationships.",
+            }
+            for angle_key, angle_text in _ANGLE_DIRECTIVES.items():
+                if angle_key in cd_lower:
+                    framing_text = f"{framing_text} {angle_text}" if framing_text else angle_text
+                    break
 
         # 해부학적 오류 + 잔혹 표현 + 직립 포즈 방지 (글로벌)
         anatomy_negative = (

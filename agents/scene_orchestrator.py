@@ -11,9 +11,7 @@ import json
 import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
-import sys
 
-sys.path.append(str(Path(__file__).parent.parent))
 
 from agents.video_agent import VideoAgent
 from agents.tts_agent import TTSAgent
@@ -21,6 +19,8 @@ from agents.music_agent import MusicAgent
 from agents.composer_agent import ComposerAgent
 from schemas import FeatureFlags, Scene, SceneEntities, ProjectRequest, SceneStatus, CameraWork
 from utils.logger import get_logger
+from utils.constants import ETH_KEYWORD_MAP
+from utils.llm_utils import parse_llm_json
 logger = get_logger("scene_orchestrator")
 
 
@@ -96,6 +96,27 @@ class SceneOrchestrator:
         "triumphant": "proud confident smile, victorious expression",
     }
 
+    # mood → camera_work 매핑 (감정 기반 카메라 워크)
+    _MOOD_TO_CAMERA = {
+        "tense": CameraWork.ZOOM_IN,
+        "dramatic": CameraWork.ZOOM_IN,
+        "intense": CameraWork.ZOOM_IN,
+        "dark": CameraWork.ZOOM_IN,
+        "angry": CameraWork.ZOOM_IN,
+        "fearful": CameraWork.ZOOM_IN,
+        "hopeful": CameraWork.ZOOM_OUT,
+        "triumphant": CameraWork.ZOOM_OUT,
+        "peaceful": CameraWork.ZOOM_OUT,
+        "happy": CameraWork.ZOOM_OUT,
+        "excited": CameraWork.PAN_RIGHT,
+        "energetic": CameraWork.PAN_RIGHT,
+        "adventurous": CameraWork.PAN_LEFT,
+        "contemplative": CameraWork.PAN_UP,
+        "nostalgic": CameraWork.PAN_DOWN,
+        "sad": CameraWork.PAN_DOWN,
+        "lonely": CameraWork.PAN_DOWN,
+    }
+
     # visual_description/prompt에서 action pose 추출용 패턴
     _ACTION_PATTERNS = [
         (r'\b(?:running|sprinting|dashing|chasing)\b', "running dynamically, body in forward motion"),
@@ -150,6 +171,24 @@ class SceneOrchestrator:
             if re.search(pattern, combined, re.IGNORECASE):
                 return pose
         return ""
+
+    def _select_camera_work(self, scene, scene_index: int, total_scenes: int) -> CameraWork:
+        """씬의 mood에 맞는 카메라 워크 선택 (기존 순환 할당 대체)."""
+        mood = (getattr(scene, 'mood', '') or '').lower().strip()
+        # 1순위: mood 직접 매칭
+        if mood in self._MOOD_TO_CAMERA:
+            return self._MOOD_TO_CAMERA[mood]
+        # 부분 매칭
+        for key, cam in self._MOOD_TO_CAMERA.items():
+            if key in mood:
+                return cam
+        # 2순위: 위치 기반 기본값
+        if scene_index == 0:
+            return CameraWork.ZOOM_OUT  # 도입부 → 넓게
+        if scene_index >= total_scenes - 1:
+            return CameraWork.ZOOM_OUT  # 마무리 → 여운
+        # 3순위: 순환 (폴백)
+        return list(CameraWork)[scene_index % len(CameraWork)]
 
     # =========================================================================
     # P1: Context Carry-over (맥락 상속)
@@ -217,14 +256,7 @@ JSON 형식으로 출력:
                 }
             )
 
-            content = response.text.strip()
-            # JSON 파싱
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-
-            data = json.loads(content)
+            data = parse_llm_json(response.text)
             return SceneEntities(**data)
 
         except Exception as e:
@@ -737,16 +769,12 @@ JSON 형식으로 출력:
 
             # 인종 런타임 주입
             _eth_ps = getattr(request, 'character_ethnicity', 'auto') if request else 'auto'
-            _ETH_MAP = {"korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-                        "southeast_asian": "Southeast Asian", "european": "European",
-                        "black": "Black", "hispanic": "Hispanic"}
-            _eth_kw_ps = _ETH_MAP.get(_eth_ps, "")
+            _eth_kw_ps = ETH_KEYWORD_MAP.get(_eth_ps, "")
             if _eth_kw_ps and _eth_kw_ps.lower() not in scene.prompt.lower():
                 scene.prompt = f"{_eth_kw_ps} characters, {scene.prompt}"
 
-            # 카메라 워크 할당 (다양화)
-            camera_works = list(CameraWork)
-            scene.camera_work = camera_works[i % len(camera_works)]
+            # 카메라 워크 할당 (감정 기반)
+            scene.camera_work = self._select_camera_work(scene, i - 1, len(scenes))
 
             try:
                 # Phase 1: TTS 먼저 생성하여 실제 duration 확보
@@ -1098,9 +1126,6 @@ JSON 형식으로 출력:
 
         logger.info(f"[compose] {len(image_map)}/{total_scenes} scenes have pre-generated images")
 
-        # 카메라 워크 목록
-        camera_works = list(CameraWork)
-
         # Scene 처리: TTS → Ken Burns → 자막
         processed_scenes = []
 
@@ -1133,7 +1158,7 @@ JSON 형식으로 출력:
                 characters_in_scene=scene_data.get("characters_in_scene", []),
             )
             scene.assets.image_path = image_path
-            scene.camera_work = camera_works[i % len(camera_works)]
+            scene.camera_work = self._select_camera_work(scene, i - 1, total_scenes)
 
             try:
                 # Phase 1: TTS
@@ -1355,12 +1380,7 @@ JSON 형식으로 출력:
         from agents.image_agent import ImageAgent
         from agents.character_manager import CharacterManager
         _eth = getattr(request, 'character_ethnicity', 'auto') if request else 'auto'
-        _ETH_KW = {
-            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-            "southeast_asian": "Southeast Asian", "european": "European",
-            "black": "Black", "hispanic": "Hispanic",
-        }
-        _eth_kw = _ETH_KW.get(_eth, "")
+        _eth_kw = ETH_KEYWORD_MAP.get(_eth, "")
 
         import threading
         from concurrent.futures import ThreadPoolExecutor, as_completed

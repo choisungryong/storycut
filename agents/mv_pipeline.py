@@ -70,6 +70,7 @@ from agents.subtitle_utils import (
 )
 from utils.ffmpeg_utils import FFmpegComposer
 from utils.logger import get_logger
+from utils.constants import ETH_KEYWORD_MAP, ETH_INSTRUCTIONS, MODEL_GEMINI_FLASH
 logger = get_logger("mv_pipeline")
 
 
@@ -85,9 +86,17 @@ class MVPipeline:
     - 음악 + 영상 합성
     """
 
+    # B-roll 대상 세그먼트 (Pexels 스톡 영상 사용)
+    # 비활성화: set()으로 교체, 복원: {"intro", "outro", "bridge"}
+    BROLL_SEGMENTS = set()
+
     def __init__(self, output_base_dir: str = "outputs"):
         self.output_base_dir = output_base_dir
         self.music_analyzer = MusicAnalyzer()
+
+    def _get_project_dir(self, project) -> str:
+        """프로젝트 출력 디렉토리 경로 반환"""
+        return f"{self.output_base_dir}/{project.project_id}"
         self._image_agent = None  # lazy init - 자막 테스트 등에서 불필요한 로드 방지
         self.ffmpeg_composer = FFmpegComposer()
         self._genre_profiles = None  # lazy cache
@@ -600,7 +609,7 @@ class MVPipeline:
         """
         logger.info(f"\n[Step 2] Generating scenes...")
 
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
 
         # 요청 정보 저장
         project.lyrics = request.lyrics
@@ -683,7 +692,7 @@ class MVPipeline:
             return project
 
         project.current_step = "가사 서사 분석 중..."
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         self._save_manifest(project, project_dir)
 
         try:
@@ -737,7 +746,7 @@ class MVPipeline:
             logger.info(f"  [Story Analysis] Analyzing {len(project.scenes)} scenes with full lyrics ({len(full_lyrics)} chars)...")
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -894,6 +903,9 @@ class MVPipeline:
                     f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
                     "  - scene_id: int (1-based)\n"
                     "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
+                    "  - camera_angle: REQUIRED - 'eye_level'/'low_angle'/'high_angle'/'dutch_angle'/'over_shoulder'/'birds_eye'. "
+                    "Match emotion: triumph/power→low_angle, despair/isolation→high_angle, tension→dutch_angle, "
+                    "intimacy/dialogue→over_shoulder, establishing/grandeur→birds_eye. Use at least 3 different values across scenes.\n"
                     "  - narrative_beat: WHY this scene exists in the story. What story information does the "
                     "viewer learn from this image? (e.g. 'Establish protagonist alone in empty apartment — "
                     "viewer learns she lives alone after breakup')\n"
@@ -927,6 +939,11 @@ class MVPipeline:
                     "- 'heart is breaking' -> 'sitting alone, head down, hands covering face'\n"
                     "- 'burning up' -> 'dancing passionately, sweat glistening, dynamic mid-motion pose'\n"
                     "- 'drowning' -> 'curled up on floor in dark room, overwhelmed posture'\n"
+                    "- 'lost in time' -> 'walking slowly through fog, one hand trailing along a wall'\n"
+                    "- 'rising up' -> 'climbing stone steps, one hand gripping railing, determined stride'\n"
+                    "- 'fading away' -> 'turning away from camera, mid-step, hair caught in wind'\n"
+                    "- 'holding on' -> 'gripping railing with both hands, knuckles white, leaning forward'\n"
+                    "- 'letting go' -> 'arms dropping to sides, head tilted back, eyes closed, exhaling'\n"
                     "NEVER depict metaphors literally (no actual fire-breathing, no literal flying, no supernatural).\n"
                     "Vary poses: sitting, walking, running, dancing, leaning, crouching, reaching, turning away, etc.\n"
                     "*** STATIC LYRICS RULE ***: Even when lyrics describe standing, watching, or waiting, "
@@ -953,6 +970,9 @@ class MVPipeline:
                     "- NEVER change a character's ethnicity, age, facial hair, or core features between scenes.\n"
                     "- Each character's 'appears_in' must match the scenes where they appear in scene_blocking.\n"
                     "- The characters and blocking must strongly reflect the genre, mood, and style choices.\n"
+                    "- *** SHOT DIVERSITY RULE ***: Use at least 3 different shot_type values across all scenes. "
+                    "'medium' must NOT exceed 40% of scenes. Climax/emotional peak → close-up or extreme-close-up. "
+                    "Opening → wide. Transitions → vary between medium and wide.\n"
                     "- *** TIME PERIOD LOCK ***: If the concept specifies a historical period (medieval, ancient, etc.), "
                     "ALL character outfits, props, locations, and actions must be era-appropriate. "
                     "NEVER give characters modern items (earphones, smartphones, coffee cups, modern clothes). "
@@ -1005,6 +1025,9 @@ class MVPipeline:
                     f"- scene_blocking: array of {total_scenes} objects (one per scene), each with:\n"
                     "  - scene_id: int (1-based)\n"
                     "  - shot_type: 'wide'/'medium'/'close-up'/'extreme-close-up'\n"
+                    "  - camera_angle: REQUIRED - 'eye_level'/'low_angle'/'high_angle'/'dutch_angle'/'over_shoulder'/'birds_eye'. "
+                    "Match emotion: triumph/power→low_angle, despair/isolation→high_angle, tension→dutch_angle, "
+                    "intimacy/dialogue→over_shoulder, establishing/grandeur→birds_eye. Use at least 3 different values across scenes.\n"
                     "  - narrative_beat: WHY this scene exists in the story. What story information does the "
                     "viewer learn from this image? (e.g. 'Establish protagonist alone in empty apartment — "
                     "viewer learns she lives alone after breakup')\n"
@@ -1038,6 +1061,11 @@ class MVPipeline:
                     "- 'heart is breaking' -> 'sitting alone, head down, hands covering face'\n"
                     "- 'burning up' -> 'dancing passionately, sweat glistening, dynamic mid-motion pose'\n"
                     "- 'drowning' -> 'curled up on floor in dark room, overwhelmed posture'\n"
+                    "- 'lost in time' -> 'walking slowly through fog, one hand trailing along a wall'\n"
+                    "- 'rising up' -> 'climbing stone steps, one hand gripping railing, determined stride'\n"
+                    "- 'fading away' -> 'turning away from camera, mid-step, hair caught in wind'\n"
+                    "- 'holding on' -> 'gripping railing with both hands, knuckles white, leaning forward'\n"
+                    "- 'letting go' -> 'arms dropping to sides, head tilted back, eyes closed, exhaling'\n"
                     "NEVER depict metaphors literally (no actual fire-breathing, no literal flying, no supernatural).\n"
                     "Vary poses: sitting, walking, running, dancing, leaning, crouching, reaching, turning away, etc.\n"
                     "*** STATIC LYRICS RULE ***: Even when lyrics describe standing, watching, or waiting, "
@@ -1063,6 +1091,9 @@ class MVPipeline:
                     "- ONLY the defined characters may appear. NEVER introduce unnamed people.\n"
                     "- NEVER change a character's ethnicity, age, facial hair, or core features between scenes.\n"
                     "- Each character's 'appears_in' must match the scenes where they appear in scene_blocking.\n"
+                    "- *** SHOT DIVERSITY RULE ***: Use at least 3 different shot_type values across all scenes. "
+                    "'medium' must NOT exceed 40% of scenes. Climax/emotional peak → close-up or extreme-close-up. "
+                    "Opening → wide. Transitions → vary between medium and wide.\n"
                     "- The Visual Bible must strongly reflect the genre, mood, and style choices."
                 )
 
@@ -1082,17 +1113,7 @@ class MVPipeline:
             # 캐릭터 인종/외형 지시 생성
             char_ethnicity = getattr(project, 'character_ethnicity', None)
             char_eth_val = char_ethnicity.value if hasattr(char_ethnicity, 'value') else str(char_ethnicity or 'auto')
-            _ETHNICITY_INSTRUCTIONS = {
-                "korean": "All characters MUST be Korean. Describe them with Korean facial features, skin tone, and names.",
-                "japanese": "All characters MUST be Japanese. Describe them with Japanese facial features, skin tone, and names.",
-                "chinese": "All characters MUST be Chinese. Describe them with Chinese facial features, skin tone, and names.",
-                "southeast_asian": "All characters MUST be Southeast Asian. Describe them with Southeast Asian facial features and skin tone.",
-                "european": "All characters MUST be European/Caucasian. Describe them with European facial features, light skin, and Western names.",
-                "black": "All characters MUST be Black/African. Describe them with African facial features, dark skin tone, and appropriate names.",
-                "hispanic": "All characters MUST be Hispanic/Latino. Describe them with Latin American features and Spanish names.",
-                "mixed": "Characters should be a MIX of different ethnicities. Make each character a different race for diversity.",
-            }
-            eth_instruction = _ETHNICITY_INSTRUCTIONS.get(char_eth_val, "")
+            eth_instruction = ETH_INSTRUCTIONS.get(char_eth_val, "")
 
             user_prompt = (
                 f"Genre: {project.genre.value}\n"
@@ -1115,7 +1136,7 @@ class MVPipeline:
             logger.info(f"  [Visual Bible] Generating with Gemini...")
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -1198,10 +1219,12 @@ class MVPipeline:
                 idx = blocking.scene_id - 1
                 if 0 <= idx < len(project.scenes):
                     project.scenes[idx].characters_in_scene = blocking.characters
-                    # shot_type → camera_directive 매핑
+                    # shot_type + camera_angle → camera_directive 매핑
                     cam_parts = []
                     if blocking.shot_type:
                         cam_parts.append(blocking.shot_type)
+                    if getattr(blocking, 'camera_angle', None):
+                        cam_parts.append(blocking.camera_angle.replace('_', ' '))
                     if blocking.expression:
                         cam_parts.append(f"expression: {blocking.expression}")
                     if blocking.lighting:
@@ -1226,7 +1249,7 @@ class MVPipeline:
             try:
                 logger.info(f"  [Visual Bible] Retrying...")
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=MODEL_GEMINI_FLASH,
                     contents=user_prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
@@ -1307,7 +1330,7 @@ class MVPipeline:
                 logger.exception("Unhandled exception")
                 project.error_message = f"Visual Bible 생성 실패: {str(e)[:200]}"
 
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         self._save_manifest(project, project_dir)
         return project
 
@@ -1321,7 +1344,7 @@ class MVPipeline:
 
         scene_01 이미지 의존을 제거하고 독립적인 스타일 레퍼런스를 생성합니다.
         """
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         anchor_dir = f"{project_dir}/media/images"
         os.makedirs(anchor_dir, exist_ok=True)
         anchor_path = f"{anchor_dir}/style_anchor.png"
@@ -1396,7 +1419,7 @@ class MVPipeline:
             logger.info("  [Character Anchors] No characters defined, skipping")
             return project
 
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         characters = project.visual_bible.characters
         logger.info(f"\n  [Character Anchors] Generating {len(characters)} character portrait(s) via CharacterManager...")
 
@@ -1659,7 +1682,7 @@ class MVPipeline:
         """
         logger.info(f"\n[Step 2.8] Generating scene prompts (with Visual Bible + Story Analysis)...")
         project.current_step = "씬 프롬프트 생성 중..."
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         self._save_manifest(project, project_dir)
 
         gemini_prompts = self._generate_prompts_with_gemini(project, request)
@@ -1705,8 +1728,7 @@ class MVPipeline:
             client = genai.Client(api_key=api_key)
 
             # 씬 정보 구성
-            # B-roll 대상 세그먼트 (Pexels 스톡 영상 사용)
-            _BROLL_SEGMENTS = {"intro", "outro", "bridge"}
+            _BROLL_SEGMENTS = self.BROLL_SEGMENTS
             _has_pexels = bool(_os.environ.get("PEXELS_API_KEY"))
 
             scene_descriptions = []
@@ -2041,7 +2063,7 @@ class MVPipeline:
             logger.info(f"  [Gemini] Generating {len(project.scenes)} scene prompts...")
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -2203,18 +2225,27 @@ class MVPipeline:
         _SHOT_TO_POSE = {
             "close-up": "front",
             "extreme-close-up": "front",
-            "medium": "front",
+            "medium": "three_quarter",  # 3/4 앵글 (더 자연스러움)
             "wide": "full_body",
             "full": "full_body",
         }
         # 씬 블로킹에서 shot_type 추출 (VisualBible.scene_blocking 리스트에서 scene_id로 조회)
         shot_type = "medium"
+        blocking = None
         if project.visual_bible and project.visual_bible.scene_blocking:
             blocking_map = {b.scene_id: b for b in project.visual_bible.scene_blocking}
             blocking = blocking_map.get(scene.scene_id)
             if blocking:
                 shot_type = getattr(blocking, 'shot_type', 'medium') or 'medium'
         target_pose = _SHOT_TO_POSE.get(shot_type.lower(), "front")
+
+        # camera_angle에 따른 포즈 미세 조정
+        if blocking:
+            _angle = getattr(blocking, 'camera_angle', '') or ''
+            if _angle in ('over_shoulder', 'dutch_angle'):
+                target_pose = "three_quarter"
+            elif _angle == 'birds_eye':
+                target_pose = "full_body"
 
         results = []
         for role in (scene.characters_in_scene or [])[:5]:
@@ -2473,12 +2504,8 @@ class MVPipeline:
         prefix = "ONLY landscape, scenery, environment, architecture, nature. NO people, NO human figures. "
         return f"{prefix}{cleaned}"
 
-    # 인종 키워드 매핑 (중복 정의 방지용 공용 상수)
-    _ETH_KEYWORD_MAP = {
-        "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-        "southeast_asian": "Southeast Asian", "european": "European",
-        "black": "Black", "hispanic": "Hispanic",
-    }
+    # 인종 키워드 매핑 → utils/constants.py로 통합
+    _ETH_KEYWORD_MAP = ETH_KEYWORD_MAP
 
     def _get_ethnicity_prompt_example(self, request) -> str:
         """시스템 프롬프트용 인종 예시 문구 생성 (하드코딩 Korean 방지)."""
@@ -2539,7 +2566,7 @@ class MVPipeline:
         """
         logger.info(f"\n[Step 3] Generating images...")
 
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         image_dir = f"{project_dir}/media/images"
         os.makedirs(image_dir, exist_ok=True)
 
@@ -2559,12 +2586,7 @@ class MVPipeline:
         # 인종 키워드 (프롬프트에 없으면 자동 주입)
         _eth = getattr(project, 'character_ethnicity', None)
         _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
-        _ETH_KW = {
-            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-            "southeast_asian": "Southeast Asian", "european": "European",
-            "black": "Black", "hispanic": "Hispanic",
-        }
-        ethnicity_keyword = _ETH_KW.get(_eth_v, "")
+        ethnicity_keyword = ETH_KEYWORD_MAP.get(_eth_v, "")
 
         # 시대/배경 키워드 (LLM era_setting 우선, concept fallback)
         era_prefix, era_negative = self._extract_era_setting(project.concept, project=project)
@@ -2587,8 +2609,6 @@ class MVPipeline:
             else:
                 logger.info(f"  [B-roll] Pexels agent enabled")
 
-        BROLL_SEGMENTS = {"intro", "outro", "bridge"}
-
         # 모든 씬에 고유 이미지 생성 (병렬 처리)
         logger.info(f"  Generating {total_scenes} unique images (parallel, max_workers=4)")
         import threading
@@ -2610,7 +2630,7 @@ class MVPipeline:
             seg_type = self._extract_segment_type(scene)
             _EMOTIONAL_SEGMENTS = {"chorus", "hook", "pre_chorus"}
             is_emotional = seg_type in _EMOTIONAL_SEGMENTS
-            is_broll_segment = seg_type in BROLL_SEGMENTS
+            is_broll_segment = seg_type in self.BROLL_SEGMENTS
             if (pexels and is_broll_segment and not scene.characters_in_scene and not is_emotional):
                 _vb = project.visual_bible
                 # scene blocking에서 lighting 추출
@@ -3429,7 +3449,7 @@ class MVPipeline:
         img_bytes = buf.getvalue()
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=MODEL_GEMINI_FLASH,
             contents=[
                 types.Content(parts=[
                     types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
@@ -3970,7 +3990,7 @@ class MVPipeline:
         """
         logger.info(f"\n[Step 4] Composing final video...")
 
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         project.status = MVProjectStatus.COMPOSING
         project.current_step = "영상 합성 중..."
         project.progress = 75
@@ -4424,7 +4444,7 @@ class MVPipeline:
         """
         import subprocess
 
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         os.makedirs(f"{project_dir}/media/subtitles", exist_ok=True)
 
         user_lyrics_text = project.lyrics or ""
@@ -4728,7 +4748,7 @@ class MVPipeline:
             project.status = MVProjectStatus.FAILED
             project.error_message = "Visual Bible 생성에 실패했습니다. 다시 시도해주세요."
             project.current_step = "Visual Bible 생성 실패"
-            project_dir = f"{self.output_base_dir}/{project.project_id}"
+            project_dir = self._get_project_dir(project)
             self._save_manifest(project, project_dir)
             logger.error(f"[MV] FAILED - No visual_bible or characters: {project.project_id}")
             return project
@@ -4745,7 +4765,7 @@ class MVPipeline:
             project.status = MVProjectStatus.FAILED
             project.error_message = "캐릭터 앵커 이미지 생성에 실패했습니다. 다시 시도해주세요."
             project.current_step = "캐릭터 앵커 생성 실패"
-            project_dir = f"{self.output_base_dir}/{project.project_id}"
+            project_dir = self._get_project_dir(project)
             self._save_manifest(project, project_dir)
             logger.error(f"[MV] FAILED - No character anchors generated: {project.project_id}")
             return project
@@ -4756,7 +4776,7 @@ class MVPipeline:
         project.status = MVProjectStatus.GENERATING
         project.progress = 38
         project.current_step = "앵커 이미지 업로드 중"
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         self._save_manifest(project, project_dir)
 
         logger.info(f"[MV] Anchors generated ({len(characters_with_anchors)} characters), uploading to R2: {project.project_id}")
@@ -4775,7 +4795,7 @@ class MVPipeline:
         project.status = MVProjectStatus.GENERATING
         project.progress = 45
         project.current_step = "씬 프롬프트 생성 중..."
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         self._save_manifest(project, project_dir)
 
         # Step 2.8: 씬 프롬프트 생성
@@ -4832,7 +4852,7 @@ class MVPipeline:
         if not project.visual_bible or not project.visual_bible.characters:
             project.status = MVProjectStatus.FAILED
             project.error_message = "Visual Bible 생성에 실패했습니다. 다시 시도해주세요."
-            project_dir = f"{self.output_base_dir}/{project.project_id}"
+            project_dir = self._get_project_dir(project)
             self._save_manifest(project, project_dir)
             return project
         project = self.generate_style_anchor(project)
@@ -4881,7 +4901,7 @@ class MVPipeline:
             raise ValueError(f"Invalid scene_id: {scene_id}")
 
         scene = project.scenes[scene_id - 1]
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
         image_dir = f"{project_dir}/media/images"
 
         # B-roll 씬은 재생성 불가 (스톡 영상 보호)
@@ -4917,12 +4937,7 @@ class MVPipeline:
         # 인종 키워드 자동 주입
         _eth = getattr(project, 'character_ethnicity', None)
         _eth_v = _eth.value if hasattr(_eth, 'value') else str(_eth or 'auto')
-        _ETH_KW = {
-            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-            "southeast_asian": "Southeast Asian", "european": "European",
-            "black": "Black", "hispanic": "Hispanic",
-        }
-        ethnicity_keyword = _ETH_KW.get(_eth_v, "")
+        ethnicity_keyword = ETH_KEYWORD_MAP.get(_eth_v, "")
         if ethnicity_keyword and scene.characters_in_scene and ethnicity_keyword.lower() not in final_prompt.lower():
             final_prompt = f"{ethnicity_keyword} characters, {final_prompt}"
 
@@ -4995,7 +5010,7 @@ class MVPipeline:
             raise ValueError(f"Invalid scene_id: {scene_id}")
 
         scene = project.scenes[scene_id - 1]
-        project_dir = f"{self.output_base_dir}/{project.project_id}"
+        project_dir = self._get_project_dir(project)
 
         # image_path가 원격 URL이면 로컬 경로로 변환
         image_path = scene.image_path
