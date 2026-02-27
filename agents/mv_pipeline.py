@@ -3437,7 +3437,7 @@ class MVPipeline:
         img_bytes = buf.getvalue()
 
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=[
                 types.Content(parts=[
                     types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),

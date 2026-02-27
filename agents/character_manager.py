@@ -65,7 +65,7 @@ class CharacterManager:
                 import google.generativeai as genai
                 if self.google_api_key:
                     genai.configure(api_key=self.google_api_key)
-                    self._vision_client = genai.GenerativeModel(model_name="gemini-2.0-flash")
+                    self._vision_client = genai.GenerativeModel(model_name="gemini-2.5-flash")
             except Exception as e:
                 print(f"  [Warning] Failed to init Gemini Vision for scoring: {e}")
         return self._vision_client

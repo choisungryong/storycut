@@ -118,7 +118,7 @@ class GeminiVisionFallbackProvider(EmbeddingProvider):
             })
 
             resp = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=[{"role": "user", "parts": parts}],
             )
             score_text = resp.text.strip()
