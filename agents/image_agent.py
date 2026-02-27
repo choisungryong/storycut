@@ -18,6 +18,9 @@ import textwrap
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import FeatureFlags
+from utils.logger import get_logger
+logger = get_logger("image_agent")
+
 
 
 class ImageAgent:
@@ -42,14 +45,14 @@ class ImageAgent:
         self._llm_client = None
 
         if not self.api_key and not self.nanobanana_token:
-            print("[ImageAgent] No image generation API keys provided. Will use placeholder images.")
+            logger.info("[ImageAgent] No image generation API keys provided. Will use placeholder images.")
 
-        print(f"[ImageAgent] Init - GeminiToken: {'YES' if self.nanobanana_token else 'NO'}")
+        logger.info(f"[ImageAgent] Init - GeminiToken: {'YES' if self.nanobanana_token else 'NO'}")
 
         # Prioritize Gemini 2.5 Flash Image (direct API) if available
         if self.nanobanana_token:
             self.service = "nanobana"
-            print("[ImageAgent] Using Gemini 2.5 Flash Image (direct API) for image generation.")
+            logger.info("[ImageAgent] Using Gemini 2.5 Flash Image (direct API) for image generation.")
 
     @property
     def llm_client(self):
@@ -90,7 +93,7 @@ class ImageAgent:
         Standard: Gemini 2.5 Flash Image (retry x2) -> Placeholder
         Premium: Gemini 2.5 Flash Image high (retry x2) -> Placeholder
         """
-        print(f"[ImageAgent v2.4] Generating Image for Scene {scene_id} | Model: {image_model}")
+        logger.info(f"[ImageAgent v2.4] Generating Image for Scene {scene_id} | Model: {image_model}")
 
         # v2.0: 단일 참조를 복수 참조 리스트로 통합
         if character_reference_paths is None:
@@ -103,7 +106,7 @@ class ImageAgent:
             _ = negative_prompt
             _ = character_tokens
         except NameError as ne:
-            print(f"[CRITICAL] Arg missing in scope: {ne}")
+            logger.error(f"[CRITICAL] Arg missing in scope: {ne}")
             negative_prompt = negative_prompt if 'negative_prompt' in locals() else None
             character_tokens = character_tokens if 'character_tokens' in locals() else None
 
@@ -116,13 +119,13 @@ class ImageAgent:
             else:
                 output_path = f"{output_dir}/master_character.png"
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            print(f"  [Image] Generating MASTER CHARACTER ({image_model})...")
+            logger.info(f"  [Image] Generating MASTER CHARACTER ({image_model})...")
         else:
             os.makedirs(output_dir, exist_ok=True)
             output_path = f"{output_dir}/scene_{scene_id:02d}.png"
-            print(f"  [Image] Generating Scene {scene_id} ({image_model})...")
+            logger.info(f"  [Image] Generating Scene {scene_id} ({image_model})...")
 
-        print(f"     Prompt: {prompt[:60]}...")
+        logger.info(f"     Prompt: {prompt[:60]}...")
 
         # -------------------------------------------------------------------------
         # Strategy: Gemini Flash Image with retry (no Replicate)
@@ -134,7 +137,7 @@ class ImageAgent:
         if self.nanobanana_token:
             for attempt in range(1, max_retries + 1):
                 try:
-                    print(f"     Attempting Gemini 2.5 Flash Image ({quality}) [attempt {attempt}/{max_retries}]...")
+                    logger.info(f"     Attempting Gemini 2.5 Flash Image ({quality}) [attempt {attempt}/{max_retries}]...")
                     return self._call_nanobana_api(
                         prompt=prompt,
                         style=style,
@@ -154,14 +157,14 @@ class ImageAgent:
                     )
                 except Exception as e:
                     error_msg = str(e)
-                    print(f"     [Error] Gemini attempt {attempt} failed: {error_msg}")
+                    logger.error(f"     [Error] Gemini attempt {attempt} failed: {error_msg}")
 
                     # Safety filter → soften prompt and retry
                     if "sensitive" in error_msg.lower() or "safety" in error_msg.lower() or "nsfw" in error_msg.lower():
-                        print(f"     [Safety] Content filter triggered. Softening prompt...")
+                        logger.info(f"     [Safety] Content filter triggered. Softening prompt...")
                         try:
                             softened_prompt = self._soften_prompt(prompt, error_msg)
-                            print(f"     Softened: {softened_prompt[:60]}...")
+                            logger.info(f"     Softened: {softened_prompt[:60]}...")
                             return self._call_nanobana_api(
                                 prompt=softened_prompt,
                                 style=style,
@@ -180,19 +183,19 @@ class ImageAgent:
                                 aspect_ratio=aspect_ratio,
                             )
                         except Exception as retry_e:
-                            print(f"     [Error] Softened prompt retry failed: {retry_e}")
+                            logger.error(f"     [Error] Softened prompt retry failed: {retry_e}")
 
                     # "No image data" → retry (Gemini sometimes returns text instead of image)
                     if attempt < max_retries and "no image data" in error_msg.lower():
                         import time as _time
-                        print(f"     [Retry] Waiting 2s before retry...")
+                        logger.info(f"     [Retry] Waiting 2s before retry...")
                         _time.sleep(2)
                         continue
 
         # -------------------------------------------------------------------------
         # Fallback: Placeholder (Red Screen)
         # -------------------------------------------------------------------------
-        print("     [Fallback] All methods failed. Generating placeholder.")
+        logger.error("     [Fallback] All methods failed. Generating placeholder.")
         image_path, image_id = self._generate_placeholder_image(
             scene_id=scene_id,
             prompt=prompt,
@@ -259,7 +262,7 @@ class ImageAgent:
             import base64
             from utils.prompt_builder import MultimodalPromptBuilder
 
-            print(f"     Calling Gemini 2.5 Flash Image API...")
+            logger.info(f"     Calling Gemini 2.5 Flash Image API...")
 
             headers = {
                 "Content-Type": "application/json",
@@ -279,7 +282,7 @@ class ImageAgent:
             all_reference_paths = [p for p in all_reference_paths if p and os.path.exists(p)]
             if pre_filter_count > len(all_reference_paths):
                 missing = pre_filter_count - len(all_reference_paths)
-                print(f"     [WARNING] {missing}/{pre_filter_count} character reference paths not found on disk")
+                logger.warning(f"     [WARNING] {missing}/{pre_filter_count} character reference paths not found on disk")
 
             # v2.1: Use MultimodalPromptBuilder for consistent part ordering
             # v3.0: Visual Bible enrichment (genre/mood/negative/visual_bible/color_mood)
@@ -299,11 +302,11 @@ class ImageAgent:
 
             # Log what anchors are being used
             if style_anchor_path and os.path.exists(style_anchor_path):
-                print(f"     [v2.1] Style anchor included: {os.path.basename(style_anchor_path)}")
+                logger.info(f"     [v2.1] Style anchor included: {os.path.basename(style_anchor_path)}")
             if environment_anchor_path and os.path.exists(environment_anchor_path):
-                print(f"     [v2.1] Environment anchor included: {os.path.basename(environment_anchor_path)}")
+                logger.info(f"     [v2.1] Environment anchor included: {os.path.basename(environment_anchor_path)}")
             if all_reference_paths:
-                print(f"     [v2.1] Character references: {len(all_reference_paths)}")
+                logger.info(f"     [v2.1] Character references: {len(all_reference_paths)}")
 
             payload = {
                 "contents": [{"parts": parts}],
@@ -319,7 +322,7 @@ class ImageAgent:
 
             if response.status_code != 200:
                 error_text = response.text[:500]
-                print(f"     [Gemini DEBUG] Status: {response.status_code}, Response: {error_text}")
+                logger.error(f"     [Gemini DEBUG] Status: {response.status_code}, Response: {error_text}")
                 raise RuntimeError(f"Gemini API error: {response.status_code} - {error_text}")
 
             result = response.json()
@@ -336,24 +339,24 @@ class ImageAgent:
                             image_data = base64.b64decode(image_part["data"])
                             with open(output_path, "wb") as f:
                                 f.write(image_data)
-                            print(f"     Image saved: {output_path}")
+                            logger.info(f"     Image saved: {output_path}")
                             return (output_path, None)
                     # Log text parts if no image found
                     text_parts = [p.get("text", "") for p in candidate["content"]["parts"] if "text" in p]
                     if text_parts:
-                        print(f"     [Gemini] Returned text instead of image: {' '.join(text_parts)[:200]}")
+                        logger.info(f"     [Gemini] Returned text instead of image: {' '.join(text_parts)[:200]}")
 
                 finish_reason = candidate.get("finishReason", "")
                 if finish_reason:
-                    print(f"     [Gemini] finishReason: {finish_reason}")
+                    logger.info(f"     [Gemini] finishReason: {finish_reason}")
 
-            print(f"     [Gemini DEBUG] Response keys: {list(result.keys())}")
+            logger.info(f"     [Gemini DEBUG] Response keys: {list(result.keys())}")
             raise RuntimeError("No image data found in Gemini API response")
 
         except ImportError:
             raise RuntimeError("requests library not installed")
         except Exception as e:
-            print(f"     Gemini API error: {e}")
+            logger.error(f"     Gemini API error: {e}")
             raise
 
     def _call_dalle_api(
@@ -377,7 +380,7 @@ class ImageAgent:
 
             enhanced_prompt = f"{style} style: {prompt}"
 
-            print(f"     Calling DALL-E API (timeout: 60s)...")
+            logger.info(f"     Calling DALL-E API (timeout: 60s)...")
             response = client.images.generate(
                 model="dall-e-3",
                 prompt=enhanced_prompt,
@@ -387,13 +390,13 @@ class ImageAgent:
             )
 
             image_url = response.data[0].url
-            print(f"     Downloading image from URL...")
+            logger.info(f"     Downloading image from URL...")
             img_response = requests.get(image_url, timeout=30)
 
             if img_response.status_code == 200:
                 with open(output_path, "wb") as f:
                     f.write(img_response.content)
-                print(f"     Image saved: {output_path}")
+                logger.info(f"     Image saved: {output_path}")
                 return (output_path, None)  # DALL-E doesn't provide stable image IDs
             else:
                 raise RuntimeError(f"Failed to download image: {img_response.status_code}")
@@ -401,7 +404,7 @@ class ImageAgent:
         except ImportError:
             raise RuntimeError("OpenAI library not installed")
         except Exception as e:
-            print(f"     DALL-E API error: {e}")
+            logger.error(f"     DALL-E API error: {e}")
             raise
 
     def _generate_placeholder_image(
@@ -466,7 +469,7 @@ class ImageAgent:
         output_path: str = "output/thumbnail.png"
     ) -> str:
         """Generate a thumbnail image."""
-        print(f"  Generating thumbnail...")
+        logger.info(f"  Generating thumbnail...")
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -478,7 +481,7 @@ class ImageAgent:
                     output_path=output_path
                 )
         except Exception as e:
-                print(f"     Thumbnail generation failed: {e}")
+                logger.error(f"     Thumbnail generation failed: {e}")
 
         # Placeholder thumbnail
         return self._generate_placeholder_image(

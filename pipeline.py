@@ -42,6 +42,9 @@ from agents import (
     ConsistencyValidator,
 )
 from utils.ffmpeg_utils import FFmpegComposer
+from utils.logger import get_logger
+logger = get_logger("pipeline")
+
 
 
 class StorycutPipeline:
@@ -89,7 +92,7 @@ class StorycutPipeline:
 
     def generate_story_only(self, request: ProjectRequest) -> Dict[str, Any]:
         """Step 1: 스토리만 생성"""
-        print(f"\n[STEP 1] Generating story for topic: {request.topic}")
+        logger.info(f"\n[STEP 1] Generating story for topic: {request.topic}")
         return self._generate_story(request)
 
     def generate_story_from_script(self, script_text: str, request: ProjectRequest) -> Dict[str, Any]:
@@ -108,7 +111,7 @@ class StorycutPipeline:
         """
         import re
 
-        print(f"\n[SCRIPT MODE] Generating story_data from user script...")
+        logger.info(f"\n[SCRIPT MODE] Generating story_data from user script...")
 
         # 1. 스크립트를 빈 줄 기준으로 씬 분할
         paragraphs = [p.strip() for p in re.split(r'\n\s*\n', script_text.strip()) if p.strip()]
@@ -135,7 +138,7 @@ class StorycutPipeline:
         if not paragraphs:
             raise ValueError("Script is empty after parsing")
 
-        print(f"[SCRIPT MODE] Split into {len(paragraphs)} scenes")
+        logger.info(f"[SCRIPT MODE] Split into {len(paragraphs)} scenes")
 
         # 2. Gemini로 씬별 이미지 프롬프트 생성
         scene_prompts = self._generate_image_prompts_for_script(
@@ -194,7 +197,7 @@ class StorycutPipeline:
             },
         }
 
-        print(f"[SCRIPT MODE] Generated story_data with {len(scenes)} scenes")
+        logger.info(f"[SCRIPT MODE] Generated story_data with {len(scenes)} scenes")
         return story_data
 
     def _generate_image_prompts_for_script(
@@ -223,7 +226,7 @@ class StorycutPipeline:
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             # Gemini 없으면 기본 프롬프트로 폴백
-            print("[SCRIPT MODE] No GOOGLE_API_KEY, using fallback prompts")
+            logger.info("[SCRIPT MODE] No GOOGLE_API_KEY, using fallback prompts")
             return [
                 {
                     "image_prompt": f"{style} scene depicting: {p[:80]}",
@@ -279,7 +282,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
             client = genai.Client(api_key=api_key)
 
-            print(f"[SCRIPT MODE] Calling Gemini for {len(paragraphs)} scene prompts...")
+            logger.info(f"[SCRIPT MODE] Calling Gemini for {len(paragraphs)} scene prompts...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -302,11 +305,11 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     "camera_work": "slow_zoom_in"
                 })
 
-            print(f"[SCRIPT MODE] Generated {len(result)} image prompts")
+            logger.info(f"[SCRIPT MODE] Generated {len(result)} image prompts")
             return result[:len(paragraphs)]
 
         except Exception as e:
-            print(f"[SCRIPT MODE] Gemini failed: {e}, using fallback prompts")
+            logger.error(f"[SCRIPT MODE] Gemini failed: {e}, using fallback prompts")
             return [
                 {
                     "image_prompt": f"{style} scene depicting: {p[:80]}",
@@ -345,11 +348,11 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 token: CharacterSheet(**data)
                 for token, data in story_data["character_sheet"].items()
             }
-            print(f"[v2.0] Loaded {len(manifest.character_sheet)} characters from story")
+            logger.info(f"[v2.0] Loaded {len(manifest.character_sheet)} characters from story")
 
         if "global_style" in story_data:
             manifest.global_style = GlobalStyle(**story_data["global_style"])
-            print(f"[v2.0] Global style: {manifest.global_style.art_style}")
+            logger.info(f"[v2.0] Global style: {manifest.global_style.art_style}")
 
         # v3.0: character_voices 저장
         if "character_voices" in story_data:
@@ -357,7 +360,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             manifest.character_voices = [
                 CharacterVoice(**cv) for cv in story_data["character_voices"]
             ]
-            print(f"[v3.0] Loaded {len(manifest.character_voices)} character voices")
+            logger.info(f"[v3.0] Loaded {len(manifest.character_voices)} character voices")
 
         # 기존 manifest에서 앵커 경로 로드 (캐스팅/이미지 단계에서 저장된 것 재사용)
         _existing_manifest_path = os.path.join(project_dir, "manifest.json")
@@ -396,18 +399,18 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                         env_anchors[int(_sc_id)] = _local
 
         if _reused:
-            print(f"\n[STEP 1.3] Reusing existing style anchor: {style_anchor_path}")
-            print(f"[STEP 1.4] Reusing {len(env_anchors)} existing environment anchors")
+            logger.info(f"\n[STEP 1.3] Reusing existing style anchor: {style_anchor_path}")
+            logger.info(f"[STEP 1.4] Reusing {len(env_anchors)} existing environment anchors")
         else:
             style_anchor_agent = StyleAnchorAgent()
             if manifest.global_style:
-                print(f"\n[STEP 1.3] Generating style anchor image...")
+                logger.info(f"\n[STEP 1.3] Generating style anchor image...")
                 style_anchor_path = style_anchor_agent.generate_style_anchor(
                     global_style=manifest.global_style,
                     project_dir=project_dir
                 )
             if manifest.global_style and "scenes" in story_data:
-                print(f"\n[STEP 1.4] Generating environment anchor images...")
+                logger.info(f"\n[STEP 1.4] Generating environment anchor images...")
                 env_anchors = style_anchor_agent.generate_environment_anchors(
                     scenes=story_data["scenes"],
                     global_style=manifest.global_style,
@@ -437,7 +440,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             )
 
             if not _all_have_anchors:
-                print(f"\n[STEP 1.5] Casting characters (generating master anchor images)...")
+                logger.info(f"\n[STEP 1.5] Casting characters (generating master anchor images)...")
                 character_manager = CharacterManager()
                 character_images = character_manager.cast_characters(
                     character_sheet=manifest.character_sheet,
@@ -460,7 +463,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                         if hasattr(cs, 'master_image_path'):
                             cs.master_image_path = image_path
                 self._save_manifest(manifest, project_dir)
-                print(f"  [Manifest] Saved character anchors to disk")
+                logger.info(f"  [Manifest] Saved character anchors to disk")
 
                 # _save_manifest()는 Pydantic 모델만 직렬화 →
                 # api_server가 설정한 _images_pregenerated 플래그와 씬 이미지 경로가 사라짐.
@@ -489,7 +492,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     except Exception:
                         pass
             else:
-                print(f"\n[STEP 1.5] Reusing existing character anchors ({len(manifest.character_sheet)} characters).")
+                logger.info(f"\n[STEP 1.5] Reusing existing character anchors ({len(manifest.character_sheet)} characters).")
                 # story_data에 master_image_path 동기화
                 if "character_sheet" in story_data:
                     for token, cs in manifest.character_sheet.items():
@@ -498,19 +501,19 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                             story_data["character_sheet"][token]["master_image_path"] = _mp
                             if hasattr(cs, 'anchor_set') and cs.anchor_set:
                                 story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump() if hasattr(cs.anchor_set, 'model_dump') else None
-                            print(f"    [Sync] {token}: {_mp}")
+                            logger.info(f"    [Sync] {token}: {_mp}")
 
         try:
-            print(f"\n{'='*60}")
-            print(f"STORYCUT Pipeline - Video Generation - Project: {project_id}")
-            print(f"{'='*60}")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"STORYCUT Pipeline - Video Generation - Project: {project_id}")
+            logger.info(f"{'='*60}")
 
             # Step 2: Scene 처리
             orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
 
             if story_data.get("_images_pregenerated"):
                 # 이미지가 이미 존재 → 이미지 생성 코드를 거치지 않는 전용 경로
-                print("\n[STEP 2/6] Composing video from pre-generated images (skip image gen)...")
+                logger.info("\n[STEP 2/6] Composing video from pre-generated images (skip image gen)...")
                 final_video = orchestrator.compose_scenes_from_images(
                     story_data=story_data,
                     output_path=f"{project_dir}/final_video.mp4",
@@ -519,7 +522,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     environment_anchors=env_anchors,
                 )
             else:
-                print("\n[STEP 2/6] Processing scenes with context carry-over...")
+                logger.info("\n[STEP 2/6] Processing scenes with context carry-over...")
                 final_video = orchestrator.process_story(
                     story_data=story_data,
                     output_path=f"{project_dir}/final_video.mp4",
@@ -534,7 +537,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
             # Step 3: 자막 생성 및 영상에 적용 (옵션)
             if request.subtitles:
-                print("\n[STEP 3/6] Generating subtitles and applying to video...")
+                logger.info("\n[STEP 3/6] Generating subtitles and applying to video...")
                 final_video = self._generate_and_apply_subtitles(
                     manifest.scenes,
                     project_dir,
@@ -544,7 +547,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
             # Step 3.5: Film Look 후처리 (v2.0)
             if request.feature_flags.film_look:
-                print("\n[STEP 3.5/6] Applying film look (grain + color grading)...")
+                logger.info("\n[STEP 3.5/6] Applying film look (grain + color grading)...")
                 final_video = self._apply_film_look(final_video, project_dir)
                 manifest.outputs.final_video_path = final_video
 
@@ -552,7 +555,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             if request.feature_flags.optimization_pack:
                 # v2.1: Check if StoryAgent already generated optimization data
                 if "youtube_opt" in story_data:
-                    print("\n[STEP 4/6] Using pre-generated optimization package from StoryAgent...")
+                    logger.info("\n[STEP 4/6] Using pre-generated optimization package from StoryAgent...")
                     opt = story_data["youtube_opt"]
                     manifest.outputs.title_candidates = opt.get("title_candidates", [])
                     manifest.outputs.thumbnail_texts = [opt.get("thumbnail_text")] if opt.get("thumbnail_text") else []
@@ -568,7 +571,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     manifest.outputs.metadata_json_path = opt_path
                     
                 else:
-                    print("\n[STEP 4/6] Generating optimization package (Legacy)...")
+                    logger.info("\n[STEP 4/6] Generating optimization package (Legacy)...")
                     opt_package = self.optimization_agent.run(
                         topic=request.topic or manifest.title,
                         script=manifest.script,
@@ -584,7 +587,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 manifest.outputs.metadata_json_path = opt_path
 
             # Step 5: Manifest 저장
-            print("\n[STEP 5/6] Saving manifest...")
+            logger.info("\n[STEP 5/6] Saving manifest...")
             manifest.status = "completed"
             manifest.execution_time_sec = time.time() - start_time
             manifest.cost_estimate = self._estimate_costs(manifest)
@@ -622,9 +625,9 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
         project_dir = self._create_project_structure(project_id)
 
-        print(f"\n{'='*60}")
-        print(f"STORYCUT Pipeline - Character Casting - Project: {project_id}")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"STORYCUT Pipeline - Character Casting - Project: {project_id}")
+        logger.info(f"{'='*60}\n")
 
         # Manifest 초기화
         manifest = Manifest(
@@ -684,7 +687,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(_md, f, ensure_ascii=False, indent=2)
 
-                print(f"\n[StyleAnchor] Generating style anchor image...")
+                logger.info(f"\n[StyleAnchor] Generating style anchor image...")
                 style_anchor_path = style_anchor_agent.generate_style_anchor(
                     global_style=manifest.global_style,
                     project_dir=project_dir
@@ -701,13 +704,13 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     with open(manifest_path, "w", encoding="utf-8") as f:
                         json.dump(_md, f, ensure_ascii=False, indent=2)
 
-                    print(f"\n[EnvAnchors] Generating environment anchor images ({len(story_data['scenes'])} scenes)...")
+                    logger.info(f"\n[EnvAnchors] Generating environment anchor images ({len(story_data['scenes'])} scenes)...")
                     env_anchors = style_anchor_agent.generate_environment_anchors(
                         scenes=story_data["scenes"],
                         global_style=manifest.global_style,
                         project_dir=project_dir
                     )
-                    print(f"[EnvAnchors] Generated {len(env_anchors)} environment anchors")
+                    logger.info(f"[EnvAnchors] Generated {len(env_anchors)} environment anchors")
 
             # Character Casting
             if manifest.character_sheet:
@@ -718,7 +721,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(_md, f, ensure_ascii=False, indent=2)
 
-                print(f"\n[Characters] Casting character anchor images...")
+                logger.info(f"\n[Characters] Casting character anchor images...")
                 character_manager = CharacterManager()
 
                 def _casting_progress(done, total, char_name):
@@ -762,9 +765,9 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                             cs.master_image_path = image_path
 
         except Exception as e:
-            print(f"\n[Characters] Casting FAILED: {e}", flush=True)
+            logger.error(f"\n[Characters] Casting FAILED: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             self._save_manifest(manifest, project_dir)
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest_dict = json.load(f)
@@ -787,7 +790,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_dict, f, ensure_ascii=False, indent=2)
 
-        print(f"\n[Characters] Casting complete. Status: casting_ready")
+        logger.info(f"\n[Characters] Casting complete. Status: casting_ready")
 
     def generate_images_only(
         self,
@@ -820,9 +823,9 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             
         project_dir = self._create_project_structure(project_id)
         
-        print(f"\n{'='*60}")
-        print(f"STORYCUT Pipeline - Image Generation - Project: {project_id}")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"STORYCUT Pipeline - Image Generation - Project: {project_id}")
+        logger.info(f"{'='*60}\n")
         
         # Manifest 초기화
         from schemas import GlobalStyle, CharacterSheet
@@ -909,9 +912,9 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         _saved_envs = _existing_data.get("_env_anchors", {})
         _saved_env_urls = _existing_data.get("_env_anchor_urls", {})
 
-        print(f"[StyleAnchor DEBUG] _saved_style={_saved_style}, exists={os.path.exists(_saved_style) if _saved_style else 'N/A'}")
-        print(f"[StyleAnchor DEBUG] _saved_style_url={_saved_style_url}")
-        print(f"[StyleAnchor DEBUG] casting_status={_existing_data.get('casting_status')}")
+        logger.info(f"[StyleAnchor DEBUG] _saved_style={_saved_style}, exists={os.path.exists(_saved_style) if _saved_style else 'N/A'}")
+        logger.info(f"[StyleAnchor DEBUG] _saved_style_url={_saved_style_url}")
+        logger.info(f"[StyleAnchor DEBUG] casting_status={_existing_data.get('casting_status')}")
 
         # 로컬 파일 또는 R2 URL에서 앵커 복원
         _reused = False
@@ -936,12 +939,12 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
         # 캐스팅 완료 상태인데 스타일 앵커 파일을 못 찾은 경우 — 재생성 없이 진행
         if not _reused and _existing_data.get("casting_status") == "casting_ready":
-            print(f"[StyleAnchor] Casting was ready but anchor file missing — skipping regeneration")
+            logger.info(f"[StyleAnchor] Casting was ready but anchor file missing — skipping regeneration")
             _reused = True
 
         if _reused:
-            print(f"\n[StyleAnchor] Reusing pre-generated style anchor: {style_anchor_path}")
-            print(f"[EnvAnchors] Reusing {len(env_anchors)} pre-generated environment anchors")
+            logger.info(f"\n[StyleAnchor] Reusing pre-generated style anchor: {style_anchor_path}")
+            logger.info(f"[EnvAnchors] Reusing {len(env_anchors)} pre-generated environment anchors")
             # 앵커 재사용 시 preparing 단계 건너뛰고 바로 generating_images로
             manifest.status = "generating_images"
             manifest.message = "이미지 생성 준비 완료"
@@ -953,7 +956,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 manifest.status = "preparing"
                 manifest.message = "스타일 앵커 이미지 생성 중..."
                 self._save_manifest(manifest, project_dir)
-                print(f"\n[StyleAnchor] Generating style anchor image (1장)...")
+                logger.info(f"\n[StyleAnchor] Generating style anchor image (1장)...")
                 style_anchor_path = style_anchor_agent.generate_style_anchor(
                     global_style=manifest.global_style,
                     project_dir=project_dir
@@ -963,7 +966,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             if manifest.global_style and "scenes" in story_data:
                 manifest.message = f"환경 앵커 이미지 생성 중... ({len(story_data['scenes'])}장)"
                 self._save_manifest(manifest, project_dir)
-                print(f"\n[EnvAnchors] Generating environment anchor images...")
+                logger.info(f"\n[EnvAnchors] Generating environment anchor images...")
                 env_anchors = style_anchor_agent.generate_environment_anchors(
                     scenes=story_data["scenes"],
                     global_style=manifest.global_style,
@@ -990,9 +993,9 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                         from schemas.models import AnchorSet
                         try:
                             cs.anchor_set = AnchorSet(**_existing_as)
-                            print(f"    [Restore] {token}: anchor_set restored ({len(_existing_as.get('poses', {}))} poses)")
+                            logger.info(f"    [Restore] {token}: anchor_set restored ({len(_existing_as.get('poses', {}))} poses)")
                         except Exception as _as_err:
-                            print(f"    [Warning] {token}: anchor_set restore failed: {_as_err}")
+                            logger.error(f"    [Warning] {token}: anchor_set restore failed: {_as_err}")
 
         _all_have_anchors = all(
             hasattr(cs, 'master_image_path') and cs.master_image_path and os.path.exists(cs.master_image_path)
@@ -1000,7 +1003,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         ) if manifest.character_sheet else True
 
         if manifest.character_sheet and not _all_have_anchors:
-            print(f"\n[Characters] Casting character anchor images...")
+            logger.info(f"\n[Characters] Casting character anchor images...")
             character_manager = CharacterManager()
             character_images = character_manager.cast_characters(
                 character_sheet=manifest.character_sheet,
@@ -1028,7 +1031,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                         cs.master_image_path = image_path
             self._save_manifest(manifest, project_dir)
         elif manifest.character_sheet:
-            print(f"\n[Characters] Anchor images already present, skipping re-cast.")
+            logger.info(f"\n[Characters] Anchor images already present, skipping re-cast.")
 
         # story_data에 master_image_path + anchor_set 항상 동기화 (조건 없이)
         if manifest.character_sheet and "character_sheet" in story_data:
@@ -1041,9 +1044,9 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 # anchor_set은 master_image_path 유무와 무관하게 동기화
                 if hasattr(cs, 'anchor_set') and cs.anchor_set:
                     story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump() if hasattr(cs.anchor_set, 'model_dump') else cs.anchor_set
-                    print(f"    [Sync] {token}: master={_mp}, anchor_poses={len(cs.anchor_set.poses) if cs.anchor_set else 0}")
+                    logger.info(f"    [Sync] {token}: master={_mp}, anchor_poses={len(cs.anchor_set.poses) if cs.anchor_set else 0}")
                 else:
-                    print(f"    [Sync] {token}: master={_mp}, anchor_set=None")
+                    logger.info(f"    [Sync] {token}: master={_mp}, anchor_set=None")
 
         # 준비 완료 → 이미지 생성 시작
         manifest.status = "generating_images"
@@ -1052,7 +1055,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
         try:
 
             # Generate ONLY images (no TTS, no video)
-            print(f"\n[IMAGES ONLY] Generating images for {total_scenes} scenes...")
+            logger.info(f"\n[IMAGES ONLY] Generating images for {total_scenes} scenes...")
 
             orchestrator = SceneOrchestrator(feature_flags=request.feature_flags)
 
@@ -1328,7 +1331,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
 
         srt_path = f"{project_dir}/media/subtitles/full.srt"
         composer.generate_srt_from_scenes(scene_dicts, srt_path)
-        print(f"  Generated subtitle file: {srt_path}")
+        logger.info(f"  Generated subtitle file: {srt_path}")
 
         # 2. 자막을 영상에 burn-in
         output_with_subtitles = f"{project_dir}/final_video_with_subtitles.mp4"
@@ -1339,13 +1342,13 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 output_with_subtitles
             )
             if subtitle_success:
-                print(f"  Applied subtitles to video: {subtitled_video}")
+                logger.info(f"  Applied subtitles to video: {subtitled_video}")
                 return subtitled_video
             else:
-                print(f"  [Warning] Subtitle burn-in failed (likely OOM). Using original video.")
+                logger.error(f"  [Warning] Subtitle burn-in failed (likely OOM). Using original video.")
                 return input_video
         except Exception as e:
-            print(f"  [Warning] Subtitle burn-in failed: {e}. Using original video.")
+            logger.error(f"  [Warning] Subtitle burn-in failed: {e}. Using original video.")
             return input_video
 
     def _estimate_costs(self, manifest: Manifest) -> CostEstimate:
@@ -1395,10 +1398,10 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 _local_path = os.path.join(_dir, _fname)
                 with open(_local_path, "wb") as f:
                     f.write(resp.content)
-                print(f"[R2->Local] Downloaded: {_fname}")
+                logger.info(f"[R2->Local] Downloaded: {_fname}")
                 return _local_path
         except Exception as e:
-            print(f"[R2->Local] Download failed ({url}): {e}")
+            logger.error(f"[R2->Local] Download failed ({url}): {e}")
         return None
 
     def _save_manifest(self, manifest: Manifest, project_dir: str) -> str:
@@ -1495,10 +1498,10 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 saturation=saturation,
                 contrast=contrast
             )
-            print(f"  Film look applied: {result}")
+            logger.info(f"  Film look applied: {result}")
             return result
         except Exception as e:
-            print(f"  [Warning] Film look failed: {e}. Using original video.")
+            logger.error(f"  [Warning] Film look failed: {e}. Using original video.")
             return input_video
 
 
@@ -1561,5 +1564,5 @@ if __name__ == "__main__":
         }
     )
 
-    print(f"\nFinal video: {manifest.outputs.final_video_path}")
-    print(f"Title candidates: {manifest.outputs.title_candidates}")
+    logger.info(f"\nFinal video: {manifest.outputs.final_video_path}")
+    logger.info(f"Title candidates: {manifest.outputs.title_candidates}")

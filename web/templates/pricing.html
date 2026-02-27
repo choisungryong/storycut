@@ -766,6 +766,20 @@
             });
         }
 
+        function _pricingToast(msg, type = 'info') {
+            const toast = document.createElement('div');
+            toast.textContent = msg;
+            Object.assign(toast.style, {
+                position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+                padding: '12px 24px', borderRadius: '8px', zIndex: '9999',
+                color: '#fff', fontSize: '14px', fontWeight: '500',
+                background: type === 'error' ? '#e53e3e' : type === 'success' ? '#38a169' : '#3182ce',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)', transition: 'opacity 0.3s',
+            });
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
         function formatKrw(num) {
             return '\u20A9' + Number(num).toLocaleString('ko-KR');
         }
@@ -786,7 +800,7 @@
         async function buyPack(packType) {
             const token = localStorage.getItem('token');
             if (!token) { window.location.href = '/login.html'; return; }
-            alert('결제 시스템 연동 준비중입니다. 조금만 기다려주세요!');
+            _pricingToast('결제 시스템 연동 준비중입니다. 조금만 기다려주세요!', 'info');
             /*
             if (paymentInProgress) return;
             paymentInProgress = true;
@@ -794,7 +808,7 @@
             try {
                 // ... payment logic hidden ...
             } catch (err) {
-                alert(err.message);
+                _pricingToast(err.message, 'error');
             } finally {
                 paymentInProgress = false;
             }
@@ -806,7 +820,7 @@
         async function subscribePlan(planId) {
             const token = localStorage.getItem('token');
             if (!token) { window.location.href = '/login.html'; return; }
-            alert('결제 시스템 연동 준비중입니다. 조금만 기다려주세요!');
+            _pricingToast('결제 시스템 연동 준비중입니다. 조금만 기다려주세요!', 'info');
             /*
             if (paymentInProgress) return;
             paymentInProgress = true;
@@ -814,7 +828,7 @@
             try {
                 // ... payment logic hidden ...
             } catch (err) {
-                alert(err.message);
+                _pricingToast(err.message, 'error');
             } finally {
                 paymentInProgress = false;
             }
@@ -835,10 +849,10 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || '해지 실패');
 
-                alert('구독이 해지되었습니다. 현재 결제 기간이 끝날 때까지 이용 가능합니다.');
-                location.reload();
+                _pricingToast('구독이 해지되었습니다. 현재 결제 기간이 끝날 때까지 이용 가능합니다.', 'success');
+                setTimeout(() => location.reload(), 2000);
             } catch (err) {
-                alert(err.message);
+                _pricingToast(err.message, 'error');
             }
         }
 

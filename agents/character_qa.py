@@ -10,6 +10,9 @@ import os
 import math
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple
+from utils.logger import get_logger
+logger = get_logger("character_qa")
+
 
 
 class EmbeddingProvider(ABC):
@@ -41,7 +44,7 @@ class FaceRecognitionProvider(EmbeddingProvider):
             self._fr = face_recognition
             self._available = True
         except ImportError:
-            print("  [CharacterQA] face_recognition not installed, will use fallback")
+            logger.info("  [CharacterQA] face_recognition not installed, will use fallback")
             self._available = False
         return self._available
 
@@ -57,7 +60,7 @@ class FaceRecognitionProvider(EmbeddingProvider):
                 return None
             return encodings[0].tolist()
         except Exception as e:
-            print(f"  [CharacterQA] face_recognition error: {e}")
+            logger.error(f"  [CharacterQA] face_recognition error: {e}")
             return None
 
     def name(self) -> str:
@@ -132,7 +135,7 @@ class GeminiVisionFallbackProvider(EmbeddingProvider):
                     continue
             return 0.5
         except Exception as e:
-            print(f"  [CharacterQA] Gemini Vision fallback error: {e}")
+            logger.error(f"  [CharacterQA] Gemini Vision fallback error: {e}")
             return 0.5
 
     def name(self) -> str:
@@ -176,7 +179,7 @@ class CharacterQA:
         self._anchor_embeddings: Dict[str, List[float]] = {}
         self._anchor_paths: Dict[str, str] = {}
         self._log_entries: List[Dict] = []
-        print(f"  [CharacterQA] Provider: {self.provider.name()}, threshold: {self.threshold}")
+        logger.info(f"  [CharacterQA] Provider: {self.provider.name()}, threshold: {self.threshold}")
 
     def register_anchor(self, role: str, image_path: str) -> Optional[List[float]]:
         """Register a character anchor and extract its face embedding."""
@@ -184,9 +187,9 @@ class CharacterQA:
         if embedding is not None:
             self._anchor_embeddings[role] = embedding
             self._anchor_paths[role] = image_path
-            print(f"    [CharacterQA] Anchor registered: {role} (dim={len(embedding)})")
+            logger.info(f"    [CharacterQA] Anchor registered: {role} (dim={len(embedding)})")
         else:
-            print(f"    [CharacterQA] No face detected in anchor for: {role}")
+            logger.info(f"    [CharacterQA] No face detected in anchor for: {role}")
             self._log(role=role, scene_id=-1, face_detected=False,
                       similarity=-1.0, passed=False, fail_reason="anchor_face_not_found")
         return embedding

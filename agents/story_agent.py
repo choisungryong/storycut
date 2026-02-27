@@ -7,6 +7,9 @@ import os
 import re
 from typing import Dict, Any, List
 from pathlib import Path
+from utils.logger import get_logger
+logger = get_logger("story_agent")
+
 
 
 # 장르별 플롯 씨앗 — 흥미로운 전제를 LLM에 제시하여 진부한 주제를 방지
@@ -98,7 +101,7 @@ class StoryAgent:
         Step 1: Structure & Architecture (Title, Characters, Outline)
         Step 2: Scene-level Detail (Script, Prompts, Camera Work)
         """
-        print(f"[Story Agent] Generating story (2-Step Chain): {genre} / {mood} / {style}")
+        logger.info(f"[Story Agent] Generating story (2-Step Chain): {genre} / {mood} / {style}")
 
         # Calculate target scene count
         if is_shorts:
@@ -112,7 +115,7 @@ class StoryAgent:
         # STEP 1: Story Architecture
         # =================================================================================
         import sys
-        print(f"  [Step 1] Planning Story Architecture...", file=sys.stderr, flush=True)
+        logger.info(f"  [Step 1] Planning Story Architecture...", file=sys.stderr)
 
         if include_dialogue:
             _step1_dialogue_rule = (
@@ -318,15 +321,15 @@ OUTPUT FORMAT (JSON):
         step1_response = self._call_llm_api(step1_prompt)
         try:
             structure_data = json.loads(step1_response)
-            print(f"  [Step 1] Structure locked: {structure_data.get('project_title')}", file=sys.stderr, flush=True)
+            logger.info(f"  [Step 1] Structure locked: {structure_data.get('project_title')}", file=sys.stderr)
         except Exception as e:
-            print(f"  [Step 1] Failed to parse JSON: {e}. Falling back to single-step.", file=sys.stderr, flush=True)
+            logger.error(f"  [Step 1] Failed to parse JSON: {e}. Falling back to single-step.", file=sys.stderr)
             structure_data = {} 
 
         # =================================================================================
         # STEP 2: Scene-level Details
         # =================================================================================
-        print(f"  [Step 2] Generating Scene Details...", file=sys.stderr, flush=True)
+        logger.info(f"  [Step 2] Generating Scene Details...", file=sys.stderr)
         
         # Context from Step 1
         structure_context = json.dumps(structure_data, ensure_ascii=False, indent=2) if structure_data else "No structure generated."
@@ -604,10 +607,10 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
             step2_prompt += shorts_hook_instruction
 
         step2_response = self._call_llm_api(step2_prompt)
-        print(f"  [Step 2] Response received, starting validation...", file=sys.stderr, flush=True)
+        logger.info(f"  [Step 2] Response received, starting validation...", file=sys.stderr)
         story_data = self._validate_story_json(step2_response)
 
-        print(f"[Story Agent] Story generated successfully.", file=sys.stderr, flush=True)
+        logger.info(f"[Story Agent] Story generated successfully.", file=sys.stderr)
         return story_data
 
     def _call_llm_api(self, user_prompt: str) -> str:
@@ -619,7 +622,7 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
 
             client = OpenAI(api_key=self.api_key)
 
-            print(f"[DEBUG] Calling OpenAI API (model: {self.model})", flush=True)
+            logger.debug(f"[DEBUG] Calling OpenAI API (model: {self.model})")
 
             response = client.chat.completions.create(
                 model=self.model,
@@ -632,19 +635,18 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
             )
 
             response_text = response.choices[0].message.content.strip()
-            print(f"[DEBUG] OpenAI API response received ({len(response_text)} chars)", flush=True)
+            logger.debug(f"[DEBUG] OpenAI API response received ({len(response_text)} chars)")
 
             return response_text
 
         except Exception as e:
-            from utils.error_manager import ErrorManager
             ErrorManager.log_error(
                 "StoryAgent",
                 "OpenAI API Call Failed",
                 f"{type(e).__name__}: {str(e)}",
                 severity="critical"
             )
-            print(f"[ERROR] OpenAI API call failed: {e}", flush=True)
+            logger.error(f"[ERROR] OpenAI API call failed: {e}")
             return self._get_example_story()
 
     def _validate_story_json(self, json_string: str) -> Dict[str, Any]:
@@ -690,22 +692,22 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
             raise ValueError("No scenes in story")
 
         scene_count = len(story_data["scenes"])
-        print(f"[Story Validation] Scene count: {scene_count}", flush=True)
+        logger.info(f"[Story Validation] Scene count: {scene_count}")
 
         # v2.0: Validate character_sheet and global_style (optional but recommended)
         if "character_sheet" in story_data:
-            print(f"[Story Validation] Character sheet found: {len(story_data['character_sheet'])} characters", flush=True)
+            logger.info(f"[Story Validation] Character sheet found: {len(story_data['character_sheet'])} characters")
         else:
-            print(f"[Story Validation] No character sheet (v1.0 format)", flush=True)
+            logger.info(f"[Story Validation] No character sheet (v1.0 format)")
 
         if "global_style" in story_data:
-            print(f"[Story Validation] Global style: {story_data['global_style'].get('art_style', 'N/A')}", flush=True)
+            logger.info(f"[Story Validation] Global style: {story_data['global_style'].get('art_style', 'N/A')}")
 
         # WARNING: Scene count validation (TEST MODE: 4 scenes expected)
         if scene_count < 3:
-            print(f"[WARNING] Only {scene_count} scenes (recommended 4 for test mode)", flush=True)
+            logger.warning(f"[WARNING] Only {scene_count} scenes (recommended 4 for test mode)")
         elif scene_count > 6:
-            print(f"[INFO] {scene_count} scenes generated (test mode expects 4)", flush=True)
+            logger.info(f"[INFO] {scene_count} scenes generated (test mode expects 4)")
 
         for idx, scene in enumerate(story_data["scenes"], 1):
             # -------------------------------------------------------------------------
@@ -760,10 +762,10 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
 
             # v2.0 필드 검증 (선택사항)
             if "image_prompt" in scene:
-                print(f"[Scene {idx}] v2.0 format detected (image_prompt present)", flush=True)
+                logger.info(f"[Scene {idx}] v2.0 format detected (image_prompt present)")
 
             if "characters_in_scene" in scene and scene["characters_in_scene"]:
-                print(f"[Scene {idx}] Characters: {', '.join(scene['characters_in_scene'])}", flush=True)
+                logger.info(f"[Scene {idx}] Characters: {', '.join(scene['characters_in_scene'])}")
 
             # v3.0: Parse dialogue lines from tts_script
             tts = scene.get("tts_script", "") or scene.get("narration", "")
@@ -771,12 +773,12 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
             if dialogue_lines and len(dialogue_lines) > 1:
                 scene["dialogue_lines"] = dialogue_lines
                 speakers = set(dl["speaker"] for dl in dialogue_lines)
-                print(f"[Scene {idx}] Dialogue: {len(dialogue_lines)} lines, speakers: {speakers}", flush=True)
+                logger.info(f"[Scene {idx}] Dialogue: {len(dialogue_lines)} lines, speakers: {speakers}")
 
         # Extract detected speakers
         story_data["detected_speakers"] = StoryAgent.extract_speakers(story_data)
         if len(story_data["detected_speakers"]) > 1:
-            print(f"[Story Validation] Detected speakers: {story_data['detected_speakers']}", flush=True)
+            logger.info(f"[Story Validation] Detected speakers: {story_data['detected_speakers']}")
 
         return story_data
 
@@ -888,7 +890,7 @@ Return ONLY the JSON."""
             result = json.loads(response_text)
             return result
         except Exception as e:
-            print(f"[StoryAgent] Script analysis failed: {e}. Using narrator fallback.")
+            logger.error(f"[StoryAgent] Script analysis failed: {e}. Using narrator fallback.")
             return {
                 "tagged_script": f"[narrator] {raw_text}",
                 "detected_speakers": ["narrator"]
@@ -925,7 +927,7 @@ Return ONLY the JSON."""
             }
         }
 
-        print("[WARNING] Using 4-scene example story (Gemini API not available)", flush=True)
+        logger.warning("[WARNING] Using 4-scene example story (Gemini API not available)")
         return json.dumps(example, indent=2)
 
     def save_story(self, story_data: Dict[str, Any], output_path: str = "scenes/story_scenes.json"):
@@ -941,4 +943,4 @@ Return ONLY the JSON."""
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(story_data, f, indent=2, ensure_ascii=False)
 
-        print(f"[Story Agent] Story saved to: {output_path}")
+        logger.info(f"[Story Agent] Story saved to: {output_path}")

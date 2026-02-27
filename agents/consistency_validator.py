@@ -17,6 +17,9 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import ValidationResult
+from utils.logger import get_logger
+logger = get_logger("consistency_validator")
+
 
 
 class ConsistencyValidator:
@@ -54,7 +57,7 @@ class ConsistencyValidator:
                     genai.configure(api_key=self.google_api_key)
                     self._vision_client = genai.GenerativeModel(model_name="gemini-2.5-flash")
             except Exception as e:
-                print(f"  [ConsistencyValidator] Failed to init Gemini Vision: {e}")
+                logger.error(f"  [ConsistencyValidator] Failed to init Gemini Vision: {e}")
         return self._vision_client
 
     def validate_scene_image(
@@ -145,10 +148,10 @@ class ConsistencyValidator:
         )
 
         status = "PASS" if passed else "FAIL"
-        print(f"  [ConsistencyValidator] Scene {scene_id} attempt {attempt_number}: {status} (score={overall_score:.2f})")
+        logger.info(f"  [ConsistencyValidator] Scene {scene_id} attempt {attempt_number}: {status} (score={overall_score:.2f})")
         if issues:
             for issue in issues:
-                print(f"    - {issue}")
+                logger.info(f"    - {issue}")
 
         return result
 
@@ -186,7 +189,7 @@ class ConsistencyValidator:
             try:
                 image_path = generate_fn(seed)
             except Exception as e:
-                print(f"  [ConsistencyValidator] Scene {scene_id} generate attempt {attempt} failed: {e}")
+                logger.error(f"  [ConsistencyValidator] Scene {scene_id} generate attempt {attempt} failed: {e}")
                 continue
 
             result = self.validate_scene_image(
@@ -209,13 +212,13 @@ class ConsistencyValidator:
         # 모든 재시도 실패
         if best_result and best_score > 0.4:
             # degraded 모드: best attempt 사용
-            print(f"  [ConsistencyValidator] Scene {scene_id}: degraded mode (best score={best_score:.2f})")
+            logger.info(f"  [ConsistencyValidator] Scene {scene_id}: degraded mode (best score={best_score:.2f})")
             best_result.passed = True
             best_result.issues.append("DEGRADED: using best attempt after all retries failed")
             return best_path, best_result
         elif best_result:
             # 완전 실패
-            print(f"  [ConsistencyValidator] Scene {scene_id}: FAILED (best score={best_score:.2f})")
+            logger.error(f"  [ConsistencyValidator] Scene {scene_id}: FAILED (best score={best_score:.2f})")
             return best_path or "", best_result
         else:
             return "", ValidationResult(
@@ -301,7 +304,7 @@ Respond ONLY with JSON: {"face_similarity": 0.0, "style_drift": 0.0, "environmen
                 # Per-character scores: use minimum for threshold check
                 per_char = {k: float(v) for k, v in face_raw.items()}
                 face_score = min(per_char.values()) if per_char else 0.5
-                print(f"  [ConsistencyValidator] Per-character face scores: {per_char} -> min={face_score:.2f}")
+                logger.info(f"  [ConsistencyValidator] Per-character face scores: {per_char} -> min={face_score:.2f}")
             else:
                 face_score = float(face_raw)
 
@@ -312,7 +315,7 @@ Respond ONLY with JSON: {"face_similarity": 0.0, "style_drift": 0.0, "environmen
             }
 
         except Exception as e:
-            print(f"  [ConsistencyValidator] Gemini scoring failed: {e}")
+            logger.error(f"  [ConsistencyValidator] Gemini scoring failed: {e}")
             # 실패 시 기본 점수 (통과하도록)
             return {
                 "face_similarity": 0.7,
@@ -334,5 +337,5 @@ Respond ONLY with JSON: {"face_similarity": 0.0, "style_drift": 0.0, "environmen
                 }
             }
         except Exception as e:
-            print(f"  [Warning] Failed to encode image {image_path}: {e}")
+            logger.error(f"  [Warning] Failed to encode image {image_path}: {e}")
             return None

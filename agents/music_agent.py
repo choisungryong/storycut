@@ -11,6 +11,9 @@ License: CC BY-SA 4.0 (Internet Archive)
 import os
 import random
 from typing import Optional, List
+from utils.logger import get_logger
+logger = get_logger("music_agent")
+
 
 
 # 장르/분위기 → BGM 카테고리 매핑
@@ -127,8 +130,8 @@ class MusicAgent:
         Returns:
             Path to selected music file, or None
         """
-        print(f"[Music Agent] Selecting BGM...")
-        print(f"   Genre: {genre}, Mood: {mood}, Duration: {duration_sec}s")
+        logger.info(f"[Music Agent] Selecting BGM...")
+        logger.info(f"   Genre: {genre}, Mood: {mood}, Duration: {duration_sec}s")
 
         # 1. mood로 카테고리 매칭
         category = _MOOD_MAP.get(mood.lower())
@@ -140,21 +143,21 @@ class MusicAgent:
         # 3. 둘 다 실패 -> 기본값
         if not category:
             category = "calm_peaceful"
-            print(f"   [Music Agent] No match for genre='{genre}', mood='{mood}' -> default: {category}")
+            logger.info(f"   [Music Agent] No match for genre='{genre}', mood='{mood}' -> default: {category}")
 
         # 카테고리에서 사용 가능한 트랙 탐색
         tracks = self._find_tracks(category)
 
         if tracks:
             selected = random.choice(tracks)
-            print(f"   [Music Agent] Category: {category} ({len(tracks)} tracks available)")
-            print(f"   [Music Agent] Selected: {os.path.basename(selected)}")
+            logger.info(f"   [Music Agent] Category: {category} ({len(tracks)} tracks available)")
+            logger.info(f"   [Music Agent] Selected: {os.path.basename(selected)}")
             return selected
 
         # 전체 fallback
-        print(f"   [Warning] No tracks found for category '{category}'")
+        logger.warning(f"   [Warning] No tracks found for category '{category}'")
         placeholder = os.path.join(self.music_library_path, "placeholder_music.mp3")
         if os.path.exists(placeholder):
-            print(f"   [Music Agent] Fallback: placeholder_music.mp3")
+            logger.info(f"   [Music Agent] Fallback: placeholder_music.mp3")
             return placeholder
         return None

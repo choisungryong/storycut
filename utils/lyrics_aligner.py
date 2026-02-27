@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
+from utils.logger import get_logger
+logger = get_logger("lyrics_aligner")
+
 
 
 # ── Constants ──
@@ -35,7 +38,7 @@ VAD_ENERGY_PCT = 15
 # ── Logger ──
 
 def _log(tag: str, d: dict):
-    print(f"{tag} {json.dumps(d, ensure_ascii=False)}")
+    logger.info(f"{tag} {json.dumps(d, ensure_ascii=False)}")
 
 
 # ── Data ──

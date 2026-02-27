@@ -15,6 +15,9 @@ import glob
 import shutil
 import asyncio
 from datetime import datetime, date, timedelta
+from utils.logger import get_logger
+logger = get_logger("cleanup")
+
 
 
 def run_cleanup():
@@ -39,7 +42,7 @@ def run_cleanup():
                     os.remove(f)
                     deleted += 1
             except Exception as e:
-                print(f"[CLEANUP] Failed to delete {f}: {e}")
+                logger.error(f"[CLEANUP] Failed to delete {f}: {e}")
 
     # 2) Final video + manifest: delete if older than 3 days
     cutoff = today - timedelta(days=3)
@@ -49,7 +52,7 @@ def run_cleanup():
                 os.remove(f)
                 deleted += 1
         except Exception as e:
-            print(f"[CLEANUP] Failed to delete {f}: {e}")
+            logger.error(f"[CLEANUP] Failed to delete {f}: {e}")
 
     # 3) R2 cloud storage: delete videos older than 3 days
     try:
@@ -58,7 +61,7 @@ def run_cleanup():
         r2_deleted = storage.delete_old_projects(cutoff_date=cutoff)
         deleted += r2_deleted
     except Exception as e:
-        print(f"[CLEANUP] R2 cleanup error: {e}")
+        logger.error(f"[CLEANUP] R2 cleanup error: {e}")
 
     # 4) Remove empty project directories
     for d in glob.glob("outputs/*"):
@@ -70,7 +73,7 @@ def run_cleanup():
                 shutil.rmtree(d)
                 deleted += 1
         except Exception as e:
-            print(f"[CLEANUP] Failed to remove directory {d}: {e}")
+            logger.error(f"[CLEANUP] Failed to remove directory {d}: {e}")
 
     return deleted
 
@@ -83,13 +86,13 @@ async def _cleanup_loop():
         if now >= next_3am:
             next_3am += timedelta(days=1)
         wait = (next_3am - now).total_seconds()
-        print(f"[CLEANUP] Next run at {next_3am} (in {wait/3600:.1f}h)")
+        logger.info(f"[CLEANUP] Next run at {next_3am} (in {wait/3600:.1f}h)")
         await asyncio.sleep(wait)
         try:
             deleted = run_cleanup()
-            print(f"[CLEANUP] Completed: {deleted} items deleted")
+            logger.info(f"[CLEANUP] Completed: {deleted} items deleted")
         except Exception as e:
-            print(f"[CLEANUP] Error: {e}")
+            logger.error(f"[CLEANUP] Error: {e}")
 
 
 def start_cleanup_scheduler():

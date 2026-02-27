@@ -3,6 +3,9 @@ import platform
 import subprocess
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
+from utils.logger import get_logger
+logger = get_logger("subtitle_utils")
+
 
 # 괄호 없는 섹션 마커 패턴 (대소문자 무시)
 _SECTION_BARE_RE = re.compile(

@@ -90,7 +90,7 @@ export default {
       return await routeRequest(url, request, env, ctx, corsHeaders);
     } catch (error) {
       console.error('Unhandled error:', error);
-      return jsonResponse({ error: 'Internal server error' }, 500, corsHeaders);
+      return jsonResponse({ error: 'Internal server error', detail: 'Internal server error' }, 500, corsHeaders);
     }
   },
 
@@ -113,24 +113,24 @@ async function routeRequest(url, request, env, ctx, cors) {
   if (path === '/api/payments/webhook' && method === 'POST') {
     // [SECURITY] Rate limit webhooks
     const rlCheck = await checkRateLimit(env, `webhook:${clientIP}`, RATE_LIMITS.webhook);
-    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many requests' }, 429, cors);
+    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many requests', detail: 'Too many requests' }, 429, cors);
     return handlePortoneWebhook(request, env, cors);
   }
 
   // Auth routes (rate limited)
   if (path === '/api/auth/register' && method === 'POST') {
     const rlCheck = await checkRateLimit(env, `auth:${clientIP}`, RATE_LIMITS.auth);
-    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many attempts. Please try again later.' }, 429, cors);
+    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many attempts. Please try again later.', detail: 'Too many attempts. Please try again later.' }, 429, cors);
     return handleRegister(request, env, cors);
   }
   if (path === '/api/auth/login' && method === 'POST') {
     const rlCheck = await checkRateLimit(env, `auth:${clientIP}`, RATE_LIMITS.auth);
-    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many attempts. Please try again later.' }, 429, cors);
+    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many attempts. Please try again later.', detail: 'Too many attempts. Please try again later.' }, 429, cors);
     return handleLogin(request, env, cors);
   }
   if (path === '/api/auth/google' && method === 'POST') {
     const rlCheck = await checkRateLimit(env, `auth:${clientIP}`, RATE_LIMITS.auth);
-    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many attempts. Please try again later.' }, 429, cors);
+    if (!rlCheck.allowed) return jsonResponse({ error: 'Too many attempts. Please try again later.', detail: 'Too many attempts. Please try again later.' }, 429, cors);
     return handleGoogleAuth(request, env, cors);
   }
   if (path === '/api/config/google-client-id' && method === 'GET') return handleGoogleClientId(env, cors);
@@ -139,7 +139,7 @@ async function routeRequest(url, request, env, ctx, cors) {
   // These routes forward to Railway. We pass user ID if authenticated for ownership filtering.
   if (path === '/api/history' && method === 'GET') {
     const user = await authenticateUser(request, env);
-    if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
+    if (!user) return jsonResponse({ error: 'Unauthorized', detail: 'Unauthorized' }, 401, cors);
     return proxyToRailwayPublic(request, env, path, cors, user);
   }
   if (path.startsWith('/api/status/')) {
@@ -172,7 +172,7 @@ async function routeRequest(url, request, env, ctx, cors) {
 
   // ---------- 인증 필요 라우트 ----------
   const user = await authenticateUser(request, env);
-  if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
+  if (!user) return jsonResponse({ error: 'Unauthorized', detail: 'Unauthorized' }, 401, cors);
 
   // [SECURITY] Check plan expiration
   await enforcePlanExpiration(env, user);
@@ -255,7 +255,7 @@ async function routeRequest(url, request, env, ctx, cors) {
     return proxyToRailway(request, env, user, null, path, cors);
   }
 
-  return jsonResponse({ error: 'Not Found' }, 404, cors);
+  return jsonResponse({ error: 'Not Found', detail: 'Not Found' }, 404, cors);
 }
 
 // ==================== Railway 프록시 ====================
@@ -284,7 +284,7 @@ async function proxyToRailwayPublic(request, env, path, cors, user) {
     return new Response(response.body, { status: response.status, headers: responseHeaders });
   } catch (error) {
     console.error('Public proxy error:', error);
-    return jsonResponse({ error: 'Backend unavailable' }, 502, cors);
+    return jsonResponse({ error: 'Backend unavailable', detail: 'Backend unavailable' }, 502, cors);
   }
 }
 
@@ -293,7 +293,7 @@ async function proxyToRailway(request, env, user, clipAction, path, cors) {
   const freshUser = await env.DB.prepare(
     'SELECT id, credits, plan_id, plan_expires_at FROM users WHERE id = ?'
   ).bind(user.id).first();
-  if (!freshUser) return jsonResponse({ error: 'User not found' }, 401, cors);
+  if (!freshUser) return jsonResponse({ error: 'User not found', detail: 'User not found' }, 401, cors);
 
   const userPlanId = freshUser.plan_id || 'free';
   const planLimits = PLAN_LIMITS[userPlanId] || PLAN_LIMITS.free;
@@ -431,7 +431,7 @@ async function proxyToRailway(request, env, user, clipAction, path, cors) {
         await refundClips(env, user.id, cost, clipAction, `${clipAction} proxy failed - refund`);
       }
     }
-    return jsonResponse({ error: 'Backend unavailable' }, 502, cors);
+    return jsonResponse({ error: 'Backend unavailable', detail: 'Backend unavailable' }, 502, cors);
   }
 }
 
@@ -552,21 +552,21 @@ async function handleRegister(request, env, cors) {
   try {
     const { username, email, password } = await request.json();
     if (!email || !password) {
-      return jsonResponse({ error: 'Email and password required' }, 400, cors);
+      return jsonResponse({ error: 'Email and password required', detail: 'Email and password required' }, 400, cors);
     }
 
     // [SECURITY] Input validation
     if (typeof email !== 'string' || email.length > 254 || !email.includes('@')) {
-      return jsonResponse({ error: 'Invalid email' }, 400, cors);
+      return jsonResponse({ error: 'Invalid email', detail: 'Invalid email' }, 400, cors);
     }
     if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
-      return jsonResponse({ error: 'Password must be 8-128 characters' }, 400, cors);
+      return jsonResponse({ error: 'Password must be 8-128 characters', detail: 'Password must be 8-128 characters' }, 400, cors);
     }
 
     const cleanEmail = email.toLowerCase().trim();
     const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(cleanEmail).first();
     if (existing) {
-      return jsonResponse({ error: 'Email already registered' }, 409, cors);
+      return jsonResponse({ error: 'Email already registered', detail: 'Email already registered' }, 409, cors);
     }
 
     const passwordHash = await hashPassword(password);
@@ -583,7 +583,7 @@ async function handleRegister(request, env, cors) {
     return jsonResponse({ message: 'Registered successfully', user: { id: cleanEmail, email: cleanEmail, clips: SIGNUP_BONUS_CLIPS } }, 201, cors);
   } catch (error) {
     console.error('Register error:', error);
-    return jsonResponse({ error: 'Registration failed' }, 500, cors);
+    return jsonResponse({ error: 'Registration failed', detail: 'Registration failed' }, 500, cors);
   }
 }
 
@@ -591,7 +591,7 @@ async function handleLogin(request, env, cors) {
   try {
     const { email, password } = await request.json();
     if (!email || !password) {
-      return jsonResponse({ error: 'Email and password required' }, 400, cors);
+      return jsonResponse({ error: 'Email and password required', detail: 'Email and password required' }, 400, cors);
     }
 
     const user = await env.DB.prepare(
@@ -602,12 +602,12 @@ async function handleLogin(request, env, cors) {
     if (!user || !user.password_hash) {
       // Perform a dummy hash to prevent timing attacks
       await hashPassword('dummy-password-for-timing');
-      return jsonResponse({ error: 'Invalid credentials' }, 401, cors);
+      return jsonResponse({ error: 'Invalid credentials', detail: 'Invalid credentials' }, 401, cors);
     }
 
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
-      return jsonResponse({ error: 'Invalid credentials' }, 401, cors);
+      return jsonResponse({ error: 'Invalid credentials', detail: 'Invalid credentials' }, 401, cors);
     }
 
     const token = await createJWT({ sub: user.id, email: user.email }, env.JWT_SECRET);
@@ -625,7 +625,7 @@ async function handleLogin(request, env, cors) {
     }, 200, cors);
   } catch (error) {
     console.error('Login error:', error);
-    return jsonResponse({ error: 'Login failed' }, 500, cors);
+    return jsonResponse({ error: 'Login failed', detail: 'Login failed' }, 500, cors);
   }
 }
 
@@ -635,18 +635,18 @@ async function handleGoogleAuth(request, env, cors) {
   try {
     const { id_token } = await request.json();
     if (!id_token) {
-      return jsonResponse({ error: 'id_token required' }, 400, cors);
+      return jsonResponse({ error: 'id_token required', detail: 'id_token required' }, 400, cors);
     }
 
     const clientId = env.GOOGLE_CLIENT_ID;
     if (!clientId) {
-      return jsonResponse({ error: 'Google OAuth not configured' }, 500, cors);
+      return jsonResponse({ error: 'Google OAuth not configured', detail: 'Google OAuth not configured' }, 500, cors);
     }
 
     // Verify Google ID token
     const googleUser = await verifyGoogleToken(id_token, clientId);
     if (!googleUser) {
-      return jsonResponse({ error: 'Invalid Google token' }, 401, cors);
+      return jsonResponse({ error: 'Invalid Google token', detail: 'Invalid Google token' }, 401, cors);
     }
 
     const { email, name } = googleUser;
@@ -683,7 +683,7 @@ async function handleGoogleAuth(request, env, cors) {
     }, 200, cors);
   } catch (error) {
     console.error('Google auth error:', error);
-    return jsonResponse({ error: 'Authentication failed' }, 500, cors);
+    return jsonResponse({ error: 'Authentication failed', detail: 'Authentication failed' }, 500, cors);
   }
 }
 
@@ -726,7 +726,7 @@ async function verifyGoogleToken(idToken, clientId) {
 function handleGoogleClientId(env, cors) {
   const clientId = env.GOOGLE_CLIENT_ID;
   if (!clientId) {
-    return jsonResponse({ error: 'GOOGLE_CLIENT_ID not configured' }, 404, cors);
+    return jsonResponse({ error: 'GOOGLE_CLIENT_ID not configured', detail: 'GOOGLE_CLIENT_ID not configured' }, 404, cors);
   }
   return jsonResponse({ client_id: clientId }, 200, cors);
 }
@@ -881,7 +881,7 @@ async function handleClipCheck(request, user, cors) {
   const cost = CLIP_COSTS[action];
 
   if (cost === undefined) {
-    return jsonResponse({ error: 'Unknown action' }, 400, cors);
+    return jsonResponse({ error: 'Unknown action', detail: 'Unknown action' }, 400, cors);
   }
 
   const clips = user.credits; // DB column 'credits' → variable 'clips'
@@ -955,7 +955,7 @@ async function handlePaymentPrepare(request, user, env, cors) {
 
   if (type === 'clip_pack' || type === 'credit_pack') {
     const pack = CLIP_PACKS[pack_type];
-    if (!pack) return jsonResponse({ error: 'Invalid pack type' }, 400, cors);
+    if (!pack) return jsonResponse({ error: 'Invalid pack type', detail: 'Invalid pack type' }, 400, cors);
 
     orderName = `StoryCut 클립팩 ${pack_type} (${pack.clips} clips)`;
     totalAmount = pack.priceKrw;
@@ -969,7 +969,7 @@ async function handlePaymentPrepare(request, user, env, cors) {
 
   } else if (type === 'subscription') {
     const plan = PLANS[plan_id];
-    if (!plan || plan_id === 'free') return jsonResponse({ error: 'Invalid plan' }, 400, cors);
+    if (!plan || plan_id === 'free') return jsonResponse({ error: 'Invalid plan', detail: 'Invalid plan' }, 400, cors);
 
     orderName = `StoryCut ${plan.name} 구독 (월 ${plan.monthlyClips} clips)`;
     totalAmount = plan.priceKrw;
@@ -981,7 +981,7 @@ async function handlePaymentPrepare(request, user, env, cors) {
     ).bind(paymentId, user.id, totalAmount, clips, new Date().toISOString()).run();
 
   } else {
-    return jsonResponse({ error: 'Invalid type (clip_pack or subscription)' }, 400, cors);
+    return jsonResponse({ error: 'Invalid type (clip_pack or subscription)', detail: 'Invalid type (clip_pack or subscription)' }, 400, cors);
   }
 
   return jsonResponse({
@@ -1001,19 +1001,19 @@ async function handlePaymentPrepare(request, user, env, cors) {
 async function handlePaymentComplete(request, user, env, cors) {
   const { payment_id, pack_type } = await request.json();
 
-  if (!payment_id) return jsonResponse({ error: 'payment_id required' }, 400, cors);
+  if (!payment_id) return jsonResponse({ error: 'payment_id required', detail: 'payment_id required' }, 400, cors);
 
   // 1) pending 결제 확인
   const payment = await env.DB.prepare(
     'SELECT * FROM payments WHERE id = ? AND user_id = ? AND status = ?'
   ).bind(payment_id, user.id, 'pending').first();
 
-  if (!payment) return jsonResponse({ error: 'Payment not found or already processed' }, 404, cors);
+  if (!payment) return jsonResponse({ error: 'Payment not found or already processed', detail: 'Payment not found or already processed' }, 404, cors);
 
   // 2) 포트원 API로 결제 상태 검증
   const verified = await verifyPortonePayment(env, payment_id, payment.amount_usd);
   if (!verified.success) {
-    return jsonResponse({ error: 'Payment verification failed' }, 400, cors);
+    return jsonResponse({ error: 'Payment verification failed', detail: 'Payment verification failed' }, 400, cors);
   }
 
   // 3) 클립 충전
@@ -1052,15 +1052,15 @@ async function handleSubscribe(request, user, env, cors) {
   const { billing_key, plan_id, payment_id } = await request.json();
 
   if (!billing_key || !plan_id) {
-    return jsonResponse({ error: 'billing_key and plan_id required' }, 400, cors);
+    return jsonResponse({ error: 'billing_key and plan_id required', detail: 'billing_key and plan_id required' }, 400, cors);
   }
 
   const plan = PLANS[plan_id];
-  if (!plan || plan_id === 'free') return jsonResponse({ error: 'Invalid plan' }, 400, cors);
+  if (!plan || plan_id === 'free') return jsonResponse({ error: 'Invalid plan', detail: 'Invalid plan' }, 400, cors);
 
   // 기존 구독 확인
   if (user.plan_id && user.plan_id !== 'free') {
-    return jsonResponse({ error: 'Already subscribed. Cancel current plan first.' }, 400, cors);
+    return jsonResponse({ error: 'Already subscribed. Cancel current plan first.', detail: 'Already subscribed. Cancel current plan first.' }, 400, cors);
   }
 
   // 빌링키로 첫 결제 실행
@@ -1070,7 +1070,7 @@ async function handleSubscribe(request, user, env, cors) {
     `StoryCut ${plan.name} 구독 (첫 달)`);
 
   if (!chargeResult.success) {
-    return jsonResponse({ error: 'Payment failed' }, 402, cors);
+    return jsonResponse({ error: 'Payment failed', detail: 'Payment failed' }, 402, cors);
   }
 
   // 구독 등록 + 클립 충전
@@ -1119,7 +1119,7 @@ async function handleSubscribe(request, user, env, cors) {
  */
 async function handleCancelSubscription(user, env, cors) {
   if (!user.plan_id || user.plan_id === 'free') {
-    return jsonResponse({ error: 'No active subscription' }, 400, cors);
+    return jsonResponse({ error: 'No active subscription', detail: 'No active subscription' }, 400, cors);
   }
 
   const now = new Date().toISOString();
@@ -1148,7 +1148,7 @@ async function handlePortoneWebhook(request, env, cors) {
     if (webhookSecret) {
       const signature = request.headers.get('X-Portone-Signature');
       if (!signature) {
-        return jsonResponse({ error: 'Missing webhook signature' }, 403, cors);
+        return jsonResponse({ error: 'Missing webhook signature', detail: 'Missing webhook signature' }, 403, cors);
       }
       // Note: implement full HMAC verification when PortOne docs specify format
     }
@@ -1183,7 +1183,7 @@ async function handlePortoneWebhook(request, env, cors) {
     return jsonResponse({ received: true }, 200, cors);
   } catch (error) {
     console.error('Webhook error:', error);
-    return jsonResponse({ error: 'Webhook processing failed' }, 500, cors);
+    return jsonResponse({ error: 'Webhook processing failed', detail: 'Webhook processing failed' }, 500, cors);
   }
 }
 
@@ -1335,29 +1335,29 @@ async function processSubscriptionRenewals(env) {
 async function handleAdminGrantClips(request, user, env, cors) {
   const adminEmails = (env.ADMIN_EMAILS || '').split(',').map(e => e.trim());
   if (!adminEmails.includes(user.email)) {
-    return jsonResponse({ error: 'Forbidden' }, 403, cors);
+    return jsonResponse({ error: 'Forbidden', detail: 'Forbidden' }, 403, cors);
   }
 
   const { target_user_id, target_email, amount, reason } = await request.json();
 
   // [SECURITY] Validate amount
   if (!Number.isInteger(amount) || amount <= 0) {
-    return jsonResponse({ error: 'amount must be a positive integer' }, 400, cors);
+    return jsonResponse({ error: 'amount must be a positive integer', detail: 'amount must be a positive integer' }, 400, cors);
   }
   if (amount > 10000) {
-    return jsonResponse({ error: 'amount exceeds maximum (10000)' }, 400, cors);
+    return jsonResponse({ error: 'amount exceeds maximum (10000)', detail: 'amount exceeds maximum (10000)' }, 400, cors);
   }
 
   let targetId = target_user_id;
   if (!targetId && target_email) {
-    if (typeof target_email !== 'string') return jsonResponse({ error: 'Invalid email' }, 400, cors);
+    if (typeof target_email !== 'string') return jsonResponse({ error: 'Invalid email', detail: 'Invalid email' }, 400, cors);
     const target = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(target_email).first();
-    if (!target) return jsonResponse({ error: 'Target user not found' }, 404, cors);
+    if (!target) return jsonResponse({ error: 'Target user not found', detail: 'Target user not found' }, 404, cors);
     targetId = target.id;
   }
 
   if (!targetId) {
-    return jsonResponse({ error: 'target_user_id or target_email required' }, 400, cors);
+    return jsonResponse({ error: 'target_user_id or target_email required', detail: 'target_user_id or target_email required' }, 400, cors);
   }
 
   await addClips(env, targetId, amount, 'purchase', 'admin_grant',
@@ -1403,7 +1403,7 @@ async function handleGetPosts(url, env, cors, user) {
     }, 200, cors);
   } catch (error) {
     console.error('GetPosts error:', error);
-    return jsonResponse({ error: 'Failed to load posts' }, 500, cors);
+    return jsonResponse({ error: 'Failed to load posts', detail: 'Failed to load posts' }, 500, cors);
   }
 }
 
@@ -1417,7 +1417,7 @@ async function handleGetPost(url, env, cors, user) {
        WHERE p.id = ? AND p.is_deleted = 0`
     ).bind(postId).first();
 
-    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+    if (!post) return jsonResponse({ error: 'Post not found', detail: 'Post not found' }, 404, cors);
 
     // 조회수 증가
     await env.DB.prepare(
@@ -1436,7 +1436,7 @@ async function handleGetPost(url, env, cors, user) {
     return jsonResponse({ ...post, view_count: post.view_count + 1, liked }, 200, cors);
   } catch (error) {
     console.error('GetPost error:', error);
-    return jsonResponse({ error: 'Failed to load post' }, 500, cors);
+    return jsonResponse({ error: 'Failed to load post', detail: 'Failed to load post' }, 500, cors);
   }
 }
 
@@ -1444,9 +1444,9 @@ async function handleCreatePost(request, user, env, cors) {
   try {
     const { title, content, category } = await request.json();
 
-    if (!title || !content) return jsonResponse({ error: 'Title and content required' }, 400, cors);
-    if (typeof title !== 'string' || title.length > 200) return jsonResponse({ error: 'Title must be under 200 characters' }, 400, cors);
-    if (typeof content !== 'string' || content.length > 5000) return jsonResponse({ error: 'Content must be under 5000 characters' }, 400, cors);
+    if (!title || !content) return jsonResponse({ error: 'Title and content required', detail: 'Title and content required' }, 400, cors);
+    if (typeof title !== 'string' || title.length > 200) return jsonResponse({ error: 'Title must be under 200 characters', detail: 'Title must be under 200 characters' }, 400, cors);
+    if (typeof content !== 'string' || content.length > 5000) return jsonResponse({ error: 'Content must be under 5000 characters', detail: 'Content must be under 5000 characters' }, 400, cors);
 
     const validCategories = ['feedback', 'bug', 'feature', 'question', 'tip', 'general'];
     const cat = validCategories.includes(category) ? category : 'general';
@@ -1460,7 +1460,7 @@ async function handleCreatePost(request, user, env, cors) {
     return jsonResponse({ id: result.meta.last_row_id, message: 'Post created' }, 201, cors);
   } catch (error) {
     console.error('CreatePost error:', error);
-    return jsonResponse({ error: 'Failed to create post' }, 500, cors);
+    return jsonResponse({ error: 'Failed to create post', detail: 'Failed to create post' }, 500, cors);
   }
 }
 
@@ -1469,13 +1469,13 @@ async function handleUpdatePost(url, request, user, env, cors) {
     const postId = parseInt(url.pathname.split('/').pop());
     const post = await env.DB.prepare('SELECT user_id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
 
-    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
-    if (post.user_id !== user.id) return jsonResponse({ error: 'Forbidden' }, 403, cors);
+    if (!post) return jsonResponse({ error: 'Post not found', detail: 'Post not found' }, 404, cors);
+    if (post.user_id !== user.id) return jsonResponse({ error: 'Forbidden', detail: 'Forbidden' }, 403, cors);
 
     const { title, content, category } = await request.json();
-    if (!title || !content) return jsonResponse({ error: 'Title and content required' }, 400, cors);
-    if (typeof title !== 'string' || title.length > 200) return jsonResponse({ error: 'Title must be under 200 characters' }, 400, cors);
-    if (typeof content !== 'string' || content.length > 5000) return jsonResponse({ error: 'Content must be under 5000 characters' }, 400, cors);
+    if (!title || !content) return jsonResponse({ error: 'Title and content required', detail: 'Title and content required' }, 400, cors);
+    if (typeof title !== 'string' || title.length > 200) return jsonResponse({ error: 'Title must be under 200 characters', detail: 'Title must be under 200 characters' }, 400, cors);
+    if (typeof content !== 'string' || content.length > 5000) return jsonResponse({ error: 'Content must be under 5000 characters', detail: 'Content must be under 5000 characters' }, 400, cors);
 
     const validCategories = ['feedback', 'bug', 'feature', 'question', 'tip', 'general'];
     const cat = validCategories.includes(category) ? category : 'general';
@@ -1487,7 +1487,7 @@ async function handleUpdatePost(url, request, user, env, cors) {
     return jsonResponse({ message: 'Post updated' }, 200, cors);
   } catch (error) {
     console.error('UpdatePost error:', error);
-    return jsonResponse({ error: 'Failed to update post' }, 500, cors);
+    return jsonResponse({ error: 'Failed to update post', detail: 'Failed to update post' }, 500, cors);
   }
 }
 
@@ -1496,8 +1496,8 @@ async function handleDeletePost(url, user, env, cors) {
     const postId = parseInt(url.pathname.split('/').pop());
     const post = await env.DB.prepare('SELECT user_id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
 
-    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
-    if (post.user_id !== user.id) return jsonResponse({ error: 'Forbidden' }, 403, cors);
+    if (!post) return jsonResponse({ error: 'Post not found', detail: 'Post not found' }, 404, cors);
+    if (post.user_id !== user.id) return jsonResponse({ error: 'Forbidden', detail: 'Forbidden' }, 403, cors);
 
     await env.DB.prepare(
       'UPDATE posts SET is_deleted = 1, updated_at = ? WHERE id = ?'
@@ -1506,7 +1506,7 @@ async function handleDeletePost(url, user, env, cors) {
     return jsonResponse({ message: 'Post deleted' }, 200, cors);
   } catch (error) {
     console.error('DeletePost error:', error);
-    return jsonResponse({ error: 'Failed to delete post' }, 500, cors);
+    return jsonResponse({ error: 'Failed to delete post', detail: 'Failed to delete post' }, 500, cors);
   }
 }
 
@@ -1526,7 +1526,7 @@ async function handleGetComments(url, env, cors) {
     return jsonResponse({ comments: comments.results }, 200, cors);
   } catch (error) {
     console.error('GetComments error:', error);
-    return jsonResponse({ error: 'Failed to load comments' }, 500, cors);
+    return jsonResponse({ error: 'Failed to load comments', detail: 'Failed to load comments' }, 500, cors);
   }
 }
 
@@ -1536,12 +1536,12 @@ async function handleCreateComment(url, request, user, env, cors) {
     const { content } = await request.json();
 
     if (!content || typeof content !== 'string' || content.length > 1000) {
-      return jsonResponse({ error: 'Content must be 1-1000 characters' }, 400, cors);
+      return jsonResponse({ error: 'Content must be 1-1000 characters', detail: 'Content must be 1-1000 characters' }, 400, cors);
     }
 
     // 게시글 존재 확인
     const post = await env.DB.prepare('SELECT id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
-    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+    if (!post) return jsonResponse({ error: 'Post not found', detail: 'Post not found' }, 404, cors);
 
     const now = new Date().toISOString();
     await env.DB.batch([
@@ -1556,7 +1556,7 @@ async function handleCreateComment(url, request, user, env, cors) {
     return jsonResponse({ message: 'Comment created' }, 201, cors);
   } catch (error) {
     console.error('CreateComment error:', error);
-    return jsonResponse({ error: 'Failed to create comment' }, 500, cors);
+    return jsonResponse({ error: 'Failed to create comment', detail: 'Failed to create comment' }, 500, cors);
   }
 }
 
@@ -1566,7 +1566,7 @@ async function handleToggleLike(url, user, env, cors) {
 
     // 게시글 존재 확인
     const post = await env.DB.prepare('SELECT id FROM posts WHERE id = ? AND is_deleted = 0').bind(postId).first();
-    if (!post) return jsonResponse({ error: 'Post not found' }, 404, cors);
+    if (!post) return jsonResponse({ error: 'Post not found', detail: 'Post not found' }, 404, cors);
 
     // 기존 좋아요 확인
     const existing = await env.DB.prepare(
@@ -1590,7 +1590,7 @@ async function handleToggleLike(url, user, env, cors) {
     }
   } catch (error) {
     console.error('ToggleLike error:', error);
-    return jsonResponse({ error: 'Failed to toggle like' }, 500, cors);
+    return jsonResponse({ error: 'Failed to toggle like', detail: 'Failed to toggle like' }, 500, cors);
   }
 }
 
@@ -1658,10 +1658,10 @@ async function handleGenerate(request, user, env, ctx, cors) {
       }, 200, cors);
     }
 
-    return jsonResponse({ error: 'Invalid action' }, 400, cors);
+    return jsonResponse({ error: 'Invalid action', detail: 'Invalid action' }, 400, cors);
   } catch (error) {
     console.error('Generate error:', error);
-    return jsonResponse({ error: 'Generation failed' }, 500, cors);
+    return jsonResponse({ error: 'Generation failed', detail: 'Generation failed' }, 500, cors);
   }
 }
 
@@ -1670,7 +1670,7 @@ async function handleVideoDownload(url, env, cors) {
 
   try {
     if (!env.R2_BUCKET) {
-      return jsonResponse({ error: 'Storage not configured' }, 503, cors);
+      return jsonResponse({ error: 'Storage not configured', detail: 'Storage not configured' }, 503, cors);
     }
     const object = await env.R2_BUCKET.get(`videos/${projectId}/final_video.mp4`);
 
@@ -1702,13 +1702,13 @@ async function handleStatus(url, env, cors) {
     ).bind(projectId).first();
 
     if (!result) {
-      return jsonResponse({ error: 'Project not found' }, 404, cors);
+      return jsonResponse({ error: 'Project not found', detail: 'Project not found' }, 404, cors);
     }
 
     return jsonResponse(result, 200, cors);
   } catch (error) {
     console.error('Status error');
-    return jsonResponse({ error: 'Status check failed' }, 500, cors);
+    return jsonResponse({ error: 'Status check failed', detail: 'Status check failed' }, 500, cors);
   }
 }
 

@@ -25,6 +25,9 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import FeatureFlags, Scene
+from utils.logger import get_logger
+logger = get_logger("video_agent")
+
 
 
 class VideoAgent:
@@ -60,9 +63,9 @@ class VideoAgent:
         # Prioritize Veo 3.1 if Google API key available
         if self.google_api_key:
             self.service = "veo"
-            print("  Video Agent: Using Veo 3.1 (Google) for high-quality video generation.")
+            logger.info("  Video Agent: Using Veo 3.1 (Google) for high-quality video generation.")
         elif not self.api_key:
-            print("  No video API key provided. Will use image + Ken Burns method.")
+            logger.info("  No video API key provided. Will use image + Ken Burns method.")
 
     def _load_veo_policy(self) -> dict:
         """Veo I2V 정책 로드."""
@@ -113,14 +116,14 @@ class VideoAgent:
         Returns:
             Path to generated video file
         """
-        print(f"  Generating video for scene {scene_id}...")
-        print(f"     Description: {visual_description[:60]}...")
+        logger.info(f"  Generating video for scene {scene_id}...")
+        logger.info(f"     Description: {visual_description[:60]}...")
 
         # v2.0: Use image_prompt if available (character reference)
         actual_prompt = visual_description
         if scene and scene.image_prompt:
             actual_prompt = scene.image_prompt
-            print(f"     [v2.0] Using image_prompt for character consistency")
+            logger.info(f"     [v2.0] Using image_prompt for character consistency")
 
         # Output paths
         os.makedirs(output_dir, exist_ok=True)
@@ -138,7 +141,7 @@ class VideoAgent:
         if use_high_quality_video:
             # P0: Scene 1 Hook - 고품질 비디오 생성 시도
             # v2.1: Image-to-Video 모드 사용 - 먼저 이미지 생성 후 Veo에 전달
-            print(f"     [HOOK] Scene 1: Generating first frame image for Image-to-Video...")
+            logger.info(f"     [HOOK] Scene 1: Generating first frame image for Image-to-Video...")
             
             first_frame_image = None
             
@@ -172,7 +175,7 @@ class VideoAgent:
                                     character_reference_paths.append(master_path)
                 
                 if character_reference_paths:
-                    print(f"     [v2.1] Using {len(character_reference_paths)} character reference(s) for first frame")
+                    logger.info(f"     [v2.1] Using {len(character_reference_paths)} character reference(s) for first frame")
                 
                 # 이미지 출력 경로
                 image_dir = output_dir.replace("video", "images") if "video" in output_dir else f"{output_dir}/images"
@@ -196,14 +199,14 @@ class VideoAgent:
                 )
                 
                 first_frame_image = image_path
-                print(f"     [v2.1] First frame generated: {image_path}")
+                logger.info(f"     [v2.1] First frame generated: {image_path}")
                 
                 # Step 2: Veo 3.1 Image-to-Video 모드로 비디오 생성
-                print(f"     [HOOK] Scene 1: Generating video with Veo 3.1 Image-to-Video...")
+                logger.info(f"     [HOOK] Scene 1: Generating video with Veo 3.1 Image-to-Video...")
                 # v2.0: 정책 기반 클립 길이 제한
                 has_chars = bool(scene and scene.characters_in_scene)
                 enforced_duration = self._enforce_clip_length(min(duration_sec, 10), has_characters=has_chars)
-                print(f"     [Policy] Clip length: {enforced_duration}s (characters={has_chars})")
+                logger.info(f"     [Policy] Clip length: {enforced_duration}s (characters={has_chars})")
 
                 video_path = self._generate_high_quality_video(
                     prompt=actual_prompt,
@@ -214,7 +217,7 @@ class VideoAgent:
                     first_frame_image=first_frame_image  # v2.1: 첫 프레임 이미지 전달
                 )
                 generation_method = "image_to_video"
-                print(f"     Video saved: {video_path}")
+                logger.info(f"     Video saved: {video_path}")
 
                 # Update scene metadata if provided
                 if scene:
@@ -225,8 +228,8 @@ class VideoAgent:
                 return video_path
 
             except Exception as e:
-                print(f"     High-quality video generation failed: {e}")
-                print(f"     Falling back to image + Ken Burns...")
+                logger.error(f"     High-quality video generation failed: {e}")
+                logger.info(f"     Falling back to image + Ken Burns...")
                 # Continue to fallback below
 
         # Default/Fallback: Image + Ken Burns
@@ -245,7 +248,7 @@ class VideoAgent:
             scene.generation_method = generation_method
             scene.assets.video_path = video_path
 
-        print(f"     Video saved: {video_path} (method: {generation_method})")
+        logger.info(f"     Video saved: {video_path} (method: {generation_method})")
         return video_path
 
     def generate_from_image(
@@ -272,9 +275,9 @@ class VideoAgent:
         Returns:
             Path to generated video file
         """
-        print(f"  [I2V] Converting image to video: scene {scene_id}")
-        print(f"     Image: {image_path}")
-        print(f"     Motion: {motion_prompt}")
+        logger.info(f"  [I2V] Converting image to video: scene {scene_id}")
+        logger.info(f"     Image: {image_path}")
+        logger.info(f"     Motion: {motion_prompt}")
 
         os.makedirs(output_dir, exist_ok=True)
         output_path = f"{output_dir}/scene_{scene_id:02d}_i2v.mp4"
@@ -290,10 +293,10 @@ class VideoAgent:
                 output_path=output_path,
                 first_frame_image=image_path
             )
-            print(f"     [I2V] Veo I2V success: {video_path}")
+            logger.info(f"     [I2V] Veo I2V success: {video_path}")
             return video_path
         except Exception as e:
-            print(f"     [I2V] Veo failed: {e}, falling back to Ken Burns")
+            logger.error(f"     [I2V] Veo failed: {e}, falling back to Ken Burns")
 
         # Fallback: Ken Burns on existing image
         return self._apply_kenburns_effect(
@@ -335,7 +338,7 @@ class VideoAgent:
             return self._call_stability_api(prompt, style, duration_sec, output_path)
         else:
             # Default to placeholder if service not implemented
-            print(f"     Service '{self.service}' not implemented yet.")
+            logger.info(f"     Service '{self.service}' not implemented yet.")
             raise NotImplementedError(f"Video service '{self.service}' not implemented")
 
     def _call_veo_api(
@@ -368,7 +371,7 @@ class VideoAgent:
             import time
             import requests
 
-            print(f"     Calling Veo 3.1 API (veo-3.1-generate-preview)...")
+            logger.info(f"     Calling Veo 3.1 API (veo-3.1-generate-preview)...")
 
             # Using the official SDK
             client = genai.Client(api_key=self.google_api_key)
@@ -382,11 +385,11 @@ class VideoAgent:
                     "A first_frame_image is required for Image-to-Video mode."
                 )
 
-            print(f"     [v2.0] Image-to-Video mode: using {first_frame_image}")
+            logger.info(f"     [v2.0] Image-to-Video mode: using {first_frame_image}")
             movement_prompt = self._build_movement_prompt(prompt, style, mood)
             full_prompt = movement_prompt
 
-            print(f"     Sending request to Veo 3.1...")
+            logger.info(f"     Sending request to Veo 3.1...")
 
             # v2.0: Image-to-Video 전용 API 호출
             from google.genai import types as genai_types
@@ -405,8 +408,8 @@ class VideoAgent:
                 )
             )
             
-            print(f"     Operation started: {operation.name}")
-            print(f"     Waiting for video generation to complete (this may take a minute)...")
+            logger.info(f"     Operation started: {operation.name}")
+            logger.info(f"     Waiting for video generation to complete (this may take a minute)...")
             
             # Poll for completion
             while True:
@@ -417,10 +420,10 @@ class VideoAgent:
                 if operation.done:
                     break
                     
-                print(f"     ...still generating...")
+                logger.info(f"     ...still generating...")
                 time.sleep(5)
 
-            print(f"     Generation confirmed complete.")
+            logger.info(f"     Generation confirmed complete.")
             
             # Get result from completed operation
             response = operation.result
@@ -445,11 +448,11 @@ class VideoAgent:
                            video_uri = part.uri
             
             if not video_uri:
-                 print(f"     [DEBUG] Response dir: {dir(response)}") 
-                 print(f"     [DEBUG] Response str: {str(response)[:500]}")
+                 logger.debug(f"     [DEBUG] Response dir: {dir(response)}")
+                 logger.debug(f"     [DEBUG] Response str: {str(response)[:500]}")
                  raise NotImplementedError("Could not extract video URI from Veo response")
                  
-            print(f"     Downloading video from: {video_uri[:50]}...")
+            logger.info(f"     Downloading video from: {video_uri[:50]}...")
             
             # Append API key if using Google API URL
             download_url = video_uri
@@ -462,23 +465,22 @@ class VideoAgent:
             if video_resp.status_code == 200:
                 with open(output_path, "wb") as f:
                     f.write(video_resp.content)
-                print(f"     Video saved: {output_path}")
+                logger.info(f"     Video saved: {output_path}")
             else:
                 raise RuntimeError(f"Failed to download video from {video_uri}")
 
             return output_path
 
         except Exception as e:
-            from utils.error_manager import ErrorManager
             ErrorManager.log_error(
                 "VideoAgent", 
                 "Veo 3.1 API Failed", 
                 f"{type(e).__name__}: {str(e)}", 
                 severity="error"
             )
-            print(f"     Veo 3.1 API integration failed: {str(e)}")
+            logger.error(f"     Veo 3.1 API integration failed: {str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             # Raise exception to trigger fallback in generate_video
             raise
 
@@ -658,7 +660,7 @@ class VideoAgent:
         # )
         # download_video(response.url, output_path)
 
-        print(f"     Runway API integration pending. Using enhanced placeholder.")
+        logger.info(f"     Runway API integration pending. Using enhanced placeholder.")
         raise NotImplementedError("Runway API not yet integrated")
 
     def _call_stability_api(
@@ -673,7 +675,7 @@ class VideoAgent:
 
         TODO: Implement actual Stability API integration
         """
-        print(f"     Stability API integration pending.")
+        logger.info(f"     Stability API integration pending.")
         raise NotImplementedError("Stability API not yet integrated")
 
     def _generate_with_kenburns(
@@ -759,15 +761,15 @@ class VideoAgent:
                 # 상세 묘사가 있다면 이것을 character_tokens 대신 사용
                 if detailed_descriptions:
                     character_tokens = detailed_descriptions
-                    print(f"     [v2.0] Injected detailed character descriptions: {detailed_descriptions}")
+                    logger.info(f"     [v2.0] Injected detailed character descriptions: {detailed_descriptions}")
 
                 if character_reference_paths:
-                    print(f"     [v2.0] Using {len(character_reference_paths)} character reference(s): {character_reference_paths}")
+                    logger.info(f"     [v2.0] Using {len(character_reference_paths)} character reference(s): {character_reference_paths}")
 
             if seed:
-                print(f"     [v2.0] Applying visual seed: {seed}")
+                logger.info(f"     [v2.0] Applying visual seed: {seed}")
             if character_tokens:
-                print(f"     [v2.0] Characters: {', '.join(str(t) for t in character_tokens)}")
+                logger.info(f"     [v2.0] Characters: {', '.join(str(t) for t in character_tokens)}")
 
         # Determine image output directory based on video output path
         # If output_path is 'outputs/xyz/media/video/scene.mp4', we want 'outputs/xyz/media/images'
@@ -788,14 +790,14 @@ class VideoAgent:
             _img_p = scene.assets.image_path
             if os.path.exists(_img_p):
                 existing_image = _img_p
-                print(f"     [SKIP] Using existing image: {existing_image}")
+                logger.info(f"     [SKIP] Using existing image: {existing_image}")
             elif _img_p.startswith("/media/"):
                 # /media/ 웹경로 → outputs/ 로컬경로 변환
                 _local = "outputs/" + _img_p[len("/media/"):]
                 if os.path.exists(_local):
                     existing_image = _local
                     scene.assets.image_path = _local
-                    print(f"     [SKIP] Resolved /media/ to local: {existing_image}")
+                    logger.info(f"     [SKIP] Resolved /media/ to local: {existing_image}")
             elif _img_p.startswith(("http://", "https://")):
                 # URL → 로컬 다운로드
                 os.makedirs(image_dir, exist_ok=True)
@@ -803,18 +805,18 @@ class VideoAgent:
                 if os.path.exists(_dl_path):
                     existing_image = _dl_path
                     scene.assets.image_path = _dl_path
-                    print(f"     [SKIP] Using previously downloaded: {existing_image}")
+                    logger.info(f"     [SKIP] Using previously downloaded: {existing_image}")
                 else:
                     try:
                         import urllib.request
-                        print(f"     [DOWNLOAD] Fetching image from URL: {_img_p[:80]}...")
+                        logger.info(f"     [DOWNLOAD] Fetching image from URL: {_img_p[:80]}...")
                         urllib.request.urlretrieve(_img_p, _dl_path)
                         if os.path.exists(_dl_path) and os.path.getsize(_dl_path) > 0:
                             existing_image = _dl_path
                             scene.assets.image_path = _dl_path
-                            print(f"     [SKIP] Downloaded to: {existing_image}")
+                            logger.info(f"     [SKIP] Downloaded to: {existing_image}")
                     except Exception as _e:
-                        print(f"     [DOWNLOAD] Failed: {_e} — will regenerate")
+                        logger.error(f"     [DOWNLOAD] Failed: {_e} — will regenerate")
 
         if existing_image:
             image_path = existing_image
@@ -916,7 +918,7 @@ class VideoAgent:
             
             if key in effect_map:
                 selected_effect = effect_map[key]
-                print(f"     [Camera] Applying explicit effect: {camera_work} -> {key}")
+                logger.info(f"     [Camera] Applying explicit effect: {camera_work} -> {key}")
         
         # 2. Fallback to Round Robin if no effect selected
         if not selected_effect:
@@ -943,19 +945,19 @@ class VideoAgent:
             output_path
         ]
 
-        print(f"     Ken Burns FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
+        logger.info(f"     Ken Burns FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
 
         # Run with 90 second timeout (Ken Burns takes longer)
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         except subprocess.TimeoutExpired:
-            print(f"     Ken Burns timed out, falling back to static image")
+            logger.info(f"     Ken Burns timed out, falling back to static image")
             return self._image_to_video(image_path, duration_sec, output_path)
 
         if result.returncode != 0:
             stderr_lines = result.stderr.split('\n')
             error_summary = '\n'.join(stderr_lines[-5:])
-            print(f"     Ken Burns effect failed (last 5 lines):\n{error_summary}")
+            logger.error(f"     Ken Burns effect failed (last 5 lines):\n{error_summary}")
             # Fallback to static image video
             return self._image_to_video(image_path, duration_sec, output_path)
 
@@ -982,10 +984,10 @@ class VideoAgent:
 
         # 이미지 파일 존재 확인
         if not os.path.exists(image_path):
-            print(f"     ERROR: Image file not found: {image_path}")
+            logger.error(f"     ERROR: Image file not found: {image_path}")
             raise RuntimeError(f"Image file not found: {image_path}")
 
-        print(f"     Image file size: {os.path.getsize(image_path)} bytes")
+        logger.info(f"     Image file size: {os.path.getsize(image_path)} bytes")
 
         # 더 안정적인 FFmpeg 명령어 (Railway 환경 호환)
         cmd = [
@@ -1005,13 +1007,13 @@ class VideoAgent:
             output_path
         ]
 
-        print(f"     FFmpeg command: {' '.join(cmd)}")
+        logger.info(f"     FFmpeg command: {' '.join(cmd)}")
 
         # Run with 60 second timeout
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         except subprocess.TimeoutExpired:
-            print(f"     FFmpeg timed out, trying placeholder video")
+            logger.info(f"     FFmpeg timed out, trying placeholder video")
             # Fallback to placeholder
             return self._generate_placeholder_video(1, duration_sec, output_path)
 
@@ -1019,10 +1021,10 @@ class VideoAgent:
             # FFmpeg 에러의 마지막 10줄만 출력 (핵심 에러 메시지)
             stderr_lines = result.stderr.split('\n')
             error_summary = '\n'.join(stderr_lines[-10:])
-            print(f"     FFmpeg error (last 10 lines):\n{error_summary}")
+            logger.error(f"     FFmpeg error (last 10 lines):\n{error_summary}")
 
             # 최종 fallback: placeholder video
-            print(f"     Falling back to placeholder video")
+            logger.info(f"     Falling back to placeholder video")
             return self._generate_placeholder_video(1, duration_sec, output_path)
 
         return output_path

@@ -11,6 +11,9 @@ import tempfile
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from dotenv import load_dotenv
+from utils.logger import get_logger
+logger = get_logger("tts_agent")
+
 
 load_dotenv()
 
@@ -43,9 +46,9 @@ class TTSAgent:
         self.voice = voice
         self.elevenlabs_key = os.getenv("ELEVENLABS_API_KEY")
         if self.elevenlabs_key:
-            print("[TTS Agent] Provider: ElevenLabs")
+            logger.info("[TTS Agent] Provider: ElevenLabs")
         else:
-            print("[TTS Agent] Warning: ELEVENLABS_API_KEY not set — will use silent placeholder")
+            logger.warning("[TTS Agent] Warning: ELEVENLABS_API_KEY not set — will use silent placeholder")
 
     def generate_speech(
         self,
@@ -66,8 +69,8 @@ class TTSAgent:
         Returns:
             TTSResult with audio_path and duration_sec
         """
-        print(f"  [TTS Agent] Generating narration for scene {scene_id}...")
-        print(f"     Text: {narration[:60]}...")
+        logger.info(f"  [TTS Agent] Generating narration for scene {scene_id}...")
+        logger.info(f"     Text: {narration[:60]}...")
 
         # Build output path — 프로젝트별 경로 우선, 미지정 시 공유 경로 fallback
         if output_path:
@@ -87,18 +90,18 @@ class TTSAgent:
                 audio_path = result["audio_path"]
                 char_alignment = result.get("alignment")
             except Exception as e:
-                print(f"     [Warning] ElevenLabs TTS failed: {e}")
+                logger.error(f"     [Warning] ElevenLabs TTS failed: {e}")
                 audio_path = None
 
         # 2. Fallback: silent placeholder
         if audio_path is None:
-            print(f"     [Fallback] Using silent placeholder audio")
+            logger.info(f"     [Fallback] Using silent placeholder audio")
             audio_path = self._generate_placeholder_audio(scene_id, narration, output_path)
 
         # 측정: 실제 오디오 길이 (FFprobe 사용, 실패 시 텍스트 기반 추정)
         duration_sec = self._get_audio_duration(audio_path, narration_text=narration)
 
-        print(f"     [TTS Agent] Audio saved: {audio_path} (duration: {duration_sec:.2f}s)")
+        logger.info(f"     [TTS Agent] Audio saved: {audio_path} (duration: {duration_sec:.2f}s)")
         return TTSResult(audio_path=audio_path, duration_sec=duration_sec, char_alignment=char_alignment)
 
     def get_available_voices(self) -> List[Dict[str, Any]]:
@@ -116,7 +119,7 @@ class TTSAgent:
             return _voice_cache["data"]
 
         if not self.elevenlabs_key:
-            print("[TTS Agent] No ELEVENLABS_API_KEY - returning empty voice list")
+            logger.info("[TTS Agent] No ELEVENLABS_API_KEY - returning empty voice list")
             return []
 
         try:
@@ -142,11 +145,11 @@ class TTSAgent:
             _voice_cache["data"] = voices
             _voice_cache["expires"] = time.time() + 300
 
-            print(f"[TTS Agent] Loaded {len(voices)} voices from ElevenLabs")
+            logger.info(f"[TTS Agent] Loaded {len(voices)} voices from ElevenLabs")
             return voices
 
         except Exception as e:
-            print(f"[TTS Agent] Failed to load voices: {e}")
+            logger.error(f"[TTS Agent] Failed to load voices: {e}")
             return []
 
     def generate_dialogue_audio(
@@ -203,7 +206,7 @@ class TTSAgent:
                 else:
                     self._generate_placeholder_audio(i, text, clip_path)
             except Exception as e:
-                print(f"  [TTS] Line {i} ({speaker}) failed: {e}. Using placeholder.")
+                logger.error(f"  [TTS] Line {i} ({speaker}) failed: {e}. Using placeholder.")
                 self._generate_placeholder_audio(i, text, clip_path)
 
             # Get duration
@@ -244,12 +247,12 @@ class TTSAgent:
             timings_end = line_timings[-1]["end"]
             timings_sum = sum(t["duration"] for t in line_timings)
             gap_total = (len(line_timings) - 1) * silence_gap
-            print(f"  [TTS SYNC DEBUG] clips={len(clip_paths)}, silence_gap={silence_gap}")
-            print(f"  [TTS SYNC DEBUG] individual durations: {[round(t['duration'],2) for t in line_timings]}")
-            print(f"  [TTS SYNC DEBUG] timings_last_end={timings_end:.2f}s, clips_sum={timings_sum:.2f}s + gaps={gap_total:.2f}s = {timings_sum+gap_total:.2f}s")
-            print(f"  [TTS SYNC DEBUG] actual_stitched={total_duration:.2f}s, DRIFT={timings_end - total_duration:+.2f}s")
+            logger.info(f"  [TTS SYNC DEBUG] clips={len(clip_paths)}, silence_gap={silence_gap}")
+            logger.info(f"  [TTS SYNC DEBUG] individual durations: {[round(t['duration'],2) for t in line_timings]}")
+            logger.info(f"  [TTS SYNC DEBUG] timings_last_end={timings_end:.2f}s, clips_sum={timings_sum:.2f}s + gaps={gap_total:.2f}s = {timings_sum+gap_total:.2f}s")
+            logger.info(f"  [TTS SYNC DEBUG] actual_stitched={total_duration:.2f}s, DRIFT={timings_end - total_duration:+.2f}s")
 
-        print(f"  [TTS] Dialogue audio: {len(clip_paths)} clips, {total_duration:.1f}s total")
+        logger.info(f"  [TTS] Dialogue audio: {len(clip_paths)} clips, {total_duration:.1f}s total")
         return TTSResult(audio_path=output_path, duration_sec=total_duration, sentence_timings=line_timings)
 
     def generate_speech_with_timing(
@@ -296,7 +299,7 @@ class TTSAgent:
             }]
             return result
 
-        print(f"  [TTS] 문장별 TTS 생성: {len(sentences)}개 문장")
+        logger.info(f"  [TTS] 문장별 TTS 생성: {len(sentences)}개 문장")
 
         # 문장별 TTS 생성
         temp_dir = tempfile.mkdtemp(prefix="tts_sentence_")
@@ -320,7 +323,7 @@ class TTSAgent:
                 else:
                     self._generate_placeholder_audio(i, sentence, clip_path)
             except Exception as e:
-                print(f"  [TTS] Sentence {i} failed: {e}. Using placeholder.")
+                logger.error(f"  [TTS] Sentence {i} failed: {e}. Using placeholder.")
                 self._generate_placeholder_audio(i, sentence, clip_path)
 
             duration = self._get_audio_duration(clip_path, narration_text=sentence)
@@ -333,7 +336,7 @@ class TTSAgent:
             })
             clip_paths.append(clip_path)
             current_time += duration
-            print(f"    문장 {i+1}: {sentence[:30]}... → {duration:.1f}s")
+            logger.info(f"    문장 {i+1}: {sentence[:30]}... → {duration:.1f}s")
 
         if not clip_paths:
             return self.generate_speech(scene_id, narration, emotion, output_path)
@@ -357,10 +360,10 @@ class TTSAgent:
         if sentence_timings:
             timings_end = sentence_timings[-1]["end"]
             timings_sum = sum(t["duration"] for t in sentence_timings)
-            print(f"  [TTS SYNC DEBUG] timings_last_end={timings_end:.2f}s, clips_sum={timings_sum:.2f}s")
-            print(f"  [TTS SYNC DEBUG] actual_stitched={total_duration:.2f}s, DRIFT={timings_end - total_duration:+.2f}s")
+            logger.info(f"  [TTS SYNC DEBUG] timings_last_end={timings_end:.2f}s, clips_sum={timings_sum:.2f}s")
+            logger.info(f"  [TTS SYNC DEBUG] actual_stitched={total_duration:.2f}s, DRIFT={timings_end - total_duration:+.2f}s")
 
-        print(f"  [TTS] 문장별 TTS 완료: {len(sentences)}문장, {total_duration:.1f}s")
+        logger.info(f"  [TTS] 문장별 TTS 완료: {len(sentences)}문장, {total_duration:.1f}s")
         return TTSResult(audio_path=output_path, duration_sec=total_duration, sentence_timings=sentence_timings)
 
     def _stitch_audio_clips(self, clip_paths: List[str], output_path: str, silence_gap: float = 0.3):
@@ -400,12 +403,12 @@ class TTSAgent:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             if result.returncode != 0:
-                print(f"  [TTS] FFmpeg stitch failed: {result.stderr[:200]}")
+                logger.error(f"  [TTS] FFmpeg stitch failed: {result.stderr[:200]}")
                 # Fallback: just use first clip
                 import shutil
                 shutil.copy2(clip_paths[0], output_path)
         except Exception as e:
-            print(f"  [TTS] FFmpeg stitch error: {e}")
+            logger.error(f"  [TTS] FFmpeg stitch error: {e}")
             import shutil
             shutil.copy2(clip_paths[0], output_path)
 
@@ -425,14 +428,14 @@ class TTSAgent:
                 if duration > 0:
                     return duration
         except Exception as e:
-            print(f"     [Warning] FFprobe duration check failed: {e}")
+            logger.error(f"     [Warning] FFprobe duration check failed: {e}")
 
         # Fallback: 파일 크기 기반 추정 (MP3 128kbps = 16KB/sec)
         try:
             file_size = os.path.getsize(audio_path)
             if file_size > 0:
                 estimated = file_size / 16000.0  # 128kbps MP3 ≈ 16KB/sec
-                print(f"     [Duration] Estimated from file size: {estimated:.2f}s ({file_size} bytes)")
+                logger.info(f"     [Duration] Estimated from file size: {estimated:.2f}s ({file_size} bytes)")
                 return max(1.0, estimated)
         except Exception:
             pass
@@ -441,7 +444,7 @@ class TTSAgent:
         if narration_text:
             char_count = len(narration_text.replace(" ", ""))
             estimated = max(2.0, char_count / 4.0)
-            print(f"     [Duration] Estimated from text: {estimated:.2f}s ({char_count} chars)")
+            logger.info(f"     [Duration] Estimated from text: {estimated:.2f}s ({char_count} chars)")
             return estimated
 
         return 5.0  # 최종 기본값
@@ -454,7 +457,7 @@ class TTSAgent:
         try:
             from elevenlabs.client import ElevenLabs
 
-            print(f"     Using ElevenLabs API (Voice: {voice_id[:8]}...)...")
+            logger.info(f"     Using ElevenLabs API (Voice: {voice_id[:8]}...)...")
             client = ElevenLabs(api_key=self.elevenlabs_key)
 
             audio_generator = client.text_to_speech.convert(
@@ -467,14 +470,14 @@ class TTSAgent:
                 for chunk in audio_generator:
                     f.write(chunk)
 
-            print(f"     ElevenLabs TTS generated: {output_path}")
+            logger.info(f"     ElevenLabs TTS generated: {output_path}")
             return output_path
 
         except ImportError as e:
-            print(f"     [Warning] ElevenLabs library import failed: {e}")
+            logger.error(f"     [Warning] ElevenLabs library import failed: {e}")
             raise RuntimeError("ElevenLabs library not properly installed")
         except Exception as e:
-            print(f"     [Error] ElevenLabs API call failed: {e}")
+            logger.error(f"     [Error] ElevenLabs API call failed: {e}")
             raise
 
     def _call_elevenlabs_with_alignment(self, text: str, voice_id: str, output_path: str) -> Dict[str, Any]:
@@ -489,7 +492,7 @@ class TTSAgent:
             from elevenlabs.client import ElevenLabs
             import base64
 
-            print(f"     Using ElevenLabs API with alignment (Voice: {voice_id[:8]}...)...")
+            logger.info(f"     Using ElevenLabs API with alignment (Voice: {voice_id[:8]}...)...")
             client = ElevenLabs(api_key=self.elevenlabs_key)
 
             response = client.text_to_speech.convert_with_timestamps(
@@ -513,21 +516,20 @@ class TTSAgent:
                     "start_times": list(_align.character_start_times_seconds),
                     "end_times": list(_align.character_end_times_seconds),
                 }
-                print(f"     ElevenLabs alignment: {len(_align.characters)} chars, "
-                      f"duration {_align.character_end_times_seconds[-1]:.2f}s")
+                logger.info(f"     ElevenLabs alignment: {len(_align.characters)} chars, " f"duration {_align.character_end_times_seconds[-1]:.2f}s")
             else:
-                print(f"     [Warning] ElevenLabs returned no alignment data")
+                logger.warning(f"     [Warning] ElevenLabs returned no alignment data")
 
-            print(f"     ElevenLabs TTS+alignment generated: {output_path}")
+            logger.info(f"     ElevenLabs TTS+alignment generated: {output_path}")
             return {"audio_path": output_path, "alignment": alignment_data}
 
         except ImportError as e:
-            print(f"     [Warning] ElevenLabs library import failed: {e}")
+            logger.error(f"     [Warning] ElevenLabs library import failed: {e}")
             raise RuntimeError("ElevenLabs library not properly installed")
         except Exception as e:
-            print(f"     [Error] ElevenLabs API with alignment failed: {e}")
+            logger.error(f"     [Error] ElevenLabs API with alignment failed: {e}")
             # fallback: alignment 없이 일반 호출
-            print(f"     [Fallback] Trying without alignment...")
+            logger.info(f"     [Fallback] Trying without alignment...")
             path = self._call_elevenlabs_api(text, voice_id, output_path)
             return {"audio_path": path, "alignment": None}
 
@@ -573,5 +575,5 @@ class TTSAgent:
         if result.returncode != 0:
             raise RuntimeError(f"Failed to generate placeholder audio: {result.stderr}")
 
-        print(f"     Placeholder audio generated: {output_path}")
+        logger.info(f"     Placeholder audio generated: {output_path}")
         return output_path

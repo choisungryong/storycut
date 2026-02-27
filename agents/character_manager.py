@@ -15,6 +15,9 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import CharacterSheet, GlobalStyle, AnchorSet, PoseAnchor, PoseType
+from utils.logger import get_logger
+logger = get_logger("character_manager")
+
 
 if TYPE_CHECKING:
     from schemas.mv_models import MVCharacter, MVProject
@@ -67,7 +70,7 @@ class CharacterManager:
                     genai.configure(api_key=self.google_api_key)
                     self._vision_client = genai.GenerativeModel(model_name="gemini-2.5-flash")
             except Exception as e:
-                print(f"  [Warning] Failed to init Gemini Vision for scoring: {e}")
+                logger.error(f"  [Warning] Failed to init Gemini Vision for scoring: {e}")
         return self._vision_client
 
     def cast_characters(
@@ -96,12 +99,12 @@ class CharacterManager:
         Returns:
             캐릭터 토큰 -> best_pose 마스터 이미지 경로 딕셔너리
         """
-        print(f"\n{'='*60}")
-        print(f"[CharacterManager] Casting Characters (Multi-Pose)")
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[CharacterManager] Casting Characters (Multi-Pose)")
+        logger.info(f"{'='*60}")
 
         if not character_sheet:
-            print("  No characters to cast.")
+            logger.info("  No characters to cast.")
             return {}
 
         if poses is None:
@@ -150,7 +153,7 @@ class CharacterManager:
                 break
         if _matched_style:
             art_style = _matched_style[1]
-            print(f"  [Style] Applied directive for '{_matched_style[0]}'")
+            logger.info(f"  [Style] Applied directive for '{_matched_style[0]}'")
         del _negated, _matched_style
 
         character_images = {}
@@ -164,7 +167,7 @@ class CharacterManager:
 
         def _process_single_character(idx, token, char_data):
             """단일 캐릭터 앵커 생성 (병렬 실행 가능)."""
-            print(f"\n  [{idx}/{total_chars}] Casting: {token}")
+            logger.info(f"\n  [{idx}/{total_chars}] Casting: {token}")
 
             # CharacterSheet 또는 dict 처리
             if isinstance(char_data, CharacterSheet):
@@ -182,19 +185,19 @@ class CharacterManager:
                 clothing = char_data.get("clothing_default", "")
                 char_seed = char_data.get("visual_seed", visual_seed)
             else:
-                print(f"    [Warning] Invalid character data for {token}, skipping.")
+                logger.warning(f"    [Warning] Invalid character data for {token}, skipping.")
                 return token, None, char_data
 
             # 인종 키워드를 appearance에 주입 (씬 이미지와 동일하게)
             eth_keyword = _ETH_KW.get(str(ethnicity).lower(), "")
             if eth_keyword and eth_keyword.lower() not in appearance.lower():
                 appearance = f"{eth_keyword}, {appearance}"
-                print(f"    [Ethnicity] Injected '{eth_keyword}' into appearance")
+                logger.info(f"    [Ethnicity] Injected '{eth_keyword}' into appearance")
 
-            print(f"    Name: {name}")
-            print(f"    Appearance: {appearance[:60]}..." if len(appearance) > 60 else f"    Appearance: {appearance}")
-            print(f"    Seed: {char_seed}")
-            print(f"    Poses: {poses}")
+            logger.info(f"    Name: {name}")
+            logger.info(f"    Appearance: {appearance[:60]}..." if len(appearance) > 60 else f"    Appearance: {appearance}")
+            logger.info(f"    Seed: {char_seed}")
+            logger.info(f"    Poses: {poses}")
 
             # 캐릭터별 디렉토리 생성
             char_dir = f"{project_dir}/media/characters/{token}"
@@ -225,7 +228,7 @@ class CharacterManager:
                 unique_features=_unique_features,
             )
 
-            print(f"    [OK] Anchor set complete: {len(anchor_set.poses)} poses")
+            logger.info(f"    [OK] Anchor set complete: {len(anchor_set.poses)} poses")
             return token, anchor_set, char_data
 
         # 캐릭터 간 병렬 생성 (API rate limit 고려 max_workers=3)
@@ -289,7 +292,7 @@ class CharacterManager:
                         name = char_data.get("name", token)
                     progress_callback(idx, total_chars, name)
 
-        print(f"\n[CharacterManager] Casting complete: {len(character_images)}/{total_chars} characters")
+        logger.info(f"\n[CharacterManager] Casting complete: {len(character_images)}/{total_chars} characters")
         return character_images
 
     def cast_mv_characters(
@@ -313,12 +316,12 @@ class CharacterManager:
         """
         import re as _re
 
-        print(f"\n{'='*60}")
-        print(f"[CharacterManager] MV Character Casting (Scored Multi-Candidate)")
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[CharacterManager] MV Character Casting (Scored Multi-Candidate)")
+        logger.info(f"{'='*60}")
 
         if not characters:
-            print("  No MV characters to cast.")
+            logger.info("  No MV characters to cast.")
             return {}, {}
 
         # MVCharacter → CharacterSheet 변환
@@ -406,9 +409,9 @@ class CharacterManager:
         )
 
         mv_poses = ["front", "three_quarter", "full_body"]
-        print(f"  Characters: {len(character_sheet)}")
-        print(f"  Style: {global_style.art_style}")
-        print(f"  Poses: {mv_poses}, Candidates: {candidates_per_pose}")
+        logger.info(f"  Characters: {len(character_sheet)}")
+        logger.info(f"  Style: {global_style.art_style}")
+        logger.info(f"  Poses: {mv_poses}, Candidates: {candidates_per_pose}")
 
         # cast_characters 호출 (front + three_quarter + full_body 포즈)
         token_to_path = self.cast_characters(
@@ -435,9 +438,9 @@ class CharacterManager:
                 if poses_dict:
                     role_to_poses[role] = poses_dict
 
-        print(f"\n[CharacterManager] MV casting complete: {len(role_to_path)} characters")
+        logger.info(f"\n[CharacterManager] MV casting complete: {len(role_to_path)} characters")
         for role, poses in role_to_poses.items():
-            print(f"    {role}: {list(poses.keys())}")
+            logger.info(f"    {role}: {list(poses.keys())}")
         return role_to_path, role_to_poses
 
     def _generate_pose_candidates(
@@ -490,8 +493,7 @@ class CharacterManager:
             reference_image_path: 첫 포즈 완성 후 나머지 포즈에 캐릭터 참조 이미지 전달"""
             from agents.image_agent import ImageAgent as _IA
             pose_desc = POSE_CONFIGS.get(pose_key, pose_key)
-            print(f"      [Pose] Generating: {pose_key} ({pose_desc})" +
-                  (f" [ref: {os.path.basename(reference_image_path)}]" if reference_image_path else ""))
+            logger.info(f"      [Pose] Generating: {pose_key} ({pose_desc})" + (f" [ref: {os.path.basename(reference_image_path)}]" if reference_image_path else ""))
 
             best_candidate_path = None
             best_candidate_score = -1.0
@@ -545,12 +547,12 @@ class CharacterManager:
                         )
                     else:
                         score = 0.5
-                    print(f"        [Pose:{pose_key}] cand{cand_idx} score={score:.2f}")
+                    logger.info(f"        [Pose:{pose_key}] cand{cand_idx} score={score:.2f}")
                     if score > best_candidate_score:
                         best_candidate_score = score
                         best_candidate_path = image_path
                 except Exception as e:
-                    print(f"        [Pose:{pose_key}] cand{cand_idx} failed: {e}")
+                    logger.error(f"        [Pose:{pose_key}] cand{cand_idx} failed: {e}")
 
             if best_candidate_path:
                 final_path = f"{char_dir}/{pose_key}.jpg"
@@ -578,7 +580,7 @@ class CharacterManager:
         first_ref_path = None
         if first_pose in anchor_set.poses:
             first_ref_path = anchor_set.poses[first_pose].image_path
-            print(f"      [Reference] First pose ready: {os.path.basename(first_ref_path) if first_ref_path else 'None'}")
+            logger.info(f"      [Reference] First pose ready: {os.path.basename(first_ref_path) if first_ref_path else 'None'}")
 
         # 2단계: 나머지 포즈 — reference 이미지 사용하되,
         # Gemini가 reference를 그대로 복사하는 문제 방지를 위해
@@ -651,7 +653,7 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
             return float(scores.get("overall", 0.5))
 
         except Exception as e:
-            print(f"        [Warning] Scoring failed: {e}")
+            logger.error(f"        [Warning] Scoring failed: {e}")
             return 0.5
 
     def _build_casting_prompt(
@@ -750,7 +752,7 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
             if path and os.path.exists(path):
                 image_paths.append(path)
             else:
-                print(f"  [Warning] Master image not found for {token}: {path}")
+                logger.warning(f"  [Warning] Master image not found for {token}: {path}")
 
         return image_paths
 

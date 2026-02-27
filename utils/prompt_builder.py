@@ -18,6 +18,9 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import Scene, GlobalStyle, CharacterSheet
+from utils.logger import get_logger
+logger = get_logger("prompt_builder")
+
 
 
 class MultimodalPromptBuilder:
@@ -278,7 +281,7 @@ class MultimodalPromptBuilder:
         # 참조 이미지 추가 (최대 3개, Gemini 컨텍스트 한계)
         if character_reference_paths:
             if len(character_reference_paths) > 3:
-                print(f"  [WARNING] {len(character_reference_paths)} character references but max 3 allowed, dropping: {[os.path.basename(p) for p in character_reference_paths[3:]]}")
+                logger.warning(f"  [WARNING] {len(character_reference_paths)} character references but max 3 allowed, dropping: {[os.path.basename(p) for p in character_reference_paths[3:]]}")
             _style_match_label = {
                 "realistic": "This is a REAL PHOTO — output MUST also be a real photo.",
                 "cinematic": "This is a CINEMATIC photo — output MUST also be cinematic.",
@@ -690,7 +693,7 @@ class MultimodalPromptBuilder:
                 }
             }
         except Exception as e:
-            print(f"  [Warning] Failed to encode image {image_path}: {e}")
+            logger.error(f"  [Warning] Failed to encode image {image_path}: {e}")
             return None
 
     @staticmethod
@@ -700,7 +703,7 @@ class MultimodalPromptBuilder:
             with open(image_path, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
         except Exception as e:
-            print(f"  [Warning] Failed to encode image {image_path}: {e}")
+            logger.error(f"  [Warning] Failed to encode image {image_path}: {e}")
             return None
 
     @staticmethod

@@ -3,6 +3,9 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 from typing import Optional
+from utils.logger import get_logger
+logger = get_logger("storage")
+
 
 class StorageManager:
     """
@@ -26,11 +29,11 @@ class StorageManager:
                     aws_secret_access_key=self.secret_key,
                     region_name='auto'  # Must be 'auto' for Cloudflare R2
                 )
-                print(f"[StorageManager] Initialized R2 client for bucket: {self.bucket_name}")
+                logger.info(f"[StorageManager] Initialized R2 client for bucket: {self.bucket_name}")
             except Exception as e:
-                print(f"[StorageManager] Failed to initialize R2 client: {e}")
+                logger.error(f"[StorageManager] Failed to initialize R2 client: {e}")
         else:
-            print("[StorageManager] R2 credentials missing. Skipping R2 initialization.")
+            logger.info("[StorageManager] R2 credentials missing. Skipping R2 initialization.")
 
     def upload_file(self, local_path: str, r2_path: str) -> bool:
         """
@@ -44,23 +47,23 @@ class StorageManager:
             True if successful, False otherwise
         """
         if not self.s3_client:
-            print("[StorageManager] R2 client not available. Upload skipped.")
+            logger.info("[StorageManager] R2 client not available. Upload skipped.")
             return False
 
         if not os.path.exists(local_path):
-            print(f"[StorageManager] Local file not found: {local_path}")
+            logger.info(f"[StorageManager] Local file not found: {local_path}")
             return False
 
         try:
-            print(f"[StorageManager] Uploading {local_path} to R2://{self.bucket_name}/{r2_path}...")
+            logger.info(f"[StorageManager] Uploading {local_path} to R2://{self.bucket_name}/{r2_path}...")
             self.s3_client.upload_file(local_path, self.bucket_name, r2_path)
-            print(f"[StorageManager] Upload successful!")
+            logger.info(f"[StorageManager] Upload successful!")
             return True
         except ClientError as e:
-            print(f"[StorageManager] Upload failed: {e}")
+            logger.error(f"[StorageManager] Upload failed: {e}")
             return False
         except Exception as e:
-            print(f"[StorageManager] Unexpected error during upload: {e}")
+            logger.error(f"[StorageManager] Unexpected error during upload: {e}")
             return False
 
     def get_object(self, r2_path: str) -> Optional[bytes]:
@@ -74,17 +77,17 @@ class StorageManager:
             파일 바이트 데이터 또는 None
         """
         if not self.s3_client:
-            print("[StorageManager] R2 client not available.")
+            logger.info("[StorageManager] R2 client not available.")
             return None
 
         try:
             response = self.s3_client.get_object(Bucket=self.bucket_name, Key=r2_path)
             return response['Body'].read()
         except ClientError as e:
-            print(f"[StorageManager] Download failed: {e}")
+            logger.error(f"[StorageManager] Download failed: {e}")
             return None
         except Exception as e:
-            print(f"[StorageManager] Unexpected error during download: {e}")
+            logger.error(f"[StorageManager] Unexpected error during download: {e}")
             return None
 
     def list_projects(self):
@@ -96,7 +99,7 @@ class StorageManager:
             프로젝트 정보 리스트 (최신순 정렬)
         """
         if not self.s3_client:
-            print("[StorageManager] R2 client not available.")
+            logger.info("[StorageManager] R2 client not available.")
             return []
 
         try:
@@ -178,17 +181,17 @@ class StorageManager:
 
                                 projects.append(proj_info)
                         except Exception as e:
-                            print(f"[StorageManager] Error processing {key}: {e}")
+                            logger.error(f"[StorageManager] Error processing {key}: {e}")
                             continue
 
             # 최신순 정렬 (last_modified 기준)
             projects.sort(key=lambda x: x.get('last_modified', ''), reverse=True)
             
-            print(f"[StorageManager] Found {len(projects)} projects in R2")
+            logger.info(f"[StorageManager] Found {len(projects)} projects in R2")
             return projects
 
         except Exception as e:
-            print(f"[StorageManager] Error listing projects: {e}")
+            logger.error(f"[StorageManager] Error listing projects: {e}")
             return []
 
     def delete_file(self, r2_path: str) -> bool:
@@ -199,7 +202,7 @@ class StorageManager:
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=r2_path)
             return True
         except Exception as e:
-            print(f"[StorageManager] Delete failed: {e}")
+            logger.error(f"[StorageManager] Delete failed: {e}")
             return False
 
     def delete_old_projects(self, cutoff_date) -> int:
@@ -215,5 +218,5 @@ class StorageManager:
                         self.s3_client.delete_object(Bucket=self.bucket_name, Key=obj['Key'])
                         deleted += 1
         except Exception as e:
-            print(f"[StorageManager] Bulk delete error: {e}")
+            logger.error(f"[StorageManager] Bulk delete error: {e}")
         return deleted

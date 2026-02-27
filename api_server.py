@@ -13,14 +13,17 @@ import asyncio
 from dotenv import load_dotenv
 from pathlib import Path
 
+from utils.logger import get_logger
+logger = get_logger("api")
+
 # .env 파일 로드 (절대 경로 강제)
 env_path = Path(__file__).parent / ".env"
-print(f"DEBUG: Loading .env from {env_path}")
+logger.debug(f"Loading .env from {env_path}")
 load_dotenv(dotenv_path=env_path)
 
 # [Fallback] R2 키가 로드되지 않았으면 수동 파싱 시도 (Encoding/Format 문제 대응)
 if not os.getenv("R2_ACCOUNT_ID") and env_path.exists():
-    print("DEBUG: load_dotenv failed for R2 keys. Attempting manual parsing...")
+    logger.debug("load_dotenv failed for R2 keys. Attempting manual parsing...")
     try:
         # utf-8-sig로 BOM 처리
         content = env_path.read_text(encoding="utf-8-sig")
@@ -37,12 +40,12 @@ if not os.getenv("R2_ACCOUNT_ID") and env_path.exists():
                 
                 if key.startswith("R2_"):
                     os.environ[key] = val
-                    print(f"DEBUG: Manually loaded {key}")
+                    logger.debug(f"Manually loaded {key}")
     except Exception as e:
-        print(f"DEBUG: Manual parsing failed: {e}")
+        logger.debug(f"Manual parsing failed: {e}")
 
 # 최종 확인
-print(f"DEBUG: R2_ACCOUNT_ID Check: {'Set' if os.getenv('R2_ACCOUNT_ID') else 'Unset'}")
+logger.debug(f"R2_ACCOUNT_ID Check: {'Set' if os.getenv('R2_ACCOUNT_ID') else 'Unset'}")
 
 # [보안] API 키 마스킹 함수
 def mask_api_key(key: str) -> str:
@@ -58,10 +61,10 @@ IS_PRODUCTION = os.getenv("PRODUCTION", "").lower() == "true" or os.getenv("RAIL
 WORKER_SHARED_SECRET = os.getenv("WORKER_SHARED_SECRET", "")
 
 api_key = os.getenv("OPENAI_API_KEY")
-print(f"DEBUG: OPENAI_API_KEY: {mask_api_key(api_key)}")
+logger.debug(f"OPENAI_API_KEY: {mask_api_key(api_key)}")
 
 google_api_key = os.getenv("GOOGLE_API_KEY")
-print(f"DEBUG: GOOGLE_API_KEY: {mask_api_key(google_api_key)}")
+logger.debug(f"GOOGLE_API_KEY: {mask_api_key(google_api_key)}")
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -192,7 +195,7 @@ async def list_voices():
         voices = tts.get_available_voices()
         return {"voices": voices}
     except Exception as e:
-        print(f"[API] Voice list error: {e}")
+        logger.error(f"[API] Voice list error: {e}")
         return {"voices": []}
 
 # ============================================================
@@ -213,14 +216,14 @@ def safe_error_detail(e: Exception, public_msg: str = "Internal server error") -
 def validate_project_id(project_id: str) -> str:
     """project_id Path Traversal 방어"""
     if not project_id or not _SAFE_PROJECT_ID.match(project_id) or '..' in project_id:
-        raise HTTPException(status_code=400, detail="Invalid project_id")
+        raise HTTPException(status_code=400, detail="invalid_project_id")
     return project_id
 
 def validate_webhook_url(url: str) -> str:
     """Webhook URL SSRF 방어 - 내부 네트워크 주소 차단"""
     parsed = _urlparse.urlparse(url)
     if parsed.scheme not in ("https", "http"):
-        raise HTTPException(status_code=400, detail="Webhook URL must use http(s)")
+        raise HTTPException(status_code=400, detail="invalid_webhook_url")
     hostname = (parsed.hostname or "").lower()
     # 내부 네트워크 / 메타데이터 차단
     blocked = (
@@ -234,14 +237,14 @@ def validate_webhook_url(url: str) -> str:
         or hostname.startswith("172.31.")
     )
     if blocked:
-        raise HTTPException(status_code=400, detail="Webhook URL cannot point to internal network")
+        raise HTTPException(status_code=400, detail="invalid_webhook_url_internal")
     return url
 
 def load_manifest(project_id: str) -> dict:
     """프로젝트 매니페스트 로딩 헬퍼 (404 자동 처리)"""
     manifest_path = f"outputs/{project_id}/manifest.json"
     if not os.path.exists(manifest_path):
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="project_not_found")
     with open(manifest_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -250,9 +253,9 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    print(f"[CRITICAL ERROR] Global exception caught: {exc}")
+    logger.error(f"[CRITICAL ERROR] Global exception caught: {exc}")
     import traceback
-    traceback.print_exc()
+    logger.exception("Unhandled exception")
     
     # [보안] CORS 헤더 — 요청 오리진 기반
     req_origin = request.headers.get("origin", "")
@@ -302,27 +305,27 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
     import requests
     import sys
 
-    print(f"[DEBUG] run_pipeline_wrapper called", flush=True)
+    logger.debug(f"[DEBUG] run_pipeline_wrapper called")
     sys.stdout.flush()
 
     def run_in_thread():
-        print(f"[DEBUG] Thread started", flush=True)
+        logger.debug(f"[DEBUG] Thread started")
         sys.stdout.flush()
         try:
             # 새 스레드에서는 새 이벤트 루프 생성 가능
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            print(f"[DEBUG] Event loop created", flush=True)
+            logger.debug(f"[DEBUG] Event loop created")
             sys.stdout.flush()
             try:
-                print(f"[DEBUG] Starting pipeline.run_async()", flush=True)
+                logger.debug(f"[DEBUG] Starting pipeline.run_async()")
                 sys.stdout.flush()
                 manifest = loop.run_until_complete(pipeline.run_async(request))
 
                 # Webhook 호출 (requests 사용 - threading 환경에서 안정적)
                 if pipeline.webhook_url:
                     try:
-                        print(f"Calling webhook: {pipeline.webhook_url}")
+                        logger.info(f"Calling webhook: {pipeline.webhook_url}")
                         response = requests.post(
                             pipeline.webhook_url,
                             json={
@@ -331,16 +334,16 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
                             },
                             timeout=10
                         )
-                        print(f"Webhook response: {response.status_code}")
+                        logger.info(f"Webhook response: {response.status_code}")
                     except Exception as webhook_err:
-                        print(f"Webhook call failed: {webhook_err}")
+                        logger.error(f"Webhook call failed: {webhook_err}")
             finally:
                 loop.close()
         except Exception as e:
             # 실패 시 webhook 호출
             if pipeline.webhook_url:
                 try:
-                    print(f"Calling webhook (failure): {pipeline.webhook_url}")
+                    logger.error(f"Calling webhook (failure): {pipeline.webhook_url}")
                     requests.post(
                         pipeline.webhook_url,
                         json={
@@ -350,17 +353,17 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
                         timeout=10
                     )
                 except Exception as webhook_err:
-                    print(f"Webhook call failed: {webhook_err}")
+                    logger.error(f"Webhook call failed: {webhook_err}")
 
-            print(f"Pipeline execution error: {e}")
+            logger.error(f"Pipeline execution error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
 
     thread = threading.Thread(target=run_in_thread, daemon=True)
-    print(f"[DEBUG] Starting thread", flush=True)
+    logger.debug(f"[DEBUG] Starting thread")
     sys.stdout.flush()
     thread.start()
-    print(f"[DEBUG] Thread started: {thread.is_alive()}", flush=True)
+    logger.debug(f"[DEBUG] Thread started: {thread.is_alive()}")
     sys.stdout.flush()
 
 
@@ -443,7 +446,7 @@ async def send_progress(project_id: str, step: str, progress: int, message: str,
         message: 상태 메시지
         data: 추가 데이터
     """
-    print(f"[DEBUG] send_progress called: {project_id} - {step} - {progress}% - {message}", flush=True)
+    logger.debug(f"[DEBUG] send_progress called: {project_id} - {step} - {progress}% - {message}")
 
     payload = {
         "type": "progress",
@@ -460,7 +463,7 @@ async def send_progress(project_id: str, step: str, progress: int, message: str,
     project_event_history[project_id].append(payload)
     if len(project_event_history[project_id]) > 100:
         project_event_history[project_id] = project_event_history[project_id][-50:]
-    print(f"[DEBUG] History saved for {project_id}", flush=True)
+    logger.debug(f"[DEBUG] History saved for {project_id}")
 
     # 완료/실패 시 5분 후 히스토리 정리 예약
     if progress >= 100 or step == "error":
@@ -471,14 +474,14 @@ async def send_progress(project_id: str, step: str, progress: int, message: str,
         asyncio.ensure_future(_cleanup_history(project_id))
 
     if project_id in active_connections:
-        print(f"[DEBUG] Found active WS connection for {project_id}", flush=True)
+        logger.debug(f"[DEBUG] Found active WS connection for {project_id}")
         ws = active_connections[project_id]
         try:
             await ws.send_json(payload)
-            print(f"[DEBUG] WS message sent", flush=True)
+            logger.debug(f"[DEBUG] WS message sent")
         except Exception as e:
-            print(f"[DEBUG] WS send failed: {e}", flush=True)
-            print(f"WebSocket send error: {e}")
+            logger.error(f"[DEBUG] WS send failed: {e}")
+            logger.error(f"WebSocket send error: {e}")
             del active_connections[project_id]
 
 
@@ -602,12 +605,12 @@ class TrackedPipeline(StorycutPipeline):
 
         try:
             # Step 1: 스토리 생성
-            print(f"[DEBUG] Calling tracker.story_start()", flush=True)
+            logger.debug(f"[DEBUG] Calling tracker.story_start()")
             await self.tracker.story_start()
-            print(f"[DEBUG] tracker.story_start() completed", flush=True)
-            print(f"[DEBUG] Calling _generate_story()", flush=True)
+            logger.debug(f"[DEBUG] tracker.story_start() completed")
+            logger.debug(f"[DEBUG] Calling _generate_story()")
             story_data = self._generate_story(request)
-            print(f"[DEBUG] _generate_story() completed", flush=True)
+            logger.debug(f"[DEBUG] _generate_story() completed")
             manifest.title = story_data.get("title")
             manifest.script = json.dumps(story_data, ensure_ascii=False)
             await self.tracker.story_complete(story_data["title"], len(story_data["scenes"]), story_data)
@@ -672,15 +675,15 @@ class TrackedPipeline(StorycutPipeline):
             # [R2 Upload]
             if final_video and os.path.exists(final_video) and storage_manager.s3_client:
                 r2_path = f"videos/{project_id}/final_video.mp4"
-                print(f"[R2] Uploading final video to {r2_path}...", flush=True)
+                logger.info(f"[R2] Uploading final video to {r2_path}...")
                 success = await loop.run_in_executor(
                     None, 
                     lambda: storage_manager.upload_file(final_video, r2_path)
                 )
                 if success:
-                    print(f"[R2] Upload complete.", flush=True)
+                    logger.info(f"[R2] Upload complete.")
                 else:
-                    print(f"[R2] Upload failed.", flush=True)
+                    logger.error(f"[R2] Upload failed.")
 
             manifest.scenes = self._convert_scenes_to_schema(story_data["scenes"])
             manifest.outputs.final_video_path = final_video
@@ -721,7 +724,7 @@ class TrackedPipeline(StorycutPipeline):
             await self.tracker.complete(manifest)
 
             # Webhook은 run_pipeline_wrapper에서 requests로 호출 (threading 안전)
-            print(f"[DEBUG] Pipeline completed, returning manifest", flush=True)
+            logger.debug(f"[DEBUG] Pipeline completed, returning manifest")
             return manifest
 
         except Exception as e:
@@ -730,9 +733,9 @@ class TrackedPipeline(StorycutPipeline):
             await self.tracker.update("error", 0, f"오류 발생: {str(e)}")
 
             # Webhook은 run_pipeline_wrapper에서 처리
-            print(f"[DEBUG] Pipeline failed: {e}", flush=True)
+            logger.error(f"[DEBUG] Pipeline failed: {e}")
             # Webhook은 run_pipeline_wrapper에서 처리
-            print(f"[DEBUG] Pipeline failed: {e}", flush=True)
+            logger.error(f"[DEBUG] Pipeline failed: {e}")
             raise
 
     async def run_video_only_async(self, story_data: Dict[str, Any], request: ProjectRequest):
@@ -780,7 +783,7 @@ class TrackedPipeline(StorycutPipeline):
                 )
 
             if story_data.get("_images_pregenerated"):
-                print(f"[WRAPPER] Using compose_scenes_from_images (pre-generated images detected)")
+                logger.info(f"[WRAPPER] Using compose_scenes_from_images (pre-generated images detected)")
                 final_video = await loop.run_in_executor(
                     None,
                     lambda: orchestrator.compose_scenes_from_images(
@@ -838,7 +841,7 @@ class TrackedPipeline(StorycutPipeline):
             manifest.status = "failed"
             manifest.error_message = str(e)
             await self.tracker.update("error", 0, f"오류 발생: {str(e)}")
-            print(f"[DEBUG] Video Pipeline failed: {e}", flush=True)
+            logger.error(f"[DEBUG] Video Pipeline failed: {e}")
             raise
 
 # ============================================================================
@@ -957,12 +960,12 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
 
     # 1. 접속 시 지난 히스토리 모두 전송 (상태 복구)
     if project_id in project_event_history:
-        print(f"DEBUG: Replaying {len(project_event_history[project_id])} events for {project_id}")
+        logger.debug(f"Replaying {len(project_event_history[project_id])} events for {project_id}")
         for event in project_event_history[project_id]:
             try:
                 await websocket.send_json(event)
             except Exception as e:
-                print(f"Error replaying event: {e}")
+                logger.error(f"Error replaying event: {e}")
                 break
 
     try:
@@ -1018,7 +1021,7 @@ async def generate_story(req: GenerateRequest, request: Request):
     # Step 1은 비교적 빠르므로 동기 실행 하거나, 길어지면 async로 변경 고려
     # 여기서는 동기로 처리 (사용자 피드백 즉시 필요)
     
-    print(f"Generating story for project {project_id}...")
+    logger.info(f"Generating story for project {project_id}...")
     # 임시 Tracker (No websocket needed just yet, or maybe yes?)
     # Story generation relies on LLM, might take 10-20s.
     
@@ -1041,9 +1044,9 @@ async def generate_story(req: GenerateRequest, request: Request):
             "detected_speakers": story_data.get("detected_speakers", ["narrator"]),
         }
     except Exception as e:
-        print(f"Story generation failed: {e}")
+        logger.error(f"Story generation failed: {e}")
         import traceback
-        traceback.print_exc()
+        logger.exception("Unhandled exception")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
@@ -1101,9 +1104,9 @@ async def generate_from_script(req: ScriptRequest):
             "detected_speakers": detected_speakers,
         }
     except Exception as e:
-        print(f"Script generation failed: {e}")
+        logger.error(f"Script generation failed: {e}")
         import traceback
-        traceback.print_exc()
+        logger.exception("Unhandled exception")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
@@ -1132,7 +1135,7 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
 
     if existing_manifest and existing_manifest.get('status') == 'images_ready':
         # 이미지 프리뷰 후 영상 합성 — scenes 데이터 보존 (이미지 재생성 방지)
-        print(f"[API] Preserving existing images_ready manifest (skipping image regeneration)", flush=True)
+        logger.info(f"[API] Preserving existing images_ready manifest (skipping image regeneration)")
         existing_manifest['status'] = 'processing'
         existing_manifest['progress'] = 25
         existing_manifest['message'] = '영상 생성 시작...'
@@ -1175,7 +1178,7 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
         }
 
         if _has_image_paths:
-            print(f"[API] story_data contains image paths — setting _images_pregenerated=True", flush=True)
+            logger.info(f"[API] story_data contains image paths — setting _images_pregenerated=True")
             initial_manifest["_images_pregenerated"] = True
             # story_data의 씬 이미지 경로를 manifest에 포함
             initial_manifest["scenes"] = []
@@ -1191,12 +1194,12 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
 
-    print(f"\n[API] ========== PROJECT INITIALIZED ==========", flush=True)
-    print(f"[API] Project ID: {project_id}", flush=True)
-    print(f"[API] Manifest path: {manifest_path}", flush=True)
+    logger.info(f"\n[API] ========== PROJECT INITIALIZED ==========")
+    logger.info(f"[API] Project ID: {project_id}")
+    logger.info(f"[API] Manifest path: {manifest_path}")
     _manifest_status = existing_manifest['status'] if existing_manifest else initial_manifest['status']
-    print(f"[API] Initial manifest status: {_manifest_status}", flush=True)
-    print(f"[API] ==========================================\n", flush=True)
+    logger.info(f"[API] Initial manifest status: {_manifest_status}")
+    logger.info(f"[API] ==========================================\n")
 
     # 비동기 작업 시작
     tracker = ProgressTracker(project_id, total_scenes=len(req.story_data.get("scenes", [])))
@@ -1213,20 +1216,20 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
 
     # 별도 스레드에서 실행 (BackgroundTask 대신 Threading 사용)
     def run_pipeline_thread():
-        print(f"[THREAD] Starting pipeline thread for project: {project_id}", flush=True)
+        logger.debug(f"[THREAD] Starting pipeline thread for project: {project_id}")
         try:
             run_video_pipeline_wrapper(pipeline, req.story_data, req.request_params)
-            print(f"[THREAD] Pipeline thread completed for project: {project_id}", flush=True)
+            logger.debug(f"[THREAD] Pipeline thread completed for project: {project_id}")
         except Exception as e:
-            print(f"[THREAD] Pipeline thread error: {str(e)}", flush=True)
+            logger.error(f"[THREAD] Pipeline thread error: {str(e)}")
             import traceback
-            print(f"[THREAD] {traceback.format_exc()}", flush=True)
+            logger.debug(f"[THREAD] {traceback.format_exc()}")
 
     # 스레드 실행
     thread = threading.Thread(target=run_pipeline_thread, daemon=False)
     thread.start()
 
-    print(f"[API] Background thread started, returning response", flush=True)
+    logger.info(f"[API] Background thread started, returning response")
 
     return {
         "project_id": project_id,
@@ -1243,11 +1246,11 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
 
     project_id = pipeline.tracker.project_id
 
-    print(f"\n[WRAPPER] ========== PIPELINE STARTED ==========", flush=True)
-    print(f"[WRAPPER] Project ID: {project_id}", flush=True)
-    print(f"[WRAPPER] Story title: {story_data.get('title')}", flush=True)
-    print(f"[WRAPPER] Scene count: {len(story_data.get('scenes', []))}", flush=True)
-    print(f"[WRAPPER] Request params type: {type(request_params)}", flush=True)
+    logger.info(f"\n[WRAPPER] ========== PIPELINE STARTED ==========")
+    logger.info(f"[WRAPPER] Project ID: {project_id}")
+    logger.info(f"[WRAPPER] Story title: {story_data.get('title')}")
+    logger.info(f"[WRAPPER] Scene count: {len(story_data.get('scenes', []))}")
+    logger.info(f"[WRAPPER] Request params type: {type(request_params)}")
 
     # 새 이벤트 루프에서 실행
     loop = asyncio.new_event_loop()
@@ -1256,7 +1259,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
     try:
         # request_params가 딕셔너리일 수 있으므로 ProjectRequest로 변환
         if isinstance(request_params, dict):
-            print(f"[WRAPPER] Converting request_params dict to ProjectRequest", flush=True)
+            logger.info(f"[WRAPPER] Converting request_params dict to ProjectRequest")
             from schemas import ProjectRequest, FeatureFlags
 
             # Feature flags 추출
@@ -1298,26 +1301,26 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 character_ethnicity=request_params.get('character_ethnicity', 'auto'),
                 feature_flags=feature_flags
             )
-            print(f"[WRAPPER] ProjectRequest created successfully", flush=True)
+            logger.info(f"[WRAPPER] ProjectRequest created successfully")
         else:
-            print(f"[WRAPPER] Request is already ProjectRequest", flush=True)
+            logger.info(f"[WRAPPER] Request is already ProjectRequest")
             request = request_params
 
-        print(f"[WRAPPER] Calling run_video_only_async...", flush=True)
-        print(f"[WRAPPER] =========================================\n", flush=True)
+        logger.info(f"[WRAPPER] Calling run_video_only_async...")
+        logger.info(f"[WRAPPER] =========================================\n")
 
         # 비동기 실행
         manifest = loop.run_until_complete(pipeline.run_video_only_async(story_data, request))
 
-        print(f"\n[WRAPPER] =========================================", flush=True)
-        print(f"[WRAPPER] VIDEO GENERATION COMPLETED", flush=True)
-        print(f"[WRAPPER] Project ID: {project_id}", flush=True)
-        print(f"[WRAPPER] Final video path: {manifest.outputs.final_video_path}", flush=True)
-        print(f"[WRAPPER] =========================================\n", flush=True)
+        logger.info(f"\n[WRAPPER] =========================================")
+        logger.info(f"[WRAPPER] VIDEO GENERATION COMPLETED")
+        logger.info(f"[WRAPPER] Project ID: {project_id}")
+        logger.info(f"[WRAPPER] Final video path: {manifest.outputs.final_video_path}")
+        logger.info(f"[WRAPPER] =========================================\n")
 
         # [Production] R2 업로드 (배포 환경 지원)
         try:
-            print(f"[WRAPPER] Starting R2 Upload...", flush=True)
+            logger.info(f"[WRAPPER] Starting R2 Upload...")
             from utils.storage import StorageManager
             import os
             import json
@@ -1333,14 +1336,14 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                     backend_url = "https://web-production-bb6bf.up.railway.app"
                     public_url = f"{backend_url}/api/video/{project_id}"
                     
-                    print(f"[WRAPPER] R2 Upload Success! Public URL: {public_url}", flush=True)
+                    logger.info(f"[WRAPPER] R2 Upload Success! Public URL: {public_url}")
                     
                     # Manifest 업데이트 (frontend가 이 URL을 보게 됨)
                     manifest_path = f"outputs/{project_id}/manifest.json"
                     
                     # [비동기] 씬(Scene)별 에셋 업로드 (이미지, 오디오, 조각 영상)
                     try:
-                        print(f"[WRAPPER] Uploading scene assets...", flush=True)
+                        logger.info(f"[WRAPPER] Uploading scene assets...")
                         if manifest.scenes:
                             for idx, scene in enumerate(manifest.scenes):
                                 assets = getattr(scene, "assets", None)
@@ -1371,9 +1374,9 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                                     if storage.upload_file(video_path, r2_key):
                                         assets.video_path = f"{backend_url}/api/asset/{project_id}/video/{vid_filename}"
                         
-                        print(f"[WRAPPER] Scene assets uploaded.", flush=True)
+                        logger.info(f"[WRAPPER] Scene assets uploaded.")
                     except Exception as e:
-                        print(f"[WRAPPER] Asset upload error: {e}")
+                        logger.error(f"[WRAPPER] Asset upload error: {e}")
 
                     # Manifest 저장 — 디스크의 기존 user_id 보존
                     manifest.outputs.final_video_path = public_url # Main video
@@ -1395,25 +1398,25 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                     # manifest.json도 R2에 업로드 (history 조회용)
                     manifest_r2_key = f"videos/{project_id}/manifest.json"
                     if storage.upload_file(manifest_path, manifest_r2_key):
-                        print(f"[WRAPPER] Manifest uploaded to R2: {manifest_r2_key}", flush=True)
+                        logger.info(f"[WRAPPER] Manifest uploaded to R2: {manifest_r2_key}")
                     
-                    print(f"[WRAPPER] Manifest updated with video_url and asset URLs", flush=True)
+                    logger.info(f"[WRAPPER] Manifest updated with video_url and asset URLs")
                 else:
-                    print(f"[WRAPPER] R2 Upload Failed (Check credentials)", flush=True)
+                    logger.error(f"[WRAPPER] R2 Upload Failed (Check credentials)")
             else:
-                print(f"[WRAPPER] Local video file not found, skipping upload", flush=True)
+                logger.info(f"[WRAPPER] Local video file not found, skipping upload")
                 
         except Exception as upload_err:
-            print(f"[WRAPPER] R2 Upload Error: {upload_err}", flush=True)
+            logger.error(f"[WRAPPER] R2 Upload Error: {upload_err}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
 
     except Exception as e:
-        print(f"\n[WRAPPER] =========================================", flush=True)
-        print(f"[WRAPPER] ERROR IN VIDEO GENERATION", flush=True)
-        print(f"[WRAPPER] Error: {str(e)}", flush=True)
-        print(f"[WRAPPER] Traceback:\n{traceback.format_exc()}", flush=True)
-        print(f"[WRAPPER] =========================================\n", flush=True)
+        logger.info(f"\n[WRAPPER] =========================================")
+        logger.error(f"[WRAPPER] ERROR IN VIDEO GENERATION")
+        logger.error(f"[WRAPPER] Error: {str(e)}")
+        logger.error(f"[WRAPPER] Traceback:\n{traceback.format_exc()}")
+        logger.info(f"[WRAPPER] =========================================\n")
 
         # 에러를 manifest에 기록
         try:
@@ -1425,13 +1428,13 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 manifest_data['error_message'] = str(e)
                 with open(manifest_path, 'w', encoding='utf-8') as f:
                     json.dump(manifest_data, f, ensure_ascii=False, indent=2)
-                print(f"[WRAPPER] Manifest updated with error status", flush=True)
+                logger.error(f"[WRAPPER] Manifest updated with error status")
         except Exception as e2:
-            print(f"[WRAPPER] Failed to update manifest with error: {str(e2)}", flush=True)
+            logger.error(f"[WRAPPER] Failed to update manifest with error: {str(e2)}")
 
     finally:
         loop.close()
-        print(f"[WRAPPER] Event loop closed for project: {project_id}", flush=True)
+        logger.info(f"[WRAPPER] Event loop closed for project: {project_id}")
 
 
 @app.post("/api/generate/images")
@@ -1452,9 +1455,9 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
     project_id = req.project_id or str(uuid.uuid4())[:8]
     total_scenes = len(req.story_data.get('scenes', []))
 
-    print(f"\n[API] ========== IMAGES ONLY GENERATION (ASYNC) =========")
-    print(f"[API] Project ID: {project_id}")
-    print(f"[API] Scene count: {total_scenes}")
+    logger.info(f"\n[API] ========== IMAGES ONLY GENERATION (ASYNC) =========")
+    logger.info(f"[API] Project ID: {project_id}")
+    logger.info(f"[API] Scene count: {total_scenes}")
 
     # manifest stub 즉시 생성 (폴링 race condition 방지)
     user_id = request.headers.get("X-User-Id", "")
@@ -1492,7 +1495,7 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
                 request_obj,
                 project_id
             )
-            print(f"[API] Images generated successfully!")
+            logger.info(f"[API] Images generated successfully!")
 
             # 이미지 생성 완료 직후 R2 업로드 (Railway 재시작 대비)
             try:
@@ -1513,20 +1516,20 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
                             if _storage.upload_file(_img, _r2_key):
                                 _assets['image_path'] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
                                 _updated = True
-                                print(f"[R2] Uploaded scene image: {_fname}")
+                                logger.info(f"[R2] Uploaded scene image: {_fname}")
                     if _updated:
                         with open(_manifest_path, 'w', encoding='utf-8') as _f:
                             json.dump(_mf, _f, ensure_ascii=False, indent=2)
                         # manifest도 R2에 업로드
                         _storage.upload_file(_manifest_path, f"videos/{project_id}/manifest.json")
-                        print(f"[R2] Image manifest uploaded to R2")
+                        logger.info(f"[R2] Image manifest uploaded to R2")
             except Exception as _r2_err:
-                print(f"[R2] Image upload to R2 failed (non-fatal): {_r2_err}")
+                logger.error(f"[R2] Image upload to R2 failed (non-fatal): {_r2_err}")
 
         except Exception as e:
-            print(f"[API] Image generation failed: {e}")
+            logger.error(f"[API] Image generation failed: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             # manifest에 에러 기록
             manifest_path = f"outputs/{project_id}/manifest.json"
             try:
@@ -1648,7 +1651,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     from agents.image_agent import ImageAgent
     import json
 
-    print(f"\n[API] Regenerating image for scene {scene_id} in project {project_id}")
+    logger.info(f"\n[API] Regenerating image for scene {scene_id} in project {project_id}")
 
     manifest_data = load_manifest(project_id)
     manifest_path = f"outputs/{project_id}/manifest.json"
@@ -1662,7 +1665,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
             break
 
     if not target_scene:
-        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+        raise HTTPException(status_code=404, detail=f"scene_not_found: {scene_id}")
 
     # 이미지 재생성
     image_agent = ImageAgent()
@@ -1699,7 +1702,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
                 master_path = char_data.get("master_image_path", "") if isinstance(char_data, dict) else ""
                 if master_path and os.path.exists(master_path):
                     character_anchor_paths.append(master_path)
-    print(f"  [Regenerate] Character anchors: {len(character_anchor_paths)} paths={[os.path.basename(p) for p in character_anchor_paths]}")
+    logger.info(f"  [Regenerate] Character anchors: {len(character_anchor_paths)} paths={[os.path.basename(p) for p in character_anchor_paths]}")
 
     # 스타일 앵커 (첫 번째 씬 이미지를 fallback으로 사용)
     style_anchor_path = None
@@ -1762,7 +1765,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
         }
         
     except Exception as e:
-        print(f"[API] Image regeneration failed: {e}")
+        logger.error(f"[API] Image regeneration failed: {e}")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
@@ -1770,7 +1773,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
 async def test_image_generation():
     """이미지 생성 테스트 — 프로덕션 비활성화"""
     if IS_PRODUCTION:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="not_found")
 
     import requests as req_lib
     import base64
@@ -1844,16 +1847,16 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
     from agents.video_agent import VideoAgent
     import json
     
-    print(f"\n[API] Converting image to video for scene {scene_id} in project {project_id}")
+    logger.info(f"\n[API] Converting image to video for scene {scene_id} in project {project_id}")
 
     manifest_path = f"outputs/{project_id}/manifest.json"
     manifest_data = load_manifest(project_id)
 
     # 해당 씬 찾기
     scenes = manifest_data.get("scenes", [])
-    print(f"[I2V DEBUG] Total scenes in manifest: {len(scenes)}")
-    print(f"[I2V DEBUG] Scene IDs: {[s.get('scene_id') for s in scenes]}")
-    print(f"[I2V DEBUG] Looking for scene_id={scene_id} (type={type(scene_id).__name__})")
+    logger.debug(f"[I2V DEBUG] Total scenes in manifest: {len(scenes)}")
+    logger.debug(f"[I2V DEBUG] Scene IDs: {[s.get('scene_id') for s in scenes]}")
+    logger.debug(f"[I2V DEBUG] Looking for scene_id={scene_id} (type={type(scene_id).__name__})")
     target_scene = None
     for scene in scenes:
         if scene.get("scene_id") == scene_id:
@@ -1865,16 +1868,16 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
         for scene in scenes:
             if str(scene.get("scene_id")) == str(scene_id):
                 target_scene = scene
-                print(f"[I2V DEBUG] Found scene via str comparison (manifest type={type(scene.get('scene_id')).__name__})")
+                logger.debug(f"[I2V DEBUG] Found scene via str comparison (manifest type={type(scene.get('scene_id')).__name__})")
                 break
 
     if not target_scene:
-        print(f"[I2V ERROR] Scene {scene_id} not found in manifest")
-        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+        logger.error(f"[I2V ERROR] Scene {scene_id} not found in manifest")
+        raise HTTPException(status_code=404, detail=f"scene_not_found: {scene_id}")
 
     # 이미지 경로 확인 (웹 URL → 파일시스템 경로 변환)
     image_path = target_scene.get("assets", {}).get("image_path")
-    print(f"[I2V DEBUG] Raw image_path from manifest: {image_path}")
+    logger.debug(f"[I2V DEBUG] Raw image_path from manifest: {image_path}")
     if image_path:
         # http URL → R2에서 로컬로 다운로드
         if image_path.startswith("http"):
@@ -1885,9 +1888,9 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
             if not os.path.exists(local_path):
                 try:
                     urllib.request.urlretrieve(image_path, local_path)
-                    print(f"[I2V DEBUG] Downloaded from URL to {local_path}")
+                    logger.debug(f"[I2V DEBUG] Downloaded from URL to {local_path}")
                 except Exception as dl_err:
-                    print(f"[I2V ERROR] Download failed: {dl_err}")
+                    logger.error(f"[I2V ERROR] Download failed: {dl_err}")
             if os.path.exists(local_path):
                 image_path = local_path
         else:
@@ -1897,9 +1900,9 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
                 image_path = f"outputs/{normalized[len('/media/'):]}"
             elif not os.path.isabs(normalized) and not normalized.startswith("outputs/"):
                 image_path = f"outputs/{project_id}/{normalized}"
-    print(f"[I2V DEBUG] Resolved image_path: {image_path}, exists={os.path.exists(image_path) if image_path else False}")
+    logger.debug(f"[I2V DEBUG] Resolved image_path: {image_path}, exists={os.path.exists(image_path) if image_path else False}")
     if not image_path or not os.path.exists(image_path):
-        raise HTTPException(status_code=404, detail=f"Image not found for scene {scene_id} (path: {image_path})")
+        raise HTTPException(status_code=404, detail=f"image_not_found: scene {scene_id}")
     
     # I2V 변환
     video_agent = VideoAgent()
@@ -1935,7 +1938,7 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
         }
         
     except Exception as e:
-        print(f"[API] I2V conversion failed: {e}")
+        logger.error(f"[API] I2V conversion failed: {e}")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
 
@@ -1956,7 +1959,7 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
     
     enable = req.get("enable", False)
     
-    print(f"\n[API] Toggle hook video for scene {scene_id}: {enable}")
+    logger.info(f"\n[API] Toggle hook video for scene {scene_id}: {enable}")
 
     manifest_data = load_manifest(project_id)
 
@@ -1970,7 +1973,7 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
             break
     
     if not found:
-        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+        raise HTTPException(status_code=404, detail=f"scene_not_found: {scene_id}")
     
     #  Manifest 저장
     with open(manifest_path, "w", encoding="utf-8") as f:
@@ -2023,7 +2026,7 @@ async def generate_characters_only(req: GenerateVideoRequest):
                         if _storage.upload_file(_style_path, _r2_key):
                             _mf["_style_anchor_url"] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
                             _updated = True
-                            print(f"[R2] Uploaded style anchor: {_fname}")
+                            logger.info(f"[R2] Uploaded style anchor: {_fname}")
 
                     # 2) 환경 앵커 업로드
                     _env_anchors = _mf.get("_env_anchors", {})
@@ -2034,7 +2037,7 @@ async def generate_characters_only(req: GenerateVideoRequest):
                             _r2_key = f"images/{project_id}/{_fname}"
                             if _storage.upload_file(_env_path, _r2_key):
                                 _env_urls[_sc_id] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
-                                print(f"[R2] Uploaded env anchor scene {_sc_id}: {_fname}")
+                                logger.info(f"[R2] Uploaded env anchor scene {_sc_id}: {_fname}")
                                 _updated = True
                     if _env_urls:
                         _mf["_env_anchor_urls"] = _env_urls
@@ -2051,7 +2054,7 @@ async def generate_characters_only(req: GenerateVideoRequest):
                             if _storage.upload_file(_master, _r2_key):
                                 _char["master_image_url"] = f"{backend_url}/api/asset/{project_id}/image/{_fname}"
                                 _updated = True
-                                print(f"[R2] Uploaded character anchor {_token}: {_fname}")
+                                logger.info(f"[R2] Uploaded character anchor {_token}: {_fname}")
                         # 멀티포즈 업로드
                         _anchor_set = _char.get("anchor_set")
                         if _anchor_set and isinstance(_anchor_set, dict):
@@ -2069,14 +2072,14 @@ async def generate_characters_only(req: GenerateVideoRequest):
                         with open(_manifest_path, "w", encoding="utf-8") as f:
                             json.dump(_mf, f, ensure_ascii=False, indent=2)
                         _storage.upload_file(_manifest_path, f"videos/{project_id}/manifest.json")
-                        print(f"[R2] Casting manifest uploaded to R2")
+                        logger.info(f"[R2] Casting manifest uploaded to R2")
             except Exception as _r2_err:
-                print(f"[R2] Anchor upload to R2 failed (non-fatal): {_r2_err}")
+                logger.error(f"[R2] Anchor upload to R2 failed (non-fatal): {_r2_err}")
 
         except Exception as e:
-            print(f"[CHARACTER CASTING] Error: {e}", flush=True)
+            logger.error(f"[CHARACTER CASTING] Error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             manifest_path = f"outputs/{project_id}/manifest.json"
             try:
                 # manifest 파일이 존재하면 읽어서 업데이트
@@ -2092,7 +2095,7 @@ async def generate_characters_only(req: GenerateVideoRequest):
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
             except Exception as inner_e:
-                print(f"[CHARACTER CASTING] Failed to write error status: {inner_e}", flush=True)
+                logger.error(f"[CHARACTER CASTING] Failed to write error status: {inner_e}")
 
     thread = threading.Thread(target=run_casting, daemon=True)
     thread.start()
@@ -2109,7 +2112,7 @@ async def generate_characters_only(req: GenerateVideoRequest):
 async def get_character_casting_status(project_id: str):
     """캐릭터 캐스팅 진행 상황 조회"""
     if not _SAFE_SIMPLE_ID.match(project_id):
-        raise HTTPException(status_code=400, detail="Invalid project_id")
+        raise HTTPException(status_code=400, detail="invalid_project_id")
 
     manifest_path = f"outputs/{project_id}/manifest.json"
     if not os.path.exists(manifest_path):
@@ -2182,14 +2185,14 @@ async def regenerate_character(project_id: str, token: str):
     from starlette.concurrency import run_in_threadpool
 
     if not _SAFE_SIMPLE_ID.match(project_id):
-        raise HTTPException(status_code=400, detail="Invalid project_id")
+        raise HTTPException(status_code=400, detail="invalid_project_id")
 
     manifest_path = f"outputs/{project_id}/manifest.json"
     manifest_data = load_manifest(project_id)
 
     character_sheet_raw = manifest_data.get("character_sheet", {})
     if token not in character_sheet_raw:
-        raise HTTPException(status_code=404, detail=f"Character '{token}' not found")
+        raise HTTPException(status_code=404, detail=f"character_not_found: {token}")
 
     cs_data = character_sheet_raw[token]
     from schemas import CharacterSheet, GlobalStyle
@@ -2266,7 +2269,7 @@ async def regenerate_character(project_id: str, token: str):
 async def get_voice_sample(voice_id: str):
     """TTS 목소리 샘플 반환 (없으면 생성)"""
     if not _SAFE_SIMPLE_ID.match(voice_id) or '..' in voice_id:
-        raise HTTPException(status_code=400, detail="Invalid voice_id")
+        raise HTTPException(status_code=400, detail="invalid_voice_id")
     from agents.tts_agent import TTSAgent
 
     # 샘플 디렉토리
@@ -2279,7 +2282,7 @@ async def get_voice_sample(voice_id: str):
             old_path = os.path.join(sample_dir, old_file)
             if os.path.isfile(old_path):
                 os.remove(old_path)
-                print(f"[API] Cleaned old sample cache: {old_file}")
+                logger.info(f"[API] Cleaned old sample cache: {old_file}")
         get_voice_sample._cache_cleaned = True
 
     file_path = f"{sample_dir}/{voice_id}.mp3"
@@ -2290,7 +2293,7 @@ async def get_voice_sample(voice_id: str):
         if os.path.exists(file_path):
             os.remove(file_path)
 
-        print(f"[API] Generating sample for voice: {voice_id}")
+        logger.info(f"[API] Generating sample for voice: {voice_id}")
         agent = TTSAgent(voice=voice_id)
 
         # 샘플 멘트
@@ -2301,7 +2304,7 @@ async def get_voice_sample(voice_id: str):
 
         try:
             def generate_sample():
-                print(f"[DEBUG] Processing sample for voice_id: '{voice_id}'")
+                logger.debug(f"[DEBUG] Processing sample for voice_id: '{voice_id}'")
                 if agent.elevenlabs_key:
                     agent._call_elevenlabs_api(text, voice_id, file_path)
                 else:
@@ -2313,8 +2316,8 @@ async def get_voice_sample(voice_id: str):
             # 실패 시 빈/불완전 파일 정리
             if os.path.exists(file_path):
                 os.remove(file_path)
-            print(f"[API] TTS sample generation failed: {e}")
-            raise HTTPException(status_code=500, detail=safe_error_detail(e, "TTS 생성 실패"))
+            logger.error(f"[API] TTS sample generation failed: {e}")
+            raise HTTPException(status_code=500, detail=safe_error_detail(e, "tts_generation_failed"))
 
     return FileResponse(file_path, media_type="audio/mpeg")
 
@@ -2343,19 +2346,19 @@ async def download_video(project_id: str):
 
     if not video_path:
         # R2 fallback: 로컬 파일이 없으면 R2에서 가져오기
-        print(f"[DEBUG] Video not found locally for {project_id}, trying R2...")
+        logger.debug(f"[DEBUG] Video not found locally for {project_id}, trying R2...")
         r2_path = f"videos/{project_id}/final_video.mp4"
         data = storage_manager.get_object(r2_path)
         if data:
-            print(f"[DEBUG] Serving download from R2: {r2_path}")
+            logger.debug(f"[DEBUG] Serving download from R2: {r2_path}")
             return Response(
                 content=data,
                 media_type="video/mp4",
                 headers={"Content-Disposition": f'attachment; filename="storycut_{project_id}.mp4"'}
             )
-        raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="video_not_found")
 
-    print(f"[DEBUG] Downloading video from: {video_path}")
+    logger.debug(f"[DEBUG] Downloading video from: {video_path}")
 
     return FileResponse(
         video_path,
@@ -2383,9 +2386,9 @@ async def register(req: RegisterRequest):
     """
     # [보안] 프로덕션에서는 Mock 인증 완전 차단
     if IS_PRODUCTION:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="not_found")
 
-    print("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
+    logger.warning("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
     return {
         "message": "User created successfully (LOCAL MOCK)",
         "user": {
@@ -2405,12 +2408,12 @@ async def login(req: LoginRequest):
     ⚠️ 경고: 이것은 개발용 Mock입니다. 실제 인증은 Cloudflare Worker가 처리합니다.
     """
     if IS_PRODUCTION:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="not_found")
 
-    print("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
+    logger.warning("[SECURITY WARNING] Using LOCAL MOCK auth - NOT for production!")
     
     if not req.email or not req.password:
-        raise HTTPException(status_code=400, detail="이메일과 비밀번호를 입력하세요.")
+        raise HTTPException(status_code=400, detail="email_and_password_required")
     
     return {
         "token": "local_mock_token_DO_NOT_USE_IN_PRODUCTION",
@@ -2432,9 +2435,9 @@ async def google_auth(request: Request):
     In production, Cloudflare Worker verifies the Google ID token.
     """
     if IS_PRODUCTION:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="not_found")
 
-    print("[SECURITY WARNING] Using LOCAL MOCK Google auth - NOT for production!")
+    logger.warning("[SECURITY WARNING] Using LOCAL MOCK Google auth - NOT for production!")
     body = await request.json()
     id_token = body.get("id_token", "")
 
@@ -2485,13 +2488,13 @@ async def get_video_status(project_id: str):
     validate_project_id(project_id)
     manifest_path = f"outputs/{project_id}/manifest.json"
 
-    print(f"[STATUS] Checking status for project: {project_id}", flush=True)
-    print(f"[STATUS] Manifest path: {manifest_path}", flush=True)
-    print(f"[STATUS] Manifest exists: {os.path.exists(manifest_path)}", flush=True)
+    logger.debug(f"[STATUS] Checking status for project: {project_id}")
+    logger.debug(f"[STATUS] Manifest path: {manifest_path}")
+    logger.debug(f"[STATUS] Manifest exists: {os.path.exists(manifest_path)}")
 
     # Manifest가 없으면 아직 처리 중
     if not os.path.exists(manifest_path):
-        print(f"[STATUS] Manifest not found, returning processing status", flush=True)
+        logger.debug(f"[STATUS] Manifest not found, returning processing status")
         return {
             "project_id": project_id,
             "status": "processing",
@@ -2510,7 +2513,7 @@ async def get_video_status(project_id: str):
             status = manifest.get("status", "unknown")
             progress = manifest.get("progress", 50)
 
-            print(f"[STATUS] Manifest status: {status}, progress: {progress}", flush=True)
+            logger.debug(f"[STATUS] Manifest status: {status}, progress: {progress}")
 
             return {
                 "project_id": project_id,
@@ -2524,7 +2527,7 @@ async def get_video_status(project_id: str):
                 "execution_time_sec": manifest.get("execution_time_sec")
             }
     except Exception as e:
-        print(f"[STATUS] Error reading manifest: {str(e)}", flush=True)
+        logger.error(f"[STATUS] Error reading manifest: {str(e)}")
         return {
             "project_id": project_id,
             "status": "error",
@@ -2561,7 +2564,7 @@ async def get_manifest(project_id: str, request: Request):
             pass
 
     if data is None:
-        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="project_not_found")
 
     # 로컬 환경: Railway URL → 로컬 상대 경로 변환
     _REMOTE_PREFIX = "https://web-production-bb6bf.up.railway.app"
@@ -2605,13 +2608,13 @@ async def stream_video(project_id: str):
             
     if not video_path:
         # R2 fallback: 로컬 파일이 없으면 R2에서 가져오기
-        print(f"[DEBUG] Video not found locally for {project_id}, trying R2...")
+        logger.debug(f"[DEBUG] Video not found locally for {project_id}, trying R2...")
         r2_path = f"videos/{project_id}/final_video.mp4"
         data = storage_manager.get_object(r2_path)
         if data:
-            print(f"[DEBUG] Streaming from R2: {r2_path}")
+            logger.debug(f"[DEBUG] Streaming from R2: {r2_path}")
             return Response(content=data, media_type="video/mp4")
-        raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="video_not_found")
 
     return FileResponse(video_path, media_type="video/mp4")  # filename 생략 -> Inline 재생
 
@@ -2626,11 +2629,11 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
 
     # filename 검증
     if not filename or not _SAFE_SIMPLE_ID.match(filename) or '..' in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
+        raise HTTPException(status_code=400, detail="invalid_filename")
 
     # asset_type 화이트리스트 검증
     if asset_type not in ["image", "images", "audio", "video"]:
-        raise HTTPException(status_code=400, detail="Invalid asset_type")
+        raise HTTPException(status_code=400, detail="invalid_asset_type")
 
     # 4. 로컬 파일 경로 생성
     type_to_dir = {
@@ -2647,7 +2650,7 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
     resolved_path = os.path.realpath(local_path)
     
     if not resolved_path.startswith(outputs_base):
-        raise HTTPException(status_code=403, detail="접근이 거부되었습니다.")
+        raise HTTPException(status_code=403, detail="access_denied")
 
     # MV 프로젝트: 대체 경로 순회 (fallback)
     if not os.path.exists(local_path) and asset_type == "image":
@@ -2693,7 +2696,7 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
         }
         return Response(content=data, media_type=media_types.get(asset_type, "application/octet-stream"))
 
-    raise HTTPException(status_code=404, detail=f"에셋을 찾을 수 없습니다: {filename}")
+    raise HTTPException(status_code=404, detail=f"asset_not_found: {filename}")
 
 
 @app.get("/api/video/{project_id}")
@@ -2729,7 +2732,7 @@ async def get_video_from_r2(project_id: str):
             headers={"Content-Disposition": f"attachment; filename={project_id}_video.mp4"}
         )
 
-    raise HTTPException(status_code=404, detail="비디오를 찾을 수 없습니다.")
+    raise HTTPException(status_code=404, detail="video_not_found")
 
 
 @app.get("/api/history")
@@ -2877,7 +2880,7 @@ async def get_history_list(request: Request):
                 except Exception:
                     continue
         except Exception as e:
-            print(f"Error scanning local history: {e}")
+            logger.error(f"Error scanning local history: {e}")
 
     # R2 + 로컬 병합 후 시간순 정렬 (최신 먼저)
     all_projects = r2_projects + local_projects
@@ -2946,7 +2949,7 @@ async def migrate_user_ids(request: Request):
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
                 migrated_local += 1
-                print(f"  [MIGRATE-LOCAL] {pid}: {old_uid!r} → {target_email}")
+                logger.info(f"  [MIGRATE-LOCAL] {pid}: {old_uid!r} → {target_email}")
             except Exception as e:
                 errors.append(f"local/{pid}: {e}")
 
@@ -2980,7 +2983,7 @@ async def migrate_user_ids(request: Request):
                         )
                         migrated_r2 += 1
                         pid = key.split('/')[1] if '/' in key else key
-                        print(f"  [MIGRATE-R2] {pid}: {old_uid!r} → {target_email}")
+                        logger.info(f"  [MIGRATE-R2] {pid}: {old_uid!r} → {target_email}")
                     except Exception as e:
                         errors.append(f"r2/{key}: {e}")
     except Exception as e:
@@ -3019,7 +3022,7 @@ async def generate_master_character(
     from agents.image_agent import ImageAgent
     from schemas import CharacterSheet
 
-    print(f"\n[Character Generation] Project: {project_id}, Token: {req.character_token}")
+    logger.info(f"\n[Character Generation] Project: {project_id}, Token: {req.character_token}")
 
     # 프로젝트 디렉토리 확인/생성
     project_dir = f"outputs/{project_id}"
@@ -3042,8 +3045,8 @@ Style: {req.style}, front view, neutral expression, clean background, masterpiec
 perfect for character reference, consistent lighting, sharp details
 """.strip()
 
-        print(f"[Character] Generating master image...")
-        print(f"[Character] Prompt: {master_prompt[:100]}...")
+        logger.info(f"[Character] Generating master image...")
+        logger.info(f"[Character] Prompt: {master_prompt[:100]}...")
 
         # 이미지 생성 (v2.0: tuple 반환 처리)
         image_path, image_id = image_agent.generate_image(
@@ -3054,9 +3057,9 @@ perfect for character reference, consistent lighting, sharp details
             seed=req.visual_seed
         )
 
-        print(f"[Character] Master image generated: {image_path}")
+        logger.info(f"[Character] Master image generated: {image_path}")
         if image_id:
-            print(f"[Character] Image ID (for reference): {image_id}")
+            logger.info(f"[Character] Image ID (for reference): {image_id}")
 
         # CharacterSheet 생성
         character_sheet = CharacterSheet(
@@ -3085,7 +3088,7 @@ perfect for character reference, consistent lighting, sharp details
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest_data, f, ensure_ascii=False, indent=2)
 
-            print(f"[Character] Updated manifest with character: {req.character_token}")
+            logger.info(f"[Character] Updated manifest with character: {req.character_token}")
 
         return {
             "success": True,
@@ -3096,10 +3099,10 @@ perfect for character reference, consistent lighting, sharp details
         }
 
     except Exception as e:
-        print(f"[Character] Error: {e}")
+        logger.error(f"[Character] Error: {e}")
         import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=safe_error_detail(e, "Character generation failed"))
+        logger.exception("Unhandled exception")
+        raise HTTPException(status_code=500, detail=safe_error_detail(e, "character_generation_failed"))
 
 
 @app.get("/api/projects/{project_id}/characters")
@@ -3162,7 +3165,7 @@ async def regenerate_scene(
             break
 
     if target_scene is None:
-        raise HTTPException(status_code=404, detail=f"Scene {scene_id}를 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail=f"scene_not_found: {scene_id}")
 
     # 재생성 실행
     try:
@@ -3215,7 +3218,7 @@ async def regenerate_scene(
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_data, f, ensure_ascii=False, indent=2)
 
-        raise HTTPException(status_code=500, detail=safe_error_detail(e, "씬 재생성 실패"))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e, "scene_regeneration_failed"))
 
 
 @app.get("/api/projects/{project_id}/scenes")
@@ -3262,7 +3265,7 @@ async def update_scene_narration(project_id: str, scene_id: int, req: UpdateNarr
             target = s
             break
     if not target:
-        raise HTTPException(status_code=404, detail=f"Scene {scene_id} not found")
+        raise HTTPException(status_code=404, detail=f"scene_not_found: {scene_id}")
 
     # 1) 내레이션 텍스트 업데이트
     target["narration"] = req.narration
@@ -3314,7 +3317,7 @@ async def recompose_video(project_id: str):
 
         if scene.get("_narration_modified"):
             # 내레이션 수정된 씬: 이미지부터 재렌더링 (Ken Burns + 자막 burn-in)
-            print(f"[RECOMPOSE] Scene {scene.get('scene_id')} narration modified - re-rendering with new subtitles")
+            logger.info(f"[RECOMPOSE] Scene {scene.get('scene_id')} narration modified - re-rendering with new subtitles")
             rendered = ffmpeg.render_scene(
                 scene,
                 {"ffmpeg_kenburns": True, "subtitle_burn_in": True},
@@ -3333,7 +3336,7 @@ async def recompose_video(project_id: str):
             scene_durations.append(float(dur))
 
     if not video_clips:
-        raise HTTPException(status_code=400, detail="합성할 비디오 클립이 없습니다.")
+        raise HTTPException(status_code=400, detail="no_video_clips_to_compose")
 
     # 재합성
     composer = ComposerAgent()
@@ -3365,11 +3368,11 @@ async def recompose_video(project_id: str):
                 public_url = f"{backend_url}/api/video/{project_id}"
 
                 manifest_data["outputs"]["video_url"] = public_url
-                print(f"[RECOMPOSE] R2 Upload Success: {public_url}")
+                logger.info(f"[RECOMPOSE] R2 Upload Success: {public_url}")
             else:
-                print(f"[RECOMPOSE] R2 Upload Failed")
+                logger.error(f"[RECOMPOSE] R2 Upload Failed")
         except Exception as upload_err:
-             print(f"[RECOMPOSE] Upload Error: {upload_err}")
+             logger.error(f"[RECOMPOSE] Upload Error: {upload_err}")
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest_data, f, ensure_ascii=False, indent=2)
@@ -3382,7 +3385,7 @@ async def recompose_video(project_id: str):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=safe_error_detail(e, "영상 합성 실패"))
+        raise HTTPException(status_code=500, detail=safe_error_detail(e, "video_composition_failed"))
 
 
 @app.get("/health")
@@ -3417,7 +3420,7 @@ async def health_check():
 async def get_system_errors(limit: int = 50):
     """최근 시스템 에러 로그 조회 — 프로덕션 비활성화"""
     if IS_PRODUCTION:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="not_found")
     try:
         from utils.error_manager import ErrorManager
         return {
@@ -3469,7 +3472,7 @@ async def mv_upload_music(request: Request, music_file: UploadFile = File(...), 
     # 파일 크기 제한 (50MB)
     content = await music_file.read()
     if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+        raise HTTPException(status_code=413, detail="file_too_large")
 
     # 프로젝트 ID 생성
     project_id = f"mv_{uuid.uuid4().hex[:8]}"
@@ -3481,14 +3484,14 @@ async def mv_upload_music(request: Request, music_file: UploadFile = File(...), 
     with open(music_path, "wb") as f:
         f.write(content)
 
-    print(f"[MV API] Music uploaded: {music_path}".encode('ascii', 'replace').decode())
+    logger.info(f"[MV API] Music uploaded: {music_path}".encode('ascii', 'replace').decode())
 
     # 분석
     try:
         pipeline = MVPipeline()
         user_lyrics = lyrics.strip() if lyrics else None
         if user_lyrics:
-            print(f"[MV API] User provided lyrics: {len(user_lyrics)} chars")
+            logger.info(f"[MV API] User provided lyrics: {len(user_lyrics)} chars")
         project = pipeline.upload_and_analyze(music_path, project_id, user_lyrics=user_lyrics)
 
         # user_id를 manifest에 기록 (history 필터링용)
@@ -3533,16 +3536,16 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
     import threading
 
     if not request.project_id:
-        raise HTTPException(status_code=400, detail="project_id is required")
+        raise HTTPException(status_code=400, detail="project_id_required")
 
     pipeline = MVPipeline()
     project = pipeline.load_project(request.project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {request.project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {request.project_id}")
 
     if project.status == MVProjectStatus.GENERATING:
-        raise HTTPException(status_code=400, detail="Generation already in progress")
+        raise HTTPException(status_code=400, detail="generation_already_in_progress")
 
     total_scenes = len(project.music_analysis.segments) if project.music_analysis else 6
     if request.max_scenes and total_scenes > request.max_scenes:
@@ -3566,12 +3569,12 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
 
     def run_mv_generation():
         try:
-            print(f"[MV Thread] Starting generation (until anchors) for {request.project_id}")
+            logger.info(f"[MV Thread] Starting generation (until anchors) for {request.project_id}")
 
             # Phase A-1: 씬 생성 ~ 캐릭터 앵커까지 (ANCHORS_READY에서 멈춤)
             project_updated = pipeline.run_until_anchors(project, request)
 
-            print(f"[MV Thread] Anchors ready, waiting for user review: {project_updated.status}")
+            logger.info(f"[MV Thread] Anchors ready, waiting for user review: {project_updated.status}")
 
             # R2에 앵커 이미지 + 매니페스트 업로드
             try:
@@ -3602,7 +3605,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                                     if storage.upload_file(pose_path, r2_key):
                                         url = f"{backend_url}/api/asset/{project_id}/image/{r2_name}"
                                         updated_poses[pose_name] = url
-                                        print(f"[MV Thread] Uploaded anchor: {char.role} {pose_name} -> {r2_key}")
+                                        logger.info(f"[MV Thread] Uploaded anchor: {char.role} {pose_name} -> {r2_key}")
                                     else:
                                         updated_poses[pose_name] = pose_path
                                 else:
@@ -3619,7 +3622,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                             r2_key = f"images/{project_id}/{r2_name}"
                             if storage.upload_file(char.anchor_image_path, r2_key):
                                 char.anchor_image_path = f"{backend_url}/api/asset/{project_id}/image/{r2_name}"
-                                print(f"[MV Thread] Uploaded anchor: {char.role} front -> {r2_key}")
+                                logger.info(f"[MV Thread] Uploaded anchor: {char.role} front -> {r2_key}")
 
                 # 2) 스타일 앵커 이미지 R2 업로드
                 if project_updated.style_anchor_path and os.path.exists(project_updated.style_anchor_path):
@@ -3627,7 +3630,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                     r2_key = f"images/{project_id}/{fname}"
                     if storage.upload_file(project_updated.style_anchor_path, r2_key):
                         project_updated.style_anchor_path = f"{backend_url}/api/asset/{project_id}/image/{fname}"
-                        print(f"[MV Thread] Uploaded style anchor -> {r2_key}")
+                        logger.info(f"[MV Thread] Uploaded style anchor -> {r2_key}")
 
                 # 3) R2 업로드 완료 후 ANCHORS_READY로 전환
                 #    (레이스 컨디션 방지: 프론트가 로컬 경로를 받는 문제)
@@ -3639,12 +3642,12 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                 pipeline._save_manifest(project_updated, project_dir)
                 if os.path.exists(manifest_path):
                     if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
-                        print(f"[MV Thread] Manifest uploaded to R2 (anchors_ready)")
-                print(f"[MV Thread] ANCHORS_READY set after R2 upload complete")
+                        logger.info(f"[MV Thread] Manifest uploaded to R2 (anchors_ready)")
+                logger.info(f"[MV Thread] ANCHORS_READY set after R2 upload complete")
             except Exception as e:
-                print(f"[MV Thread] R2 upload error: {e}")
+                logger.error(f"[MV Thread] R2 upload error: {e}")
                 import traceback
-                traceback.print_exc()
+                logger.exception("Unhandled exception")
                 # R2 실패해도 ANCHORS_READY로 전환 (로컬 경로라도 표시)
                 try:
                     from schemas.mv_models import MVProjectStatus as _MVStatus
@@ -3656,9 +3659,9 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                     pass
 
         except Exception as e:
-            print(f"[MV Thread] Error: {e}")
+            logger.error(f"[MV Thread] Error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
 
             # 프로젝트 상태를 FAILED로 설정하여 프론트엔드에 에러 전달
             try:
@@ -3697,7 +3700,7 @@ async def mv_regenerate_anchors(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if project.status != MVProjectStatus.ANCHORS_READY:
         raise HTTPException(
@@ -3761,19 +3764,19 @@ async def mv_regenerate_anchors(project_id: str):
                 if os.path.exists(manifest_path):
                     storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json")
             except Exception as e:
-                print(f"[MV Regen] R2 upload error: {e}")
+                logger.error(f"[MV Regen] R2 upload error: {e}")
                 import traceback
-                traceback.print_exc()
+                logger.exception("Unhandled exception")
                 project_updated.status = MVProjectStatus.ANCHORS_READY
                 project_updated.progress = 40
                 project_updated.current_step = "캐릭터 앵커 재생성 완료 - 리뷰 대기"
                 pipeline._save_manifest(project_updated, project_dir)
 
-            print(f"[MV Regen] Anchors regenerated for {project_id}")
+            logger.info(f"[MV Regen] Anchors regenerated for {project_id}")
         except Exception as e:
-            print(f"[MV Regen] Error: {e}")
+            logger.error(f"[MV Regen] Error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             project.status = MVProjectStatus.ANCHORS_READY
             project.progress = 40
             project.current_step = "앵커 재생성 실패 - 기존 앵커 유지"
@@ -3802,7 +3805,7 @@ async def mv_generate_images(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if project.status != MVProjectStatus.ANCHORS_READY:
         raise HTTPException(
@@ -3825,9 +3828,9 @@ async def mv_generate_images(project_id: str):
 
     def run_mv_image_generation():
         try:
-            print(f"[MV Thread] Starting image generation for {project_id}")
+            logger.info(f"[MV Thread] Starting image generation for {project_id}")
             project_updated = pipeline.run_from_images(project, request)
-            print(f"[MV Thread] Images ready: {project_updated.status}")
+            logger.info(f"[MV Thread] Images ready: {project_updated.status}")
 
             # R2에 매니페스트 업로드
             try:
@@ -3837,14 +3840,14 @@ async def mv_generate_images(project_id: str):
                 manifest_path = f"{project_dir}/manifest.json"
                 if os.path.exists(manifest_path):
                     if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
-                        print(f"[MV Thread] Manifest uploaded to R2 (images_ready)")
+                        logger.info(f"[MV Thread] Manifest uploaded to R2 (images_ready)")
             except Exception as e:
-                print(f"[MV Thread] R2 manifest upload error (non-fatal): {e}")
+                logger.error(f"[MV Thread] R2 manifest upload error (non-fatal): {e}")
 
         except Exception as e:
-            print(f"[MV Thread] Image generation error: {e}")
+            logger.error(f"[MV Thread] Image generation error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             try:
                 project.status = MVProjectStatus.FAILED
                 project.error_message = str(e)[:500]
@@ -3870,13 +3873,13 @@ async def mv_cancel(project_id: str):
     validate_project_id(project_id)
     project_dir = f"outputs/{project_id}"
     if not os.path.exists(project_dir):
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     cancel_path = os.path.join(project_dir, ".cancel")
     with open(cancel_path, "w") as f:
         f.write("cancelled")
 
-    print(f"[MV] Cancel requested for {project_id}")
+    logger.info(f"[MV] Cancel requested for {project_id}")
     return {"status": "cancel_requested", "project_id": project_id}
 
 
@@ -3892,7 +3895,7 @@ async def mv_status(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     # 캐릭터 앵커 데이터 (Visual Bible에서 추출)
     characters = None
@@ -3922,7 +3925,7 @@ async def mv_result(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     video_url = None
     download_url = None
@@ -3954,10 +3957,10 @@ async def mv_regenerate_scene(project_id: str, scene_id: int, req: Request = Non
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if scene_id < 1 or scene_id > len(project.scenes):
-        raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
+        raise HTTPException(status_code=400, detail=f"invalid_scene_id: {scene_id}")
 
     # custom_prompt가 있으면 씬 프롬프트 교체
     custom_prompt = None
@@ -3973,7 +3976,7 @@ async def mv_regenerate_scene(project_id: str, scene_id: int, req: Request = Non
         # 매니페스트에 저장 (프롬프트 변경 영구 반영)
         project_dir = f"outputs/{project_id}"
         pipeline._save_manifest(project, project_dir)
-        print(f"[MV Regenerate] Scene {scene_id} prompt updated: {custom_prompt[:80]}...")
+        logger.info(f"[MV Regenerate] Scene {scene_id} prompt updated: {custom_prompt[:80]}...")
 
     try:
         scene = pipeline.regenerate_scene_image(project, scene_id)
@@ -4001,10 +4004,10 @@ async def mv_scene_i2v(project_id: str, scene_id: int):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if scene_id < 1 or scene_id > len(project.scenes):
-        raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
+        raise HTTPException(status_code=400, detail=f"invalid_scene_id: {scene_id}")
 
     try:
         scene = pipeline.generate_scene_i2v(project, scene_id)
@@ -4026,10 +4029,10 @@ async def mv_compose(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if project.status == MVProjectStatus.COMPOSING:
-        raise HTTPException(status_code=400, detail="Composition already in progress")
+        raise HTTPException(status_code=400, detail="composition_already_in_progress")
 
     # 스레드 시작 전에 상태를 즉시 변경 (폴링 레이스 컨디션 방지)
     project.status = MVProjectStatus.COMPOSING
@@ -4039,9 +4042,9 @@ async def mv_compose(project_id: str):
 
     def run_compose():
         try:
-            print(f"[MV Compose Thread] Starting composition for {project_id}")
+            logger.info(f"[MV Compose Thread] Starting composition for {project_id}")
             pipeline.compose_video(project)
-            print(f"[MV Compose Thread] Composition complete: {project.status}")
+            logger.info(f"[MV Compose Thread] Composition complete: {project.status}")
 
             # [Production] MV R2 업로드 (일반 파이프라인과 동일 패턴)
             try:
@@ -4056,7 +4059,7 @@ async def mv_compose(project_id: str):
                 if project.final_video_path and os.path.exists(project.final_video_path):
                     r2_key = f"videos/{project_id}/final_video.mp4"
                     if storage.upload_file(project.final_video_path, r2_key):
-                        print(f"[MV R2] Video uploaded: {r2_key}")
+                        logger.info(f"[MV R2] Video uploaded: {r2_key}")
 
                 # 2. 씬 이미지 업로드 + 경로를 HTTP URL로 업데이트
                 for scene in project.scenes:
@@ -4071,23 +4074,23 @@ async def mv_compose(project_id: str):
                     music_filename = os.path.basename(project.music_file_path)
                     r2_key = f"music/{project_id}/{music_filename}"
                     if storage.upload_file(project.music_file_path, r2_key):
-                        print(f"[MV R2] Music uploaded: {r2_key}")
+                        logger.info(f"[MV R2] Music uploaded: {r2_key}")
 
                 # 4. 매니페스트 저장 + R2 업로드
                 pipeline._save_manifest(project, project_dir)
                 manifest_path = f"{project_dir}/manifest.json"
                 manifest_r2_key = f"videos/{project_id}/manifest.json"
                 if storage.upload_file(manifest_path, manifest_r2_key):
-                    print(f"[MV R2] Manifest uploaded: {manifest_r2_key}")
+                    logger.info(f"[MV R2] Manifest uploaded: {manifest_r2_key}")
 
-                print(f"[MV R2] All assets uploaded for {project_id}")
+                logger.info(f"[MV R2] All assets uploaded for {project_id}")
             except Exception as e:
-                print(f"[MV R2] Upload error (non-fatal): {e}")
+                logger.error(f"[MV R2] Upload error (non-fatal): {e}")
 
         except Exception as e:
-            print(f"[MV Compose Thread] Error: {e}")
+            logger.error(f"[MV Compose Thread] Error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             try:
                 project.status = MVProjectStatus.FAILED
                 project.error_message = str(e)[:500]
@@ -4117,20 +4120,20 @@ async def mv_subtitle_test(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if not (project.lyrics and project.lyrics.strip()):
-        raise HTTPException(status_code=400, detail="No lyrics in this project")
+        raise HTTPException(status_code=400, detail="no_lyrics_in_project")
 
     def run_subtitle_test():
         try:
-            print(f"[Subtitle Test Thread] Starting for {project_id}")
+            logger.info(f"[Subtitle Test Thread] Starting for {project_id}")
             pipeline.subtitle_test(project)
-            print(f"[Subtitle Test Thread] Complete for {project_id}")
+            logger.info(f"[Subtitle Test Thread] Complete for {project_id}")
         except Exception as e:
-            print(f"[Subtitle Test Thread] Error: {e}")
+            logger.error(f"[Subtitle Test Thread] Error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
 
     thread = threading.Thread(target=run_subtitle_test, daemon=True)
     thread.start()
@@ -4207,7 +4210,7 @@ async def get_mv_lyrics_timeline(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     stt_sentences = None
     timed_lyrics = None
@@ -4242,11 +4245,11 @@ async def update_mv_lyrics_timeline(project_id: str, req: UpdateLyricsTimelineRe
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     # 편집 결과 저장
     project.edited_timed_lyrics = req.timed_lyrics
-    print(f"[Lyrics Timeline] Saved {len(req.timed_lyrics)} edited entries for {project_id}")
+    logger.info(f"[Lyrics Timeline] Saved {len(req.timed_lyrics)} edited entries for {project_id}")
 
     # SRT 재생성
     project_dir = f"outputs/{project_id}"
@@ -4264,7 +4267,7 @@ async def update_mv_lyrics_timeline(project_id: str, req: UpdateLyricsTimelineRe
         if os.path.exists(manifest_file):
             storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
     except Exception as e:
-        print(f"[Lyrics Timeline] R2 manifest upload error (non-fatal): {e}")
+        logger.error(f"[Lyrics Timeline] R2 manifest upload error (non-fatal): {e}")
 
     return {"success": True, "entries": len(req.timed_lyrics)}
 
@@ -4282,10 +4285,10 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if scene_id < 1 or scene_id > len(project.scenes):
-        raise HTTPException(status_code=400, detail=f"Invalid scene_id: {scene_id}")
+        raise HTTPException(status_code=400, detail=f"invalid_scene_id: {scene_id}")
 
     # 1) 가사 텍스트 업데이트 + lyrics_modified 플래그 설정
     scene = project.scenes[scene_id - 1]
@@ -4312,7 +4315,7 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
         if os.path.exists(manifest_file):
             storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
     except Exception as e:
-        print(f"[MV Lyrics] R2 manifest upload error (non-fatal): {e}")
+        logger.error(f"[MV Lyrics] R2 manifest upload error (non-fatal): {e}")
 
     return {"success": True, "scene_id": scene_id, "lyrics": req.lyrics}
 
@@ -4331,7 +4334,7 @@ async def update_subtitle_anchor(project_id: str, req: SubtitleAnchorRequest):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     project.subtitle_anchor_start = req.anchor_start
     if req.anchor_end is not None:
@@ -4356,7 +4359,7 @@ async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile 
     pipeline = MVPipeline()
     project = pipeline.load_project(project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="project_not_found")
 
     # 파일명 sanitize
     raw_filename = music_file.filename or "music.mp3"
@@ -4367,7 +4370,7 @@ async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile 
 
     content = await music_file.read()
     if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+        raise HTTPException(status_code=413, detail="file_too_large")
 
     # 로컬 저장
     project_dir = f"outputs/{project_id}"
@@ -4391,7 +4394,7 @@ async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile 
         manifest_file = f"{project_dir}/manifest.json"
         storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
     except Exception as e:
-        print(f"[MV Music Upload] R2 error (non-fatal): {e}")
+        logger.error(f"[MV Music Upload] R2 error (non-fatal): {e}")
 
     return {"success": True, "music_path": music_path, "filename": filename}
 
@@ -4400,7 +4403,7 @@ async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile 
 async def mv_debug(project_id: str):
     """MV 프로젝트 디버그 정보 — 프로덕션 비활성화"""
     if IS_PRODUCTION:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="not_found")
     validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
     from utils.storage import StorageManager
@@ -4464,14 +4467,14 @@ async def mv_recompose(project_id: str):
     project = pipeline.load_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        raise HTTPException(status_code=404, detail=f"project_not_found: {project_id}")
 
     if project.status == MVProjectStatus.COMPOSING:
-        raise HTTPException(status_code=400, detail="Composition already in progress")
+        raise HTTPException(status_code=400, detail="composition_already_in_progress")
 
     def run_recompose():
         try:
-            print(f"[MV Recompose Thread] Starting recompose for {project_id}")
+            logger.info(f"[MV Recompose Thread] Starting recompose for {project_id}")
             from utils.storage import StorageManager
             storage = StorageManager()
 
@@ -4498,7 +4501,7 @@ async def mv_recompose(project_id: str):
                         f.write(r2_data)
                     scene.image_path = local_img
                     restored += 1
-                    print(f"[MV Recompose] Restored from R2: {img_filename}")
+                    logger.info(f"[MV Recompose] Restored from R2: {img_filename}")
                 elif scene.image_path and scene.image_path.startswith("http"):
                     # R2 직접 실패 시 HTTP fallback
                     try:
@@ -4509,18 +4512,18 @@ async def mv_recompose(project_id: str):
                                 f.write(resp.content)
                             scene.image_path = local_img
                             restored += 1
-                            print(f"[MV Recompose] Restored via HTTP: {img_filename}")
+                            logger.info(f"[MV Recompose] Restored via HTTP: {img_filename}")
                     except Exception as dl_err:
-                        print(f"[MV Recompose] HTTP download also failed: {dl_err}")
+                        logger.error(f"[MV Recompose] HTTP download also failed: {dl_err}")
                 else:
-                    print(f"[MV Recompose] Cannot restore scene {scene.scene_id} image")
+                    logger.info(f"[MV Recompose] Cannot restore scene {scene.scene_id} image")
 
-            print(f"[MV Recompose] Images restored: {restored}/{len(project.scenes)}")
+            logger.info(f"[MV Recompose] Images restored: {restored}/{len(project.scenes)}")
 
             # 복원 결과 로그
             for scene in project.scenes:
                 exists = os.path.exists(scene.image_path) if scene.image_path else False
-                print(f"[MV Recompose] Scene {scene.scene_id}: status={scene.status}, image={scene.image_path}, exists={exists}")
+                logger.info(f"[MV Recompose] Scene {scene.scene_id}: status={scene.status}, image={scene.image_path}, exists={exists}")
 
             # 음악 파일 복원
             music_found = project.music_file_path and os.path.exists(project.music_file_path)
@@ -4533,7 +4536,7 @@ async def mv_recompose(project_id: str):
                         if fn.lower().endswith(('.mp3', '.wav', '.m4a', '.ogg', '.flac')):
                             project.music_file_path = f"{music_dir}/{fn}"
                             music_found = True
-                            print(f"[MV Recompose] Found local music: {fn}")
+                            logger.info(f"[MV Recompose] Found local music: {fn}")
                             break
 
             # 2) R2에서 복원
@@ -4549,22 +4552,22 @@ async def mv_recompose(project_id: str):
                         os.makedirs(os.path.dirname(project.music_file_path) or ".", exist_ok=True)
                         with open(project.music_file_path, "wb") as f:
                             f.write(data)
-                        print(f"[MV Recompose] Restored music from R2: {r2_key}")
+                        logger.info(f"[MV Recompose] Restored music from R2: {r2_key}")
                         music_found = True
                         break
 
             if not music_found:
-                print(f"[MV Recompose] WARNING: No music file available")
+                logger.info(f"[MV Recompose] WARNING: No music file available")
 
-            print(f"[MV Recompose] Music file: {project.music_file_path}, exists={os.path.exists(project.music_file_path) if project.music_file_path else False}")
+            logger.info(f"[MV Recompose] Music file: {project.music_file_path}, exists={os.path.exists(project.music_file_path) if project.music_file_path else False}")
 
             # 하이브리드 SRT: lyrics_modified=True인 씬만 균등 분배, 나머지는 timed_lyrics 유지
             modified_count = sum(1 for s in project.scenes if getattr(s, 'lyrics_modified', False))
             if modified_count > 0:
-                print(f"[MV Recompose] {modified_count} scene(s) have modified lyrics - hybrid SRT will be used")
+                logger.info(f"[MV Recompose] {modified_count} scene(s) have modified lyrics - hybrid SRT will be used")
 
             pipeline.compose_video(project)
-            print(f"[MV Recompose Thread] Recompose complete: {project.status}")
+            logger.info(f"[MV Recompose Thread] Recompose complete: {project.status}")
 
             # R2 업로드 (기존 compose 로직 재사용)
             try:
@@ -4577,7 +4580,7 @@ async def mv_recompose(project_id: str):
                 if project.final_video_path and os.path.exists(project.final_video_path):
                     r2_key = f"videos/{project_id}/final_video.mp4"
                     if storage.upload_file(project.final_video_path, r2_key):
-                        print(f"[MV R2] Video uploaded: {r2_key}")
+                        logger.info(f"[MV R2] Video uploaded: {r2_key}")
 
                 for scene in project.scenes:
                     if scene.image_path and os.path.exists(scene.image_path):
@@ -4590,16 +4593,16 @@ async def mv_recompose(project_id: str):
                 manifest_path = f"{project_dir}/manifest.json"
                 manifest_r2_key = f"videos/{project_id}/manifest.json"
                 if storage.upload_file(manifest_path, manifest_r2_key):
-                    print(f"[MV R2] Manifest uploaded: {manifest_r2_key}")
+                    logger.info(f"[MV R2] Manifest uploaded: {manifest_r2_key}")
 
-                print(f"[MV R2] All assets uploaded for {project_id}")
+                logger.info(f"[MV R2] All assets uploaded for {project_id}")
             except Exception as e:
-                print(f"[MV R2] Upload error (non-fatal): {e}")
+                logger.error(f"[MV R2] Upload error (non-fatal): {e}")
 
         except Exception as e:
-            print(f"[MV Recompose Thread] Error: {e}")
+            logger.error(f"[MV Recompose Thread] Error: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             try:
                 project.status = MVProjectStatus.FAILED
                 project.error_message = str(e)[:500]
@@ -4640,9 +4643,9 @@ async def mv_stream(project_id: str):
         if data:
             return Response(content=data, media_type="video/mp4")
     except Exception as e:
-        print(f"[MV Stream] R2 fallback error: {e}")
+        logger.error(f"[MV Stream] R2 fallback error: {e}")
 
-    raise HTTPException(status_code=404, detail="Video not found")
+    raise HTTPException(status_code=404, detail="video_not_found")
 
 
 @app.get("/api/mv/download/{project_id}")
@@ -4678,9 +4681,9 @@ async def mv_download(project_id: str):
                 headers={"Content-Disposition": f"attachment; filename=storycut_mv_{project_id}.mp4"}
             )
     except Exception as e:
-        print(f"[MV Download] R2 fallback error: {e}")
+        logger.error(f"[MV Download] R2 fallback error: {e}")
 
-    raise HTTPException(status_code=404, detail="Video not found")
+    raise HTTPException(status_code=404, detail="video_not_found")
 
 
 # ============================================================================
@@ -4754,7 +4757,7 @@ async def update_user_profile(request: Request):
     body = await request.json()
     username = body.get("username", "").strip()
     if not username:
-        raise HTTPException(status_code=400, detail="Username is required")
+        raise HTTPException(status_code=400, detail="username_required")
     return {"success": True, "username": username}
 
 
@@ -4800,20 +4803,13 @@ async def get_user_history():
 async def on_startup():
     from utils.cleanup import start_cleanup_scheduler
     start_cleanup_scheduler()
-    print("[STARTUP] Cleanup scheduler registered (daily 03:00)")
+    logger.info("[STARTUP] Cleanup scheduler registered (daily 03:00)")
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    print("""
-============================================================
-              STORYCUT API Server v2.6 (Music Video Mode)
-============================================================
-  Server: http://localhost:8000
-  API Docs: http://localhost:8000/docs
-============================================================
-    """)
+    logger.info("STORYCUT API Server v2.6 (Music Video Mode) | http://localhost:8000 | Docs: /docs")
 
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(

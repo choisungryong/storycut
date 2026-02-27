@@ -8,6 +8,9 @@ import json
 import random
 import requests
 from typing import Optional, List, Dict, Any, Set
+from utils.logger import get_logger
+logger = get_logger("pexels_agent")
+
 
 
 # 장르별 폴백 검색 키워드 (LLM 실패 시 사용)
@@ -94,7 +97,7 @@ class PexelsAgent:
                 timeout=15,
             )
             if not resp.ok:
-                print(f"    [Pexels] Search failed: HTTP {resp.status_code} (page={page})")
+                logger.error(f"    [Pexels] Search failed: HTTP {resp.status_code} (page={page})")
                 return []
 
             data = resp.json()
@@ -115,16 +118,16 @@ class PexelsAgent:
                 # Pexels video_pictures URL에 flag 키워드가 있는 경우도 체크
                 url_str = (v.get("url") or "").lower()
                 if tags & _TAG_BANNED:
-                    print(f"    [Pexels] Filtered video id={v.get('id')} by tag: {tags & _TAG_BANNED}")
+                    logger.info(f"    [Pexels] Filtered video id={v.get('id')} by tag: {tags & _TAG_BANNED}")
                     continue
                 if "flag" in url_str and "flagship" not in url_str:
-                    print(f"    [Pexels] Filtered video id={v.get('id')} by URL keyword")
+                    logger.info(f"    [Pexels] Filtered video id={v.get('id')} by URL keyword")
                     continue
                 tag_filtered.append(v)
             return tag_filtered if tag_filtered else filtered
 
         except Exception as e:
-            print(f"    [Pexels] Search error: {e}")
+            logger.error(f"    [Pexels] Search error: {e}")
             return []
 
     def download_video(
@@ -174,7 +177,7 @@ class PexelsAgent:
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             resp = requests.get(download_url, stream=True, timeout=30)
             if not resp.ok:
-                print(f"    [Pexels] Download failed: HTTP {resp.status_code}")
+                logger.error(f"    [Pexels] Download failed: HTTP {resp.status_code}")
                 return None
 
             with open(out_path, "wb") as f:
@@ -186,7 +189,7 @@ class PexelsAgent:
             return None
 
         except Exception as e:
-            print(f"    [Pexels] Download error: {e}")
+            logger.error(f"    [Pexels] Download error: {e}")
             return None
 
     # ------------------------------------------------------------------
@@ -307,22 +310,22 @@ class PexelsAgent:
                     if filtered:
                         removed = len(queries) - len(filtered)
                         if removed > 0:
-                            print(f"    [Pexels] Filtered {removed} tropical queries")
+                            logger.info(f"    [Pexels] Filtered {removed} tropical queries")
                         queries = filtered
                 # 깃발/배너 관련 쿼리 필터링
                 _BANNED_CONTENT = {"flag", "flags", "banner", "banners", "pennant", "flagpole", "깃발"}
                 content_filtered = [q for q in queries if not any(b in q.lower() for b in _BANNED_CONTENT)]
                 if content_filtered and len(content_filtered) < len(queries):
-                    print(f"    [Pexels] Filtered {len(queries) - len(content_filtered)} flag/banner queries")
+                    logger.info(f"    [Pexels] Filtered {len(queries) - len(content_filtered)} flag/banner queries")
                     queries = content_filtered
 
-                print(f"    [Pexels] LLM generated {len(queries)} queries: {queries[:3]}...")
+                logger.info(f"    [Pexels] LLM generated {len(queries)} queries: {queries[:3]}...")
                 if notes:
-                    print(f"    [Pexels] Reasoning: {notes[:80]}")
+                    logger.info(f"    [Pexels] Reasoning: {notes[:80]}")
                 return queries
 
         except Exception as e:
-            print(f"    [Pexels] LLM query generation failed: {e}")
+            logger.error(f"    [Pexels] LLM query generation failed: {e}")
 
         return self._fallback_queries(genre, segment_type, mood)
 
@@ -379,7 +382,7 @@ class PexelsAgent:
                     vid_id = video.get("id")
                     if vid_id:
                         self.used_video_ids.add(vid_id)
-                    print(f"    [Pexels] Found with query #{qi+1}: '{query}' (id={vid_id}, used={len(self.used_video_ids)})")
+                    logger.info(f"    [Pexels] Found with query #{qi+1}: '{query}' (id={vid_id}, used={len(self.used_video_ids)})")
                     return result, vid_id
 
         return None, None

@@ -1,5 +1,43 @@
 // STORYCUT v2.0 - 프론트엔드 로직 (완전 재작성)
 
+// 서버 에러 코드 → 한국어 매핑
+const ERROR_MESSAGES = {
+    'project_not_found': '프로젝트를 찾을 수 없습니다.',
+    'video_not_found': '영상을 찾을 수 없습니다.',
+    'scene_not_found': '씬을 찾을 수 없습니다.',
+    'image_not_found': '이미지를 찾을 수 없습니다.',
+    'character_not_found': '캐릭터를 찾을 수 없습니다.',
+    'asset_not_found': '에셋을 찾을 수 없습니다.',
+    'invalid_project_id': '잘못된 프로젝트 ID입니다.',
+    'invalid_scene_id': '잘못된 씬 ID입니다.',
+    'invalid_voice_id': '잘못된 음성 ID입니다.',
+    'invalid_filename': '잘못된 파일명입니다.',
+    'invalid_asset_type': '잘못된 에셋 타입입니다.',
+    'invalid_webhook_url': '잘못된 웹훅 URL입니다.',
+    'file_too_large': '파일이 너무 큽니다 (최대 50MB).',
+    'request_body_too_large': '요청이 너무 큽니다.',
+    'tts_generation_failed': 'TTS 생성에 실패했습니다.',
+    'scene_regeneration_failed': '씬 재생성에 실패했습니다.',
+    'video_composition_failed': '영상 합성에 실패했습니다.',
+    'character_generation_failed': '캐릭터 생성에 실패했습니다.',
+    'access_denied': '접근이 거부되었습니다.',
+    'email_and_password_required': '이메일과 비밀번호를 입력하세요.',
+    'username_required': '사용자명을 입력하세요.',
+    'no_video_clips_to_compose': '합성할 비디오 클립이 없습니다.',
+    'generation_already_in_progress': '이미 생성이 진행 중입니다.',
+    'composition_already_in_progress': '이미 합성이 진행 중입니다.',
+    'no_lyrics_in_project': '이 프로젝트에 가사가 없습니다.',
+    'project_id_required': '프로젝트 ID가 필요합니다.',
+    'not_found': '요청한 리소스를 찾을 수 없습니다.',
+    'internal_server_error': '서버 오류가 발생했습니다.',
+};
+function getErrorMessage(code) {
+    if (!code) return '알 수 없는 오류가 발생했습니다.';
+    // Handle compound codes like "scene_not_found: 3"
+    const baseCode = code.split(':')[0].trim();
+    return ERROR_MESSAGES[baseCode] || code;
+}
+
 // [보안] HTML 이스케이프 유틸리티 — XSS 방지
 function escapeHtml(str) {
     if (str == null) return '';
@@ -1374,7 +1412,6 @@ class StorycutApp {
                 const targetUrl = `${urlToUse}/api/manifest/${projectId}`;
 
                 this.addLog('INFO', `📥 결과 데이터 요청 중... (시도 ${i + 1}/${maxRetries})`);
-                console.log(`[Fetch] Requesting manifest from: ${targetUrl}`);
 
                 const fetchOpts = {};
                 const token = localStorage.getItem('token');
@@ -2479,7 +2516,6 @@ class StorycutApp {
         btn.innerHTML = '<span class="btn-icon">⏳</span> 캐릭터 캐스팅 시작...';
 
         try {
-            console.log('[Casting] Starting character casting...');
 
             const response = await fetch(`${apiUrl}/api/generate/characters`, {
                 method: 'POST',
@@ -2502,7 +2538,6 @@ class StorycutApp {
 
             const result = await response.json();
             this.projectId = result.project_id;
-            console.log('[Casting] Response:', JSON.stringify(result));
 
             // 캐스팅 화면으로 전환
             this.renderCastingPlaceholders(characterSheet);
@@ -2608,7 +2643,6 @@ class StorycutApp {
                 if (data.casting_status === 'casting_ready') {
                     clearInterval(this.castingPollingInterval);
                     this.castingPollingInterval = null;
-                    console.log('[Casting] Complete!');
 
                     // 프로그레스 100%
                     document.getElementById('casting-progress-fill').style.width = '100%';
@@ -2790,7 +2824,6 @@ class StorycutApp {
             }
 
             const result = await response.json();
-            console.log('[Casting] Regenerate success:', result);
 
             // 포즈 그리드 전체 재렌더링
             if (result.pose_images && result.pose_images.length > 0) {
@@ -2835,7 +2868,6 @@ class StorycutApp {
 
     async startImageGenerationAfterCasting() {
         // 캐스팅 승인 후 이미지 생성으로 진행
-        console.log('[Casting] Approved, proceeding to image generation...');
         this.startImageGeneration();
     }
 
@@ -2897,12 +2929,10 @@ class StorycutApp {
 
             const result = await response.json();
             this.projectId = result.project_id;
-            console.log('[Image Generation] Response:', JSON.stringify(result));
 
             // 즉시 프리뷰 화면으로 전환 (플레이스홀더 표시)
             this.renderImagePreviewPlaceholders(this.currentStoryData.scenes, result.total_scenes);
             this.showSection('image-preview');
-            console.log('[Image Generation] Section switched to image-preview');
 
             // 진행 바 표시
             const progressContainer = document.getElementById('image-progress-container');

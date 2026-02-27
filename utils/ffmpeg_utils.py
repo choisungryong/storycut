@@ -16,6 +16,9 @@ import re
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 import sys
+from utils.logger import get_logger
+logger = get_logger("ffmpeg")
+
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -392,7 +395,7 @@ class FFmpegComposer:
             if result.returncode == 0 and os.path.exists(out_path):
                 return out_path
             else:
-                print(f"  [FFmpeg] brightness ramp failed: {result.stderr[-200:]}")
+                logger.error(f"  [FFmpeg] brightness ramp failed: {result.stderr[-200:]}")
                 return None
         except Exception:
             return None
@@ -469,17 +472,17 @@ class FFmpegComposer:
 
         # DEBUG: SRT 파일 존재 확인
         if not os.path.exists(srt_path):
-            print(f"[ERROR] SRT file does not exist: {srt_path}")
+            logger.error(f"[ERROR] SRT file does not exist: {srt_path}")
             return video_in, False
 
         # DEBUG: SRT 파일 내용 일부 출력
         try:
             with open(srt_path, 'r', encoding='utf-8') as f:
                 srt_preview = f.read(200)
-                print(f"[DEBUG] SRT file exists: {srt_path}")
-                print(f"[DEBUG] SRT preview (first 200 chars): {srt_preview}")
+                logger.debug(f"[DEBUG] SRT file exists: {srt_path}")
+                logger.debug(f"[DEBUG] SRT preview (first 200 chars): {srt_preview}")
         except Exception as e:
-            print(f"[ERROR] Cannot read SRT file: {e}")
+            logger.error(f"[ERROR] Cannot read SRT file: {e}")
             return video_in, False
 
 
@@ -502,45 +505,45 @@ class FFmpegComposer:
             out_path_abs
         ]
 
-        print(f"[DEBUG] Running FFmpeg subtitle burn-in:")
-        print(f"[DEBUG] Input: {video_in_abs}")
-        print(f"[DEBUG] Output: {out_path_abs}")
-        print(f"[DEBUG] Filter: {vf_filter}")
+        logger.debug(f"[DEBUG] Running FFmpeg subtitle burn-in:")
+        logger.debug(f"[DEBUG] Input: {video_in_abs}")
+        logger.debug(f"[DEBUG] Output: {out_path_abs}")
+        logger.debug(f"[DEBUG] Filter: {vf_filter}")
 
         sub_timeout = self._dynamic_timeout(video_in_abs, factor=5.0, minimum=120)
-        print(f"[DEBUG] Subtitle timeout: {sub_timeout}s")
+        logger.debug(f"[DEBUG] Subtitle timeout: {sub_timeout}s")
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=sub_timeout)
 
-        print(f"[DEBUG] FFmpeg returncode: {result.returncode}")
-        print(f"[DEBUG] FFmpeg stderr length: {len(result.stderr)}")
+        logger.debug(f"[DEBUG] FFmpeg returncode: {result.returncode}")
+        logger.debug(f"[DEBUG] FFmpeg stderr length: {len(result.stderr)}")
 
         subtitle_applied = False
         
         if result.returncode != 0:
-            print(f"[ERROR] Subtitle overlay failed! (returncode={result.returncode})")
+            logger.error(f"[ERROR] Subtitle overlay failed! (returncode={result.returncode})")
             if result.returncode == -9:
-                print(f"[ERROR] Process killed by SIGKILL - likely OOM (Out of Memory)")
-                print(f"[ERROR] Consider increasing Railway container memory or reducing video quality")
-            print(f"[ERROR] FFmpeg command: {' '.join(cmd)}")
-            print(f"[ERROR] FFmpeg stderr (last 500 chars):")
-            print(result.stderr[-500:] if result.stderr else "(empty)")
+                logger.error(f"[ERROR] Process killed by SIGKILL - likely OOM (Out of Memory)")
+                logger.error(f"[ERROR] Consider increasing Railway container memory or reducing video quality")
+            logger.error(f"[ERROR] FFmpeg command: {' '.join(cmd)}")
+            logger.error(f"[ERROR] FFmpeg stderr (last 500 chars):")
+            logger.info(result.stderr[-500:] if result.stderr else "(empty)")
             # 자막 실패 시 원본 복사로 폴백
             self._copy_file(video_in_abs, out_path_abs)
             subtitle_applied = False
         else:
             # FFmpeg가 returncode=0이어도 파일이 제대로 생성되었는지 확인
             if not os.path.exists(out_path_abs):
-                print(f"[ERROR] Output file not created: {out_path_abs}")
+                logger.error(f"[ERROR] Output file not created: {out_path_abs}")
                 self._copy_file(video_in_abs, out_path_abs)
                 subtitle_applied = False
             elif os.path.getsize(out_path_abs) < 1024:  # 1KB 미만이면 실패로 간주
-                print(f"[ERROR] Output file too small ({os.path.getsize(out_path_abs)} bytes): {out_path_abs}")
-                print(f"[ERROR] FFmpeg likely failed silently (frame=0)")
+                logger.error(f"[ERROR] Output file too small ({os.path.getsize(out_path_abs)} bytes): {out_path_abs}")
+                logger.error(f"[ERROR] FFmpeg likely failed silently (frame=0)")
                 os.remove(out_path_abs)
                 self._copy_file(video_in_abs, out_path_abs)
                 subtitle_applied = False
             else:
-                print(f"[SUCCESS] Subtitle burn-in completed: {out_path_abs} ({os.path.getsize(out_path_abs)} bytes)")
+                logger.info(f"[SUCCESS] Subtitle burn-in completed: {out_path_abs} ({os.path.getsize(out_path_abs)} bytes)")
                 subtitle_applied = True
 
         return out_path, subtitle_applied
@@ -756,7 +759,7 @@ class FFmpegComposer:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
 
         if result.returncode != 0:
-            print(f"Audio ducking failed: {result.stderr[:500]}")
+            logger.error(f"Audio ducking failed: {result.stderr[:500]}")
             # 덕킹 실패 시 단순 믹스로 폴백
             return self._simple_audio_mix(video_in, narration_path, bgm_path, out_path)
 
@@ -913,7 +916,7 @@ class FFmpegComposer:
                 return True
 
             # Stage 2: 씬 간 전환 적용 (transition_plan 기반 또는 기본 fade)
-            print(f"[FFmpeg] Applying transitions between {len(temp_scene_videos)} scenes...")
+            logger.info(f"[FFmpeg] Applying transitions between {len(temp_scene_videos)} scenes...")
 
             # 각 씬 영상 duration 확인
             durations = []
@@ -926,7 +929,7 @@ class FFmpegComposer:
             if transition_plan and len(transition_plan) == len(temp_scene_videos) - 1:
                 boundary_transitions = transition_plan
             elif transition_plan:
-                print(f"  [WARNING] transition_plan length mismatch: {len(transition_plan)} vs {len(temp_scene_videos)-1} boundaries, using default fade")
+                logger.warning(f"  [WARNING] transition_plan length mismatch: {len(transition_plan)} vs {len(temp_scene_videos)-1} boundaries, using default fade")
 
             # "cut" 전환인 씬 경계는 concat demuxer로 pre-merge
             if boundary_transitions:
@@ -1028,7 +1031,7 @@ class FFmpegComposer:
 
         cut_count = sum(1 for t in boundary_transitions if t.get("transition_type") == "cut")
         if cut_count > 0:
-            print(f"  [FFmpeg] Pre-merged {cut_count} hard-cut boundaries into {len(merged_paths)} groups")
+            logger.info(f"  [FFmpeg] Pre-merged {cut_count} hard-cut boundaries into {len(merged_paths)} groups")
 
         return merged_paths, merged_durations, merged_transitions
 
@@ -1107,20 +1110,20 @@ class FFmpegComposer:
                 tt = bt.get("transition_type", "xfade")
                 type_counts[tt] = type_counts.get(tt, 0) + 1
             summary = ", ".join(f"{k}:{v}" for k, v in sorted(type_counts.items()))
-            print(f"[FFmpeg] xfade chain: {n} clips, transitions: {summary} (timeout={timeout}s)")
+            logger.info(f"[FFmpeg] xfade chain: {n} clips, transitions: {summary} (timeout={timeout}s)")
         else:
-            print(f"[FFmpeg] xfade chain: {n} clips, fade={fade_duration}s (timeout={timeout}s)")
+            logger.info(f"[FFmpeg] xfade chain: {n} clips, fade={fade_duration}s (timeout={timeout}s)")
 
         result = subprocess.run(cmd, capture_output=True, text=True,
                                 encoding='utf-8', errors='replace', timeout=timeout)
 
         if result.returncode != 0:
-            print(f"[FFmpeg] xfade failed: {result.stderr[-500:]}")
+            logger.error(f"[FFmpeg] xfade failed: {result.stderr[-500:]}")
             # Fallback: 일반 concat
-            print(f"[FFmpeg] Falling back to hard-cut concatenation...")
+            logger.info(f"[FFmpeg] Falling back to hard-cut concatenation...")
             return self.concatenate_videos(video_paths, output_path)
 
-        print(f"[FFmpeg] Crossfade complete: {output_path}")
+        logger.info(f"[FFmpeg] Crossfade complete: {output_path}")
         return True
 
     def _batched_crossfade(
@@ -1212,7 +1215,7 @@ class FFmpegComposer:
 
         try:
             # 먼저 -c copy 시도 (빠름, 동일 코덱일 때)
-            print(f"[FFmpeg] Concatenating {len(video_paths)} clips...")
+            logger.info(f"[FFmpeg] Concatenating {len(video_paths)} clips...")
             cmd = [
                 "ffmpeg",
                 "-y",
@@ -1228,8 +1231,8 @@ class FFmpegComposer:
             result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=copy_timeout)
 
             if result.returncode != 0:
-                print(f"[FFmpeg] concat -c copy failed, retrying with re-encode...")
-                print(f"[FFmpeg] Error: {result.stderr[-300:]}")
+                logger.error(f"[FFmpeg] concat -c copy failed, retrying with re-encode...")
+                logger.error(f"[FFmpeg] Error: {result.stderr[-300:]}")
                 # 재인코딩 fallback (해상도/코덱 불일치 시) - ultrafast로 속도 우선
                 cmd_reencode = [
                     "ffmpeg",
@@ -1249,13 +1252,13 @@ class FFmpegComposer:
 
                 # 재인코딩은 클립당 45초 + 최소 180초 (Railway 등 저사양 서버 대응)
                 reencode_timeout = max(180, len(video_paths) * 45)
-                print(f"[FFmpeg] Re-encoding with ultrafast preset... (timeout={reencode_timeout}s)")
+                logger.info(f"[FFmpeg] Re-encoding with ultrafast preset... (timeout={reencode_timeout}s)")
                 result2 = subprocess.run(cmd_reencode, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=reencode_timeout)
                 if result2.returncode != 0:
-                    print(f"[FFmpeg] Re-encode concat also failed: {result2.stderr[-300:]}")
+                    logger.error(f"[FFmpeg] Re-encode concat also failed: {result2.stderr[-300:]}")
                     return False
 
-            print(f"[FFmpeg] Concatenation complete: {output_path}")
+            logger.info(f"[FFmpeg] Concatenation complete: {output_path}")
             return True
 
         finally:
@@ -1346,10 +1349,10 @@ class FFmpegComposer:
                 "-y"
             ]
 
-        print(f"[FFmpeg] Mixing audio...")
-        print(f"  Video: {video_path}")
-        print(f"  Narration files: {len(narration_paths)}")
-        print(f"  Music: {music_path if music_path else 'None'}")
+        logger.info(f"[FFmpeg] Mixing audio...")
+        logger.info(f"  Video: {video_path}")
+        logger.info(f"  Narration files: {len(narration_paths)}")
+        logger.info(f"  Music: {music_path if music_path else 'None'}")
 
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
 
@@ -1358,13 +1361,13 @@ class FFmpegComposer:
             os.remove(narration_concat)
 
         if result.returncode != 0:
-            print(f"\n[ERROR] FFmpeg audio mix failed!")
-            print(f"Command: {' '.join(cmd)}")
-            print(f"Stderr: {result.stderr}")
-            print(f"Stdout: {result.stdout}")
+            logger.error(f"\n[ERROR] FFmpeg audio mix failed!")
+            logger.info(f"Command: {' '.join(cmd)}")
+            logger.info(f"Stderr: {result.stderr}")
+            logger.info(f"Stdout: {result.stdout}")
             raise RuntimeError(f"Failed to mix audio: {result.stderr}")
 
-        print(f"[FFmpeg] Audio mixed successfully: {output_path}")
+        logger.info(f"[FFmpeg] Audio mixed successfully: {output_path}")
         return output_path
 
     def _pad_audio_to_duration(self, audio_path: str, target_duration: float, output_path: str):
@@ -1417,8 +1420,8 @@ class FFmpegComposer:
             os.remove(concat_file)
 
         if result.returncode != 0:
-            print(f"FFmpeg concat command: {' '.join(cmd)}")
-            print(f"FFmpeg concat error: {result.stderr}")
+            logger.info(f"FFmpeg concat command: {' '.join(cmd)}")
+            logger.error(f"FFmpeg concat error: {result.stderr}")
             raise RuntimeError(f"Failed to concatenate audio: {result.stderr}")
 
     def get_video_duration(self, video_path: str) -> float:
@@ -1464,17 +1467,17 @@ class FFmpegComposer:
         Returns:
             최종 영상 파일 경로
         """
-        print("Starting video composition...")
+        logger.info("Starting video composition...")
 
         # Step 1: 영상 클립 연결 (output_path 기준 디렉토리에 임시 파일 - 동시 요청 충돌 방지)
         _out_dir = os.path.dirname(output_path) or "."
-        print("  -> Concatenating video clips...")
+        logger.info("  -> Concatenating video clips...")
         temp_video = os.path.join(_out_dir, "temp_concatenated.mp4")
         self.concatenate_videos(video_clips, temp_video)
 
         # Step 2: 오디오 믹스 (내레이션 + BGM)
         if use_ducking and music_path and os.path.exists(music_path):
-            print("  -> Mixing audio with DUCKING (narration + BGM)...")
+            logger.info("  -> Mixing audio with DUCKING (narration + BGM)...")
             # 내레이션 연결 (씬별 duration 패딩 적용)
             narration_concat = os.path.join(_out_dir, "temp_narration_ducking.wav")
             if scene_durations and len(scene_durations) == len(narration_clips):
@@ -1502,7 +1505,7 @@ class FFmpegComposer:
             if os.path.exists(narration_concat):
                 os.remove(narration_concat)
         else:
-            print("  -> Mixing audio (narration + background music)...")
+            logger.info("  -> Mixing audio (narration + background music)...")
             final_video = self.mix_audio(
                 temp_video,
                 narration_clips,
@@ -1515,7 +1518,7 @@ class FFmpegComposer:
         if os.path.exists(temp_video):
             os.remove(temp_video)
 
-        print(f"Final video created: {final_video}")
+        logger.info(f"Final video created: {final_video}")
 
         return final_video
 
@@ -1687,9 +1690,9 @@ class FFmpegComposer:
         Returns:
             출력 영상 경로
         """
-        print(f"[FFmpeg] Applying film look to video...")
-        print(f"  Input: {video_in}")
-        print(f"  Grain: {grain_intensity}, Saturation: {saturation}, Contrast: {contrast}")
+        logger.info(f"[FFmpeg] Applying film look to video...")
+        logger.info(f"  Input: {video_in}")
+        logger.info(f"  Grain: {grain_intensity}, Saturation: {saturation}, Contrast: {contrast}")
 
         # 필터 체인 구성
         filters = []
@@ -1722,12 +1725,12 @@ class FFmpegComposer:
 
         # 필터 체인 조합
         if not filters:
-            print("  No filters to apply, copying file...")
+            logger.info("  No filters to apply, copying file...")
             self._copy_file(video_in, out_path)
             return out_path
 
         vf_filter = ",".join(filters)
-        print(f"  Filter chain: {vf_filter}")
+        logger.info(f"  Filter chain: {vf_filter}")
 
         cmd = [
             "ffmpeg",
@@ -1744,11 +1747,11 @@ class FFmpegComposer:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
 
         if result.returncode != 0:
-            print(f"[ERROR] Film look failed: {result.stderr[-500:]}")
+            logger.error(f"[ERROR] Film look failed: {result.stderr[-500:]}")
             # 실패 시 원본 복사
             self._copy_file(video_in, out_path)
         else:
-            print(f"[SUCCESS] Film look applied: {out_path}")
+            logger.info(f"[SUCCESS] Film look applied: {out_path}")
 
         return out_path
 
@@ -1779,7 +1782,7 @@ class FFmpegComposer:
         Returns:
             출력 영상 경로
         """
-        print(f"[FFmpeg] Final encode: {video_in}")
+        logger.info(f"[FFmpeg] Final encode: {video_in}")
 
         video_in_abs = os.path.abspath(video_in)
         audio_abs = os.path.abspath(audio_path)
@@ -1828,9 +1831,9 @@ class FFmpegComposer:
         except Exception:
             timeout = 600
 
-        print(f"  Preset: fast, CRF: 22, Audio: AAC {audio_bitrate}")
-        print(f"  Watermark: {'Yes - ' + watermark_text if watermark_text else 'None'}")
-        print(f"  Timeout: {timeout}s")
+        logger.info(f"  Preset: fast, CRF: 22, Audio: AAC {audio_bitrate}")
+        logger.info(f"  Watermark: {'Yes - ' + watermark_text if watermark_text else 'None'}")
+        logger.info(f"  Timeout: {timeout}s")
 
         result = subprocess.run(
             cmd, capture_output=True, text=True,
@@ -1838,11 +1841,11 @@ class FFmpegComposer:
         )
 
         if result.returncode != 0:
-            print(f"[ERROR] Final encode failed: {result.stderr[-500:]}")
+            logger.error(f"[ERROR] Final encode failed: {result.stderr[-500:]}")
             # 폴백: 단순 오디오 합성
-            print(f"[FALLBACK] Trying simple audio merge...")
+            logger.info(f"[FALLBACK] Trying simple audio merge...")
             self._add_audio_to_video(video_in_abs, audio_abs, out_abs)
         else:
-            print(f"[SUCCESS] Final encode complete: {out_abs}")
+            logger.info(f"[SUCCESS] Final encode complete: {out_abs}")
 
         return out_path

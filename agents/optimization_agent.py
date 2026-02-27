@@ -18,6 +18,9 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import FeatureFlags, Scene, ProjectRequest
+from utils.logger import get_logger
+logger = get_logger("optimization_agent")
+
 
 
 class OptimizationAgent:
@@ -46,7 +49,7 @@ class OptimizationAgent:
                 from openai import OpenAI
                 self._llm_client = OpenAI(api_key=self.api_key)
             except Exception as e:
-                print(f"  Failed to initialize LLM client: {e}")
+                logger.error(f"  Failed to initialize LLM client: {e}")
                 self._llm_client = None
         return self._llm_client
 
@@ -71,10 +74,10 @@ class OptimizationAgent:
         Returns:
             최적화 패키지 딕셔너리
         """
-        print("\n  [OPTIMIZATION] Generating YouTube optimization package...")
+        logger.info("\n  [OPTIMIZATION] Generating YouTube optimization package...")
 
         if not request.feature_flags.optimization_pack:
-            print("  [OPTIMIZATION] Feature disabled. Skipping.")
+            logger.info("  [OPTIMIZATION] Feature disabled. Skipping.")
             return {}
 
         # 스크립트 요약
@@ -82,7 +85,7 @@ class OptimizationAgent:
 
         # LLM이 없으면 기본값 반환
         if not self.llm_client:
-            print("  [OPTIMIZATION] No LLM client. Using default package.")
+            logger.info("  [OPTIMIZATION] No LLM client. Using default package.")
             return self._get_default_package(topic, script_summary)
 
         # LLM으로 최적화 패키지 생성
@@ -94,11 +97,11 @@ class OptimizationAgent:
                 genre=request.genre,
                 mood=request.mood
             )
-            print("  [OPTIMIZATION] Package generated successfully.")
+            logger.info("  [OPTIMIZATION] Package generated successfully.")
             return result
 
         except Exception as e:
-            print(f"  [OPTIMIZATION] LLM generation failed: {e}")
+            logger.error(f"  [OPTIMIZATION] LLM generation failed: {e}")
             return self._get_default_package(topic, script_summary)
 
     def _summarize_script(self, script: str, max_length: int = 200) -> str:
@@ -425,7 +428,7 @@ JSON 배열로 출력:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(package, f, ensure_ascii=False, indent=2)
 
-        print(f"  [OPTIMIZATION] Saved to: {output_path}")
+        logger.info(f"  [OPTIMIZATION] Saved to: {output_path}")
         return output_path
 
     def get_ab_test_config(

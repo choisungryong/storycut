@@ -11,6 +11,9 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from utils.ffmpeg_utils import FFmpegComposer
+from utils.logger import get_logger
+logger = get_logger("composer_agent")
+
 
 
 class ComposerAgent:
@@ -53,9 +56,9 @@ class ComposerAgent:
         Returns:
             Path to final composed video
         """
-        print("\n[Composer] Starting final video composition...")
+        logger.info("\n[Composer] Starting final video composition...")
         if use_ducking:
-            print("   [Composer] Audio ducking: ENABLED")
+            logger.info("   [Composer] Audio ducking: ENABLED")
 
         # Validate inputs
         if len(video_clips) != len(narration_clips):
@@ -79,8 +82,8 @@ class ComposerAgent:
         # Get final video info
         duration = self.composer.get_video_duration(final_video)
 
-        print(f"\n[Composer] Video composition complete!")
-        print(f"   Output: {final_video}")
-        print(f"   Duration: {duration:.2f} seconds")
+        logger.info(f"\n[Composer] Video composition complete!")
+        logger.info(f"   Output: {final_video}")
+        logger.info(f"   Duration: {duration:.2f} seconds")
 
         return final_video

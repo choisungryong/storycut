@@ -20,6 +20,9 @@ from agents.tts_agent import TTSAgent
 from agents.music_agent import MusicAgent
 from agents.composer_agent import ComposerAgent
 from schemas import FeatureFlags, Scene, SceneEntities, ProjectRequest, SceneStatus, CameraWork
+from utils.logger import get_logger
+logger = get_logger("scene_orchestrator")
+
 
 
 class SceneOrchestrator:
@@ -58,10 +61,10 @@ class SceneOrchestrator:
                     genai.configure(api_key=self.google_api_key)
                     self._llm_client = genai.GenerativeModel(model_name="gemini-3-pro-preview")
                 else:
-                    print("[WARNING] GOOGLE_API_KEY not set. LLM features disabled.")
+                    logger.warning("[WARNING] GOOGLE_API_KEY not set. LLM features disabled.")
                     self._llm_client = None
             except Exception as e:
-                print(f"[WARNING] Failed to initialize Gemini client: {e}")
+                logger.error(f"[WARNING] Failed to initialize Gemini client: {e}")
                 self._llm_client = None
         return self._llm_client
 
@@ -225,7 +228,7 @@ JSON 형식으로 출력:
             return SceneEntities(**data)
 
         except Exception as e:
-            print(f"  Entity extraction failed: {e}")
+            logger.error(f"  Entity extraction failed: {e}")
             return SceneEntities()
 
     def _shorten_narration(self, narration: str, target_duration: float) -> str:
@@ -249,7 +252,7 @@ JSON 형식으로 출력:
                 generation_config={"temperature": 0.3, "max_output_tokens": 1000}
             )
             shortened = response.text.strip()
-            print(f"     [Narration] LLM raw response: {shortened[:200]}")
+            logger.info(f"     [Narration] LLM raw response: {shortened[:200]}")
 
             # Gemini 메타데이터 누출 제거: (36chars), *Refining:*, 마크다운 등
             shortened = re.sub(r'\(\d+chars?\)', '', shortened)
@@ -261,13 +264,13 @@ JSON 형식으로 출력:
                 shortened = '\n'.join(lines)
 
             if shortened and len(shortened) < len(narration):
-                print(f"     [Narration] Shortened: {len(narration)}자 → {len(shortened)}자 (target: {target_chars}자)")
-                print(f"     [Narration] Result: {shortened[:100]}")
+                logger.info(f"     [Narration] Shortened: {len(narration)}자 → {len(shortened)}자 (target: {target_chars}자)")
+                logger.info(f"     [Narration] Result: {shortened[:100]}")
                 return shortened
             else:
-                print(f"     [Narration] Shorten result invalid (len={len(shortened) if shortened else 0}), keeping original")
+                logger.info(f"     [Narration] Shorten result invalid (len={len(shortened) if shortened else 0}), keeping original")
         except Exception as e:
-            print(f"     [Narration] Shorten failed: {e}")
+            logger.error(f"     [Narration] Shorten failed: {e}")
         return narration
 
     def _resolve_image_to_local(self, img_path: str, project_dir: str, scene_id) -> str:
@@ -291,13 +294,13 @@ JSON 형식으로 출력:
             if os.path.exists(local_path):
                 return local_path
             try:
-                print(f"  [v2.3] Downloading image: {img_path[:80]}...")
+                logger.info(f"  [v2.3] Downloading image: {img_path[:80]}...")
                 urllib.request.urlretrieve(img_path, local_path)
                 if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-                    print(f"  [v2.3] Downloaded to: {local_path}")
+                    logger.info(f"  [v2.3] Downloaded to: {local_path}")
                     return local_path
             except Exception as e:
-                print(f"  [v2.3] Download failed: {e}")
+                logger.error(f"  [v2.3] Download failed: {e}")
 
         return None
 
@@ -460,9 +463,9 @@ JSON 형식으로 출력:
         Returns:
             최종 영상 파일 경로
         """
-        print(f"\n{'='*60}")
-        print(f"STORYCUT - Processing Story: {story_data['title']}")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"STORYCUT - Processing Story: {story_data['title']}")
+        logger.info(f"{'='*60}\n")
 
         # Feature flags 업데이트
         if request:
@@ -486,20 +489,20 @@ JSON 형식으로 출력:
         # TTS Voice 설정
         if request and hasattr(request, 'voice_id'):
             self.tts_agent.voice = request.voice_id
-            print(f"TTS Voice set to: {self.tts_agent.voice}")
+            logger.info(f"TTS Voice set to: {self.tts_agent.voice}")
 
         # v2.0: 글로벌 스타일 가이드 추출
         global_style = story_data.get("global_style")
         character_sheet = story_data.get("character_sheet", {})
 
-        print(f"Total scenes: {total_scenes}")
-        print(f"Target duration: {story_data.get('total_duration_sec', 60)} seconds")
-        print(f"Context carry-over: {'ON' if self.feature_flags.context_carry_over else 'OFF'}")
+        logger.info(f"Total scenes: {total_scenes}")
+        logger.info(f"Target duration: {story_data.get('total_duration_sec', 60)} seconds")
+        logger.info(f"Context carry-over: {'ON' if self.feature_flags.context_carry_over else 'OFF'}")
         
         # 프로젝트 베이스 디렉토리 설정 (final_video.mp4 경로 기반)
         # output_path: outputs/<project_id>/final_video.mp4
         project_dir = os.path.dirname(output_path)
-        print(f"Project Directory: {project_dir}")
+        logger.info(f"Project Directory: {project_dir}")
 
         # v2.2: Load existing images from manifest (이미지 생성 스킵용)
         existing_images = {}  # scene_id -> image_path
@@ -526,16 +529,16 @@ JSON 형식으로 출력:
                                 else:
                                     existing_images[sc_id] = img_path  # URL 그대로 사용
                     if existing_images:
-                        print(f"\n[v2.2] Loaded {len(existing_images)} existing images from manifest (skipping regeneration)")
+                        logger.info(f"\n[v2.2] Loaded {len(existing_images)} existing images from manifest (skipping regeneration)")
             except Exception as e:
-                print(f"[v2.2] Failed to load manifest: {e}")
+                logger.error(f"[v2.2] Failed to load manifest: {e}")
 
         # v2.3: story_data에서도 이미지 경로 로드 (프론트엔드가 전달한 경우)
         if not existing_images and (story_data.get('_images_pregenerated') or any(
             isinstance(sc.get('assets'), dict) and sc.get('assets', {}).get('image_path')
             for sc in scenes
         )):
-            print(f"\n[v2.3] Checking story_data scenes for pre-generated image paths...")
+            logger.info(f"\n[v2.3] Checking story_data scenes for pre-generated image paths...")
             for sc in scenes:
                 sc_id = sc.get('scene_id')
                 sc_assets = sc.get('assets', {})
@@ -550,35 +553,35 @@ JSON 형식으로 출력:
                         else:
                             existing_images[sc_id] = img_path
             if existing_images:
-                print(f"[v2.3] Loaded {len(existing_images)} images from story_data (skipping regeneration)")
+                logger.info(f"[v2.3] Loaded {len(existing_images)} images from story_data (skipping regeneration)")
 
         # v2.0: 글로벌 스타일 정보 출력
         if global_style:
-            print(f"\n[Global Style Guide]")
-            print(f"  Art Style: {global_style.get('art_style', 'N/A')}")
-            print(f"  Color Palette: {global_style.get('color_palette', 'N/A')}")
-            print(f"  Visual Seed: {global_style.get('visual_seed', 'N/A')}")
-            print(f"  Aspect Ratio: {global_style.get('aspect_ratio', '16:9')}")
+            logger.info(f"\n[Global Style Guide]")
+            logger.info(f"  Art Style: {global_style.get('art_style', 'N/A')}")
+            logger.info(f"  Color Palette: {global_style.get('color_palette', 'N/A')}")
+            logger.info(f"  Visual Seed: {global_style.get('visual_seed', 'N/A')}")
+            logger.info(f"  Aspect Ratio: {global_style.get('aspect_ratio', '16:9')}")
 
         if character_sheet:
-            print(f"\n[Character Sheet]")
+            logger.info(f"\n[Character Sheet]")
             for token, char_data in character_sheet.items():
-                print(f"  {token}: {char_data.get('name')} (seed: {char_data.get('visual_seed')})")
+                logger.info(f"  {token}: {char_data.get('name')} (seed: {char_data.get('visual_seed')})")
 
         # v2.0: 앵커 정보 로깅
         if style_anchor_path:
-            print(f"\n[StyleAnchor] Path: {style_anchor_path}")
+            logger.info(f"\n[StyleAnchor] Path: {style_anchor_path}")
         if environment_anchors:
-            print(f"[EnvAnchors] {len(environment_anchors)} scenes: {list(environment_anchors.keys())}")
+            logger.info(f"[EnvAnchors] {len(environment_anchors)} scenes: {list(environment_anchors.keys())}")
 
         # v2.0: ConsistencyValidator 초기화
         consistency_validator = None
         if self.feature_flags.consistency_validation:
             from agents.consistency_validator import ConsistencyValidator
             consistency_validator = ConsistencyValidator()
-            print(f"[ConsistencyValidator] Enabled (max_retries={self.feature_flags.consistency_max_retries})")
+            logger.info(f"[ConsistencyValidator] Enabled (max_retries={self.feature_flags.consistency_max_retries})")
 
-        print()
+        logger.info()
 
         # Scene 처리
         video_clips = []
@@ -587,10 +590,10 @@ JSON 형식으로 출력:
         prev_scene = None
 
         for i, scene_data in enumerate(scenes, 1):
-            print(f"\n{'─'*60}")
-            print(f"Processing Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
-            print(f"{'─'*60}")
-            print(f"  [DEBUG] Starting scene {i} processing...")
+            logger.info(f"\n{'─'*60}")
+            logger.info(f"Processing Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
+            logger.info(f"{'─'*60}")
+            logger.debug(f"  [DEBUG] Starting scene {i} processing...")
 
             # Scene 객체 생성
             scene = Scene(
@@ -610,14 +613,14 @@ JSON 형식으로 출력:
             # v2.2: Set existing image path if available (skip image generation)
             if scene_data["scene_id"] in existing_images:
                 scene.assets.image_path = existing_images[scene_data["scene_id"]]
-                print(f"  [v2.2] Using existing image: {scene.assets.image_path}")
+                logger.info(f"  [v2.2] Using existing image: {scene.assets.image_path}")
 
             # v2.0: Character reference 로그 및 시드 추출
             scene_seed = None
             if scene.image_prompt:
-                print(f"  [v2.0] Using image_prompt (character reference enabled)")
+                logger.info(f"  [v2.0] Using image_prompt (character reference enabled)")
             if scene.characters_in_scene:
-                print(f"  [v2.0] Characters: {', '.join(scene.characters_in_scene)}")
+                logger.info(f"  [v2.0] Characters: {', '.join(scene.characters_in_scene)}")
 
                 # 모든 캐릭터의 visual_seed 결합
                 if character_sheet and scene.characters_in_scene:
@@ -631,7 +634,7 @@ JSON 형식으로 출력:
                         _base = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
                         # 씬 인덱스를 반영하여 같은 캐릭터 조합이라도 씬마다 다른 시드 생성
                         scene_seed = (_base + scene.scene_id * 31337) % (2**31)
-                        print(f"  [v2.0] Combined visual_seed: {scene_seed} (from {len(all_seeds)} characters: {all_seeds}, scene_id: {scene.scene_id})")
+                        logger.info(f"  [v2.0] Combined visual_seed: {scene_seed} (from {len(all_seeds)} characters: {all_seeds}, scene_id: {scene.scene_id})")
 
             # v2.0: Scene에 메타데이터 저장 (video_agent가 활용)
             if not hasattr(scene, '_seed'):
@@ -650,7 +653,7 @@ JSON 형식으로 출력:
             if self.feature_flags.context_carry_over and prev_scene:
                 scene.context_summary = self.summarize_prev_scene(prev_scene)
                 scene.inherited_keywords = self.extract_key_terms(prev_scene)
-                print(f"  [CONTEXT] Inherited: {scene.inherited_keywords}")
+                logger.info(f"  [CONTEXT] Inherited: {scene.inherited_keywords}")
             else:
                 scene.inherited_keywords = []
 
@@ -669,7 +672,7 @@ JSON 형식으로 출력:
                     scene.prompt = scene.image_prompt + style_suffix
                 else:
                     scene.prompt = scene.image_prompt
-                print(f"  [v2.0] Using pre-defined image_prompt")
+                logger.info(f"  [v2.0] Using pre-defined image_prompt")
             else:
                 # v1.0 방식: build_prompt로 생성
                 scene.prompt = self.build_prompt(
@@ -765,9 +768,9 @@ JSON 형식으로 출력:
                 os.makedirs(_audio_dir, exist_ok=True)
                 _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
 
-                print(f"     [TTS INPUT] Scene {scene.scene_id} narration: {scene.narration[:150]}")
+                logger.info(f"     [TTS INPUT] Scene {scene.scene_id} narration: {scene.narration[:150]}")
                 if dialogue_lines:
-                    print(f"     [TTS INPUT] Scene {scene.scene_id} dialogue_lines: {dialogue_lines[:3]}")
+                    logger.info(f"     [TTS INPUT] Scene {scene.scene_id} dialogue_lines: {dialogue_lines[:3]}")
 
                 if dialogue_lines and character_voices:
                     # 멀티 화자 TTS (line_timings 포함)
@@ -792,7 +795,7 @@ JSON 형식으로 출력:
                 # ElevenLabs 캐릭터별 정밀 alignment 저장
                 if getattr(tts_result, 'char_alignment', None):
                     scene._char_alignment = tts_result.char_alignment
-                    print(f"     [TTS] Scene {scene.scene_id}: char_alignment 저장 ({len(tts_result.char_alignment['characters'])} chars)")
+                    logger.info(f"     [TTS] Scene {scene.scene_id}: char_alignment 저장 ({len(tts_result.char_alignment['characters'])} chars)")
 
                 # TTS 기반으로 duration 조정 — 나레이션 원본 보존, duration만 TTS에 맞춤
                 if tts_result.duration_sec > 0:
@@ -802,7 +805,7 @@ JSON 형식으로 출력:
 
                     # 씬 duration을 TTS에 맞춤 (최소 3초)
                     scene.duration_sec = max(3, tts_dur)
-                    print(f"     [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
+                    logger.info(f"     [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
 
                 # 영상 생성 (업데이트된 duration 사용)
                 scene.status = SceneStatus.GENERATING_VIDEO
@@ -837,14 +840,14 @@ JSON 형식으로 출력:
                             if pose_path and os.path.exists(pose_path):
                                 char_anchor_paths.append(pose_path)
                             else:
-                                print(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
+                                logger.warning(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
                         if len(char_anchor_paths) < len(scene.characters_in_scene):
-                            print(f"  [WARNING] Only {len(char_anchor_paths)}/{len(scene.characters_in_scene)} character anchors found")
+                            logger.warning(f"  [WARNING] Only {len(char_anchor_paths)}/{len(scene.characters_in_scene)} character anchors found")
 
                     env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
 
                     # Anchor audit log
-                    print(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_anchor_paths]}, style={os.path.basename(style_anchor_path) if style_anchor_path else 'None'}, env={os.path.basename(env_anchor) if env_anchor else 'None'}")
+                    logger.info(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_anchor_paths]}, style={os.path.basename(style_anchor_path) if style_anchor_path else 'None'}, env={os.path.basename(env_anchor) if env_anchor else 'None'}")
 
                     val_result = consistency_validator.validate_scene_image(
                         generated_image_path=scene.assets.image_path,
@@ -855,7 +858,7 @@ JSON 형식으로 출력:
                     )
 
                     if not val_result.passed and val_result.overall_score <= 0.4:
-                        print(f"     [ConsistencyValidator] Scene {i} FAILED validation (score={val_result.overall_score:.2f})")
+                        logger.error(f"     [ConsistencyValidator] Scene {i} FAILED validation (score={val_result.overall_score:.2f})")
                         scene.status = SceneStatus.FAILED
                         scene.error_message = f"Consistency validation failed: {val_result.issues}"
                         processed_scenes.append(scene)
@@ -870,7 +873,7 @@ JSON 형식으로 출력:
                     
                     # 2. Burn-in if enabled
                     if getattr(self.feature_flags, 'subtitle_burn_in', True):
-                        print(f"     [Subtitle] Burning in subtitles for scene {i}...")
+                        logger.info(f"     [Subtitle] Burning in subtitles for scene {i}...")
                         subtitled_video_path = video_path.replace(".mp4", "_sub.mp4")
                         
                         result_path, subtitle_success = self.composer_agent.composer.overlay_subtitles(
@@ -886,14 +889,14 @@ JSON 형식으로 출력:
                         # Check actual subtitle application result
                         if subtitle_success and os.path.exists(result_path):
                             scene.assets.video_path = result_path
-                            print(f"     [Subtitle] Subtitles burned successfully: {result_path}")
+                            logger.info(f"     [Subtitle] Subtitles burned successfully: {result_path}")
                         else:
-                            print(f"     [Warning] Subtitle burn-in failed (OOM?), using original video without subtitles.")
+                            logger.error(f"     [Warning] Subtitle burn-in failed (OOM?), using original video without subtitles.")
                             # Keep original video path (fallback was already copied)
                             scene.assets.video_path = result_path
                             
                 except Exception as sub_e:
-                     print(f"     [Warning] Subtitle processing failed: {sub_e}")
+                     logger.error(f"     [Warning] Subtitle processing failed: {sub_e}")
                      # Do not fail the scene, just proceed without subtitles
 
                 # 완료
@@ -903,32 +906,32 @@ JSON 형식으로 출력:
                 scene.status = SceneStatus.FAILED
                 scene.error_message = str(e)
                 scene.retry_count += 1
-                print(f"     [ERROR] Scene {i} failed: {e}")
+                logger.error(f"     [ERROR] Scene {i} failed: {e}")
                 # 계속 진행 (실패한 씬은 나중에 재생성 가능)
 
             processed_scenes.append(scene)
             prev_scene = scene
 
-            print(f"Scene {i} complete (status: {scene.status})\n")
+            logger.info(f"Scene {i} complete (status: {scene.status})\n")
 
             if progress_callback:
                 try:
                     import asyncio
                     if asyncio.iscoroutinefunction(progress_callback):
                         # Async callback - skip in sync context
-                        print(f"  [DEBUG] Skipping async progress_callback")
+                        logger.debug(f"  [DEBUG] Skipping async progress_callback")
                         pass
                     else:
                         # Sync callback
-                        print(f"  [DEBUG] Calling progress_callback for scene {i}")
+                        logger.debug(f"  [DEBUG] Calling progress_callback for scene {i}")
                         progress_callback(scene, i)
                 except Exception as cb_error:
-                    print(f"  [WARNING] Progress callback failed: {cb_error}")
+                    logger.error(f"  [WARNING] Progress callback failed: {cb_error}")
 
         # =================================================================
         # ROBUSTNESS FIX: Collect clips only from successfully completed scenes
         # =================================================================
-        print(f"\n[Composer] Collecting clips from completed scenes...")
+        logger.info(f"\n[Composer] Collecting clips from completed scenes...")
         video_clips = []
         narration_clips = []
         scene_durations = []
@@ -942,24 +945,24 @@ JSON 형식으로 출력:
                     actual_dur = self.composer_agent.composer.get_video_duration(s.assets.video_path)
                     scene_durations.append(actual_dur)
                     if abs(actual_dur - (s.duration_sec or 5.0)) > 0.05:
-                        print(f"  [SYNC] Scene {s.scene_id}: video={actual_dur:.3f}s vs planned={s.duration_sec}s (delta={actual_dur - s.duration_sec:+.3f}s)")
+                        logger.info(f"  [SYNC] Scene {s.scene_id}: video={actual_dur:.3f}s vs planned={s.duration_sec}s (delta={actual_dur - s.duration_sec:+.3f}s)")
                 except Exception:
                     scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
-                print(f"  + Added Scene {s.scene_id}")
+                logger.info(f"  + Added Scene {s.scene_id}")
             else:
-                print(f"  - Skipped Scene {s.scene_id} (Status: {s.status})")
+                logger.info(f"  - Skipped Scene {s.scene_id} (Status: {s.status})")
 
         if not video_clips:
             raise RuntimeError("No scenes were successfully generated. Cannot compose video.")
 
         # 배경 음악 선택
-        print(f"{'─'*60}")
+        logger.info(f"{'─'*60}")
         music_path = self.music_agent.select_music(
             genre=story_data.get("genre", "emotional"),
             mood=story_data.get("mood", "neutral"),
             duration_sec=story_data.get("total_duration_sec", 60)
         )
-        print(f"{'─'*60}\n")
+        logger.info(f"{'─'*60}\n")
 
         # 최종 영상 합성
         _use_ducking = getattr(self.feature_flags, 'ffmpeg_audio_ducking', False)
@@ -972,10 +975,10 @@ JSON 형식으로 출력:
             scene_durations=scene_durations
         )
 
-        print(f"\n{'='*60}")
-        print(f"SUCCESS! Video ready for YouTube upload")
-        print(f"{'='*60}")
-        print(f"File: {os.path.abspath(final_video)}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"SUCCESS! Video ready for YouTube upload")
+        logger.info(f"{'='*60}")
+        logger.info(f"File: {os.path.abspath(final_video)}\n")
 
         return final_video
 
@@ -996,9 +999,9 @@ JSON 형식으로 출력:
 
         흐름: TTS -> Ken Burns -> 자막 -> 클립 수집 -> BGM -> 최종 합성
         """
-        print(f"\n{'='*60}")
-        print(f"STORYCUT - Compose from Pre-generated Images: {story_data['title']}")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"STORYCUT - Compose from Pre-generated Images: {story_data['title']}")
+        logger.info(f"{'='*60}\n")
 
         # Feature flags 업데이트
         if request:
@@ -1078,9 +1081,9 @@ JSON 형식으로 출력:
                         vid_path = sc.get('assets', {}).get('video_path') if isinstance(sc.get('assets'), dict) else None
                         if vid_path and os.path.exists(str(vid_path)):
                             i2v_video_map[sc_id] = vid_path
-                            print(f"[compose] Scene {sc_id}: I2V video found → {vid_path}")
+                            logger.info(f"[compose] Scene {sc_id}: I2V video found → {vid_path}")
             except Exception as e:
-                print(f"[compose] Failed to load manifest images: {e}")
+                logger.error(f"[compose] Failed to load manifest images: {e}")
 
         # story_data scenes에서도 보충
         for sc in scenes:
@@ -1093,7 +1096,7 @@ JSON 형식으로 출력:
                     if resolved:
                         image_map[sc_id] = resolved
 
-        print(f"[compose] {len(image_map)}/{total_scenes} scenes have pre-generated images")
+        logger.info(f"[compose] {len(image_map)}/{total_scenes} scenes have pre-generated images")
 
         # 카메라 워크 목록
         camera_works = list(CameraWork)
@@ -1103,8 +1106,8 @@ JSON 형식으로 출력:
 
         for i, scene_data in enumerate(scenes, 1):
             scene_id = scene_data["scene_id"]
-            print(f"\n{'---'*20}")
-            print(f"[compose] Scene {i}/{total_scenes} (ID: {scene_id})")
+            logger.info(f"\n{'---'*20}")
+            logger.info(f"[compose] Scene {i}/{total_scenes} (ID: {scene_id})")
 
             image_path = image_map.get(scene_id)
             if not image_path or not os.path.exists(str(image_path)):
@@ -1112,9 +1115,9 @@ JSON 형식으로 출력:
                 fallback_path = os.path.join(project_dir, "media", "images", f"scene_{int(scene_id):02d}.png")
                 if os.path.exists(fallback_path):
                     image_path = fallback_path
-                    print(f"  [compose] Fallback image found: {fallback_path}")
+                    logger.info(f"  [compose] Fallback image found: {fallback_path}")
                 else:
-                    print(f"  [SKIP] No valid image for scene {scene_id} (path={image_path}), skipping")
+                    logger.info(f"  [SKIP] No valid image for scene {scene_id} (path={image_path}), skipping")
                     continue
 
             scene = Scene(
@@ -1151,9 +1154,9 @@ JSON 형식으로 출력:
                 os.makedirs(_audio_dir, exist_ok=True)
                 _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
 
-                print(f"     [TTS INPUT] Scene {scene.scene_id} narration: {scene.narration[:150]}")
+                logger.info(f"     [TTS INPUT] Scene {scene.scene_id} narration: {scene.narration[:150]}")
                 if dialogue_lines:
-                    print(f"     [TTS INPUT] Scene {scene.scene_id} dialogue_lines: {dialogue_lines[:3]}")
+                    logger.info(f"     [TTS INPUT] Scene {scene.scene_id} dialogue_lines: {dialogue_lines[:3]}")
 
                 if dialogue_lines and character_voices:
                     tts_result = self.tts_agent.generate_dialogue_audio(
@@ -1184,7 +1187,7 @@ JSON 형식으로 출력:
                     tts_dur = math.ceil(tts_result.duration_sec) + 1
 
                     scene.duration_sec = max(3, tts_dur)
-                    print(f"  [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
+                    logger.info(f"  [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
 
                 # Phase 2: I2V 비디오 사용 또는 Ken Burns (이미지 → 비디오)
                 scene.status = SceneStatus.GENERATING_VIDEO
@@ -1194,7 +1197,7 @@ JSON 형식으로 출력:
 
                 i2v_path = i2v_video_map.get(scene_id)
                 if i2v_path:
-                    print(f"  [compose] Using I2V video for scene {scene_id}: {i2v_path}")
+                    logger.info(f"  [compose] Using I2V video for scene {scene_id}: {i2v_path}")
                     video_path = i2v_path
                 else:
                     video_path = self.video_agent.apply_kenburns(
@@ -1223,17 +1226,17 @@ JSON 형식으로 출력:
                         if subtitle_success and os.path.exists(result_path):
                             scene.assets.video_path = result_path
                 except Exception as sub_e:
-                    print(f"  [Warning] Subtitle processing failed: {sub_e}")
+                    logger.error(f"  [Warning] Subtitle processing failed: {sub_e}")
 
                 scene.status = SceneStatus.COMPLETED
 
             except Exception as e:
                 scene.status = SceneStatus.FAILED
                 scene.error_message = str(e)
-                print(f"  [ERROR] Scene {i} failed: {e}")
+                logger.error(f"  [ERROR] Scene {i} failed: {e}")
 
             processed_scenes.append(scene)
-            print(f"  Scene {i} complete (status: {scene.status})")
+            logger.info(f"  Scene {i} complete (status: {scene.status})")
 
             if progress_callback:
                 try:
@@ -1241,7 +1244,7 @@ JSON 형식으로 출력:
                     if not asyncio.iscoroutinefunction(progress_callback):
                         progress_callback(scene, i)
                 except Exception as cb_error:
-                    print(f"  [WARNING] Progress callback failed: {cb_error}")
+                    logger.error(f"  [WARNING] Progress callback failed: {cb_error}")
 
         # 클립 수집
         video_clips = []
@@ -1257,7 +1260,7 @@ JSON 형식으로 출력:
                     actual_dur = self.composer_agent.composer.get_video_duration(s.assets.video_path)
                     scene_durations.append(actual_dur)
                     if abs(actual_dur - (s.duration_sec or 5.0)) > 0.05:
-                        print(f"  [SYNC] Scene {s.scene_id}: video={actual_dur:.3f}s vs planned={s.duration_sec}s (delta={actual_dur - s.duration_sec:+.3f}s)")
+                        logger.info(f"  [SYNC] Scene {s.scene_id}: video={actual_dur:.3f}s vs planned={s.duration_sec}s (delta={actual_dur - s.duration_sec:+.3f}s)")
                 except Exception:
                     scene_durations.append(float(s.duration_sec) if s.duration_sec else 5.0)
 
@@ -1281,9 +1284,9 @@ JSON 형식으로 출력:
             scene_durations=scene_durations
         )
 
-        print(f"\n{'='*60}")
-        print(f"SUCCESS! Video composed from pre-generated images")
-        print(f"File: {os.path.abspath(final_video)}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"SUCCESS! Video composed from pre-generated images")
+        logger.info(f"File: {os.path.abspath(final_video)}\n")
 
         return final_video
 
@@ -1312,7 +1315,7 @@ JSON 형식으로 출력:
         Returns:
             Scene 데이터 목록 (이미지 경로 포함)
         """
-        print(f"\n[SceneOrchestrator] Generating IMAGES ONLY")
+        logger.info(f"\n[SceneOrchestrator] Generating IMAGES ONLY")
         
         if request:
             self.feature_flags = request.feature_flags
@@ -1325,22 +1328,22 @@ JSON 형식으로 출력:
         global_style = story_data.get("global_style")
         character_sheet = story_data.get("character_sheet", {})
 
-        print(f"Total scenes: {total_scenes}")
-        print(f"Style: {style}")
+        logger.info(f"Total scenes: {total_scenes}")
+        logger.info(f"Style: {style}")
         # 앵커 디버그: character_sheet에 anchor_set과 master_image_path가 있는지 확인
         for _dbg_token, _dbg_cs in character_sheet.items():
             if isinstance(_dbg_cs, dict):
                 _has_anchor = bool(_dbg_cs.get("anchor_set"))
                 _has_master = bool(_dbg_cs.get("master_image_path"))
                 _master_exists = os.path.exists(_dbg_cs.get("master_image_path", "")) if _has_master else False
-                print(f"  [DEBUG] {_dbg_token}: anchor_set={_has_anchor}, master_image_path={_has_master} (exists={_master_exists})")
+                logger.debug(f"  [DEBUG] {_dbg_token}: anchor_set={_has_anchor}, master_image_path={_has_master} (exists={_master_exists})")
                 if _has_anchor:
                     _poses = _dbg_cs["anchor_set"].get("poses", {})
                     for _pk, _pv in _poses.items():
                         _pp = _pv.get("image_path", "") if isinstance(_pv, dict) else ""
                         _pe = os.path.exists(_pp) if _pp else False
-                        print(f"    [DEBUG] pose={_pk}: path={_pp}, exists={_pe}")
-        print()
+                        logger.debug(f"    [DEBUG] pose={_pk}: path={_pp}, exists={_pe}")
+        logger.info()
         
         processed_scenes = [None] * total_scenes  # pre-allocate for ordered results
 
@@ -1372,9 +1375,9 @@ JSON 형식으로 출력:
             """단일 씬 이미지 생성 (스레드에서 실행 가능)"""
             i = idx + 1  # 1-based for display
 
-            print(f"\n{'---'*20}")
-            print(f"Generating Image for Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
-            print(f"{'---'*20}")
+            logger.info(f"\n{'---'*20}")
+            logger.info(f"Generating Image for Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
+            logger.info(f"{'---'*20}")
 
             # Scene 객체 생성
             scene = Scene(
@@ -1494,7 +1497,7 @@ JSON 형식으로 출력:
                     scene.prompt = f"{'. '.join(prefix_parts)}.{' ' + outfit_lock_str if outfit_lock_str else ''} {clean_prompt}"
 
                     if action_pose or expression:
-                        print(f"  [MV포팅#1] POSE={action_pose or 'N/A'}, EXPR={expression or 'N/A'}")
+                        logger.info(f"  [MV포팅#1] POSE={action_pose or 'N/A'}, EXPR={expression or 'N/A'}")
                     # 앵커 이미지의 직립 자세 복제 방지 네거티브
                     if action_pose:
                         scene._action_pose_injected = True
@@ -1544,11 +1547,11 @@ JSON 형식으로 출력:
                                     with open(_dl_path, "wb") as _f:
                                         _f.write(_resp.content)
                                     char_refs.append(_dl_path)
-                                    print(f"  [R2->Local] Downloaded anchor for '{char_token}': {os.path.basename(_dl_path)}")
+                                    logger.info(f"  [R2->Local] Downloaded anchor for '{char_token}': {os.path.basename(_dl_path)}")
                                 else:
-                                    print(f"  [WARNING] Anchor download failed for '{char_token}': HTTP {_resp.status_code}")
+                                    logger.error(f"  [WARNING] Anchor download failed for '{char_token}': HTTP {_resp.status_code}")
                             except Exception as _dl_err:
-                                print(f"  [WARNING] Anchor download failed for '{char_token}': {_dl_err}")
+                                logger.error(f"  [WARNING] Anchor download failed for '{char_token}': {_dl_err}")
                         else:
                             # master_image_path 또는 master_image_url 폴백
                             _char_data = character_sheet.get(char_token, {})
@@ -1570,14 +1573,14 @@ JSON 형식으로 출력:
                                         with open(_dl_path, "wb") as _f:
                                             _f.write(_resp.content)
                                         char_refs.append(_dl_path)
-                                        print(f"  [R2->Local] Downloaded master anchor for '{char_token}'")
+                                        logger.info(f"  [R2->Local] Downloaded master anchor for '{char_token}'")
                                 except Exception:
                                     pass
                             else:
-                                print(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
-                    print(f"  [ANCHOR] Scene {scene.scene_id}: chars={scene.characters_in_scene}, refs={len(char_refs)} paths={char_refs}")
+                                logger.warning(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
+                    logger.info(f"  [ANCHOR] Scene {scene.scene_id}: chars={scene.characters_in_scene}, refs={len(char_refs)} paths={char_refs}")
                     if len(char_refs) < len(scene.characters_in_scene):
-                        print(f"  [WARNING] Only {len(char_refs)}/{len(scene.characters_in_scene)} character anchors found")
+                        logger.warning(f"  [WARNING] Only {len(char_refs)}/{len(scene.characters_in_scene)} character anchors found")
 
                 # v2.1: Extract anchors for this scene
                 # 캐릭터 미등장 씬: 스타일 앵커 제외 — 고스트 방지 (MV 포팅 #7)
@@ -1585,7 +1588,7 @@ JSON 형식으로 출력:
                 scene_env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
 
                 # Anchor audit log
-                print(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_refs]}, style={os.path.basename(scene_style_anchor) if scene_style_anchor else 'None'}, env={os.path.basename(scene_env_anchor) if scene_env_anchor else 'None'}")
+                logger.info(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_refs]}, style={os.path.basename(scene_style_anchor) if scene_style_anchor else 'None'}, env={os.path.basename(scene_env_anchor) if scene_env_anchor else 'None'}")
 
                 # Platform 기반 aspect ratio
                 _platform = getattr(request, 'target_platform', None)
@@ -1644,7 +1647,7 @@ JSON 형식으로 출력:
                         if _dup_scene_id is None:
                             _phash_registry[scene.scene_id] = _new_hash
                     if _dup_scene_id is not None:
-                        print(f"  [pHash] Scene {scene.scene_id} too similar to Scene {_dup_scene_id} (dist≤8). Regenerating...")
+                        logger.info(f"  [pHash] Scene {scene.scene_id} too similar to Scene {_dup_scene_id} (dist≤8). Regenerating...")
                         _varied_prompt = f"unique composition, different angle, {scene.prompt}"
                         _new_seed = (scene_seed + 42) if scene_seed else None
                         image_path, image_id = image_agent.generate_image(
@@ -1667,20 +1670,20 @@ JSON 형식으로 출력:
                         with _phash_lock:
                             with _PILImage.open(image_path) as _img:
                                 _phash_registry[scene.scene_id] = imagehash.phash(_img)
-                        print(f"  [pHash] Regenerated: {image_path}")
+                        logger.info(f"  [pHash] Regenerated: {image_path}")
                 except ImportError:
                     pass  # imagehash 미설치 시 무시
                 except Exception as _ph_err:
-                    print(f"  [pHash] Hash check skipped: {_ph_err}")
+                    logger.info(f"  [pHash] Hash check skipped: {_ph_err}")
 
                 scene.status = SceneStatus.COMPLETED
 
-                print(f"  [OK] Image generated: {image_path}")
+                logger.info(f"  [OK] Image generated: {image_path}")
 
             except Exception as e:
                 scene.status = SceneStatus.FAILED
                 scene.error_message = str(e)
-                print(f"  [FAIL] Image generation failed: {e}")
+                logger.error(f"  [FAIL] Image generation failed: {e}")
 
             # Scene 데이터를 딕셔너리로 변환하여 저장
             scene_dict = scene_data.copy()
@@ -1700,9 +1703,9 @@ JSON 형식으로 출력:
                     _actual_scene_id = scene_data.get("scene_id", idx + 1)
                     on_scene_complete(scene_dict, _actual_scene_id, total_scenes)
                 except Exception as cb_err:
-                    print(f"  [WARNING] on_scene_complete callback error: {cb_err}")
+                    logger.error(f"  [WARNING] on_scene_complete callback error: {cb_err}")
 
-            print(f"Scene {i} image complete\n")
+            logger.info(f"Scene {i} image complete\n")
             return scene
 
         # Scene 1: 직렬 처리 (스타일 앵커 확보 + context carry-over 기준점)
@@ -1713,7 +1716,7 @@ JSON 형식으로 출력:
         # Scene 2+: 병렬 처리 (max_workers=4)
         if len(scenes) > 1:
             remaining = list(enumerate(scenes[1:], start=1))
-            print(f"\n[Parallel] Processing {len(remaining)} remaining scenes with 4 workers...")
+            logger.info(f"\n[Parallel] Processing {len(remaining)} remaining scenes with 4 workers...")
             with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {
                     executor.submit(_process_single_scene, idx, sd, prev_scene): sd
@@ -1723,14 +1726,14 @@ JSON 형식으로 출력:
                     try:
                         future.result()
                     except Exception as exc:
-                        print(f"  [ERROR] Scene thread exception: {exc}")
+                        logger.error(f"  [ERROR] Scene thread exception: {exc}")
 
         # None 제거 (실패 시 방어) + scene_id 순서 복원 (병렬 처리 시 완료 순서 ≠ 원래 순서)
         processed_scenes = [s for s in processed_scenes if s is not None]
         processed_scenes.sort(key=lambda s: s.get("scene_id", 0) if isinstance(s, dict) else s.scene_id)
 
-        print(f"\n[SUCCESS] {len(processed_scenes)} images generated!")
-        print(f"[DEBUG-SYNC] processed_scenes order: {[s.get('scene_id') if isinstance(s, dict) else s.scene_id for s in processed_scenes]}")
+        logger.info(f"\n[SUCCESS] {len(processed_scenes)} images generated!")
+        logger.info(f"[DEBUG-SYNC] processed_scenes order: {[s.get('scene_id') if isinstance(s, dict) else s.scene_id for s in processed_scenes]}")
         return processed_scenes
 
 
@@ -1839,7 +1842,7 @@ JSON 형식으로 출력:
         Returns:
             (video_path, audio_path) 튜플
         """
-        print(f"Retrying scene {scene['scene_id']}...")
+        logger.info(f"Retrying scene {scene['scene_id']}...")
 
         video_path = self.video_agent.generate_video(
             scene_id=scene["scene_id"],
@@ -1890,11 +1893,11 @@ JSON 형식으로 출력:
             _alignment = getattr(scene, '_char_alignment', None)
             if _alignment and _alignment.get('characters'):
                 self._generate_srt_from_alignment(_alignment, narration, srt_path, composer)
-                print(f"  [SRT] Scene {scene.scene_id}: char_alignment 기반 정밀 SRT")
+                logger.info(f"  [SRT] Scene {scene.scene_id}: char_alignment 기반 정밀 SRT")
             # 2순위: sentence_timings (문장별 타이밍)
             elif getattr(scene, '_sentence_timings', None):
                 self._generate_srt_from_timings(scene._sentence_timings, srt_path, composer)
-                print(f"  [SRT] Scene {scene.scene_id}: sentence_timings 기반 SRT ({len(scene._sentence_timings)}문장)")
+                logger.info(f"  [SRT] Scene {scene.scene_id}: sentence_timings 기반 SRT ({len(scene._sentence_timings)}문장)")
             else:
                 # 3순위: 글자 수 비례 (레거시 fallback)
                 actual_duration = scene.tts_duration_sec if scene.tts_duration_sec else scene.duration_sec
@@ -1903,14 +1906,14 @@ JSON 형식으로 출력:
                     "duration_sec": actual_duration
                 }]
                 composer.generate_srt_from_scenes(scene_data, srt_path)
-                print(f"  [SRT] Scene {scene.scene_id}: 글자수 비례 fallback SRT")
+                logger.info(f"  [SRT] Scene {scene.scene_id}: 글자수 비례 fallback SRT")
 
             # 디버그 로그: SRT 내용 출력
             try:
                 with open(srt_path, 'r', encoding='utf-8') as _f:
                     _srt_content = _f.read()
-                print(f"  [SRT DEBUG] Scene {scene.scene_id} narration: {narration[:80]}...")
-                print(f"  [SRT DEBUG] Scene {scene.scene_id} SRT content:\n{_srt_content[:500]}")
+                logger.info(f"  [SRT DEBUG] Scene {scene.scene_id} narration: {narration[:80]}...")
+                logger.info(f"  [SRT DEBUG] Scene {scene.scene_id} SRT content:\n{_srt_content[:500]}")
             except Exception:
                 pass
 
@@ -1997,12 +2000,12 @@ JSON 형식으로 출력:
 
         # alignment 캐릭터를 합쳐서 원본 텍스트 재구성
         aligned_text = "".join(chars)
-        print(f"     [Alignment] chars={len(chars)}, aligned_text[:60]={aligned_text[:60]}")
-        print(f"     [Alignment] clean_text[:60]={clean_text[:60]}")
+        logger.info(f"     [Alignment] chars={len(chars)}, aligned_text[:60]={aligned_text[:60]}")
+        logger.info(f"     [Alignment] clean_text[:60]={clean_text[:60]}")
 
         # 자막 청크 분할 (최대 20자)
         chunks = composer._split_subtitle_text(clean_text, max_chars=20)
-        print(f"     [Alignment] {len(chunks)} chunks: {[c[:15] for c in chunks]}")
+        logger.info(f"     [Alignment] {len(chunks)} chunks: {[c[:15] for c in chunks]}")
 
         # 각 청크의 시작/끝 글자 위치를 찾고 alignment에서 타이밍 매핑
         srt_content = []
@@ -2066,7 +2069,7 @@ JSON 형식으로 출력:
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write("\n".join(srt_content))
 
-        print(f"     [Alignment SRT] {sub_index - 1} entries written to {srt_path}")
+        logger.info(f"     [Alignment SRT] {sub_index - 1} entries written to {srt_path}")
 
     def get_processing_stats(
         self,

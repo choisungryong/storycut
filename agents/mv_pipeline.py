@@ -69,6 +69,9 @@ from agents.subtitle_utils import (
     clamp_timeline_vocal_segments, snap_away_from_instrumental,
 )
 from utils.ffmpeg_utils import FFmpegComposer
+from utils.logger import get_logger
+logger = get_logger("mv_pipeline")
+
 
 
 class MVPipeline:
@@ -117,7 +120,7 @@ class MVPipeline:
         vocals_path = os.path.join(vocals_dir, "vocals.wav")
 
         if os.path.exists(vocals_path):
-            print(f"  [Demucs] Using cached vocals: {vocals_path}")
+            logger.info(f"  [Demucs] Using cached vocals: {vocals_path}")
             return vocals_path
 
         # ── Tier 1: 로컬 GPU Demucs ──
@@ -131,7 +134,7 @@ class MVPipeline:
             return result
 
         # ── Tier 3: fallback (풀 믹스) ──
-        print("  [Demucs] All separation methods failed - using full mix")
+        logger.error("  [Demucs] All separation methods failed - using full mix")
         return None
 
     def _separate_vocals_local(self, music_path: str, vocals_path: str) -> Optional[str]:
@@ -141,12 +144,12 @@ class MVPipeline:
             from demucs.pretrained import get_model
             from demucs.separate import load_track, apply_model
         except ImportError:
-            print("  [Demucs-Local] Not installed, skipping")
+            logger.info("  [Demucs-Local] Not installed, skipping")
             return None
 
         try:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"  [Demucs-Local] Separating vocals from: {os.path.basename(music_path)} (device={device})")
+            logger.info(f"  [Demucs-Local] Separating vocals from: {os.path.basename(music_path)} (device={device})")
 
             model = get_model("htdemucs")
             model.to(device)
@@ -169,11 +172,11 @@ class MVPipeline:
             vocals_int16 = np.clip(vocals_np * 32767, -32768, 32767).astype(np.int16)
             os.makedirs(os.path.dirname(vocals_path), exist_ok=True)
             wavfile.write(vocals_path, model.samplerate, vocals_int16)
-            print(f"  [Demucs-Local] Vocals saved: {vocals_path}")
+            logger.info(f"  [Demucs-Local] Vocals saved: {vocals_path}")
             return vocals_path
 
         except Exception as e:
-            print(f"  [Demucs-Local] Failed: {e}")
+            logger.error(f"  [Demucs-Local] Failed: {e}")
             if os.path.exists(vocals_path):
                 try: os.remove(vocals_path)
                 except OSError: pass
@@ -183,7 +186,7 @@ class MVPipeline:
         """Replicate API Demucs 보컬 분리 (클라우드 GPU)."""
         api_token = os.getenv("REPLICATE_API_TOKEN")
         if not api_token:
-            print("  [Demucs-Replicate] REPLICATE_API_TOKEN not set, skipping")
+            logger.info("  [Demucs-Replicate] REPLICATE_API_TOKEN not set, skipping")
             return None
 
         try:
@@ -191,7 +194,7 @@ class MVPipeline:
             import requests
             import time
 
-            print(f"  [Demucs-Replicate] Uploading {os.path.basename(music_path)} to Replicate...")
+            logger.info(f"  [Demucs-Replicate] Uploading {os.path.basename(music_path)} to Replicate...")
             start_t = time.time()
 
             # 파일 업로드 + Demucs 실행
@@ -219,14 +222,14 @@ class MVPipeline:
                         break
 
             if not vocals_url:
-                print(f"  [Demucs-Replicate] Unexpected output format: {type(output)} = {str(output)[:200]}")
+                logger.info(f"  [Demucs-Replicate] Unexpected output format: {type(output)} = {str(output)[:200]}")
                 return None
 
             # 보컬 파일 다운로드
-            print(f"  [Demucs-Replicate] Downloading vocals...")
+            logger.info(f"  [Demucs-Replicate] Downloading vocals...")
             resp = requests.get(vocals_url, timeout=120)
             if not resp.ok:
-                print(f"  [Demucs-Replicate] Download failed: {resp.status_code}")
+                logger.error(f"  [Demucs-Replicate] Download failed: {resp.status_code}")
                 return None
 
             os.makedirs(os.path.dirname(vocals_path), exist_ok=True)
@@ -235,13 +238,13 @@ class MVPipeline:
 
             elapsed = time.time() - start_t
             size_mb = len(resp.content) / (1024 * 1024)
-            print(f"  [Demucs-Replicate] Vocals saved: {vocals_path} ({size_mb:.1f}MB, {elapsed:.1f}s)")
+            logger.info(f"  [Demucs-Replicate] Vocals saved: {vocals_path} ({size_mb:.1f}MB, {elapsed:.1f}s)")
             return vocals_path
 
         except Exception as e:
-            print(f"  [Demucs-Replicate] Failed: {e}")
+            logger.error(f"  [Demucs-Replicate] Failed: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             if os.path.exists(vocals_path):
                 try: os.remove(vocals_path)
                 except OSError: pass
@@ -297,35 +300,35 @@ class MVPipeline:
             import whisperx
             import torch
         except ImportError:
-            print("  [WhisperX] Not installed, skipping forced alignment")
+            logger.info("  [WhisperX] Not installed, skipping forced alignment")
             return None
 
         if not lyrics or not lyrics.strip():
-            print("  [WhisperX] No lyrics to align")
+            logger.info("  [WhisperX] No lyrics to align")
             return None
 
         def _run_whisperx(device: str, audio_path: str, language: str):
             """Run WhisperX STT + alignment on given device. Returns (whisperx_result, audio_duration_sec)."""
-            print(f"  [WhisperX] Device: {device}")
-            print(f"  [WhisperX] Step 1: Whisper STT...")
+            logger.info(f"  [WhisperX] Device: {device}")
+            logger.info(f"  [WhisperX] Step 1: Whisper STT...")
             audio = whisperx.load_audio(audio_path)
             audio_duration_sec = len(audio) / 16000.0  # whisperx loads at 16kHz
-            print(f"  [WhisperX] Audio duration: {audio_duration_sec:.1f}s")
+            logger.info(f"  [WhisperX] Audio duration: {audio_duration_sec:.1f}s")
             compute = "int8" if device == "cpu" else "int8"
             stt_model = whisperx.load_model("base", device, compute_type=compute, language=language)
             stt_result = stt_model.transcribe(audio, language=language, batch_size=16)
             stt_segments = stt_result.get("segments", [])
-            print(f"  [WhisperX] STT: {len(stt_segments)} segments")
+            logger.info(f"  [WhisperX] STT: {len(stt_segments)} segments")
 
             for i, seg in enumerate(stt_segments[:10]):
-                print(f"    STT[{i}] {seg['start']:.1f}s ~ {seg['end']:.1f}s: '{seg.get('text', '')[:40]}'")
+                logger.info(f"    STT[{i}] {seg['start']:.1f}s ~ {seg['end']:.1f}s: '{seg.get('text', '')[:40]}'")
             if len(stt_segments) > 10:
-                print(f"    ... ({len(stt_segments) - 10} more)")
+                logger.info(f"    ... ({len(stt_segments) - 10} more)")
 
             if not stt_segments:
                 raise RuntimeError("No speech detected")
 
-            print(f"  [WhisperX] Step 2: Word-level alignment...")
+            logger.info(f"  [WhisperX] Step 2: Word-level alignment...")
             align_model, align_metadata = whisperx.load_align_model(
                 language_code=language, device=device
             )
@@ -334,7 +337,7 @@ class MVPipeline:
                 audio, device, return_char_alignments=False,
             )
             total_words = sum(len(seg.get("words", [])) for seg in result.get("segments", []))
-            print(f"  [WhisperX] Got {total_words} word timestamps")
+            logger.info(f"  [WhisperX] Got {total_words} word timestamps")
             return result, audio_duration_sec
 
         try:
@@ -344,8 +347,8 @@ class MVPipeline:
                 whisperx_result, audio_dur = _run_whisperx(device, audio_path, language)
             except RuntimeError as cuda_err:
                 if device == "cuda":
-                    print(f"  [WhisperX] CUDA failed: {cuda_err}")
-                    print(f"  [WhisperX] Retrying on CPU...")
+                    logger.error(f"  [WhisperX] CUDA failed: {cuda_err}")
+                    logger.info(f"  [WhisperX] Retrying on CPU...")
                     whisperx_result, audio_dur = _run_whisperx("cpu", audio_path, language)
                 else:
                     raise
@@ -388,7 +391,7 @@ class MVPipeline:
             )
 
             if not captions:
-                print("  [WhisperX] Aligner produced no captions")
+                logger.info("  [WhisperX] Aligner produced no captions")
                 return None
 
             timed_lyrics = [
@@ -396,14 +399,13 @@ class MVPipeline:
                 for cap in captions
             ]
 
-            print(f"  [WhisperX] Final: {len(timed_lyrics)} entries, "
-                  f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
+            logger.info(f"  [WhisperX] Final: {len(timed_lyrics)} entries, " f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
             return timed_lyrics
 
         except Exception as e:
-            print(f"  [WhisperX] Forced alignment failed: {e}")
+            logger.error(f"  [WhisperX] Forced alignment failed: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             return None
 
     # ================================================================
@@ -431,9 +433,9 @@ class MVPipeline:
         if not project_id:
             project_id = f"mv_{uuid.uuid4().hex[:8]}"
 
-        print(f"\n{'='*60}")
-        print(f"[MV Pipeline] Starting project: {project_id}")
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[MV Pipeline] Starting project: {project_id}")
+        logger.info(f"{'='*60}")
 
         # 프로젝트 디렉토리 생성
         project_dir = f"{self.output_base_dir}/{project_id}"
@@ -463,11 +465,11 @@ class MVPipeline:
 
         # 음악 분석
         try:
-            print(f"\n[Step 1] Analyzing music...")
+            logger.info(f"\n[Step 1] Analyzing music...")
             analysis_result = self.music_analyzer.analyze(stored_music_path)
 
             # Demucs 보컬 분리 (가사 추출 정확도 향상)
-            print(f"\n[Step 1.1] Separating vocals with Demucs...")
+            logger.info(f"\n[Step 1.1] Separating vocals with Demucs...")
             vocals_path = self._separate_vocals(stored_music_path, project_dir)
             lyrics_audio_path = vocals_path or stored_music_path
 
@@ -476,12 +478,12 @@ class MVPipeline:
             if user_lyrics and user_lyrics.strip():
                 extracted_lyrics = user_lyrics.strip()
                 analysis_result["extracted_lyrics"] = extracted_lyrics
-                print(f"\n[Step 1.5] User lyrics received ({len(extracted_lyrics)} chars)")
+                logger.info(f"\n[Step 1.5] User lyrics received ({len(extracted_lyrics)} chars)")
 
                 # Step 1.6: Gemini 가사-오디오 정렬 (보컬 분리 파일 사용)
                 # split_lyrics_lines: 섹션 태그 + 따옴표 + 괄호 + 구두점 제거
                 lyrics_lines = split_lyrics_lines(extracted_lyrics)
-                print(f"\n[Step 1.6] Gemini lyrics alignment ({len(lyrics_lines)} lines)...")
+                logger.info(f"\n[Step 1.6] Gemini lyrics alignment ({len(lyrics_lines)} lines)...")
 
                 # 곡 길이를 분석 결과에서 가져옴
                 _dur = analysis_result.get("duration_sec", 0.0)
@@ -507,8 +509,7 @@ class MVPipeline:
                             for c in captions
                         ]
                         analysis_result["timed_lyrics"] = timed_lyrics
-                        print(f"  [Gemini-Align] {len(timed_lyrics)} entries, "
-                              f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
+                        logger.info(f"  [Gemini-Align] {len(timed_lyrics)} entries, " f"{timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
 
                         # ASS/SRT를 R2에 병렬 업로드 (배포 시 로컬 파일 삭제 대비)
                         try:
@@ -526,40 +527,40 @@ class MVPipeline:
                                     for _fut in _futs:
                                         _fut.result()  # 에러 전파
                                 for _, _k in _upload_tasks:
-                                    print(f"    [R2] Uploaded subtitle: {_k}")
+                                    logger.info(f"    [R2] Uploaded subtitle: {_k}")
                         except Exception as _r2_err:
-                            print(f"    [R2] Subtitle upload failed (non-fatal): {_r2_err}")
+                            logger.error(f"    [R2] Subtitle upload failed (non-fatal): {_r2_err}")
                     else:
-                        print("  [Gemini-Align] No captions generated")
+                        logger.info("  [Gemini-Align] No captions generated")
                 else:
-                    print("  [Gemini-Align] Alignment failed - subtitles will use even distribution")
+                    logger.error("  [Gemini-Align] Alignment failed - subtitles will use even distribution")
             else:
-                print(f"\n[Step 1.5] No user lyrics provided - skipping subtitle alignment")
+                logger.info(f"\n[Step 1.5] No user lyrics provided - skipping subtitle alignment")
 
             project.music_analysis = MusicAnalysis(**analysis_result)
             project.lyrics = extracted_lyrics or ""
             project.status = MVProjectStatus.READY
             project.progress = 10
 
-            print(f"  Duration: {project.music_analysis.duration_sec:.1f}s")
-            print(f"  BPM: {project.music_analysis.bpm or 'N/A'}")
-            print(f"  Segments: {len(project.music_analysis.segments)}")
-            print(f"  Lyrics: {'YES (' + str(len(extracted_lyrics)) + ' chars)' if extracted_lyrics else 'NONE'}")
+            logger.info(f"  Duration: {project.music_analysis.duration_sec:.1f}s")
+            logger.info(f"  BPM: {project.music_analysis.bpm or 'N/A'}")
+            logger.info(f"  Segments: {len(project.music_analysis.segments)}")
+            logger.info(f"  Lyrics: {'YES (' + str(len(extracted_lyrics)) + ' chars)' if extracted_lyrics else 'NONE'}")
 
             # STT 사전 캐싱: 백그라운드 스레드로 실행 (업로드 응답 차단 방지)
             import threading
             def _bg_stt(pipeline, proj, proj_dir, audio_path):
                 try:
-                    print(f"\n[BG-STT] Pre-caching Gemini Audio STT...")
+                    logger.info(f"\n[BG-STT] Pre-caching Gemini Audio STT...")
                     segs = pipeline.music_analyzer.transcribe_with_gemini_audio(audio_path)
                     if segs:
                         proj.stt_segments = segs
                         pipeline._save_manifest(proj, proj_dir)
-                        print(f"  [BG-STT] {len(segs)} segments cached")
+                        logger.info(f"  [BG-STT] {len(segs)} segments cached")
                     else:
-                        print(f"  [BG-STT] STT failed, will retry at subtitle/compose time")
+                        logger.error(f"  [BG-STT] STT failed, will retry at subtitle/compose time")
                 except Exception as e:
-                    print(f"  [BG-STT] Non-critical error: {e}")
+                    logger.error(f"  [BG-STT] Non-critical error: {e}")
             threading.Thread(
                 target=_bg_stt,
                 args=(self, project, project_dir, stored_music_path),
@@ -569,7 +570,7 @@ class MVPipeline:
         except Exception as e:
             project.status = MVProjectStatus.FAILED
             project.error_message = f"Music analysis failed: {str(e)}"
-            print(f"  [ERROR] {project.error_message}")
+            logger.error(f"  [ERROR] {project.error_message}")
 
         # 매니페스트 저장
         self._save_manifest(project, project_dir)
@@ -597,13 +598,13 @@ class MVPipeline:
         Returns:
             업데이트된 MVProject
         """
-        print(f"\n[Step 2] Generating scenes...")
+        logger.info(f"\n[Step 2] Generating scenes...")
 
         project_dir = f"{self.output_base_dir}/{project.project_id}"
 
         # 요청 정보 저장
         project.lyrics = request.lyrics
-        print(f"  Lyrics received: {'YES (' + str(len(request.lyrics)) + ' chars)' if request.lyrics else 'EMPTY'}")
+        logger.info(f"  Lyrics received: {'YES (' + str(len(request.lyrics)) + ' chars)' if request.lyrics else 'EMPTY'}")
         project.concept = request.concept
         project.character_setup = request.character_setup
         project.character_ethnicity = request.character_ethnicity
@@ -629,7 +630,7 @@ class MVPipeline:
             # scene_id 재배정
             for idx, s in enumerate(sampled):
                 s.scene_id = idx + 1
-            print(f"  Quick test: {len(scenes)} -> {len(sampled)} scenes (sampled)")
+            logger.info(f"  Quick test: {len(scenes)} -> {len(sampled)} scenes (sampled)")
             scenes = sampled
 
         # preview_duration_sec 제한 (퀵 테스트: 앞 N초만)
@@ -647,20 +648,19 @@ class MVPipeline:
                 acc += s.duration_sec
             for idx, s in enumerate(trimmed):
                 s.scene_id = idx + 1
-            print(f"  Preview mode: {len(scenes)} -> {len(trimmed)} scenes ({preview_sec}s)")
+            logger.info(f"  Preview mode: {len(scenes)} -> {len(trimmed)} scenes ({preview_sec}s)")
             scenes = trimmed
             project.preview_duration_sec = preview_sec
 
         project.scenes = scenes
         project.progress = 20
 
-        print(f"  Total scenes: {len(scenes)}")
+        logger.info(f"  Total scenes: {len(scenes)}")
 
         # 프롬프트는 Visual Bible 이후 generate_scene_prompts()에서 생성
         # 여기서는 씬 골격(타이밍+가사)만 준비
         for i, scene in enumerate(project.scenes):
-            print(f"  [Scene {scene.scene_id}] {scene.start_sec:.1f}s - {scene.end_sec:.1f}s "
-                  f"lyrics={'YES' if scene.lyrics_text else 'none'}")
+            logger.info(f"  [Scene {scene.scene_id}] {scene.start_sec:.1f}s - {scene.end_sec:.1f}s " f"lyrics={'YES' if scene.lyrics_text else 'none'}")
 
         self._save_manifest(project, project_dir)
 
@@ -679,7 +679,7 @@ class MVPipeline:
         api_key = _os.getenv("GOOGLE_API_KEY")
         full_lyrics = project.lyrics or ""
         if not api_key or not full_lyrics.strip() or not project.scenes:
-            print("  [Story Analysis] Skipped (no API key or lyrics)")
+            logger.info("  [Story Analysis] Skipped (no API key or lyrics)")
             return project
 
         project.current_step = "가사 서사 분석 중..."
@@ -734,7 +734,7 @@ class MVPipeline:
                 f"Analyze the story in these {len(project.scenes)} scenes."
             )
 
-            print(f"  [Story Analysis] Analyzing {len(project.scenes)} scenes with full lyrics ({len(full_lyrics)} chars)...")
+            logger.info(f"  [Story Analysis] Analyzing {len(project.scenes)} scenes with full lyrics ({len(full_lyrics)} chars)...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -756,21 +756,18 @@ class MVPipeline:
                     if beat:
                         scene.story_event = beat.get("narrative_event", "")
                         scene.story_importance = beat.get("importance", 2)
-                        print(
-                            f"    Scene {scene.scene_id} [importance={scene.story_importance}]: "
-                            f"{(scene.story_event or '')[:60]}"
-                        )
+                        logger.info( f"    Scene {scene.scene_id} [importance={scene.story_importance}]: " f"{(scene.story_event or '')[:60]}" )
 
                 # 클라이맥스 씬 강조
                 climax_scenes = [s for s in project.scenes if (s.story_importance or 0) >= 4]
                 if climax_scenes:
-                    print(f"  [Story Analysis] Key moments: {[s.scene_id for s in climax_scenes]}")
+                    logger.info(f"  [Story Analysis] Key moments: {[s.scene_id for s in climax_scenes]}")
 
             self._save_manifest(project, project_dir)
-            print(f"  [Story Analysis] Complete")
+            logger.info(f"  [Story Analysis] Complete")
 
         except Exception as e:
-            print(f"  [Story Analysis] Failed (non-fatal): {e}")
+            logger.error(f"  [Story Analysis] Failed (non-fatal): {e}")
 
         return project
 
@@ -789,7 +786,7 @@ class MVPipeline:
         import os as _os
         api_key = _os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("  [Visual Bible] No API key, skipping")
+            logger.info("  [Visual Bible] No API key, skipping")
             return project
 
         try:
@@ -810,21 +807,21 @@ class MVPipeline:
                             "avoid_keywords", "atmosphere", "composition_guide", "prompt_lexicon"):
                     if style_gp.get(key):
                         gp[key] = style_gp[key]
-                print(f"  [Visual Bible] GenreProfile merged: genre={project.genre.value} + style={project.style.value}")
+                logger.info(f"  [Visual Bible] GenreProfile merged: genre={project.genre.value} + style={project.style.value}")
             elif genre_gp:
                 gp = genre_gp
-                print(f"  [Visual Bible] GenreProfile loaded: {project.genre.value}")
+                logger.info(f"  [Visual Bible] GenreProfile loaded: {project.genre.value}")
             elif style_gp:
                 gp = style_gp
-                print(f"  [Visual Bible] GenreProfile loaded (style): {project.style.value}")
+                logger.info(f"  [Visual Bible] GenreProfile loaded (style): {project.style.value}")
             else:
                 gp = {}
 
             has_genre_profile = bool(gp)
             if has_genre_profile:
-                print(f"    Palette mode: {gp.get('palette_mode', 'guide')}")
+                logger.info(f"    Palette mode: {gp.get('palette_mode', 'guide')}")
             else:
-                print(f"  [Visual Bible] No GenreProfile for genre='{project.genre.value}' or style='{project.style.value}', using full-LLM mode")
+                logger.info(f"  [Visual Bible] No GenreProfile for genre='{project.genre.value}' or style='{project.style.value}', using full-LLM mode")
 
             # 가사 전체 전달 (이전: 500자 절삭 → 개선: 전체)
             lyrics_summary = ""
@@ -1115,7 +1112,7 @@ class MVPipeline:
                 user_prompt += f"\nScene timeline:\n{scene_timeline}\n"
             user_prompt += "\nCreate the Director's Brief JSON:"
 
-            print(f"  [Visual Bible] Generating with Gemini...")
+            logger.info(f"  [Visual Bible] Generating with Gemini...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -1136,7 +1133,7 @@ class MVPipeline:
             era_from_vb = vb_data.pop("era_setting", "")
             if era_from_vb:
                 project.era_setting = era_from_vb
-                print(f"    Era setting (LLM): {era_from_vb}")
+                logger.info(f"    Era setting (LLM): {era_from_vb}")
 
             location_palette = vb_data.pop("location_palette", [])
 
@@ -1183,7 +1180,7 @@ class MVPipeline:
                 vb_data.setdefault("reference_artists", gp.get("reference_artists", []))
                 vb_data.setdefault("character_archetypes", [])
 
-                print(f"    Palette mode: {palette_mode}, final palette: {vb_data.get('color_palette', [])}")
+                logger.info(f"    Palette mode: {palette_mode}, final palette: {vb_data.get('color_palette', [])}")
 
             vb_data["characters"] = mv_characters
             vb_data["scene_blocking"] = mv_blocking
@@ -1194,7 +1191,7 @@ class MVPipeline:
             # location_palette를 VisualBible에 저장
             if location_palette and project.visual_bible:
                 project.visual_bible.location_palette = location_palette
-                print(f"    Location palette: {location_palette}")
+                logger.info(f"    Location palette: {location_palette}")
 
             # MVScene.characters_in_scene + camera_directive 자동 채우기 (scene_blocking 기반)
             for blocking in mv_blocking:
@@ -1212,22 +1209,22 @@ class MVPipeline:
                     if cam_parts:
                         project.scenes[idx].camera_directive = ", ".join(cam_parts)
 
-            print(f"  [Director's Brief] Generated successfully:")
-            print(f"    Colors: {project.visual_bible.color_palette}")
-            print(f"    Lighting: {project.visual_bible.lighting_style}")
-            print(f"    Characters: {[c.role for c in mv_characters]}")
-            print(f"    Scene Blocking: {len(mv_blocking)} scenes")
-            print(f"    Narrative Arc: {len(mv_arc.acts) if mv_arc else 0} acts")
-            print(f"    Avoid: {project.visual_bible.avoid_keywords}")
+            logger.info(f"  [Director's Brief] Generated successfully:")
+            logger.info(f"    Colors: {project.visual_bible.color_palette}")
+            logger.info(f"    Lighting: {project.visual_bible.lighting_style}")
+            logger.info(f"    Characters: {[c.role for c in mv_characters]}")
+            logger.info(f"    Scene Blocking: {len(mv_blocking)} scenes")
+            logger.info(f"    Narrative Arc: {len(mv_arc.acts) if mv_arc else 0} acts")
+            logger.info(f"    Avoid: {project.visual_bible.avoid_keywords}")
 
         except Exception as e:
             import traceback
-            print(f"  [Visual Bible] Generation failed (attempt 1): {e}")
-            traceback.print_exc()
+            logger.error(f"  [Visual Bible] Generation failed (attempt 1): {e}")
+            logger.exception("Unhandled exception")
 
             # ── 재시도 (1회) ──
             try:
-                print(f"  [Visual Bible] Retrying...")
+                logger.info(f"  [Visual Bible] Retrying...")
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=user_prompt,
@@ -1303,11 +1300,11 @@ class MVPipeline:
                         if cam_parts:
                             project.scenes[idx].camera_directive = ", ".join(cam_parts)
 
-                print(f"  [Visual Bible] Retry succeeded! Characters: {[c.role for c in mv_characters]}")
+                logger.info(f"  [Visual Bible] Retry succeeded! Characters: {[c.role for c in mv_characters]}")
 
             except Exception as retry_err:
-                print(f"  [Visual Bible] Retry also failed: {retry_err}")
-                traceback.print_exc()
+                logger.error(f"  [Visual Bible] Retry also failed: {retry_err}")
+                logger.exception("Unhandled exception")
                 project.error_message = f"Visual Bible 생성 실패: {str(e)[:200]}"
 
         project_dir = f"{self.output_base_dir}/{project.project_id}"
@@ -1360,8 +1357,8 @@ class MVPipeline:
 
         anchor_prompt += ", no text, no letters, no words, no watermark, landscape scene, 16:9"
 
-        print(f"  [Style Anchor] Generating dedicated anchor image...")
-        print(f"    Prompt: {anchor_prompt[:100]}...")
+        logger.info(f"  [Style Anchor] Generating dedicated anchor image...")
+        logger.info(f"    Prompt: {anchor_prompt[:100]}...")
 
         try:
             vb_dict = vb.model_dump() if vb else None
@@ -1375,9 +1372,9 @@ class MVPipeline:
                 visual_bible=vb_dict,
             )
             project.style_anchor_path = image_path
-            print(f"  [Style Anchor] Created: {image_path}")
+            logger.info(f"  [Style Anchor] Created: {image_path}")
         except Exception as e:
-            print(f"  [Style Anchor] Generation failed (non-fatal): {e}")
+            logger.error(f"  [Style Anchor] Generation failed (non-fatal): {e}")
             # Non-fatal: generate_images()가 scene_01 fallback 사용
 
         self._save_manifest(project, project_dir)
@@ -1396,12 +1393,12 @@ class MVPipeline:
         실패 시 기존 단순 방식(_generate_character_anchors_simple)으로 폴백.
         """
         if not project.visual_bible or not project.visual_bible.characters:
-            print("  [Character Anchors] No characters defined, skipping")
+            logger.info("  [Character Anchors] No characters defined, skipping")
             return project
 
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         characters = project.visual_bible.characters
-        print(f"\n  [Character Anchors] Generating {len(characters)} character portrait(s) via CharacterManager...")
+        logger.info(f"\n  [Character Anchors] Generating {len(characters)} character portrait(s) via CharacterManager...")
 
         try:
             from agents.character_manager import CharacterManager
@@ -1418,14 +1415,14 @@ class MVPipeline:
                 path = role_to_path.get(character.role)
                 if path:
                     character.anchor_image_path = path
-                    print(f"    [OK] {character.role} -> {path}")
+                    logger.info(f"    [OK] {character.role} -> {path}")
                 poses = role_to_poses.get(character.role)
                 if poses:
                     character.anchor_poses = poses
-                    print(f"         poses: {list(poses.keys())}")
+                    logger.info(f"         poses: {list(poses.keys())}")
 
         except Exception as e:
-            print(f"  [WARNING] CharacterManager failed, falling back to simple method: {e}")
+            logger.error(f"  [WARNING] CharacterManager failed, falling back to simple method: {e}")
             self._generate_character_anchors_simple(project, project_dir)
 
         # CharacterQA: 앵커 임베딩 추출 + 등록
@@ -1438,7 +1435,7 @@ class MVPipeline:
                     if emb:
                         character.face_embedding = emb
         except Exception as e:
-            print(f"  [WARNING] CharacterQA init failed: {e}")
+            logger.error(f"  [WARNING] CharacterQA init failed: {e}")
             self._character_qa = None
 
         self._save_manifest(project, project_dir)
@@ -1471,7 +1468,7 @@ class MVPipeline:
             safe_role = _re.sub(r'[^\w\-]', '_', character.role)[:20]
             anchor_path = f"{char_dir}/{safe_role}.png"
 
-            print(f"    [Fallback {i+1}/{len(characters)}] Generating anchor: {character.role}")
+            logger.info(f"    [Fallback {i+1}/{len(characters)}] Generating anchor: {character.role}")
 
             portrait_prompt = (
                 f"Character portrait, upper body, face clearly visible, centered composition, "
@@ -1498,9 +1495,9 @@ class MVPipeline:
                     visual_bible=vb_dict,
                 )
                 character.anchor_image_path = image_path
-                print(f"      Created: {image_path}")
+                logger.info(f"      Created: {image_path}")
             except Exception as e:
-                print(f"      [WARNING] Character anchor failed (non-fatal): {e}")
+                logger.error(f"      [WARNING] Character anchor failed (non-fatal): {e}")
 
     def _create_manual_scenes(
         self,
@@ -1566,7 +1563,7 @@ class MVPipeline:
             scenes.append(scene)
 
         method = "timed_lyrics" if timed_lyrics else "proportional"
-        print(f"  Scene split: {len(scenes)} scenes (lyrics: {method})")
+        logger.info(f"  Scene split: {len(scenes)} scenes (lyrics: {method})")
 
         return scenes
 
@@ -1660,7 +1657,7 @@ class MVPipeline:
         이전에는 generate_scenes()에서 VB 없이 프롬프트를 생성했으나,
         이제는 VB의 캐릭터/블로킹/서사 아크와 Story Analysis를 모두 반영.
         """
-        print(f"\n[Step 2.8] Generating scene prompts (with Visual Bible + Story Analysis)...")
+        logger.info(f"\n[Step 2.8] Generating scene prompts (with Visual Bible + Story Analysis)...")
         project.current_step = "씬 프롬프트 생성 중..."
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         self._save_manifest(project, project_dir)
@@ -1679,12 +1676,10 @@ class MVPipeline:
                     total_scenes=len(project.scenes)
                 )
 
-            print(f"  [Scene {scene.scene_id}] "
-                  f"{'*** ' if (scene.story_importance or 0) >= 4 else ''}"
-                  f"{scene.image_prompt[:80]}...")
+            logger.info(f"  [Scene {scene.scene_id}] " f"{'*** ' if (scene.story_importance or 0) >= 4 else ''}" f"{scene.image_prompt[:80]}...")
 
         self._save_manifest(project, project_dir)
-        print(f"  [Step 2.8] {len(project.scenes)} prompts generated")
+        logger.info(f"  [Step 2.8] {len(project.scenes)} prompts generated")
         return project
 
     def _generate_prompts_with_gemini(
@@ -2043,7 +2038,7 @@ class MVPipeline:
                 f"위 {len(project.scenes)}개 씬에 대해 각각 이미지 생성 프롬프트를 한 줄씩 출력하세요."
             )
 
-            print(f"  [Gemini] Generating {len(project.scenes)} scene prompts...")
+            logger.info(f"  [Gemini] Generating {len(project.scenes)} scene prompts...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -2059,7 +2054,7 @@ class MVPipeline:
 
             # 씬 수와 프롬프트 수가 일치하는지 확인
             if len(lines) < len(project.scenes):
-                print(f"  [Gemini] Warning: got {len(lines)} prompts for {len(project.scenes)} scenes, padding with last")
+                logger.warning(f"  [Gemini] Warning: got {len(lines)} prompts for {len(project.scenes)} scenes, padding with last")
                 while len(lines) < len(project.scenes):
                     lines.append(lines[-1] if lines else "cinematic scene, dramatic lighting")
             elif len(lines) > len(project.scenes):
@@ -2085,11 +2080,11 @@ class MVPipeline:
                     if camera:
                         project.scenes[i].camera_directive = camera
 
-            print(f"  [Gemini] Generated {len(prompts)} unique prompts (structured)")
+            logger.info(f"  [Gemini] Generated {len(prompts)} unique prompts (structured)")
             return prompts
 
         except Exception as e:
-            print(f"  [Gemini] Prompt generation failed: {e}, using template fallback")
+            logger.error(f"  [Gemini] Prompt generation failed: {e}, using template fallback")
             return None
 
     def _generate_image_prompt(
@@ -2196,13 +2191,13 @@ class MVPipeline:
 
     def _get_character_anchors_for_scene(self, project: MVProject, scene: MVScene) -> List[str]:
         """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 5개, shot_type 기반 포즈 선택)"""
-        print(f"    [AnchorDebug] scene={scene.scene_id} chars={scene.characters_in_scene}")
+        logger.info(f"    [AnchorDebug] scene={scene.scene_id} chars={scene.characters_in_scene}")
         if not project.visual_bible or not project.visual_bible.characters:
-            print(f"    [AnchorDebug] NO visual_bible or no characters → returning []")
+            logger.info(f"    [AnchorDebug] NO visual_bible or no characters → returning []")
             return []
 
         vb_roles = [c.role for c in project.visual_bible.characters]
-        print(f"    [AnchorDebug] VB roles={vb_roles}")
+        logger.info(f"    [AnchorDebug] VB roles={vb_roles}")
 
         # shot_type → 최적 포즈 매핑
         _SHOT_TO_POSE = {
@@ -2230,27 +2225,27 @@ class MVPipeline:
                 char = next((c for c in project.visual_bible.characters
                              if role_lower in c.role.lower() or c.role.lower() in role_lower), None)
             if not char:
-                print(f"    [AnchorDebug] role='{role}' NOT FOUND in VB")
+                logger.info(f"    [AnchorDebug] role='{role}' NOT FOUND in VB")
                 continue
             # 포즈별 앵커에서 최적 포즈 선택
             if char.anchor_poses and target_pose in char.anchor_poses:
                 pose_path = char.anchor_poses[target_pose]
                 exists = os.path.exists(pose_path)
-                print(f"    [AnchorDebug] role='{role}' pose={target_pose} path={pose_path} exists={exists}")
+                logger.info(f"    [AnchorDebug] role='{role}' pose={target_pose} path={pose_path} exists={exists}")
                 if exists:
                     results.append(pose_path)
                     continue
             else:
-                print(f"    [AnchorDebug] role='{role}' anchor_poses={list(char.anchor_poses.keys()) if char.anchor_poses else None} target={target_pose} → no match")
+                logger.info(f"    [AnchorDebug] role='{role}' anchor_poses={list(char.anchor_poses.keys()) if char.anchor_poses else None} target={target_pose} → no match")
             # 폴백: 기본 anchor_image_path
             if char.anchor_image_path:
                 exists = os.path.exists(char.anchor_image_path)
-                print(f"    [AnchorDebug] role='{role}' fallback={char.anchor_image_path} exists={exists}")
+                logger.info(f"    [AnchorDebug] role='{role}' fallback={char.anchor_image_path} exists={exists}")
                 if exists:
                     results.append(char.anchor_image_path)
             else:
-                print(f"    [AnchorDebug] role='{role}' NO anchor_image_path")
-        print(f"    [AnchorDebug] scene={scene.scene_id} → returning {len(results)} anchors")
+                logger.info(f"    [AnchorDebug] role='{role}' NO anchor_image_path")
+        logger.info(f"    [AnchorDebug] scene={scene.scene_id} → returning {len(results)} anchors")
         return results
 
     def _extract_era_setting(self, concept: str, project=None) -> tuple:
@@ -2470,9 +2465,9 @@ class MVPipeline:
         cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip(' ,.')
 
         if cleaned != prompt:
-            print(f"  [AntiPeople] Stripped people keywords from prompt")
-            print(f"    Before: {prompt[:100]}...")
-            print(f"    After:  {cleaned[:100]}...")
+            logger.info(f"  [AntiPeople] Stripped people keywords from prompt")
+            logger.info(f"    Before: {prompt[:100]}...")
+            logger.info(f"    After:  {cleaned[:100]}...")
 
         # 풍경/환경 강제 프리픽스
         prefix = "ONLY landscape, scenery, environment, architecture, nature. NO people, NO human figures. "
@@ -2542,7 +2537,7 @@ class MVPipeline:
         Returns:
             업데이트된 MVProject
         """
-        print(f"\n[Step 3] Generating images...")
+        logger.info(f"\n[Step 3] Generating images...")
 
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         image_dir = f"{project_dir}/media/images"
@@ -2574,7 +2569,7 @@ class MVPipeline:
         # 시대/배경 키워드 (LLM era_setting 우선, concept fallback)
         era_prefix, era_negative = self._extract_era_setting(project.concept, project=project)
         if era_prefix:
-            print(f"  [Era Lock] Detected historical setting: {era_prefix[:40]}...")
+            logger.info(f"  [Era Lock] Detected historical setting: {era_prefix[:40]}...")
 
         # Pexels B-roll 에이전트 초기화 (기존 사용 ID 로드하여 재생성 시 중복 방지)
         pexels = None
@@ -2588,14 +2583,14 @@ class MVPipeline:
                     _prev_pexels_ids.add(int(pid))
             pexels = PexelsAgent(api_key=pexels_key, used_video_ids=_prev_pexels_ids)
             if _prev_pexels_ids:
-                print(f"  [B-roll] Pexels agent enabled (excluding {len(_prev_pexels_ids)} previously used IDs)")
+                logger.info(f"  [B-roll] Pexels agent enabled (excluding {len(_prev_pexels_ids)} previously used IDs)")
             else:
-                print(f"  [B-roll] Pexels agent enabled")
+                logger.info(f"  [B-roll] Pexels agent enabled")
 
         BROLL_SEGMENTS = {"intro", "outro", "bridge"}
 
         # 모든 씬에 고유 이미지 생성 (병렬 처리)
-        print(f"  Generating {total_scenes} unique images (parallel, max_workers=4)")
+        logger.info(f"  Generating {total_scenes} unique images (parallel, max_workers=4)")
         import threading
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -2664,9 +2659,7 @@ class MVPipeline:
                 # recurring_motifs 추출
                 _broll_motifs = _vb.recurring_motifs if _vb and _vb.recurring_motifs else None
 
-                print(f"    [B-roll params] concept={_broll_concept}, era={_broll_era}, locale={_broll_locale}, "
-                      f"time={_time_hint}, weather={_weather_hint}, lighting={_broll_lighting}, "
-                      f"location={_broll_location}, motifs={_broll_motifs}, atmo={str(_broll_atmo)[:40] if _broll_atmo else None}")
+                logger.info(f"    [B-roll params] concept={_broll_concept}, era={_broll_era}, locale={_broll_locale}, " f"time={_time_hint}, weather={_weather_hint}, lighting={_broll_lighting}, " f"location={_broll_location}, motifs={_broll_motifs}, atmo={str(_broll_atmo)[:40] if _broll_atmo else None}")
                 queries = pexels.generate_stock_queries(
                     scene_prompt=scene.image_prompt,
                     lyrics_text=scene.lyrics_text,
@@ -2695,7 +2688,7 @@ class MVPipeline:
                     thumb_path = f"{image_dir}/scene_{scene.scene_id:02d}.png"
                     self._extract_thumbnail(video, thumb_path)
                     scene.image_path = thumb_path
-                    print(f"\n  [Scene {scene.scene_id}/{total_scenes}] B-roll from Pexels ({seg_type})")
+                    logger.info(f"\n  [Scene {scene.scene_id}/{total_scenes}] B-roll from Pexels ({seg_type})")
                     with _manifest_lock:
                         _completed_count[0] += 1
                         project.progress = int(20 + _completed_count[0] * (50 / total_scenes))
@@ -2707,17 +2700,17 @@ class MVPipeline:
                             pass
                     return "broll"
                 else:
-                    print(f"    [Pexels] B-roll failed for {seg_type}, falling back to image gen")
+                    logger.error(f"    [Pexels] B-roll failed for {seg_type}, falling back to image gen")
 
-            print(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
+            logger.info(f"\n  [Scene {scene.scene_id}/{total_scenes}] Generating image...")
             if style_anchor_path:
-                print(f"    [Anchor] Using style anchor: {os.path.basename(style_anchor_path)}")
+                logger.info(f"    [Anchor] Using style anchor: {os.path.basename(style_anchor_path)}")
             scene.status = MVSceneStatus.GENERATING
 
             try:
                 char_anchor_paths = self._get_character_anchors_for_scene(project, scene)
                 if char_anchor_paths:
-                    print(f"    [Characters] {len(char_anchor_paths)} anchor(s) for scene {scene.scene_id}")
+                    logger.info(f"    [Characters] {len(char_anchor_paths)} anchor(s) for scene {scene.scene_id}")
 
                 final_prompt = self._inject_character_descriptions(project, scene, scene.image_prompt)
 
@@ -2804,16 +2797,15 @@ class MVPipeline:
                         any_failed = False
                         for role, qr in qa_results.items():
                             if not qr["passed"]:
-                                print(f"    [CharacterQA] FAIL scene {scene.scene_id} role={role}: "
-                                      f"sim={qr['similarity']:.3f} reason={qr['fail_reason']}")
+                                logger.info(f"    [CharacterQA] FAIL scene {scene.scene_id} role={role}: " f"sim={qr['similarity']:.3f} reason={qr['fail_reason']}")
                                 any_failed = True
                             else:
                                 sim_str = f"{qr['similarity']:.3f}" if qr['similarity'] >= 0 else "n/a"
-                                print(f"    [CharacterQA] OK scene {scene.scene_id} role={role}: sim={sim_str}")
+                                logger.info(f"    [CharacterQA] OK scene {scene.scene_id} role={role}: sim={sim_str}")
 
                         # QA 실패 시 1회 재생성 (더 강한 CHARACTER LOCK)
                         if any_failed:
-                            print(f"    [CharacterQA] Retrying scene {scene.scene_id} with stronger lock...")
+                            logger.info(f"    [CharacterQA] Retrying scene {scene.scene_id} with stronger lock...")
                             _is_photo_style = project.style.value in ("realistic", "cinematic")
                             if _is_photo_style:
                                 retry_prompt = f"CRITICAL: Character face MUST be IDENTICAL to the reference image. Do NOT change any facial features. {final_prompt}"
@@ -2844,23 +2836,23 @@ class MVPipeline:
                                 if retry_better:
                                     scene.image_path = retry_path
                                     image_path = retry_path
-                                    print(f"    [CharacterQA] Retry PASSED - using new image")
+                                    logger.info(f"    [CharacterQA] Retry PASSED - using new image")
                                 else:
-                                    print(f"    [CharacterQA] Retry also failed - keeping original")
+                                    logger.error(f"    [CharacterQA] Retry also failed - keeping original")
                             except Exception as retry_e:
-                                print(f"    [CharacterQA] Retry failed: {retry_e}")
+                                logger.error(f"    [CharacterQA] Retry failed: {retry_e}")
                     except Exception as qa_e:
-                        print(f"    [CharacterQA] Error: {qa_e}")
+                        logger.error(f"    [CharacterQA] Error: {qa_e}")
 
                 if fallback_anchor and style_anchor_path is None and image_path and os.path.exists(image_path):
                     style_anchor_path = image_path
-                    print(f"    [Anchor] Fallback style anchor set: {os.path.basename(image_path)}")
+                    logger.info(f"    [Anchor] Fallback style anchor set: {os.path.basename(image_path)}")
 
-                print(f"    Image saved: {image_path}")
+                logger.info(f"    Image saved: {image_path}")
 
             except Exception as e:
                 scene.status = MVSceneStatus.FAILED
-                print(f"    [ERROR] Image generation failed for scene {scene.scene_id}: {e}")
+                logger.error(f"    [ERROR] Image generation failed for scene {scene.scene_id}: {e}")
 
             with _manifest_lock:
                 _completed_count[0] += 1
@@ -2871,7 +2863,7 @@ class MVPipeline:
                 try:
                     on_scene_complete(scene, _completed_count[0], total_scenes)
                 except Exception as cb_e:
-                    print(f"    [WARNING] Callback failed: {cb_e}")
+                    logger.error(f"    [WARNING] Callback failed: {cb_e}")
 
             return "ok"
 
@@ -2901,7 +2893,7 @@ class MVPipeline:
         # 성공한 이미지 수 확인
         success_count = sum(1 for s in project.scenes if s.image_path and os.path.exists(s.image_path))
         total_count = len(project.scenes)
-        print(f"[MV] Image generation complete: {success_count}/{total_count} succeeded")
+        logger.info(f"[MV] Image generation complete: {success_count}/{total_count} succeeded")
 
         if success_count == 0:
             project.status = MVProjectStatus.FAILED
@@ -3017,13 +3009,13 @@ class MVPipeline:
             if scene.image_path and os.path.exists(scene.image_path):
                 unique_images.add(scene.image_path)
 
-        print(f"  [BBOX] Extracting subject bbox for {len(unique_images)} unique images (parallel)...")
+        logger.info(f"  [BBOX] Extracting subject bbox for {len(unique_images)} unique images (parallel)...")
         from concurrent.futures import ThreadPoolExecutor, as_completed
         def _extract_bbox(path):
             try:
                 return path, self._extract_subject_bbox(path)
             except Exception as e:
-                print(f"    [BBOX] Failed for {os.path.basename(path)}: {str(e)[:100]}")
+                logger.error(f"    [BBOX] Failed for {os.path.basename(path)}: {str(e)[:100]}")
                 return path, {
                     "face_bbox": None, "person_bbox": None,
                     "saliency_center": {"x": 0.5, "y": 0.4}, "bbox_source": "saliency"
@@ -3038,7 +3030,7 @@ class MVPipeline:
         for v in bbox_cache.values():
             src = v.get("bbox_source", "unknown")
             bbox_sources[src] = bbox_sources.get(src, 0) + 1
-        print(f"  [BBOX] Sources: {', '.join(f'{k}:{v}' for k, v in bbox_sources.items())}")
+        logger.info(f"  [BBOX] Sources: {', '.join(f'{k}:{v}' for k, v in bbox_sources.items())}")
 
         # Face-safe padding (Rule 3)
         _PAD_TOP = 0.12
@@ -3087,7 +3079,7 @@ class MVPipeline:
                 # I2V가 씬보다 짧으면 남은 시간을 Ken Burns 컷으로 채움
                 remaining = scene.duration_sec - i2v_use_dur
                 if remaining > 0.5 and scene.image_path and os.path.exists(scene.image_path):
-                    print(f"    [I2V+KB] Scene {scene.scene_id}: I2V={i2v_use_dur:.1f}s + Ken Burns={remaining:.1f}s")
+                    logger.info(f"    [I2V+KB] Scene {scene.scene_id}: I2V={i2v_use_dur:.1f}s + Ken Burns={remaining:.1f}s")
                     cut_plan.append({
                         "parent_scene_id": scene.scene_id,
                         "cut_index": 1,
@@ -3153,17 +3145,17 @@ class MVPipeline:
                     # face_bbox 없으면 CLOSEUP/DETAIL은 WIDE로 강등
                     reframe = "wide"
                     qa_stats["downgraded"] += 1
-                    print(f"    [QA] scene {scene.scene_id} cut {ci}: close->wide (no face_bbox)")
+                    logger.info(f"    [QA] scene {scene.scene_id} cut {ci}: close->wide (no face_bbox)")
 
                 if has_chars and reframe == "medium" and not face_bb:
                     # MEDIUM은 saliency fallback 허용하지만 로그 남김
-                    print(f"    [QA] scene {scene.scene_id} cut {ci}: medium w/o face_bbox (saliency fallback)")
+                    logger.info(f"    [QA] scene {scene.scene_id} cut {ci}: medium w/o face_bbox (saliency fallback)")
 
                 # ── Closeup_fix #4: 다인 케이스 - ambiguous면 CLOSEUP 금지 ──
                 if is_multi_face_ambiguous and reframe in ("close", "detail"):
                     reframe = "medium"
                     qa_stats["downgraded"] += 1
-                    print(f"    [QA] scene {scene.scene_id} cut {ci}: close->medium (multi_face_ambiguous)")
+                    logger.info(f"    [QA] scene {scene.scene_id} cut {ci}: close->medium (multi_face_ambiguous)")
 
                 # ── Subject-aware crop_anchor (Rule 1) ──
                 if reframe in ("close", "medium") and face_bb and has_chars:
@@ -3359,8 +3351,8 @@ class MVPipeline:
             else:
                 type_counts[seg] = type_counts.get(seg, 0) + cfg["cuts"]
         type_summary = ", ".join(f"{k}:{v}" for k, v in type_counts.items())
-        print(f"  [CUT PLAN] {len(scenes)} scenes -> {len(cut_plan)} cuts ({type_summary})")
-        print(f"  [QA] passed:{qa_stats['passed']}, retried:{qa_stats['retried']}, downgraded:{qa_stats['downgraded']}")
+        logger.info(f"  [CUT PLAN] {len(scenes)} scenes -> {len(cut_plan)} cuts ({type_summary})")
+        logger.info(f"  [QA] passed:{qa_stats['passed']}, retried:{qa_stats['retried']}, downgraded:{qa_stats['downgraded']}")
 
         return cut_plan
 
@@ -3395,7 +3387,7 @@ class MVPipeline:
                 result["bbox_source"] = "gemini"
                 return result
         except Exception as e:
-            print(f"    [bbox] Gemini Vision failed: {str(e)[:100]}")
+            logger.error(f"    [bbox] Gemini Vision failed: {str(e)[:100]}")
 
         # 2) OpenCV fallback
         try:
@@ -3404,7 +3396,7 @@ class MVPipeline:
                 result["bbox_source"] = "opencv"
                 return result
         except Exception as e:
-            print(f"    [bbox] OpenCV failed: {str(e)[:100]}")
+            logger.error(f"    [bbox] OpenCV failed: {str(e)[:100]}")
 
         # 3) Saliency center fallback
         result = self._saliency_center(image_path)
@@ -3508,7 +3500,7 @@ class MVPipeline:
             }
 
         if face_count >= 2:
-            print(f"    [bbox] Gemini multi-face: {face_count} faces, ambiguous={multi_face_ambiguous}")
+            logger.info(f"    [bbox] Gemini multi-face: {face_count} faces, ambiguous={multi_face_ambiguous}")
 
         return result
 
@@ -3556,7 +3548,7 @@ class MVPipeline:
                 closest = min(sorted_faces, key=dist_to_center)
                 x, y, w, h = closest
                 multi_face_ambiguous = True
-            print(f"    [bbox] Multi-face: {face_count} faces, ambiguous={multi_face_ambiguous}")
+            logger.info(f"    [bbox] Multi-face: {face_count} faces, ambiguous={multi_face_ambiguous}")
 
         face_bbox = {
             "x": x / img_w, "y": y / img_h,
@@ -3643,9 +3635,9 @@ class MVPipeline:
                 serializable_cuts.append(sc)
             with open(cuts_path, "w", encoding="utf-8") as f:
                 _json.dump(serializable_cuts, f, indent=2, ensure_ascii=False)
-            print(f"  [LOG] cuts.json saved ({len(cut_plan)} cuts)")
+            logger.info(f"  [LOG] cuts.json saved ({len(cut_plan)} cuts)")
         except Exception as e:
-            print(f"  [LOG] cuts.json save failed: {e}")
+            logger.error(f"  [LOG] cuts.json save failed: {e}")
 
         # ── render.log ──
         log_path = f"{project_dir}/render.log"
@@ -3752,9 +3744,9 @@ class MVPipeline:
 
             with open(log_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines))
-            print(f"  [LOG] render.log saved ({len(lines)} lines)")
+            logger.info(f"  [LOG] render.log saved ({len(lines)} lines)")
         except Exception as e:
-            print(f"  [LOG] render.log save failed: {e}")
+            logger.error(f"  [LOG] render.log save failed: {e}")
 
     def _get_palette_stats(self, image_path: str) -> dict:
         """이미지에서 평균 밝기(Y)와 채도(S) 추출. PIL 사용."""
@@ -3920,7 +3912,7 @@ class MVPipeline:
             tt = t["transition_type"]
             type_counts[tt] = type_counts.get(tt, 0) + 1
         summary = ", ".join(f"{k}:{v}" for k, v in sorted(type_counts.items()))
-        print(f"  [TRANSITION PLAN] {len(transitions)} transitions: {summary}")
+        logger.info(f"  [TRANSITION PLAN] {len(transitions)} transitions: {summary}")
 
         return transitions
 
@@ -3976,7 +3968,7 @@ class MVPipeline:
         Returns:
             업데이트된 MVProject
         """
-        print(f"\n[Step 4] Composing final video...")
+        logger.info(f"\n[Step 4] Composing final video...")
 
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         project.status = MVProjectStatus.COMPOSING
@@ -4010,7 +4002,7 @@ class MVPipeline:
                             if os.path.exists(local):
                                 setattr(sc, attr, local)
 
-        print(f"  Completed scenes: {len(completed_scenes)}/{len(project.scenes)}")
+        logger.info(f"  Completed scenes: {len(completed_scenes)}/{len(project.scenes)}")
 
         # 음악 파일 duration 캐싱 (동일 파일에 대한 ffprobe 중복 호출 방지)
         _cached_audio_duration = ffprobe_duration_sec(project.music_file_path) if project.music_file_path else 0.0
@@ -4082,7 +4074,7 @@ class MVPipeline:
                                 resolved = cut["video_path"]
                         except Exception:
                             resolved = cut["video_path"]
-                    print(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} ({'B-roll' if cut.get('is_broll') else 'I2V'}) {cut['duration_sec']:.1f}s")
+                    logger.info(f"    Cut {ci+1}/{len(cut_plan)}: scene {cut['parent_scene_id']} ({'B-roll' if cut.get('is_broll') else 'I2V'}) {cut['duration_sec']:.1f}s")
                     return ci, resolved
 
                 if not cut.get("image_path"):
@@ -4100,7 +4092,7 @@ class MVPipeline:
                     )
                     return ci, clip_path
                 except Exception as cut_err:
-                    print(f"    [WARNING] Derived cut failed (scene {cut['parent_scene_id']}, cut {cut['cut_index']}): {str(cut_err)[-200:]}")
+                    logger.error(f"    [WARNING] Derived cut failed (scene {cut['parent_scene_id']}, cut {cut['cut_index']}): {str(cut_err)[-200:]}")
                     try:
                         self.ffmpeg_composer._image_to_static_video(
                             image_path=cut["image_path"],
@@ -4150,7 +4142,7 @@ class MVPipeline:
                 project.error_message = "No video clips were created. Check image generation."
                 return project
 
-            print(f"  Video clips created: {len(video_clips)}")
+            logger.info(f"  Video clips created: {len(video_clips)}")
 
             # 1.5. 씬 경계 밝기 점프 완화 (C-3: 3-6프레임 밝기 램프)
             scene_groups_clean = [g for g in scene_groups if g]
@@ -4194,7 +4186,7 @@ class MVPipeline:
                                 ramp_count += 1
 
                 if ramp_count > 0:
-                    print(f"  [BRIGHTNESS] Applied {ramp_count} brightness ramps at scene boundaries")
+                    logger.info(f"  [BRIGHTNESS] Applied {ramp_count} brightness ramps at scene boundaries")
                 scene_groups = scene_groups_clean
 
             # 2. 클립들 이어붙이기 (전환 플랜 기반)
@@ -4202,7 +4194,7 @@ class MVPipeline:
             # 빈 그룹 제거
             scene_groups = [g for g in scene_groups if g]
             total_dur = sum(s.duration_sec for s in completed_scenes)
-            print(f"  Concatenating {len(video_clips)} clips in {len(scene_groups)} scenes (total ~{total_dur:.0f}s)...")
+            logger.info(f"  Concatenating {len(video_clips)} clips in {len(scene_groups)} scenes (total ~{total_dur:.0f}s)...")
             project.progress = 86
             project.current_step = f"영상 {len(scene_groups)}개 씬 전환 합성 중... (시간 소요)"
             self._save_manifest(project, project_dir)
@@ -4232,7 +4224,7 @@ class MVPipeline:
             if not concat_result or not os.path.exists(concat_video):
                 raise RuntimeError("Video concatenation failed - output file not created")
 
-            print(f"  Concatenation complete: {concat_video}")
+            logger.info(f"  Concatenation complete: {concat_video}")
             project.progress = 90
             project.current_step = "자막 처리 중..."
             self._save_manifest(project, project_dir)
@@ -4249,7 +4241,7 @@ class MVPipeline:
             timeline_mode = "none"
 
             if has_lyrics:
-                print(f"  Generating lyrics subtitle from user input ({len(user_lyrics_text)} chars)...")
+                logger.info(f"  Generating lyrics subtitle from user input ({len(user_lyrics_text)} chars)...")
                 os.makedirs(f"{project_dir}/media/subtitles", exist_ok=True)
 
                 lines = split_lyrics_lines(user_lyrics_text)
@@ -4270,21 +4262,21 @@ class MVPipeline:
                             os.makedirs(os.path.dirname(gemini_ass), exist_ok=True)
                             with open(gemini_ass, "wb") as _f:
                                 _f.write(_data)
-                            print(f"    [R2] Restored ASS from R2: {_r2_key} ({len(_data)} bytes)")
+                            logger.info(f"    [R2] Restored ASS from R2: {_r2_key} ({len(_data)} bytes)")
                     except Exception as _r2_err:
-                        print(f"    [R2] ASS restore failed: {_r2_err}")
+                        logger.error(f"    [R2] ASS restore failed: {_r2_err}")
 
                 if os.path.exists(gemini_ass) and os.path.getsize(gemini_ass) > 100:
                     srt_path = gemini_ass
                     timeline_mode = "gemini_aligned_reuse"
-                    print(f"    [Reuse] Gemini-aligned ASS found ({os.path.getsize(gemini_ass):,} bytes) -> {srt_path}")
+                    logger.info(f"    [Reuse] Gemini-aligned ASS found ({os.path.getsize(gemini_ass):,} bytes) -> {srt_path}")
                 elif os.path.exists(gemini_srt) and os.path.getsize(gemini_srt) > 50:
                     srt_path = gemini_srt
                     timeline_mode = "gemini_aligned_reuse_srt"
-                    print(f"    [Reuse] Gemini-aligned SRT found ({os.path.getsize(gemini_srt):,} bytes) -> {srt_path}")
+                    logger.info(f"    [Reuse] Gemini-aligned SRT found ({os.path.getsize(gemini_srt):,} bytes) -> {srt_path}")
                 else:
                     # Gemini 정렬 파일 없음 -> STT fallback
-                    print(f"    [No Gemini ASS] Falling back to STT alignment...")
+                    logger.info(f"    [No Gemini ASS] Falling back to STT alignment...")
                     audio_duration = _cached_audio_duration
 
                     # 앵커 추정 (사용자 보정 > 세그먼트 > VAD > fallback)
@@ -4297,32 +4289,32 @@ class MVPipeline:
                         user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
                         user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
                     )
-                    print(f"    Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s] method={anchor_info.method}")
+                    logger.info(f"    Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s] method={anchor_info.method}")
 
                     # STT 정렬 시도
                     stt_segments = getattr(project, 'stt_segments', None)
                     if not stt_segments:
-                        print(f"    [Gemini-STT] Running audio STT for subtitle alignment...")
+                        logger.info(f"    [Gemini-STT] Running audio STT for subtitle alignment...")
                         stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
                             project.music_file_path
                         )
                         if stt_segments:
                             project.stt_segments = stt_segments
-                            print(f"    [Gemini-STT] Got {len(stt_segments)} segments")
+                            logger.info(f"    [Gemini-STT] Got {len(stt_segments)} segments")
                         else:
-                            print(f"    [Gemini-STT] Failed, will use uniform distribution")
+                            logger.error(f"    [Gemini-STT] Failed, will use uniform distribution")
 
                     if stt_segments:
-                        print(f"    [STT-Align] Using {len(stt_segments)} STT segments for alignment...")
+                        logger.info(f"    [STT-Align] Using {len(stt_segments)} STT segments for alignment...")
                         aligned = align_lyrics_with_stt(
                             lines, stt_segments,
                             anchor_info.anchor_start, anchor_info.anchor_end,
                         )
                         timeline_mode = "stt_aligned"
                         avg_conf = sum(a.confidence for a in aligned) / len(aligned) if aligned else 0
-                        print(f"    [STT-Align] {len(aligned)} lines aligned, avg confidence={avg_conf:.1f}")
+                        logger.info(f"    [STT-Align] {len(aligned)} lines aligned, avg confidence={avg_conf:.1f}")
                     else:
-                        print(f"    [Fallback] No STT segments, using uniform distribution...")
+                        logger.info(f"    [Fallback] No STT segments, using uniform distribution...")
                         timeline = clamp_timeline_anchored(
                             lines, anchor_info.anchor_start, anchor_info.anchor_end
                         )
@@ -4334,7 +4326,7 @@ class MVPipeline:
                     _caps = [_Caption(a.start, a.end, a.text) for a in aligned]
                     srt_path = gemini_ass
                     _render_ass(_caps, srt_path)
-                    print(f"    ASS: {n_lines} lines -> {srt_path}")
+                    logger.info(f"    ASS: {n_lines} lines -> {srt_path}")
 
                     # alignment.json 저장 (디버깅용)
                     project.aligned_lyrics = [
@@ -4345,7 +4337,7 @@ class MVPipeline:
                     with open(alignment_path, "w", encoding="utf-8") as af:
                         json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
             else:
-                print(f"  [Lyrics Check] No user lyrics or subtitle disabled (subtitle_enabled={subtitle_on})")
+                logger.info(f"  [Lyrics Check] No user lyrics or subtitle disabled (subtitle_enabled={subtitle_on})")
 
             project.progress = 95
             project.current_step = "최종 렌더링 중..."
@@ -4370,9 +4362,9 @@ class MVPipeline:
                     ], capture_output=True, timeout=30)
                     if os.path.exists(trimmed_audio):
                         audio_path = trimmed_audio
-                        print(f"  Preview: audio trimmed to {preview_dur}s")
+                        logger.info(f"  Preview: audio trimmed to {preview_dur}s")
                 except Exception as e:
-                    print(f"  Preview audio trim failed: {e}, using full audio")
+                    logger.error(f"  Preview audio trim failed: {e}, using full audio")
 
             def _render_progress_cb(pct):
                 project.progress = pct
@@ -4408,12 +4400,12 @@ class MVPipeline:
             project.progress = 100
             project.current_step = "완료!"
 
-            print(f"\n  Final video: {final_video}")
+            logger.info(f"\n  Final video: {final_video}")
 
         except Exception as e:
             project.status = MVProjectStatus.FAILED
             project.error_message = f"Video composition failed: {str(e)}"
-            print(f"  [ERROR] {project.error_message}")
+            logger.error(f"  [ERROR] {project.error_message}")
 
         # 최종 매니페스트 저장
         project.updated_at = datetime.now()
@@ -4441,9 +4433,9 @@ class MVPipeline:
             return project
 
         # 디버그: 원본 가사 데이터 확인 (줄바꿈 포함 여부)
-        print(f"  [SubTest] Raw lyrics length: {len(user_lyrics_text)} chars")
-        print(f"  [SubTest] Raw lyrics newlines: {user_lyrics_text.count(chr(10))} LF, {user_lyrics_text.count(chr(13))} CR")
-        print(f"  [SubTest] Raw lyrics preview (repr): {repr(user_lyrics_text[:300])}")
+        logger.info(f"  [SubTest] Raw lyrics length: {len(user_lyrics_text)} chars")
+        logger.info(f"  [SubTest] Raw lyrics newlines: {user_lyrics_text.count(chr(10))} LF, {user_lyrics_text.count(chr(13))} CR")
+        logger.info(f"  [SubTest] Raw lyrics preview (repr): {repr(user_lyrics_text[:300])}")
 
         project.current_step = "자막 테스트 생성 중..."
         self._save_manifest(project, project_dir)
@@ -4454,7 +4446,7 @@ class MVPipeline:
 
             # ── Step 1: 가사 파싱 ──
             lines = split_lyrics_lines(user_lyrics_text)
-            print(f"  [SubTest] Lyrics: {len(lines)} lines (after filtering)")
+            logger.info(f"  [SubTest] Lyrics: {len(lines)} lines (after filtering)")
             if not lines:
                 project.error_message = "No lyrics lines after filtering"
                 self._save_manifest(project, project_dir)
@@ -4472,7 +4464,7 @@ class MVPipeline:
                 cached_timed_lyrics = cached_timed.timed_lyrics
 
             if os.path.exists(aligner_ass) and cached_timed_lyrics and len(cached_timed_lyrics) >= 2:
-                print(f"  [SubTest] Reusing cached aligner ASS + timed_lyrics ({len(cached_timed_lyrics)} entries) -> {aligner_ass}")
+                logger.info(f"  [SubTest] Reusing cached aligner ASS + timed_lyrics ({len(cached_timed_lyrics)} entries) -> {aligner_ass}")
                 timed = cached_timed_lyrics
             else:
                 project.current_step = "보컬 분리 + Gemini 가사 정렬 중..."
@@ -4513,7 +4505,7 @@ class MVPipeline:
             # aligner가 이미 start+end로 정밀 ASS를 생성함)
             if timed and len(timed) >= 2 and os.path.exists(aligner_ass):
                 # ── 새 aligner가 생성한 ASS 직접 사용 ──
-                print(f"  [SubTest] Using aligner-generated ASS: {aligner_ass}")
+                logger.info(f"  [SubTest] Using aligner-generated ASS: {aligner_ass}")
 
                 # timed_lyrics에서 timeline 구성 (디버그 + manifest 저장용)
                 timeline = []
@@ -4534,24 +4526,24 @@ class MVPipeline:
                 ]
                 self._save_manifest(project, project_dir)
 
-                print(f"  [SubTest] Timeline: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
+                logger.info(f"  [SubTest] Timeline: {len(timeline)} lines, {timeline[0].start:.1f}s ~ {timeline[-1].end:.1f}s")
                 for ti in range(1, len(timeline)):
                     gap = timeline[ti].start - timeline[ti - 1].end
                     if gap > 3.0:
-                        print(f"    [GAP] {gap:.1f}s before line {ti}")
+                        logger.info(f"    [GAP] {gap:.1f}s before line {ti}")
 
                 # aligner ASS를 lyrics_test.ass로 복사
                 import shutil
                 ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
                 shutil.copy2(aligner_ass, ass_path)
                 ass_size = os.path.getsize(ass_path)
-                print(f"  [SubTest] ASS file: {ass_size:,} bytes -> {ass_path}")
+                logger.info(f"  [SubTest] ASS file: {ass_size:,} bytes -> {ass_path}")
 
                 aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
             else:
                 if timed and len(timed) >= 2:
                     # aligner ASS 없지만 timed는 있음 - fallback으로 timeline 생성
-                    print(f"  [SubTest] Aligner ASS not found, building timeline from timed_lyrics")
+                    logger.info(f"  [SubTest] Aligner ASS not found, building timeline from timed_lyrics")
                     audio_duration = _cached_sub_dur
                     timeline = []
                     for i, entry in enumerate(timed):
@@ -4567,7 +4559,7 @@ class MVPipeline:
                         timeline.append(SubtitleLine(t_start, t_end, text))
                 else:
                     # timed_lyrics 없으면 균등 분배 fallback
-                    print(f"  [SubTest] No timed_lyrics, falling back to uniform distribution")
+                    logger.info(f"  [SubTest] No timed_lyrics, falling back to uniform distribution")
                     audio_duration = _cached_sub_dur
                     seg_dur = audio_duration / max(1, len(lines))
                     timeline = []
@@ -4583,11 +4575,11 @@ class MVPipeline:
                 ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
                 write_ass(aligned, ass_path)
                 ass_size = os.path.getsize(ass_path) if os.path.exists(ass_path) else 0
-                print(f"  [SubTest] ASS file: {len(aligned)} events, {ass_size:,} bytes -> {ass_path}")
+                logger.info(f"  [SubTest] ASS file: {len(aligned)} events, {ass_size:,} bytes -> {ass_path}")
 
             # 디버그: 전체 정렬 결과 출력
             for ai, a in enumerate(aligned):
-                print(f"    [{ai:2d}] {a.start:6.1f}s - {a.end:6.1f}s  conf={a.confidence:3.0f}  '{a.text[:50]}'")
+                logger.info(f"    [{ai:2d}] {a.start:6.1f}s - {a.end:6.1f}s  conf={a.confidence:3.0f}  '{a.text[:50]}'")
 
             # alignment.json 저장
             project.aligned_lyrics = [
@@ -4603,13 +4595,13 @@ class MVPipeline:
                 with open(ass_path, 'r', encoding='utf-8-sig') as af:
                     ass_content = af.read()
                     dialogue_count = ass_content.count("Dialogue:")
-                    print(f"  [SubTest] ASS Dialogue count: {dialogue_count}")
+                    logger.info(f"  [SubTest] ASS Dialogue count: {dialogue_count}")
                     # 마지막 5줄 출력
                     ass_lines = ass_content.strip().split('\n')
                     for line in ass_lines[-5:]:
-                        print(f"    ASS> {line[:120]}")
+                        logger.info(f"    ASS> {line[:120]}")
             except Exception as e:
-                print(f"  [SubTest] ASS read error: {e}")
+                logger.error(f"  [SubTest] ASS read error: {e}")
 
             # ── Step 5: 단일 패스 렌더링 (프로덕션 _final_render와 동일한 ass= 필터) ──
             audio_duration = _cached_sub_dur
@@ -4639,20 +4631,20 @@ class MVPipeline:
                 "-shortest",
                 out_abs,
             ]
-            print(f"  [SubTest] Single-pass render ({audio_duration:.0f}s, ass= filter)...")
-            print(f"  [SubTest] ASS: {ass_abs}")
+            logger.info(f"  [SubTest] Single-pass render ({audio_duration:.0f}s, ass= filter)...")
+            logger.info(f"  [SubTest] ASS: {ass_abs}")
             result = subprocess.run(cmd, capture_output=True, text=True,
                                     encoding='utf-8', errors='replace', timeout=timeout)
 
             if result.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                print(f"  [SubTest] Render OK ({os.path.getsize(out_abs):,} bytes)")
+                logger.info(f"  [SubTest] Render OK ({os.path.getsize(out_abs):,} bytes)")
                 project.current_step = "자막 테스트 완료"
             else:
                 stderr_tail = result.stderr[-500:] if result.stderr else "(empty)"
-                print(f"  [SubTest] ass= filter FAILED (rc={result.returncode}): {stderr_tail}")
+                logger.error(f"  [SubTest] ass= filter FAILED (rc={result.returncode}): {stderr_tail}")
 
                 # Fallback: SRT + subtitles= 필터로 재시도
-                print(f"  [SubTest] Fallback: SRT + subtitles= filter...")
+                logger.info(f"  [SubTest] Fallback: SRT + subtitles= filter...")
                 srt_fallback = f"{project_dir}/media/subtitles/lyrics_test.srt"
                 srt_timeline = [SubtitleLine(a.start, a.end, a.text) for a in aligned]
                 write_srt(srt_timeline, srt_fallback)
@@ -4674,10 +4666,10 @@ class MVPipeline:
                 r2 = subprocess.run(cmd2, capture_output=True, text=True,
                                     encoding='utf-8', errors='replace', timeout=timeout)
                 if r2.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 1024:
-                    print(f"  [SubTest] SRT fallback OK ({os.path.getsize(out_abs):,} bytes)")
+                    logger.info(f"  [SubTest] SRT fallback OK ({os.path.getsize(out_abs):,} bytes)")
                     project.current_step = "자막 테스트 완료"
                 else:
-                    print(f"  [SubTest] SRT fallback also FAILED: {r2.stderr[-300:] if r2.stderr else '(empty)'}")
+                    logger.error(f"  [SubTest] SRT fallback also FAILED: {r2.stderr[-300:] if r2.stderr else '(empty)'}")
                     # 최종 fallback: 자막 없이 오디오만
                     cmd3 = [
                         "ffmpeg", "-y",
@@ -4695,7 +4687,7 @@ class MVPipeline:
 
         except Exception as e:
             project.error_message = f"Subtitle test failed: {str(e)}"
-            print(f"  [SubTest ERROR] {project.error_message}")
+            logger.error(f"  [SubTest ERROR] {project.error_message}")
 
         self._save_manifest(project, project_dir)
         return project
@@ -4738,7 +4730,7 @@ class MVPipeline:
             project.current_step = "Visual Bible 생성 실패"
             project_dir = f"{self.output_base_dir}/{project.project_id}"
             self._save_manifest(project, project_dir)
-            print(f"[MV] FAILED - No visual_bible or characters: {project.project_id}")
+            logger.error(f"[MV] FAILED - No visual_bible or characters: {project.project_id}")
             return project
 
         # Step 2.7: 캐릭터 앵커 생성
@@ -4755,7 +4747,7 @@ class MVPipeline:
             project.current_step = "캐릭터 앵커 생성 실패"
             project_dir = f"{self.output_base_dir}/{project.project_id}"
             self._save_manifest(project, project_dir)
-            print(f"[MV] FAILED - No character anchors generated: {project.project_id}")
+            logger.error(f"[MV] FAILED - No character anchors generated: {project.project_id}")
             return project
 
         # 앵커 생성 완료 → 아직 ANCHORS_READY로 전환하지 않음
@@ -4767,7 +4759,7 @@ class MVPipeline:
         project_dir = f"{self.output_base_dir}/{project.project_id}"
         self._save_manifest(project, project_dir)
 
-        print(f"[MV] Anchors generated ({len(characters_with_anchors)} characters), uploading to R2: {project.project_id}")
+        logger.info(f"[MV] Anchors generated ({len(characters_with_anchors)} characters), uploading to R2: {project.project_id}")
         return project
 
     def run_from_images(
@@ -4862,11 +4854,11 @@ class MVPipeline:
         # generate_images()에서 이미 IMAGES_READY로 설정됨
 
         elapsed = time.time() - start_time
-        print(f"\n{'='*60}")
-        print(f"[MV Pipeline] Images ready in {elapsed:.1f}s")
-        print(f"  Status: {project.status}")
-        print(f"  Waiting for user review before composing...")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[MV Pipeline] Images ready in {elapsed:.1f}s")
+        logger.info(f"  Status: {project.status}")
+        logger.info(f"  Waiting for user review before composing...")
+        logger.info(f"{'='*60}\n")
 
         return project
 
@@ -4894,10 +4886,10 @@ class MVPipeline:
 
         # B-roll 씬은 재생성 불가 (스톡 영상 보호)
         if getattr(scene, 'is_broll', False):
-            print(f"[MV Regenerate] Scene {scene_id} is B-roll, skipping regeneration")
+            logger.info(f"[MV Regenerate] Scene {scene_id} is B-roll, skipping regeneration")
             return scene
 
-        print(f"[MV Regenerate] Scene {scene_id} image regeneration...")
+        logger.info(f"[MV Regenerate] Scene {scene_id} image regeneration...")
 
         # v3.0: 전용 스타일 앵커 우선 사용, 없으면 scene_01 fallback
         # 캐릭터 미등장 씬에서는 스타일 앵커 사용 안 함 (앵커에 인물이 있으면 복제됨)
@@ -4979,10 +4971,10 @@ class MVPipeline:
             scene.image_path = image_path
             scene.video_path = None  # I2V 결과 초기화 (이미지 변경됨)
             scene.status = MVSceneStatus.COMPLETED
-            print(f"  Regenerated: {image_path}")
+            logger.info(f"  Regenerated: {image_path}")
         except Exception as e:
             scene.status = MVSceneStatus.FAILED
-            print(f"  [ERROR] Regeneration failed: {e}")
+            logger.error(f"  [ERROR] Regeneration failed: {e}")
             raise
 
         self._save_manifest(project, project_dir)
@@ -5024,7 +5016,7 @@ class MVPipeline:
         if not image_path or not os.path.exists(image_path):
             raise ValueError(f"Scene {scene_id} has no image (path: {scene.image_path})")
 
-        print(f"[MV I2V] Scene {scene_id} video generation...")
+        logger.info(f"[MV I2V] Scene {scene_id} video generation...")
 
         from agents.video_agent import VideoAgent
         video_agent = VideoAgent()
@@ -5050,7 +5042,7 @@ class MVPipeline:
             i2v_prompt = f"{', '.join(i2v_prompt_parts)}. {scene.image_prompt}"
         else:
             i2v_prompt = scene.image_prompt
-        print(f"  [I2V Prompt] {i2v_prompt[:120]}...")
+        logger.info(f"  [I2V Prompt] {i2v_prompt[:120]}...")
 
         try:
             result_path = video_agent._call_veo_api(
@@ -5062,9 +5054,9 @@ class MVPipeline:
                 first_frame_image=image_path
             )
             scene.video_path = result_path or video_path
-            print(f"  I2V complete: {scene.video_path}")
+            logger.info(f"  I2V complete: {scene.video_path}")
         except Exception as e:
-            print(f"  [ERROR] I2V failed: {e}")
+            logger.error(f"  [ERROR] I2V failed: {e}")
             raise
 
         self._save_manifest(project, project_dir)
@@ -5107,10 +5099,10 @@ class MVPipeline:
             audio_dur = ffprobe_duration_sec(audio_abs)
             if audio_dur and video_dur and audio_dur > video_dur + 0.5:
                 gap = audio_dur - video_dur
-                print(f"  [Final Render] Video ({video_dur:.1f}s) shorter than audio ({audio_dur:.1f}s) by {gap:.1f}s - will tpad in final pass")
+                logger.info(f"  [Final Render] Video ({video_dur:.1f}s) shorter than audio ({audio_dur:.1f}s) by {gap:.1f}s - will tpad in final pass")
                 tpad_filter = f"tpad=stop_mode=clone:stop_duration={gap + 1:.1f},"
         except Exception as e:
-            print(f"  [Final Render] Duration check skipped: {e}")
+            logger.info(f"  [Final Render] Duration check skipped: {e}")
 
         # 플랫폼별 폰트
         system = platform.system()
@@ -5173,9 +5165,9 @@ class MVPipeline:
         except Exception:
             timeout = 600
 
-        print(f"  [Final Render] Combined pass: subtitle={'Yes' if srt_path else 'No'}, watermark={'Yes' if watermark_text else 'No'}")
-        print(f"  [Final Render] VF: {vf_filter}")
-        print(f"  [Final Render] Timeout: {timeout}s")
+        logger.info(f"  [Final Render] Combined pass: subtitle={'Yes' if srt_path else 'No'}, watermark={'Yes' if watermark_text else 'No'}")
+        logger.info(f"  [Final Render] VF: {vf_filter}")
+        logger.info(f"  [Final Render] Timeout: {timeout}s")
 
         # total_duration 추정 (진행률 계산용)
         _total_dur = 0.0
@@ -5212,17 +5204,17 @@ class MVPipeline:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
-            print(f"  [ERROR] Final render timed out after {timeout}s")
+            logger.error(f"  [ERROR] Final render timed out after {timeout}s")
             _stderr_buf.append("[TIMEOUT]")
 
         returncode = process.returncode
         stderr_text = "".join(_stderr_buf)
 
         if returncode != 0:
-            print(f"  [ERROR] Final render failed (rc={returncode})")
-            print(f"  [ERROR] stderr: {stderr_text[-500:] if stderr_text else '(empty)'}")
+            logger.error(f"  [ERROR] Final render failed (rc={returncode})")
+            logger.error(f"  [ERROR] stderr: {stderr_text[-500:] if stderr_text else '(empty)'}")
             # 폴백: 자막 없이 기존 final_encode 사용
-            print(f"  [FALLBACK] Retrying without subtitles via final_encode...")
+            logger.info(f"  [FALLBACK] Retrying without subtitles via final_encode...")
             self.ffmpeg_composer.final_encode(
                 video_in=video_in,
                 audio_path=audio_path,
@@ -5232,7 +5224,7 @@ class MVPipeline:
         else:
             out_size = os.path.getsize(out_abs) if os.path.exists(out_abs) else 0
             if out_size < 1024:
-                print(f"  [ERROR] Output too small ({out_size}B), falling back to final_encode")
+                logger.error(f"  [ERROR] Output too small ({out_size}B), falling back to final_encode")
                 self.ffmpeg_composer.final_encode(
                     video_in=video_in,
                     audio_path=audio_path,
@@ -5240,7 +5232,7 @@ class MVPipeline:
                     watermark_text=watermark_text,
                 )
             else:
-                print(f"  [SUCCESS] Final render: {out_abs} ({out_size:,} bytes)")
+                logger.info(f"  [SUCCESS] Final render: {out_abs} ({out_size:,} bytes)")
 
     def _generate_lyrics_srt(
         self,
@@ -5266,11 +5258,11 @@ class MVPipeline:
 
             if not modified_scenes:
                 # 수정된 씬 없음 → 기존 timed_lyrics 그대로 사용
-                print(f"    Using timed lyrics ({len(timed_lyrics)} entries, no modifications)")
+                logger.info(f"    Using timed lyrics ({len(timed_lyrics)} entries, no modifications)")
                 srt_lines = self._srt_from_timed_lyrics(timed_lyrics)
             else:
                 # 하이브리드: 수정 안 한 씬은 timed_lyrics, 수정한 씬은 균등 분배
-                print(f"    Hybrid SRT: {len(modified_scenes)} modified scene(s), {len(timed_lyrics)} timed entries")
+                logger.info(f"    Hybrid SRT: {len(modified_scenes)} modified scene(s), {len(timed_lyrics)} timed entries")
                 all_entries = []
 
                 for scene in scenes:
@@ -5278,7 +5270,7 @@ class MVPipeline:
                         # 수정된 씬: lyrics_text를 씬 구간 내 균등 분배
                         scene_entries = self._lyrics_text_to_timed_entries(scene)
                         if scene_entries:
-                            print(f"      Scene {scene.scene_id}: using edited lyrics ({len(scene_entries)} lines, {scene.start_sec:.1f}s~{scene.end_sec:.1f}s)")
+                            logger.info(f"      Scene {scene.scene_id}: using edited lyrics ({len(scene_entries)} lines, {scene.start_sec:.1f}s~{scene.end_sec:.1f}s)")
                         all_entries.extend(scene_entries)
                     else:
                         # 수정 안 한 씬: timed_lyrics에서 해당 시간대 엔트리 사용
@@ -5294,7 +5286,7 @@ class MVPipeline:
                 srt_lines = self._srt_from_timed_lyrics(all_entries)
         else:
             # fallback: 씬 기반 균등 분할 (timed_lyrics 없음)
-            print(f"    Using scene-based lyrics (no timestamps)")
+            logger.info(f"    Using scene-based lyrics (no timestamps)")
             idx = 0
             for scene in scenes:
                 if not scene.lyrics_text:
@@ -5318,7 +5310,7 @@ class MVPipeline:
             f.write("\n".join(srt_lines))
 
         entry_count = len([l for l in srt_lines if l.startswith("00:") or l.startswith("01:") or l.startswith("02:")])
-        print(f"    SRT generated: {output_path} ({entry_count} entries)")
+        logger.info(f"    SRT generated: {output_path} ({entry_count} entries)")
 
     @staticmethod
     def _deduplicate_merged_entries(entries: list) -> list:
@@ -5448,7 +5440,7 @@ class MVPipeline:
         if fix_count == 0:
             return timed_lyrics
 
-        print(f"    [WARNING] {fix_count} non-monotonic timestamp(s) detected out of {n}")
+        logger.warning(f"    [WARNING] {fix_count} non-monotonic timestamp(s) detected out of {n}")
 
         # 연속된 깨진 구간(run)별로 앞뒤 유효값 사이에서 보간
         i = 0
@@ -5476,7 +5468,7 @@ class MVPipeline:
                     timestamps[run_start + k] = new_t
                     timed_lyrics[run_start + k]["t"] = new_t
 
-                print(f"    [FIX] Entries {run_start+1}-{run_end}: interpolated {prev_t:.1f}s ~ {next_t:.1f}s")
+                logger.info(f"    [FIX] Entries {run_start+1}-{run_end}: interpolated {prev_t:.1f}s ~ {next_t:.1f}s")
             else:
                 i += 1
 
@@ -5568,8 +5560,8 @@ class MVPipeline:
         """프로젝트 로드 (로컬 우선, R2 fallback)"""
         manifest_path = f"{self.output_base_dir}/{project_id}/manifest.json"
 
-        print(f"[MV Pipeline] Loading project: {project_id}")
-        print(f"[MV Pipeline] manifest exists: {os.path.exists(manifest_path)}")
+        logger.info(f"[MV Pipeline] Loading project: {project_id}")
+        logger.info(f"[MV Pipeline] manifest exists: {os.path.exists(manifest_path)}")
 
         if not os.path.exists(manifest_path):
             # R2 fallback: 매니페스트 다운로드하여 로컬 복원
@@ -5582,12 +5574,12 @@ class MVPipeline:
                     os.makedirs(project_dir, exist_ok=True)
                     with open(manifest_path, 'w', encoding='utf-8') as f:
                         f.write(raw.decode('utf-8'))
-                    print(f"[MV Pipeline] Manifest restored from R2: {manifest_path}")
+                    logger.info(f"[MV Pipeline] Manifest restored from R2: {manifest_path}")
                 else:
-                    print(f"[MV Pipeline] Project not found locally or in R2: {project_id}")
+                    logger.info(f"[MV Pipeline] Project not found locally or in R2: {project_id}")
                     return None
             except Exception as e:
-                print(f"[MV Pipeline] R2 fallback failed: {e}")
+                logger.error(f"[MV Pipeline] R2 fallback failed: {e}")
                 return None
 
         with open(manifest_path, 'r', encoding='utf-8') as f:

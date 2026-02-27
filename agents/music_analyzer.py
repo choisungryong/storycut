@@ -9,6 +9,9 @@ import os
 import uuid as _uuid
 from typing import Optional, List
 from pathlib import Path
+from utils.logger import get_logger
+logger = get_logger("music_analyzer")
+
 
 
 def _secure_temp_path(prefix: str, suffix: str = "") -> str:
@@ -23,7 +26,7 @@ try:
     PYDUB_AVAILABLE = True
 except ImportError:
     PYDUB_AVAILABLE = False
-    print("[MusicAnalyzer] pydub not available. Install with: pip install pydub")
+    logger.info("[MusicAnalyzer] pydub not available. Install with: pip install pydub")
 
 # Phase 2: librosa (선택적)
 try:
@@ -57,7 +60,7 @@ class MusicAnalyzer:
         self.librosa_available = LIBROSA_AVAILABLE
 
         if not self.pydub_available:
-            print("[MusicAnalyzer] WARNING: pydub not installed. Limited functionality.")
+            logger.warning("[MusicAnalyzer] WARNING: pydub not installed. Limited functionality.")
 
     def analyze(self, audio_path: str) -> dict:
         """
@@ -77,7 +80,7 @@ class MusicAnalyzer:
                 "key_timestamps": [...]
             }
         """
-        print(f"[MusicAnalyzer] Analyzing: {audio_path}")
+        logger.info(f"[MusicAnalyzer] Analyzing: {audio_path}")
 
         # 파일 존재 확인
         if not os.path.exists(audio_path):
@@ -114,22 +117,22 @@ class MusicAnalyzer:
                 f"Maximum allowed: {self.MAX_DURATION_SEC}s"
             )
 
-        print(f"  Duration: {result['duration_sec']:.2f}s")
+        logger.info(f"  Duration: {result['duration_sec']:.2f}s")
 
         # Phase 1+: librosa로 BPM 분석 (가능하면)
         if self.librosa_available:
             try:
                 bpm = self._get_bpm_librosa(audio_path)
                 result["bpm"] = bpm
-                print(f"  BPM: {bpm:.1f}")
+                logger.info(f"  BPM: {bpm:.1f}")
             except Exception as e:
-                print(f"  BPM analysis failed: {e}")
+                logger.error(f"  BPM analysis failed: {e}")
 
         # Phase 1: 기본 구간 분할 (균등 분할)
         result["segments"] = self._create_basic_segments(result["duration_sec"])
 
-        print(f"  Segments: {len(result['segments'])}")
-        print(f"[MusicAnalyzer] Analysis complete")
+        logger.info(f"  Segments: {len(result['segments'])}")
+        logger.info(f"[MusicAnalyzer] Analysis complete")
 
         return result
 
@@ -216,7 +219,7 @@ class MusicAnalyzer:
         """
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("  [Gemini-STT] GOOGLE_API_KEY not set")
+            logger.info("  [Gemini-STT] GOOGLE_API_KEY not set")
             return None
 
         try:
@@ -236,7 +239,7 @@ class MusicAnalyzer:
 
             try:
                 audio_file = client.files.upload(file=temp_path)
-                print(f"  [Gemini-STT] File uploaded: {audio_file.name}")
+                logger.info(f"  [Gemini-STT] File uploaded: {audio_file.name}")
             finally:
                 try:
                     os.remove(temp_path)
@@ -257,7 +260,7 @@ class MusicAnalyzer:
                 '[{"start": 12.5, "end": 16.2, "text": "sung phrase"}, ...]'
             )
 
-            print(f"  [Gemini-STT] Extracting vocal segments...")
+            logger.info(f"  [Gemini-STT] Extracting vocal segments...")
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[audio_file, prompt_text],
@@ -269,7 +272,7 @@ class MusicAnalyzer:
 
             result = json.loads(response.text.strip())
             if not isinstance(result, list):
-                print(f"  [Gemini-STT] Invalid response format")
+                logger.info(f"  [Gemini-STT] Invalid response format")
                 return None
 
             # Validate entries
@@ -282,17 +285,17 @@ class MusicAnalyzer:
                     valid.append({"start": round(start, 2), "end": round(end, 2), "text": text})
 
             if valid:
-                print(f"  [Gemini-STT] Got {len(valid)} segments: {valid[0]['start']}s ~ {valid[-1]['end']}s")
+                logger.info(f"  [Gemini-STT] Got {len(valid)} segments: {valid[0]['start']}s ~ {valid[-1]['end']}s")
             else:
-                print(f"  [Gemini-STT] No valid segments")
+                logger.info(f"  [Gemini-STT] No valid segments")
                 return None
 
             return valid
 
         except Exception as e:
-            print(f"  [Gemini-STT] Failed: {e}")
+            logger.error(f"  [Gemini-STT] Failed: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             return None
 
     def align_lyrics_to_audio(self, audio_path: str, lyrics_lines: list, audio_duration_sec: float = 0.0) -> Optional[list]:
@@ -310,7 +313,7 @@ class MusicAnalyzer:
         """
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("  [Lyrics-Align] GOOGLE_API_KEY not set")
+            logger.info("  [Lyrics-Align] GOOGLE_API_KEY not set")
             return None
 
         if not lyrics_lines:
@@ -333,7 +336,7 @@ class MusicAnalyzer:
 
             try:
                 audio_file = client.files.upload(file=temp_path)
-                print(f"  [Lyrics-Align] File uploaded: {audio_file.name}")
+                logger.info(f"  [Lyrics-Align] File uploaded: {audio_file.name}")
             finally:
                 try:
                     os.remove(temp_path)
@@ -396,7 +399,7 @@ class MusicAnalyzer:
                 '{"index": 5, "start": 0, "end": 0, "text": "unheard line", "unheard": true}, ...]\n'
             )
 
-            print(f"  [Lyrics-Align] Aligning {len(lyrics_lines)} lines to audio...")
+            logger.info(f"  [Lyrics-Align] Aligning {len(lyrics_lines)} lines to audio...")
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[audio_file, prompt_text],
@@ -408,7 +411,7 @@ class MusicAnalyzer:
 
             result = json.loads(response.text.strip())
             if not isinstance(result, list):
-                print(f"  [Lyrics-Align] Invalid response format: {type(result)}")
+                logger.info(f"  [Lyrics-Align] Invalid response format: {type(result)}")
                 return None
 
             # Validate + sort by index
@@ -445,54 +448,51 @@ class MusicAnalyzer:
                 })
 
             if _n_unheard > 0:
-                print(f"  [Lyrics-Align] {_n_unheard} lines marked as unheard by Gemini")
+                logger.info(f"  [Lyrics-Align] {_n_unheard} lines marked as unheard by Gemini")
             if _n_over_dur > 0:
-                print(f"  [Lyrics-Align] {_n_over_dur} lines rejected (start >= {audio_duration_sec:.1f}s audio duration)")
+                logger.info(f"  [Lyrics-Align] {_n_over_dur} lines rejected (start >= {audio_duration_sec:.1f}s audio duration)")
 
             valid.sort(key=lambda x: x["start"])
 
             # ── Raw Gemini timestamps log (per-line) ──
-            print(f"  [Lyrics-Align] === Gemini Raw Timestamps ({len(valid)} lines) ===")
+            logger.info(f"  [Lyrics-Align] === Gemini Raw Timestamps ({len(valid)} lines) ===")
             prev_end = 0.0
             for v in valid:
                 gap = v["start"] - prev_end
                 gap_str = f"  [GAP {gap:.1f}s]" if gap > 2.0 else ""
                 dur = v["end"] - v["start"]
-                print(f"    [{v['index']:2d}] {v['start']:6.1f}s ~ {v['end']:6.1f}s ({dur:.1f}s) '{v['text'][:35]}'{gap_str}")
+                logger.info(f"    [{v['index']:2d}] {v['start']:6.1f}s ~ {v['end']:6.1f}s ({dur:.1f}s) '{v['text'][:35]}'{gap_str}")
                 prev_end = v["end"]
-            print(f"  [Lyrics-Align] === End Timestamps ===")
+            logger.info(f"  [Lyrics-Align] === End Timestamps ===")
 
             if valid:
                 time_range = valid[-1]["end"] - valid[0]["start"]
                 coverage = len(valid) / len(lyrics_lines) * 100
-                print(f"  [Lyrics-Align] Aligned {len(valid)}/{len(lyrics_lines)} lines ({coverage:.0f}%), "
-                      f"range: {valid[0]['start']}s ~ {valid[-1]['end']}s (span: {time_range:.1f}s)")
+                logger.info(f"  [Lyrics-Align] Aligned {len(valid)}/{len(lyrics_lines)} lines ({coverage:.0f}%), " f"range: {valid[0]['start']}s ~ {valid[-1]['end']}s (span: {time_range:.1f}s)")
 
                 # Sanity check: timestamps should cover a reasonable portion of the song
                 if audio_duration_sec > 30 and valid[-1]["end"] < audio_duration_sec * 0.3:
-                    print(f"  [Lyrics-Align] REJECTED: timestamps end at {valid[-1]['end']:.1f}s "
-                          f"but song is {audio_duration_sec:.1f}s - Gemini compressed all lyrics into early section")
+                    logger.info(f"  [Lyrics-Align] REJECTED: timestamps end at {valid[-1]['end']:.1f}s " f"but song is {audio_duration_sec:.1f}s - Gemini compressed all lyrics into early section")
                     return None
 
                 # Sanity check: timestamps should not vastly exceed audio duration
                 if audio_duration_sec > 0 and valid[-1]["end"] > audio_duration_sec * 1.1:
-                    print(f"  [Lyrics-Align] WARNING: last timestamp {valid[-1]['end']:.1f}s exceeds "
-                          f"audio duration {audio_duration_sec:.1f}s by {valid[-1]['end'] - audio_duration_sec:.1f}s")
+                    logger.warning(f"  [Lyrics-Align] WARNING: last timestamp {valid[-1]['end']:.1f}s exceeds " f"audio duration {audio_duration_sec:.1f}s by {valid[-1]['end'] - audio_duration_sec:.1f}s")
 
                 # Check for compression: if all 72 lines fit in <30s, something is wrong
                 if len(valid) > 10 and time_range < 30.0:
-                    print(f"  [Lyrics-Align] REJECTED: {len(valid)} lines crammed into {time_range:.1f}s span")
+                    logger.info(f"  [Lyrics-Align] REJECTED: {len(valid)} lines crammed into {time_range:.1f}s span")
                     return None
             else:
-                print(f"  [Lyrics-Align] No valid alignments returned")
+                logger.info(f"  [Lyrics-Align] No valid alignments returned")
                 return None
 
             return valid
 
         except Exception as e:
-            print(f"  [Lyrics-Align] Failed: {e}")
+            logger.error(f"  [Lyrics-Align] Failed: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             return None
 
     def transcribe_with_google_stt(self, audio_path: str, language: str = "ko-KR") -> Optional[list]:
@@ -509,10 +509,10 @@ class MusicAnalyzer:
 
         api_key = os.getenv("GOOGLE_STT_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("  [STT] No API key (GOOGLE_STT_API_KEY or GOOGLE_API_KEY)")
+            logger.info("  [STT] No API key (GOOGLE_STT_API_KEY or GOOGLE_API_KEY)")
             return None
 
-        print(f"  [STT] Preparing audio for Google Cloud Speech-to-Text...")
+        logger.info(f"  [STT] Preparing audio for Google Cloud Speech-to-Text...")
 
         # FLAC mono 16kHz로 변환 (STT 최적 포맷)
         import tempfile
@@ -523,16 +523,16 @@ class MusicAnalyzer:
                 capture_output=True, timeout=60, encoding="utf-8", errors="replace"
             )
             if proc.returncode != 0:
-                print(f"  [STT] FFmpeg conversion failed: {proc.stderr[:200]}")
+                logger.error(f"  [STT] FFmpeg conversion failed: {proc.stderr[:200]}")
                 return None
         except Exception as e:
-            print(f"  [STT] FFmpeg error: {e}")
+            logger.error(f"  [STT] FFmpeg error: {e}")
             return None
 
         # 파일 크기 체크 + 필요 시 OGG_OPUS로 재인코딩
         flac_size = os.path.getsize(flac_path)
         file_mb = flac_size / (1024 * 1024)
-        print(f"  [STT] FLAC size: {file_mb:.1f}MB")
+        logger.info(f"  [STT] FLAC size: {file_mb:.1f}MB")
 
         encoding = "FLAC"
         audio_path_final = flac_path
@@ -548,13 +548,13 @@ class MusicAnalyzer:
                 )
                 if proc2.returncode == 0:
                     ogg_mb = os.path.getsize(ogg_path) / (1024 * 1024)
-                    print(f"  [STT] Re-encoded as OGG_OPUS: {ogg_mb:.1f}MB (from {file_mb:.1f}MB FLAC)")
+                    logger.info(f"  [STT] Re-encoded as OGG_OPUS: {ogg_mb:.1f}MB (from {file_mb:.1f}MB FLAC)")
                     encoding = "OGG_OPUS"
                     audio_path_final = ogg_path
                 else:
-                    print(f"  [STT] OGG_OPUS re-encode failed, trying with FLAC anyway")
+                    logger.error(f"  [STT] OGG_OPUS re-encode failed, trying with FLAC anyway")
             except Exception as e:
-                print(f"  [STT] OGG re-encode error: {e}")
+                logger.error(f"  [STT] OGG re-encode error: {e}")
 
         # 파일 읽기 + base64 인코딩
         with open(audio_path_final, "rb") as f:
@@ -568,7 +568,7 @@ class MusicAnalyzer:
 
         file_mb = len(audio_content) / (1024 * 1024)
         if file_mb > 10:
-            print(f"  [STT] File still too large ({file_mb:.1f}MB > 10MB)")
+            logger.info(f"  [STT] File still too large ({file_mb:.1f}MB > 10MB)")
             return None
 
         audio_b64 = base64.b64encode(audio_content).decode()
@@ -588,30 +588,30 @@ class MusicAnalyzer:
             "audio": {"content": audio_b64}
         }
 
-        print(f"  [STT] Calling Google Cloud Speech-to-Text (longrunningrecognize)...")
+        logger.info(f"  [STT] Calling Google Cloud Speech-to-Text (longrunningrecognize)...")
         try:
             resp = _requests.post(url, json=payload, timeout=30)
         except Exception as e:
-            print(f"  [STT] Request failed: {e}")
+            logger.error(f"  [STT] Request failed: {e}")
             return None
 
         if resp.status_code != 200:
             error_text = resp.text[:300]
-            print(f"  [STT] API error {resp.status_code}: {error_text}")
+            logger.error(f"  [STT] API error {resp.status_code}: {error_text}")
             if "PERMISSION_DENIED" in error_text or "API key" in error_text:
-                print(f"  [STT] Hint: API key may not have Speech-to-Text API enabled.")
-                print(f"  [STT] Enable it at: https://console.cloud.google.com/apis/library/speech.googleapis.com")
+                logger.info(f"  [STT] Hint: API key may not have Speech-to-Text API enabled.")
+                logger.info(f"  [STT] Enable it at: https://console.cloud.google.com/apis/library/speech.googleapis.com")
             return None
 
         operation = resp.json()
         operation_name = operation.get("name")
         if not operation_name:
-            print(f"  [STT] No operation name in response")
+            logger.info(f"  [STT] No operation name in response")
             return None
 
         # 결과 폴링 (최대 3분)
         poll_url = f"https://speech.googleapis.com/v1/operations/{operation_name}?key={api_key}"
-        print(f"  [STT] Waiting for transcription result...")
+        logger.info(f"  [STT] Waiting for transcription result...")
         for attempt in range(90):
             _time.sleep(2)
             try:
@@ -624,11 +624,11 @@ class MusicAnalyzer:
             except Exception:
                 continue
         else:
-            print("  [STT] Timeout (3min) waiting for transcription")
+            logger.info("  [STT] Timeout (3min) waiting for transcription")
             return None
 
         if "error" in result:
-            print(f"  [STT] Error: {result['error'].get('message', result['error'])}")
+            logger.error(f"  [STT] Error: {result['error'].get('message', result['error'])}")
             return None
 
         # 단어 단위 타임스탬프 파싱
@@ -644,9 +644,9 @@ class MusicAnalyzer:
                 words.append({"t": round(t, 2), "text": w.get("word", "")})
 
         if words:
-            print(f"  [STT] Transcribed: {len(words)} words, {words[0]['t']}s ~ {words[-1]['t']}s")
+            logger.info(f"  [STT] Transcribed: {len(words)} words, {words[0]['t']}s ~ {words[-1]['t']}s")
         else:
-            print(f"  [STT] No words detected")
+            logger.info(f"  [STT] No words detected")
             return None
 
         return words
@@ -709,7 +709,7 @@ class MusicAnalyzer:
                     result.append({"t": 0.0, "text": line})
 
         if result:
-            print(f"  [STT Align] Matched {len(result)} lyrics lines, {result[0]['t']}s ~ {result[-1]['t']}s")
+            logger.info(f"  [STT Align] Matched {len(result)} lyrics lines, {result[0]['t']}s ~ {result[-1]['t']}s")
 
         return result
 
@@ -757,31 +757,31 @@ class MusicAnalyzer:
         Returns:
             가사 텍스트 (timed_lyrics는 self._last_timed_lyrics에 저장)
         """
-        print(f"[MusicAnalyzer] Syncing lyrics with music timing (v3)...")
+        logger.info(f"[MusicAnalyzer] Syncing lyrics with music timing (v3)...")
 
         # === 1차: Google Cloud STT ===
         stt_words = self.transcribe_with_google_stt(audio_path)
         if stt_words and len(stt_words) >= 5:
             # Raw STT 문장 보존 (타이밍 에디터용)
             self._last_stt_sentences = self._stt_words_to_timed_lyrics(stt_words)
-            print(f"  [STT] Success! Aligning {len(stt_words)} words with user lyrics...")
+            logger.info(f"  [STT] Success! Aligning {len(stt_words)} words with user lyrics...")
             result = self._align_stt_with_lyrics(stt_words, user_lyrics)
             if result and len(result) >= 3:
                 self._last_timed_lyrics = result
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
-                print(f"  [STT] Alignment complete: {len(result)} entries")
+                logger.info(f"  [STT] Alignment complete: {len(result)} entries")
                 return plain
             else:
-                print(f"  [STT] Alignment produced too few results, falling back to Gemini")
+                logger.info(f"  [STT] Alignment produced too few results, falling back to Gemini")
         else:
             self._last_stt_sentences = None
 
         # === 2차: Gemini fallback ===
-        print(f"  [Fallback] Using Gemini for lyrics sync...")
+        logger.info(f"  [Fallback] Using Gemini for lyrics sync...")
 
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("  [Gemini] GOOGLE_API_KEY not set, skipping")
+            logger.info("  [Gemini] GOOGLE_API_KEY not set, skipping")
             self._last_timed_lyrics = None
             return user_lyrics
 
@@ -800,7 +800,7 @@ class MusicAnalyzer:
 
             # 오디오 길이 확인
             duration = self._get_audio_duration(audio_path)
-            print(f"  [Gemini] Audio duration: {duration:.1f}s")
+            logger.info(f"  [Gemini] Audio duration: {duration:.1f}s")
 
             if duration <= 90:
                 result = self._sync_single_pass(client, audio_path, cleaned_lyrics)
@@ -813,25 +813,25 @@ class MusicAnalyzer:
                 if not self._last_stt_sentences:
                     self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in result if e.get("text")]
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
-                print(f"  [Gemini] Sync complete: {len(result)} entries, {len(plain)} chars")
-                print(f"  [Gemini] Time range: {result[0]['t']}s ~ {result[-1]['t']}s")
+                logger.info(f"  [Gemini] Sync complete: {len(result)} entries, {len(plain)} chars")
+                logger.info(f"  [Gemini] Time range: {result[0]['t']}s ~ {result[-1]['t']}s")
                 return plain
             elif result:
-                print(f"  [Gemini] Timestamps imperfect, using with interpolation fix")
+                logger.info(f"  [Gemini] Timestamps imperfect, using with interpolation fix")
                 self._last_timed_lyrics = result
                 if not self._last_stt_sentences:
                     self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in result if e.get("text")]
                 plain = "\n".join(e["text"] for e in result if e.get("text"))
                 return plain
             else:
-                print(f"  [Gemini] Extraction failed, using lyrics without timing")
+                logger.error(f"  [Gemini] Extraction failed, using lyrics without timing")
                 self._last_timed_lyrics = None
                 return user_lyrics
 
         except Exception as e:
-            print(f"  [Gemini] Lyrics sync failed: {e}")
+            logger.error(f"  [Gemini] Lyrics sync failed: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             self._last_timed_lyrics = None
             return user_lyrics
 
@@ -848,7 +848,7 @@ class MusicAnalyzer:
 
         try:
             audio_file = client.files.upload(file=temp_path)
-            print(f"  [Gemini] File uploaded: {audio_file.name}")
+            logger.info(f"  [Gemini] File uploaded: {audio_file.name}")
         finally:
             try:
                 os.remove(temp_path)
@@ -876,7 +876,7 @@ class MusicAnalyzer:
             '[{"t": 5.2, "text": "가사 첫줄"}, {"t": 8.7, "text": "가사 둘째줄"}, ...]'
         )
 
-        print(f"  [Gemini] Extracting with reference lyrics (single pass)...")
+        logger.info(f"  [Gemini] Extracting with reference lyrics (single pass)...")
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[audio_file, prompt_text],
@@ -910,7 +910,7 @@ class MusicAnalyzer:
             if end >= total_duration:
                 break
 
-        print(f"  [Gemini] Chunked ref-sync: {len(chunks)} chunks for {total_duration:.0f}s audio")
+        logger.info(f"  [Gemini] Chunked ref-sync: {len(chunks)} chunks for {total_duration:.0f}s audio")
 
         all_entries = []
         ext = Path(audio_path).suffix
@@ -935,7 +935,7 @@ class MusicAnalyzer:
                 )
 
                 if not os.path.exists(chunk_path):
-                    print(f"  [Gemini] Chunk {i+1} extraction failed")
+                    logger.error(f"  [Gemini] Chunk {i+1} extraction failed")
                     continue
 
                 upload_path = os.path.join(temp_dir, f"gemini_refsync_upload_{i}{ext}")
@@ -944,7 +944,7 @@ class MusicAnalyzer:
                 try:
                     audio_file = client.files.upload(file=upload_path)
                 except Exception as upload_err:
-                    print(f"  [Gemini] Chunk {i+1} upload failed: {upload_err}")
+                    logger.error(f"  [Gemini] Chunk {i+1} upload failed: {upload_err}")
                     continue
                 finally:
                     try:
@@ -974,7 +974,7 @@ class MusicAnalyzer:
                     '[{"t": 0.0, "text": "가사"}, {"t": 3.5, "text": "가사"}, ...]'
                 )
 
-                print(f"  [Gemini] Chunk {i+1}/{len(chunks)} ({chunk_start:.0f}s~{chunk_end:.0f}s)...")
+                logger.info(f"  [Gemini] Chunk {i+1}/{len(chunks)} ({chunk_start:.0f}s~{chunk_end:.0f}s)...")
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=[audio_file, prompt_text],
@@ -988,7 +988,7 @@ class MusicAnalyzer:
                 if chunk_entries:
                     for entry in chunk_entries:
                         entry["t"] = round(entry["t"] + chunk_start, 1)
-                    print(f"    -> {len(chunk_entries)} entries ({chunk_entries[0]['t']}s ~ {chunk_entries[-1]['t']}s)")
+                    logger.info(f"    -> {len(chunk_entries)} entries ({chunk_entries[0]['t']}s ~ {chunk_entries[-1]['t']}s)")
                     all_entries.extend(chunk_entries)
 
             finally:
@@ -998,12 +998,12 @@ class MusicAnalyzer:
                     pass
 
         if not all_entries:
-            print(f"  [Gemini] No lyrics from any chunk")
+            logger.info(f"  [Gemini] No lyrics from any chunk")
             return None
 
         all_entries.sort(key=lambda e: e["t"])
         merged = self._deduplicate_entries(all_entries)
-        print(f"  [Gemini] Merged: {len(merged)} entries, range: {merged[0]['t']}s ~ {merged[-1]['t']}s")
+        logger.info(f"  [Gemini] Merged: {len(merged)} entries, range: {merged[0]['t']}s ~ {merged[-1]['t']}s")
         return merged
 
     def extract_lyrics_with_gemini(self, audio_path: str) -> Optional[str]:
@@ -1020,7 +1020,7 @@ class MusicAnalyzer:
         Returns:
             추출된 가사 텍스트 (실패 시 None)
         """
-        print(f"[MusicAnalyzer] Extracting lyrics...")
+        logger.info(f"[MusicAnalyzer] Extracting lyrics...")
         self._last_stt_sentences = None
 
         # Step 1: Gemini 2.5 Flash로 시도
@@ -1034,14 +1034,14 @@ class MusicAnalyzer:
                 if not self._last_stt_sentences:
                     self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in gemini_result if e.get("text")]
                 plain = "\n".join(e["text"] for e in gemini_result if e.get("text"))
-                print(f"  [Gemini 2.5] Final: {len(gemini_result)} entries, {len(plain)} chars")
-                print(f"  [Gemini 2.5] Time range: {gemini_result[0]['t']}s ~ {gemini_result[-1]['t']}s")
+                logger.info(f"  [Gemini 2.5] Final: {len(gemini_result)} entries, {len(plain)} chars")
+                logger.info(f"  [Gemini 2.5] Time range: {gemini_result[0]['t']}s ~ {gemini_result[-1]['t']}s")
                 return plain
             else:
-                print(f"  [Gemini 2.5] Timestamps broken, falling back to Whisper...")
+                logger.info(f"  [Gemini 2.5] Timestamps broken, falling back to Whisper...")
 
         # Step 2: Fallback - Whisper 하이브리드
-        print(f"  [Fallback] Trying Whisper...")
+        logger.info(f"  [Fallback] Trying Whisper...")
         whisper_result = self._extract_with_whisper(audio_path)
 
         if whisper_result:
@@ -1054,19 +1054,19 @@ class MusicAnalyzer:
                     if not self._last_stt_sentences:
                         self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in merged if e.get("text")]
                     plain = "\n".join(e["text"] for e in merged if e.get("text"))
-                    print(f"  [Hybrid] Final: {len(merged)} entries")
+                    logger.info(f"  [Hybrid] Final: {len(merged)} entries")
                     return plain
 
             self._last_timed_lyrics = whisper_result
             if not self._last_stt_sentences:
                 self._last_stt_sentences = [{"t": e["t"], "text": e["text"]} for e in whisper_result if e.get("text")]
             plain = "\n".join(e["text"] for e in whisper_result if e.get("text"))
-            print(f"  [Whisper-only] Final: {len(whisper_result)} entries")
+            logger.info(f"  [Whisper-only] Final: {len(whisper_result)} entries")
             return plain
 
         # Step 3: 최후 fallback - Gemini 결과를 보간으로 수정해서 사용
         if gemini_result:
-            print(f"  [Last resort] Using Gemini with interpolated timestamps")
+            logger.info(f"  [Last resort] Using Gemini with interpolated timestamps")
             self._last_timed_lyrics = gemini_result
             plain = "\n".join(e["text"] for e in gemini_result if e.get("text"))
             return plain
@@ -1083,13 +1083,13 @@ class MusicAnalyzer:
         """
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("  [Gemini 2.5] GOOGLE_API_KEY not set")
+            logger.info("  [Gemini 2.5] GOOGLE_API_KEY not set")
             return None
 
         try:
             # 오디오 길이 확인
             duration = self._get_audio_duration(audio_path)
-            print(f"  [Gemini 2.5] Audio duration: {duration:.1f}s")
+            logger.info(f"  [Gemini 2.5] Audio duration: {duration:.1f}s")
 
             if duration <= 90:
                 # 짧은 노래: 단일 패스
@@ -1099,9 +1099,9 @@ class MusicAnalyzer:
                 return self._gemini25_chunked(audio_path, duration)
 
         except Exception as e:
-            print(f"  [Gemini 2.5] Failed: {e}")
+            logger.error(f"  [Gemini 2.5] Failed: {e}")
             import traceback
-            traceback.print_exc()
+            logger.exception("Unhandled exception")
             return None
 
     def _get_audio_duration(self, audio_path: str) -> float:
@@ -1144,7 +1144,7 @@ class MusicAnalyzer:
 
         try:
             audio_file = client.files.upload(file=temp_path)
-            print(f"  [Gemini 2.5] File uploaded: {audio_file.name}")
+            logger.info(f"  [Gemini 2.5] File uploaded: {audio_file.name}")
         finally:
             try:
                 os.remove(temp_path)
@@ -1164,7 +1164,7 @@ class MusicAnalyzer:
             '[{"t": 5.2, "text": "가사"}, {"t": 8.7, "text": "가사"}, ...]'
         )
 
-        print(f"  [Gemini 2.5] Extracting lyrics (single pass)...")
+        logger.info(f"  [Gemini 2.5] Extracting lyrics (single pass)...")
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[audio_file, prompt_text],
@@ -1203,9 +1203,9 @@ class MusicAnalyzer:
             if end >= total_duration:
                 break
 
-        print(f"  [Gemini 2.5] Chunked extraction: {len(chunks)} chunks for {total_duration:.0f}s audio")
+        logger.info(f"  [Gemini 2.5] Chunked extraction: {len(chunks)} chunks for {total_duration:.0f}s audio")
         for i, (s, e) in enumerate(chunks):
-            print(f"    Chunk {i+1}: {s:.0f}s ~ {e:.0f}s")
+            logger.info(f"    Chunk {i+1}: {s:.0f}s ~ {e:.0f}s")
 
         all_entries = []
         ext = Path(audio_path).suffix
@@ -1231,7 +1231,7 @@ class MusicAnalyzer:
                 )
 
                 if not os.path.exists(chunk_path):
-                    print(f"  [Gemini 2.5] Chunk {i+1} extraction failed")
+                    logger.error(f"  [Gemini 2.5] Chunk {i+1} extraction failed")
                     continue
 
                 # Gemini에 업로드
@@ -1241,7 +1241,7 @@ class MusicAnalyzer:
                 try:
                     audio_file = client.files.upload(file=upload_path)
                 except Exception as upload_err:
-                    print(f"  [Gemini 2.5] Chunk {i+1} upload failed: {upload_err}")
+                    logger.error(f"  [Gemini 2.5] Chunk {i+1} upload failed: {upload_err}")
                     continue
                 finally:
                     try:
@@ -1262,7 +1262,7 @@ class MusicAnalyzer:
                     '[{"t": 0.0, "text": "가사"}, {"t": 3.5, "text": "가사"}, ...]'
                 )
 
-                print(f"  [Gemini 2.5] Chunk {i+1}/{len(chunks)} ({chunk_start:.0f}s~{chunk_end:.0f}s)...")
+                logger.info(f"  [Gemini 2.5] Chunk {i+1}/{len(chunks)} ({chunk_start:.0f}s~{chunk_end:.0f}s)...")
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=[audio_file, prompt_text],
@@ -1277,7 +1277,7 @@ class MusicAnalyzer:
                     # 타임스탬프에 청크 시작 시간 오프셋 추가
                     for entry in chunk_entries:
                         entry["t"] = round(entry["t"] + chunk_start, 1)
-                    print(f"    -> {len(chunk_entries)} entries ({chunk_entries[0]['t']}s ~ {chunk_entries[-1]['t']}s)")
+                    logger.info(f"    -> {len(chunk_entries)} entries ({chunk_entries[0]['t']}s ~ {chunk_entries[-1]['t']}s)")
                     all_entries.extend(chunk_entries)
 
             finally:
@@ -1287,7 +1287,7 @@ class MusicAnalyzer:
                     pass
 
         if not all_entries:
-            print(f"  [Gemini 2.5] No lyrics from any chunk")
+            logger.info(f"  [Gemini 2.5] No lyrics from any chunk")
             return None
 
         # 시간순 정렬
@@ -1296,7 +1296,7 @@ class MusicAnalyzer:
         # 오버랩 구간 중복 제거
         merged = self._deduplicate_entries(all_entries)
 
-        print(f"  [Gemini 2.5] Merged: {len(merged)} entries, range: {merged[0]['t']}s ~ {merged[-1]['t']}s")
+        logger.info(f"  [Gemini 2.5] Merged: {len(merged)} entries, range: {merged[0]['t']}s ~ {merged[-1]['t']}s")
         return merged
 
     def _parse_gemini_response(self, response_text: str, label: str) -> Optional[list]:
@@ -1306,11 +1306,11 @@ class MusicAnalyzer:
         try:
             result = json.loads(response_text.strip())
         except json.JSONDecodeError:
-            print(f"  [Gemini 2.5/{label}] JSON parse failed")
+            logger.error(f"  [Gemini 2.5/{label}] JSON parse failed")
             return None
 
         if not isinstance(result, list) or not result:
-            print(f"  [Gemini 2.5/{label}] No lyrics detected")
+            logger.info(f"  [Gemini 2.5/{label}] No lyrics detected")
             return None
 
         entries = []
@@ -1388,14 +1388,14 @@ class MusicAnalyzer:
         last_t = timed_lyrics[-1]["t"]
         time_span = last_t - first_t
 
-        print(f"  [Validate] Monotonic ratio: {monotonic_ratio:.1%}, time span: {first_t:.1f}s ~ {last_t:.1f}s ({time_span:.1f}s)")
+        logger.info(f"  [Validate] Monotonic ratio: {monotonic_ratio:.1%}, time span: {first_t:.1f}s ~ {last_t:.1f}s ({time_span:.1f}s)")
 
         # 80% 이상 단조 증가 + 시간 범위가 30초 이상
         if monotonic_ratio >= 0.8 and time_span >= 30:
-            print(f"  [Validate] PASS")
+            logger.info(f"  [Validate] PASS")
             return True
 
-        print(f"  [Validate] FAIL (monotonic={monotonic_ratio:.1%}, span={time_span:.1f}s)")
+        logger.info(f"  [Validate] FAIL (monotonic={monotonic_ratio:.1%}, span={time_span:.1f}s)")
         return False
 
     def _extract_with_whisper(self, audio_path: str) -> Optional[list]:
@@ -1407,7 +1407,7 @@ class MusicAnalyzer:
         """
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            print("  [Whisper] OPENAI_API_KEY not set, skipping")
+            logger.info("  [Whisper] OPENAI_API_KEY not set, skipping")
             return None
 
         try:
@@ -1419,10 +1419,10 @@ class MusicAnalyzer:
             # 파일 크기 확인 (Whisper 제한: 25MB)
             file_size = os.path.getsize(audio_path)
             if file_size > 25 * 1024 * 1024:
-                print(f"  [Whisper] File too large ({file_size / 1024 / 1024:.1f}MB > 25MB)")
+                logger.info(f"  [Whisper] File too large ({file_size / 1024 / 1024:.1f}MB > 25MB)")
                 return None
 
-            print(f"  [Whisper] Transcribing audio...")
+            logger.info(f"  [Whisper] Transcribing audio...")
 
             with open(audio_path, "rb") as f:
                 transcript = client.audio.transcriptions.create(
@@ -1440,7 +1440,7 @@ class MusicAnalyzer:
                 segments = transcript.get('segments', [])
 
             if not segments:
-                print(f"  [Whisper] No segments detected")
+                logger.info(f"  [Whisper] No segments detected")
                 return None
 
             timed_lyrics = []
@@ -1467,15 +1467,15 @@ class MusicAnalyzer:
                 })
 
             if not timed_lyrics:
-                print(f"  [Whisper] No lyrics found")
+                logger.info(f"  [Whisper] No lyrics found")
                 return None
 
-            print(f"  [Whisper] Got {len(timed_lyrics)} segments")
-            print(f"  [Whisper] Time range: {timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
+            logger.info(f"  [Whisper] Got {len(timed_lyrics)} segments")
+            logger.info(f"  [Whisper] Time range: {timed_lyrics[0]['t']}s ~ {timed_lyrics[-1]['t']}s")
             return timed_lyrics
 
         except Exception as e:
-            print(f"  [Whisper] Failed: {e}")
+            logger.error(f"  [Whisper] Failed: {e}")
             return None
 
     def _extract_gemini_text_only(self, audio_path: str) -> Optional[List[str]]:
@@ -1511,7 +1511,7 @@ class MusicAnalyzer:
                 except OSError:
                     pass
 
-            print(f"  [Gemini] Extracting lyrics text...")
+            logger.info(f"  [Gemini] Extracting lyrics text...")
 
             prompt_text = (
                 "이 음악의 가사를 한 줄씩 추출하세요.\n"
@@ -1532,11 +1532,11 @@ class MusicAnalyzer:
                 return None
 
             lines = [l.strip() for l in text.split('\n') if l.strip()]
-            print(f"  [Gemini] Got {len(lines)} lyrics lines")
+            logger.info(f"  [Gemini] Got {len(lines)} lyrics lines")
             return lines
 
         except Exception as e:
-            print(f"  [Gemini] Text extraction failed: {e}")
+            logger.error(f"  [Gemini] Text extraction failed: {e}")
             return None
 
     def _merge_whisper_gemini(
@@ -1556,7 +1556,7 @@ class MusicAnalyzer:
         w_count = len(whisper_timed)
         g_count = len(gemini_lines)
 
-        print(f"  [Merge] Whisper: {w_count} segments, Gemini: {g_count} lines")
+        logger.info(f"  [Merge] Whisper: {w_count} segments, Gemini: {g_count} lines")
 
         # Whisper와 Gemini 줄 수가 비슷하면 (±30%) 1:1 매핑
         ratio = g_count / w_count if w_count > 0 else 0
@@ -1569,7 +1569,7 @@ class MusicAnalyzer:
                     "t": entry["t"],
                     "text": gemini_lines[g_idx]
                 })
-            print(f"  [Merge] 1:1 mapping applied ({w_count} entries)")
+            logger.info(f"  [Merge] 1:1 mapping applied ({w_count} entries)")
             return merged
 
         # Gemini 줄이 더 많으면: Whisper 타이밍 구간에 Gemini 줄을 균등 분배
@@ -1588,11 +1588,11 @@ class MusicAnalyzer:
                     "t": entry["t"],
                     "text": combined_text
                 })
-            print(f"  [Merge] Gemini text mapped to Whisper timing ({len(merged)} entries)")
+            logger.info(f"  [Merge] Gemini text mapped to Whisper timing ({len(merged)} entries)")
             return merged
 
         # Whisper가 더 많으면: Whisper 그대로 사용 (Gemini 텍스트 무시)
-        print(f"  [Merge] Keeping Whisper as-is (more segments)")
+        logger.info(f"  [Merge] Keeping Whisper as-is (more segments)")
         return whisper_timed
 
     def _extract_with_gemini_only(self, audio_path: str) -> Optional[str]:
@@ -1601,7 +1601,7 @@ class MusicAnalyzer:
         """
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("[MusicAnalyzer] GOOGLE_API_KEY not set.")
+            logger.info("[MusicAnalyzer] GOOGLE_API_KEY not set.")
             return None
 
         try:
@@ -1656,11 +1656,11 @@ class MusicAnalyzer:
 
             self._last_timed_lyrics = valid
             plain = "\n".join(e["text"] for e in valid)
-            print(f"  [Gemini-only] {len(valid)} entries, {len(plain)} chars")
+            logger.info(f"  [Gemini-only] {len(valid)} entries, {len(plain)} chars")
             return plain
 
         except Exception as e:
-            print(f"[MusicAnalyzer] Gemini extraction failed: {e}")
+            logger.error(f"[MusicAnalyzer] Gemini extraction failed: {e}")
             self._last_timed_lyrics = None
             return None
 
@@ -1694,7 +1694,7 @@ class AdvancedMusicAnalyzer(MusicAnalyzer):
         result = self.analyze(audio_path)
 
         if not self.librosa_available:
-            print("[AdvancedMusicAnalyzer] librosa not available. Skipping advanced analysis.")
+            logger.info("[AdvancedMusicAnalyzer] librosa not available. Skipping advanced analysis.")
             return result
 
         try:
@@ -1710,7 +1710,7 @@ class AdvancedMusicAnalyzer(MusicAnalyzer):
             result["energy"] = self._estimate_energy(y)
 
         except Exception as e:
-            print(f"[AdvancedMusicAnalyzer] Advanced analysis failed: {e}")
+            logger.error(f"[AdvancedMusicAnalyzer] Advanced analysis failed: {e}")
 
         return result
 

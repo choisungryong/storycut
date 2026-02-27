@@ -15,6 +15,9 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import GlobalStyle, Scene
+from utils.logger import get_logger
+logger = get_logger("style_anchor")
+
 
 
 class StyleAnchorAgent:
@@ -55,13 +58,13 @@ class StyleAnchorAgent:
         Returns:
             스타일 앵커 이미지 경로
         """
-        print(f"\n[StyleAnchor] Generating style anchor image...")
+        logger.info(f"\n[StyleAnchor] Generating style anchor image...")
 
         output_path = f"{project_dir}/media/style_anchor.png"
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         prompt = self._build_style_anchor_prompt(global_style)
-        print(f"  Prompt: {prompt[:80]}...")
+        logger.info(f"  Prompt: {prompt[:80]}...")
 
         # 스타일 정보 추출
         art_style = "cinematic animation"
@@ -88,11 +91,11 @@ class StyleAnchorAgent:
             if isinstance(global_style, GlobalStyle):
                 global_style.style_anchor_path = image_path
 
-            print(f"  [StyleAnchor] Style anchor saved: {image_path}")
+            logger.info(f"  [StyleAnchor] Style anchor saved: {image_path}")
             return image_path
 
         except Exception as e:
-            print(f"  [StyleAnchor] Failed to generate style anchor: {e}")
+            logger.error(f"  [StyleAnchor] Failed to generate style anchor: {e}")
             return ""
 
     def generate_environment_anchors(
@@ -114,7 +117,7 @@ class StyleAnchorAgent:
         Returns:
             씬 ID -> 환경 앵커 이미지 경로 딕셔너리
         """
-        print(f"\n[EnvAnchor] Generating environment anchor images...")
+        logger.info(f"\n[EnvAnchor] Generating environment anchor images...")
 
         os.makedirs(f"{project_dir}/media", exist_ok=True)
 
@@ -137,7 +140,7 @@ class StyleAnchorAgent:
             scene_id = scene_data.get("scene_id", 0)
             output_path = f"{project_dir}/media/env_anchor_scene_{scene_id:02d}.png"
             prompt = self._build_environment_prompt(scene_data, global_style)
-            print(f"  Scene {scene_id}: {prompt[:60]}...")
+            logger.info(f"  Scene {scene_id}: {prompt[:60]}...")
             try:
                 from agents.image_agent import ImageAgent as _IA
                 image_path, _ = _IA().generate_image(
@@ -150,9 +153,9 @@ class StyleAnchorAgent:
                 )
                 with _lock:
                     env_anchors[scene_id] = image_path
-                print(f"  [EnvAnchor] Scene {scene_id} done: {image_path}")
+                logger.info(f"  [EnvAnchor] Scene {scene_id} done: {image_path}")
             except Exception as e:
-                print(f"  [EnvAnchor] Scene {scene_id} failed: {e}")
+                logger.error(f"  [EnvAnchor] Scene {scene_id} failed: {e}")
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             executor.map(_generate_one, scenes)
@@ -161,7 +164,7 @@ class StyleAnchorAgent:
         if isinstance(global_style, GlobalStyle):
             global_style.environment_anchors = env_anchors
 
-        print(f"[EnvAnchor] Generated {len(env_anchors)}/{len(scenes)} environment anchors")
+        logger.info(f"[EnvAnchor] Generated {len(env_anchors)}/{len(scenes)} environment anchors")
         return env_anchors
 
     def _build_style_anchor_prompt(self, global_style: Optional[GlobalStyle]) -> str:
