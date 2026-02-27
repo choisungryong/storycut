@@ -189,7 +189,7 @@ class StorycutApp {
             this.updateDurationDisplay();
         });
 
-        // 이미지 모델 선택 시 Gemini 3.0 안내
+        // 이미지 모델 선택 시 Gemini 안내
         const imageModelSelect = document.getElementById('image_model');
         if (imageModelSelect) {
             imageModelSelect.addEventListener('change', () => {
@@ -1045,13 +1045,13 @@ class StorycutApp {
             return;
         }
 
-        // Check Gemini 3.0 status from auth.js
+        // Check Gemini status from auth.js
         if (typeof getGemini3Status === 'function') {
             const g3 = getGemini3Status();
             if (!g3.allowed) {
                 hint.style.display = 'block';
                 hint.style.color = '#ef4444';
-                hint.textContent = 'Gemini 3.0은 유료 플랜에서만 사용 가능합니다.';
+                hint.textContent = 'Gemini는 유료 플랜에서만 사용 가능합니다.';
                 select.value = 'standard';
                 return;
             }
@@ -1062,11 +1062,11 @@ class StorycutApp {
             } else if (g3.freeLimit >= 0) {
                 hint.style.display = 'block';
                 hint.style.color = '#22c55e';
-                hint.textContent = `무료 Gemini 3.0: 이번 달 ${g3.used}/${g3.freeLimit} 사용.`;
+                hint.textContent = `무료 Gemini: 이번 달 ${g3.used}/${g3.freeLimit} 사용.`;
             } else {
                 hint.style.display = 'block';
                 hint.style.color = '#22c55e';
-                hint.textContent = 'Gemini 3.0 무제한 사용 가능한 플랜입니다.';
+                hint.textContent = 'Gemini 무제한 사용 가능한 플랜입니다.';
             }
         } else {
             hint.style.display = 'none';

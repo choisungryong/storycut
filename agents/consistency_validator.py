@@ -12,12 +12,11 @@ import json
 import base64
 from typing import Dict, List, Optional, Tuple, Callable, Any
 from pathlib import Path
-import sys
 
-sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import ValidationResult
 from utils.logger import get_logger
+from utils.constants import MODEL_GEMINI_FLASH
 logger = get_logger("consistency_validator")
 
 
@@ -55,7 +54,7 @@ class ConsistencyValidator:
                 import google.generativeai as genai
                 if self.google_api_key:
                     genai.configure(api_key=self.google_api_key)
-                    self._vision_client = genai.GenerativeModel(model_name="gemini-2.5-flash")
+                    self._vision_client = genai.GenerativeModel(model_name=MODEL_GEMINI_FLASH)
             except Exception as e:
                 logger.error(f"  [ConsistencyValidator] Failed to init Gemini Vision: {e}")
         return self._vision_client

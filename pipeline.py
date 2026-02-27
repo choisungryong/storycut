@@ -43,6 +43,7 @@ from agents import (
 )
 from utils.ffmpeg_utils import FFmpegComposer
 from utils.logger import get_logger
+from utils.constants import ETH_KEYWORD_MAP, ETH_RULES
 logger = get_logger("pipeline")
 
 
@@ -75,16 +76,7 @@ class StorycutPipeline:
         # 2. 영상 생성 (스토리 기반)
         return self.generate_video_from_story(story_data, request)
 
-    _ETH_RULES = {
-        "korean": "All characters MUST be described as 'Korean' (e.g., 'Korean man', 'Korean woman').",
-        "japanese": "All characters MUST be described as 'Japanese'.",
-        "chinese": "All characters MUST be described as 'Chinese'.",
-        "southeast_asian": "All characters MUST be described as 'Southeast Asian'.",
-        "european": "All characters MUST be described as 'European/Caucasian'.",
-        "black": "All characters MUST be described as 'Black/African'.",
-        "hispanic": "All characters MUST be described as 'Hispanic/Latino'.",
-        "mixed": "Each character's specific ethnicity MUST be stated explicitly.",
-    }
+    _ETH_RULES = ETH_RULES
 
     def _get_ethnicity_rule(self, ethnicity: str) -> str:
         rule = self._ETH_RULES.get(ethnicity, "")
@@ -158,12 +150,7 @@ class StorycutPipeline:
             # "not in prompt" 가드로 중복 주입 방지됨.
             image_prompt = prompt_data.get("image_prompt", "")
             _eth = getattr(request, 'character_ethnicity', 'auto')
-            _ETH_KW = {
-                "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-                "southeast_asian": "Southeast Asian", "european": "European",
-                "black": "Black", "hispanic": "Hispanic",
-            }
-            _eth_kw = _ETH_KW.get(_eth, "")
+            _eth_kw = ETH_KEYWORD_MAP.get(_eth, "")
             if _eth_kw and _eth_kw.lower() not in image_prompt.lower():
                 image_prompt = f"{_eth_kw} characters, {image_prompt}"
 
@@ -285,7 +272,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             logger.info(f"[SCRIPT MODE] Calling Gemini for {len(paragraphs)} scene prompts...")
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.7,
@@ -370,7 +357,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 with open(_existing_manifest_path, "r", encoding="utf-8") as f:
                     _existing_data = json.load(f)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
         # [STEP 1.3 & 1.4] Style Anchor + Environment Anchors - 기존 것 재사용 우선
         style_anchor_path = None
@@ -490,7 +477,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                         with open(_existing_manifest_path, "w", encoding="utf-8") as f:
                             json.dump(_mf, f, ensure_ascii=False, indent=2)
                     except Exception:
-                        pass
+                        logger.debug("Silent exception caught", exc_info=True)
             else:
                 logger.info(f"\n[STEP 1.5] Reusing existing character anchors ({len(manifest.character_sheet)} characters).")
                 # story_data에 master_image_path 동기화
@@ -736,7 +723,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                         with open(mp, "w", encoding="utf-8") as f:
                             json.dump(_md, f, ensure_ascii=False, indent=2)
                     except Exception:
-                        pass
+                        logger.debug("Silent exception caught", exc_info=True)
 
                 character_images = character_manager.cast_characters(
                     character_sheet=manifest.character_sheet,
@@ -857,7 +844,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 with open(_existing_manifest_path, "r", encoding="utf-8") as f:
                     _existing_data = json.load(f)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
         # 초기 manifest 즉시 저장 (프론트엔드 폴링이 바로 데이터를 받을 수 있도록)
         total_scenes = len(story_data['scenes'])
@@ -901,7 +888,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                 with open(_existing_manifest_path, "w", encoding="utf-8") as f:
                     json.dump(_mf, f, ensure_ascii=False, indent=2)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
         # Style Anchor 생성 (v2.0) — 캐스팅 단계에서 이미 생성된 경우 재사용
         style_anchor_path = None
@@ -1113,7 +1100,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     with open(_existing_manifest_path, "w", encoding="utf-8") as f:
                         json.dump(_mf, f, ensure_ascii=False, indent=2)
                 except Exception:
-                    pass
+                    logger.debug("Silent exception caught", exc_info=True)
 
             # Return image info for frontend
             result = {
@@ -1428,7 +1415,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     _old = json.load(f)
                 _preserved = {k: _old[k] for k in _CUSTOM_KEYS if k in _old}
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
         # Pydantic 모델을 JSON으로 직렬화
         manifest_dict = manifest.model_dump(mode="json")

@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import asyncio
+import traceback
 
 from dotenv import load_dotenv
 from pathlib import Path
@@ -80,20 +81,30 @@ sys.path.append(str(Path(__file__).parent))
 from schemas import FeatureFlags, ProjectRequest, TargetPlatform, GenerateVideoRequest
 from pipeline import StorycutPipeline
 from utils.storage import StorageManager
+from utils.constants import BACKEND_BASE_URL, ETH_KEYWORD_MAP, MODEL_GEMINI_FLASH, MODEL_GEMINI_FLASH_IMAGE
 
 # R2 Storage Manager
 storage_manager = StorageManager()
 
-# FastAPI 앱 생성
-app = FastAPI(title="STORYCUT API", version="3.1")
+# FastAPI 앱 생성 (lifespan으로 startup/shutdown 관리)
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    # Startup
+    from utils.cleanup import start_cleanup_scheduler
+    start_cleanup_scheduler()
+    logger.info("[STARTUP] Cleanup scheduler registered (daily 03:00)")
+    yield
+    # Shutdown (필요시 정리 코드 추가)
+
+app = FastAPI(title="STORYCUT API", version="3.1", lifespan=lifespan)
 
 # [보안] CORS 허용 오리진 목록
 ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:3000",
-    "https://klippa.cc",
-    "https://www.klippa.cc",
     "https://storycut.pages.dev",
     "https://storycut-web.pages.dev",
     "https://storycut-worker.twinspa0713.workers.dev",
@@ -132,7 +143,6 @@ class WorkerSecretMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(WorkerSecretMiddleware)
 
-
 # [보안] 요청 바디 크기 제한 미들웨어 (10MB, 파일 업로드 제외)
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
     MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB
@@ -150,7 +160,6 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(RequestSizeLimitMiddleware)
-
 
 # [보안] 보안 헤더 미들웨어 (CSP, X-Frame-Options 등)
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -176,12 +185,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-
 # Health check
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "version": "3.1.0"}
-
 
 # ============================================================
 # Voice List API
@@ -248,13 +255,33 @@ def load_manifest(project_id: str) -> dict:
     with open(manifest_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+def save_manifest(project_id: str, data: dict) -> None:
+    """프로젝트 매니페스트 저장 헬퍼"""
+    path = f"outputs/{project_id}/manifest.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def set_manifest_failed(project_id: str, error: Exception) -> None:
+    """매니페스트를 실패 상태로 업데이트"""
+    try:
+        manifest_path = f"outputs/{project_id}/manifest.json"
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data["status"] = "failed"
+            data["error_message"] = str(error)
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        logger.debug("Failed to set manifest failed status", exc_info=True)
+
 # Global Exception Handler to ensure CORS headers on 500 errors
 from fastapi import Request
 from fastapi.responses import JSONResponse
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"[CRITICAL ERROR] Global exception caught: {exc}")
-    import traceback
+
     logger.exception("Unhandled exception")
     
     # [보안] CORS 헤더 — 요청 오리진 기반
@@ -290,10 +317,12 @@ os.makedirs("outputs", exist_ok=True)
 app.mount("/media", StaticFiles(directory="outputs"), name="media")  # 이미지/영상 서빙용
 
 # 활성 WebSocket 연결 관리
+import threading as _threading
 active_connections: Dict[str, WebSocket] = {}
+_connections_lock = _threading.Lock()
 # 프로젝트별 메시지 히스토리 (재접속/새로고침 시 상태 복구용)
 project_event_history: Dict[str, List[Dict[str, Any]]] = {}
-
+_history_lock = _threading.Lock()
 
 def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest'):
     """
@@ -356,7 +385,7 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
                     logger.error(f"Webhook call failed: {webhook_err}")
 
             logger.error(f"Pipeline execution error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
 
     thread = threading.Thread(target=run_in_thread, daemon=True)
@@ -365,8 +394,6 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
     thread.start()
     logger.debug(f"[DEBUG] Thread started: {thread.is_alive()}")
     sys.stdout.flush()
-
-
 
 # ============================================================================
 # Pydantic 모델
@@ -397,7 +424,6 @@ class GenerateRequest(BaseModel):
     project_id: Optional[str] = None
     webhook_url: Optional[str] = None
 
-
 class ScriptRequest(BaseModel):
     """스크립트 직접 입력으로 영상 생성 요청"""
     script: str              # 전체 내레이션 스크립트 텍스트
@@ -419,17 +445,14 @@ class ScriptRequest(BaseModel):
 
     project_id: Optional[str] = None
 
-
 class LoginRequest(BaseModel):
     email: str
     password: str
-
 
 class RegisterRequest(BaseModel):
     username: str
     email: str
     password: str
-
 
 # ============================================================================
 # WebSocket 진행상황 전달
@@ -458,32 +481,35 @@ async def send_progress(project_id: str, step: str, progress: int, message: str,
     }
 
     # 히스토리 저장 (최대 100개 이벤트, 초과 시 오래된 것부터 제거)
-    if project_id not in project_event_history:
-        project_event_history[project_id] = []
-    project_event_history[project_id].append(payload)
-    if len(project_event_history[project_id]) > 100:
-        project_event_history[project_id] = project_event_history[project_id][-50:]
+    with _history_lock:
+        if project_id not in project_event_history:
+            project_event_history[project_id] = []
+        project_event_history[project_id].append(payload)
+        if len(project_event_history[project_id]) > 100:
+            project_event_history[project_id] = project_event_history[project_id][-50:]
     logger.debug(f"[DEBUG] History saved for {project_id}")
 
     # 완료/실패 시 5분 후 히스토리 정리 예약
     if progress >= 100 or step == "error":
         async def _cleanup_history(pid: str):
             await asyncio.sleep(300)  # 5분
-            project_event_history.pop(pid, None)
-            active_connections.pop(pid, None)
+            with _history_lock:
+                project_event_history.pop(pid, None)
+            with _connections_lock:
+                active_connections.pop(pid, None)
         asyncio.ensure_future(_cleanup_history(project_id))
 
-    if project_id in active_connections:
+    with _connections_lock:
+        ws = active_connections.get(project_id)
+    if ws:
         logger.debug(f"[DEBUG] Found active WS connection for {project_id}")
-        ws = active_connections[project_id]
         try:
             await ws.send_json(payload)
             logger.debug(f"[DEBUG] WS message sent")
         except Exception as e:
-            logger.error(f"[DEBUG] WS send failed: {e}")
             logger.error(f"WebSocket send error: {e}")
-            del active_connections[project_id]
-
+            with _connections_lock:
+                active_connections.pop(project_id, None)
 
 class ProgressTracker:
     """진행상황 추적 헬퍼"""
@@ -512,7 +538,7 @@ class ProgressTracker:
                 with open(manifest_path, 'w', encoding='utf-8') as f:
                     json.dump(manifest, f, ensure_ascii=False, indent=2)
         except Exception:
-            pass  # 디스크 업데이트 실패해도 WebSocket은 정상 동작
+            logger.debug("Manifest disk update failed", exc_info=True)
 
     async def update(self, step: str, progress: int, message: str, data: Dict = None):
         """진행상황 업데이트 (WebSocket + 디스크 매니페스트)"""
@@ -569,7 +595,6 @@ class ProgressTracker:
             "hook_text": manifest.hook_text,
             "platform": manifest.input.target_platform.value if manifest.input.target_platform else "youtube_long",
         })
-
 
 # ============================================================================
 # 커스텀 Pipeline (진행상황 추적 버전)
@@ -857,7 +882,6 @@ async def landing_page():
     # Fallback to app page if landing doesn't exist
     return HTMLResponse(content=Path("web/templates/index.html").read_text(encoding="utf-8"))
 
-
 async def _serve_app():
     """App workflow page"""
     html_path = Path("web/templates/index.html")
@@ -875,52 +899,43 @@ async def _serve_app():
         </html>
         """)
 
-
 @app.get("/app", response_class=HTMLResponse)
 async def app_page():
     return await _serve_app()
 
-
 @app.get("/app.html", response_class=HTMLResponse)
 async def app_page_html():
     return await _serve_app()
-
 
 @app.get("/login.html", response_class=HTMLResponse)
 async def login_page():
     """로그인 페이지"""
     return HTMLResponse(content=Path("web/templates/login.html").read_text(encoding="utf-8"))
 
-
 @app.get("/signup.html", response_class=HTMLResponse)
 async def signup_page():
     """회원가입 페이지"""
     return HTMLResponse(content=Path("web/templates/signup.html").read_text(encoding="utf-8"))
-
 
 @app.get("/pricing.html", response_class=HTMLResponse)
 async def pricing_page():
     """가격표 페이지"""
     return HTMLResponse(content=Path("web/templates/pricing.html").read_text(encoding="utf-8"))
 
-
 @app.get("/privacy.html", response_class=HTMLResponse)
 async def privacy_page():
     """개인정보처리방침"""
     return HTMLResponse(content=Path("web/templates/privacy.html").read_text(encoding="utf-8"))
-
 
 @app.get("/terms.html", response_class=HTMLResponse)
 async def terms_page():
     """이용약관"""
     return HTMLResponse(content=Path("web/templates/terms.html").read_text(encoding="utf-8"))
 
-
 @app.get("/about.html", response_class=HTMLResponse)
 async def about_page():
     """서비스 소개"""
     return HTMLResponse(content=Path("web/templates/about.html").read_text(encoding="utf-8"))
-
 
 @app.get("/robots.txt")
 async def robots_txt():
@@ -936,7 +951,6 @@ Sitemap: https://storycut.pages.dev/sitemap.xml
 """
     return PlainTextResponse(content=content, media_type="text/plain")
 
-
 @app.get("/sitemap.xml")
 async def sitemap_xml():
     """sitemap.xml for SEO"""
@@ -951,17 +965,20 @@ async def sitemap_xml():
 """
     return PlainTextResponse(content=content.strip(), media_type="application/xml")
 
-
 @app.websocket("/ws/{project_id}")
 async def websocket_endpoint(websocket: WebSocket, project_id: str):
     """WebSocket 연결 (실시간 진행상황)"""
+    validate_project_id(project_id)
     await websocket.accept()
-    active_connections[project_id] = websocket
+    with _connections_lock:
+        active_connections[project_id] = websocket
 
     # 1. 접속 시 지난 히스토리 모두 전송 (상태 복구)
-    if project_id in project_event_history:
-        logger.debug(f"Replaying {len(project_event_history[project_id])} events for {project_id}")
-        for event in project_event_history[project_id]:
+    with _history_lock:
+        events = list(project_event_history.get(project_id, []))
+    if events:
+        logger.debug(f"Replaying {len(events)} events for {project_id}")
+        for event in events:
             try:
                 await websocket.send_json(event)
             except Exception as e:
@@ -976,12 +993,10 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
         # 연결이 끊겨도 히스토리는 유지 (재접속 가능성)
-        if project_id in active_connections:
-            del active_connections[project_id]
-
+        with _connections_lock:
+            active_connections.pop(project_id, None)
 
 ## manifest 엔드포인트는 아래(line ~1646)에 통합 정의됨
-
 
 @app.post("/api/generate/story")
 async def generate_story(req: GenerateRequest, request: Request):
@@ -1045,10 +1060,9 @@ async def generate_story(req: GenerateRequest, request: Request):
         }
     except Exception as e:
         logger.error(f"Story generation failed: {e}")
-        import traceback
+
         logger.exception("Unhandled exception")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
-
 
 @app.post("/api/generate/from-script")
 async def generate_from_script(req: ScriptRequest):
@@ -1105,10 +1119,9 @@ async def generate_from_script(req: ScriptRequest):
         }
     except Exception as e:
         logger.error(f"Script generation failed: {e}")
-        import traceback
+
         logger.exception("Unhandled exception")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
-
 
 @app.post("/api/generate/video")
 async def generate_video_from_story(req: GenerateVideoRequest, background_tasks: BackgroundTasks, request: Request):
@@ -1222,11 +1235,11 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
             logger.debug(f"[THREAD] Pipeline thread completed for project: {project_id}")
         except Exception as e:
             logger.error(f"[THREAD] Pipeline thread error: {str(e)}")
-            import traceback
+
             logger.debug(f"[THREAD] {traceback.format_exc()}")
 
     # 스레드 실행
-    thread = threading.Thread(target=run_pipeline_thread, daemon=False)
+    thread = threading.Thread(target=run_pipeline_thread, daemon=True)
     thread.start()
 
     logger.info(f"[API] Background thread started, returning response")
@@ -1242,7 +1255,6 @@ async def generate_video_from_story(req: GenerateVideoRequest, background_tasks:
 def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, request_params: Dict):
     """영상 생성 전용 Wrapper - 별도 스레드에서 실행"""
     import asyncio
-    import traceback
 
     project_id = pipeline.tracker.project_id
 
@@ -1322,10 +1334,9 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
         try:
             logger.info(f"[WRAPPER] Starting R2 Upload...")
             from utils.storage import StorageManager
-            import os
-            import json
+
             
-            storage = StorageManager()
+            storage = storage_manager
             local_video_path = manifest.outputs.final_video_path
             
             if local_video_path and os.path.exists(local_video_path):
@@ -1333,7 +1344,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 
                 if storage.upload_file(local_video_path, r2_key):
                     # Backend URL (Worker 대신 백엔드가 직접 처리)
-                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    backend_url = BACKEND_BASE_URL
                     public_url = f"{backend_url}/api/video/{project_id}"
                     
                     logger.info(f"[WRAPPER] R2 Upload Success! Public URL: {public_url}")
@@ -1391,7 +1402,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                             if not _manifest_dict.get("user_id") and _old_m.get("user_id"):
                                 _manifest_dict["user_id"] = _old_m["user_id"]
                         except Exception:
-                            pass
+                            logger.debug("Silent exception caught", exc_info=True)
                     with open(manifest_path, "w", encoding="utf-8") as f:
                         f.write(json.dumps(_manifest_dict, ensure_ascii=False, indent=2))
                     
@@ -1408,7 +1419,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 
         except Exception as upload_err:
             logger.error(f"[WRAPPER] R2 Upload Error: {upload_err}")
-            import traceback
+
             logger.exception("Unhandled exception")
 
     except Exception as e:
@@ -1435,7 +1446,6 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
     finally:
         loop.close()
         logger.info(f"[WRAPPER] Event loop closed for project: {project_id}")
-
 
 @app.post("/api/generate/images")
 async def generate_images_only(req: GenerateVideoRequest, background_tasks: BackgroundTasks, request: Request):
@@ -1469,19 +1479,17 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
         # 기존 manifest에 user_id 추가
         if user_id:
             try:
-                import json as _json
                 with open(manifest_path_stub, "r", encoding="utf-8") as _f:
-                    _existing = _json.load(_f)
+                    _existing = json.load(_f)
                 if not _existing.get("user_id"):
                     _existing["user_id"] = user_id
                     with open(manifest_path_stub, "w", encoding="utf-8") as _f:
-                        _json.dump(_existing, _f, ensure_ascii=False, indent=2, default=str)
+                        json.dump(_existing, _f, ensure_ascii=False, indent=2, default=str)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
     else:
-        import json as _json
         with open(manifest_path_stub, "w", encoding="utf-8") as _f:
-            _json.dump({"project_id": project_id, "user_id": user_id, "status": "processing"}, _f)
+            json.dump({"project_id": project_id, "user_id": user_id, "status": "processing"}, _f)
 
     # req.request_params는 이미 ProjectRequest 객체
     request_obj = req.request_params
@@ -1500,12 +1508,12 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
             # 이미지 생성 완료 직후 R2 업로드 (Railway 재시작 대비)
             try:
                 from utils.storage import StorageManager
-                _storage = StorageManager()
+                _storage = storage_manager
                 _manifest_path = f"outputs/{project_id}/manifest.json"
                 if os.path.exists(_manifest_path):
                     with open(_manifest_path, 'r', encoding='utf-8') as _f:
                         _mf = json.load(_f)
-                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    backend_url = BACKEND_BASE_URL
                     _updated = False
                     for _sc in _mf.get('scenes', []):
                         _assets = _sc.get('assets', {})
@@ -1528,7 +1536,7 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
 
         except Exception as e:
             logger.error(f"[API] Image generation failed: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
             # manifest에 에러 기록
             manifest_path = f"outputs/{project_id}/manifest.json"
@@ -1541,7 +1549,7 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
                     with open(manifest_path, 'w', encoding='utf-8') as f:
                         json.dump(data, f, ensure_ascii=False, indent=2)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
     thread = threading.Thread(target=run_image_generation, daemon=True)
     thread.start()
@@ -1552,7 +1560,6 @@ async def generate_images_only(req: GenerateVideoRequest, background_tasks: Back
         "total_scenes": total_scenes,
         "message": "이미지 생성이 시작되었습니다."
     }
-
 
 @app.get("/api/status/images/{project_id}")
 async def get_image_generation_status(project_id: str):
@@ -1632,7 +1639,6 @@ async def get_image_generation_status(project_id: str):
             "scenes": []
         }
 
-
 @app.post("/api/regenerate/image/{project_id}/{scene_id}")
 async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[dict] = None):
     """
@@ -1649,7 +1655,6 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     validate_project_id(project_id)
     from starlette.concurrency import run_in_threadpool
     from agents.image_agent import ImageAgent
-    import json
 
     logger.info(f"\n[API] Regenerating image for scene {scene_id} in project {project_id}")
 
@@ -1676,12 +1681,7 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
     # 인종 런타임 주입
     final_prompt = new_prompt or target_scene.get("prompt", "")
     _eth = manifest_data.get("character_ethnicity", "auto")
-    _ETH_KW = {
-        "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-        "southeast_asian": "Southeast Asian", "european": "European",
-        "black": "Black", "hispanic": "Hispanic",
-    }
-    _eth_kw = _ETH_KW.get(_eth, "")
+    _eth_kw = ETH_KEYWORD_MAP.get(_eth, "")
     if _eth_kw and _eth_kw.lower() not in final_prompt.lower():
         final_prompt = f"{_eth_kw} characters, {final_prompt}"
 
@@ -1768,7 +1768,6 @@ async def regenerate_scene_image(project_id: str, scene_id: int, req: Optional[d
         logger.error(f"[API] Image regeneration failed: {e}")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
-
 @app.get("/api/test/image")
 async def test_image_generation():
     """이미지 생성 테스트 — 프로덕션 비활성화"""
@@ -1782,7 +1781,7 @@ async def test_image_generation():
     if not api_key:
         return {"status": "error", "detail": "GOOGLE_API_KEY not set"}
 
-    model = "gemini-2.5-flash-image"
+    model = MODEL_GEMINI_FLASH_IMAGE
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": "Generate an image of a cute cat sitting on a chair, digital art style, cinematic."}]}],
@@ -1829,7 +1828,6 @@ async def test_image_generation():
     except Exception as e:
         return {"status": "error", "model": model, "error": str(e)}
 
-
 @app.post("/api/convert/i2v/{project_id}/{scene_id}")
 async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"motion_prompt": None}):
     """
@@ -1845,8 +1843,9 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
     """
     from starlette.concurrency import run_in_threadpool
     from agents.video_agent import VideoAgent
-    import json
+
     
+    validate_project_id(project_id)
     logger.info(f"\n[API] Converting image to video for scene {scene_id} in project {project_id}")
 
     manifest_path = f"outputs/{project_id}/manifest.json"
@@ -1941,7 +1940,6 @@ async def convert_image_to_video(project_id: str, scene_id: int, req: dict = {"m
         logger.error(f"[API] I2V conversion failed: {e}")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
-
 @app.post("/api/toggle/hook-video/{project_id}/{scene_id}")
 async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
     """
@@ -1955,12 +1953,13 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
     Returns:
         Hook video 설정 상태
     """
-    import json
+
     
     enable = req.get("enable", False)
     
     logger.info(f"\n[API] Toggle hook video for scene {scene_id}: {enable}")
 
+    validate_project_id(project_id)
     manifest_data = load_manifest(project_id)
 
     # 해당 씬 찾기
@@ -1971,11 +1970,12 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
             scene["hook_video_enabled"] = enable
             found = True
             break
-    
+
     if not found:
         raise HTTPException(status_code=404, detail=f"scene_not_found: {scene_id}")
-    
+
     #  Manifest 저장
+    manifest_path = f"outputs/{project_id}/manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_data, f, ensure_ascii=False, indent=2)
     
@@ -1983,8 +1983,6 @@ async def toggle_hook_video(project_id: str, scene_id: int, req: dict):
         "scene_id": scene_id,
         "hook_video_enabled": enable
     }
-
-
 
 # ═══════════════════════════════════════════════════════════
 # CHARACTER CASTING API
@@ -2010,12 +2008,12 @@ async def generate_characters_only(req: GenerateVideoRequest):
             # 캐스팅 완료 후 앵커 이미지들 R2 업로드 (Railway 재시작 대비)
             try:
                 from utils.storage import StorageManager
-                _storage = StorageManager()
+                _storage = storage_manager
                 _manifest_path = f"outputs/{project_id}/manifest.json"
                 if os.path.exists(_manifest_path):
                     with open(_manifest_path, "r", encoding="utf-8") as f:
                         _mf = json.load(f)
-                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    backend_url = BACKEND_BASE_URL
                     _updated = False
 
                     # 1) 스타일 앵커 업로드
@@ -2078,7 +2076,7 @@ async def generate_characters_only(req: GenerateVideoRequest):
 
         except Exception as e:
             logger.error(f"[CHARACTER CASTING] Error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
             manifest_path = f"outputs/{project_id}/manifest.json"
             try:
@@ -2106,7 +2104,6 @@ async def generate_characters_only(req: GenerateVideoRequest):
         "status": "casting_started",
         "total_characters": total_characters,
     }
-
 
 @app.get("/api/status/characters/{project_id}")
 async def get_character_casting_status(project_id: str):
@@ -2177,7 +2174,6 @@ async def get_character_casting_status(project_id: str):
         "error": data.get("casting_error"),
         "message": data.get("casting_message"),
     }
-
 
 @app.post("/api/regenerate/character/{project_id}/{token}")
 async def regenerate_character(project_id: str, token: str):
@@ -2264,7 +2260,6 @@ async def regenerate_character(project_id: str, token: str):
         "best_pose": best_pose,
     }
 
-
 @app.get("/api/sample-voice/{voice_id}")
 async def get_voice_sample(voice_id: str):
     """TTS 목소리 샘플 반환 (없으면 생성)"""
@@ -2321,7 +2316,6 @@ async def get_voice_sample(voice_id: str):
 
     return FileResponse(file_path, media_type="audio/mpeg")
 
-
 @app.get("/api/download/{project_id}")
 async def download_video(project_id: str):
     """생성된 영상 다운로드"""
@@ -2366,9 +2360,6 @@ async def download_video(project_id: str):
         filename=f"storycut_{project_id}.mp4"
     )
 
-
-
-
 # ============================================================================
 # Auth Endpoints (Mock for Local Development ONLY)
 # ============================================================================
@@ -2399,7 +2390,6 @@ async def register(req: RegisterRequest):
         "_warning": "This is a mock response for local development only"
     }
 
-
 @app.post("/api/auth/login")
 async def login(req: LoginRequest):
     """
@@ -2425,7 +2415,6 @@ async def login(req: LoginRequest):
         },
         "_warning": "This is a mock response for local development only"
     }
-
 
 @app.post("/api/auth/google")
 async def google_auth(request: Request):
@@ -2469,7 +2458,6 @@ async def google_auth(request: Request):
         "_warning": "This is a mock response for local development only"
     }
 
-
 @app.get("/api/config/google-client-id")
 async def get_google_client_id():
     """Return Google OAuth Client ID from environment variable."""
@@ -2480,7 +2468,6 @@ async def get_google_client_id():
             content={"error": "GOOGLE_CLIENT_ID not configured"}
         )
     return {"client_id": client_id}
-
 
 @app.get("/api/status/{project_id}")
 async def get_video_status(project_id: str):
@@ -2536,7 +2523,6 @@ async def get_video_status(project_id: str):
             "error_message": str(e)
         }
 
-
 @app.get("/api/manifest/{project_id}")
 async def get_manifest(project_id: str, request: Request):
     """Manifest 조회 (로컬 우선, R2 fallback)"""
@@ -2552,7 +2538,7 @@ async def get_manifest(project_id: str, request: Request):
         # R2 fallback (videos/{project_id}/manifest.json 경로로 저장됨)
         try:
             from utils.storage import StorageManager
-            storage = StorageManager()
+            storage = storage_manager
             # 먼저 videos/ 경로 시도 (표준 업로드 경로)
             raw = storage.get_object(f"videos/{project_id}/manifest.json")
             if not raw:
@@ -2561,13 +2547,13 @@ async def get_manifest(project_id: str, request: Request):
             if raw:
                 data = json.loads(raw.decode("utf-8"))
         except Exception:
-            pass
+            logger.debug("Silent exception caught", exc_info=True)
 
     if data is None:
         raise HTTPException(status_code=404, detail="project_not_found")
 
     # 로컬 환경: Railway URL → 로컬 상대 경로 변환
-    _REMOTE_PREFIX = "https://web-production-bb6bf.up.railway.app"
+    _REMOTE_PREFIX = BACKEND_BASE_URL
     host = request.headers.get("host", "")
     if "localhost" in host or "127.0.0.1" in host:
         def _localize(obj):
@@ -2583,7 +2569,6 @@ async def get_manifest(project_id: str, request: Request):
         _localize(data)
 
     return data
-
 
 @app.get("/api/stream/{project_id}")
 async def stream_video(project_id: str):
@@ -2617,7 +2602,6 @@ async def stream_video(project_id: str):
         raise HTTPException(status_code=404, detail="video_not_found")
 
     return FileResponse(video_path, media_type="video/mp4")  # filename 생략 -> Inline 재생
-
 
 @app.get("/api/asset/{project_id}/{asset_type}/{filename}")
 async def get_asset(project_id: str, asset_type: str, filename: str):
@@ -2698,7 +2682,6 @@ async def get_asset(project_id: str, asset_type: str, filename: str):
 
     raise HTTPException(status_code=404, detail=f"asset_not_found: {filename}")
 
-
 @app.get("/api/video/{project_id}")
 async def get_video_from_r2(project_id: str):
     """
@@ -2734,7 +2717,6 @@ async def get_video_from_r2(project_id: str):
 
     raise HTTPException(status_code=404, detail="video_not_found")
 
-
 @app.get("/api/history")
 async def get_history_list(request: Request):
     """완료된 프로젝트 목록 조회 (R2 + 로컬 병합, user_id 필터링)"""
@@ -2745,7 +2727,7 @@ async def get_history_list(request: Request):
     if not filter_user_id:
         return {"projects": []}
 
-    storage = StorageManager()
+    storage = storage_manager
     outputs_dir = "outputs"
 
     # R2에서 프로젝트 목록 가져오기
@@ -2800,7 +2782,7 @@ async def get_history_list(request: Request):
                     if not p.get("scene_count"):
                         p["scene_count"] = len(lm.get("scenes", []))
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
     # 로컬 폴더에서 R2에 없는 프로젝트 보충 (특히 MV)
     local_projects = []
@@ -2916,7 +2898,6 @@ async def get_history_list(request: Request):
 
     return {"projects": all_projects}
 
-
 @app.post("/api/admin/migrate-user-ids")
 async def migrate_user_ids(request: Request):
     """일회성: 모든 manifest의 user_id를 이메일로 마이그레이션"""
@@ -2956,7 +2937,7 @@ async def migrate_user_ids(request: Request):
     # 2) R2 manifest 마이그레이션
     try:
         from utils.storage import StorageManager
-        storage = StorageManager()
+        storage = storage_manager
         if storage.s3_client:
             paginator = storage.s3_client.get_paginator('list_objects_v2')
             pages = paginator.paginate(Bucket=storage.bucket_name, Prefix='videos/')
@@ -2991,7 +2972,6 @@ async def migrate_user_ids(request: Request):
 
     return {"migrated_local": migrated_local, "migrated_r2": migrated_r2, "errors": errors}
 
-
 # ============================================================================
 # 마스터 캐릭터 이미지 생성 API (캐릭터 참조 시스템)
 # ============================================================================
@@ -3007,7 +2987,6 @@ class GenerateCharacterRequest(BaseModel):
     visual_seed: int = 42
     style: str = "cinematic portrait, high quality, detailed"
 
-
 @app.post("/api/projects/{project_id}/characters/generate")
 async def generate_master_character(
     project_id: str,
@@ -3022,6 +3001,7 @@ async def generate_master_character(
     from agents.image_agent import ImageAgent
     from schemas import CharacterSheet
 
+    validate_project_id(project_id)
     logger.info(f"\n[Character Generation] Project: {project_id}, Token: {req.character_token}")
 
     # 프로젝트 디렉토리 확인/생성
@@ -3100,10 +3080,9 @@ perfect for character reference, consistent lighting, sharp details
 
     except Exception as e:
         logger.error(f"[Character] Error: {e}")
-        import traceback
+
         logger.exception("Unhandled exception")
         raise HTTPException(status_code=500, detail=safe_error_detail(e, "character_generation_failed"))
-
 
 @app.get("/api/projects/{project_id}/characters")
 async def get_project_characters(project_id: str):
@@ -3118,7 +3097,6 @@ async def get_project_characters(project_id: str):
         "characters": character_sheet
     }
 
-
 # ============================================================================
 # 씬별 재생성 API (Phase 1)
 # ============================================================================
@@ -3129,7 +3107,6 @@ class RegenerateSceneRequest(BaseModel):
     regenerate_image: bool = True
     regenerate_tts: bool = True
     regenerate_video: bool = True
-
 
 @app.post("/api/projects/{project_id}/scenes/{scene_id}/regenerate")
 async def regenerate_scene(
@@ -3220,7 +3197,6 @@ async def regenerate_scene(
 
         raise HTTPException(status_code=500, detail=safe_error_detail(e, "scene_regeneration_failed"))
 
-
 @app.get("/api/projects/{project_id}/scenes")
 async def get_project_scenes(project_id: str):
     """프로젝트의 모든 씬 상태 조회"""
@@ -3246,7 +3222,6 @@ async def get_project_scenes(project_id: str):
             for s in scenes
         ]
     }
-
 
 class UpdateNarrationRequest(BaseModel):
     narration: str
@@ -3290,7 +3265,6 @@ async def update_scene_narration(project_id: str, scene_id: int, req: UpdateNarr
         json.dump(manifest_data, f, ensure_ascii=False, indent=2)
 
     return {"success": True, "scene_id": scene_id, "narration": req.narration}
-
 
 @app.post("/api/projects/{project_id}/recompose")
 async def recompose_video(project_id: str):
@@ -3360,11 +3334,11 @@ async def recompose_video(project_id: str):
         # [Production] R2 업로드 (배포 환경 지원)
         try:
             from utils.storage import StorageManager
-            storage = StorageManager()
+            storage = storage_manager
             r2_key = f"videos/{project_id}/final_video.mp4"
 
             if storage.upload_file(final_video, r2_key):
-                backend_url = "https://web-production-bb6bf.up.railway.app"
+                backend_url = BACKEND_BASE_URL
                 public_url = f"{backend_url}/api/video/{project_id}"
 
                 manifest_data["outputs"]["video_url"] = public_url
@@ -3387,48 +3361,10 @@ async def recompose_video(project_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=safe_error_detail(e, "video_composition_failed"))
 
-
 @app.get("/health")
-async def health_check():
-    """헬스 체크 및 진단"""
-    import os
-    from pathlib import Path
-    
-    # 필수 파일 체크
-    prompt_path = Path("prompts/story_prompt.md")
-    prompt_exists = prompt_path.exists()
-    
-    # API 키 체크 (값 노출 안함)
-    google_key = os.getenv("GOOGLE_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
-    
-    return {
-        "status": "ok",
-        "version": "2.5",
-        "diagnostics": {
-            "google_api_key_set": google_key is not None and len(google_key) > 0,
-            "openai_api_key_set": openai_key is not None and len(openai_key) > 0,
-            "prompt_file_exists": prompt_exists,
-            "cwd": os.getcwd(),
-            "port": os.getenv("PORT", "8000")
-        },
-        "active_connections": len(active_connections)
-    }
-
-
-@app.get("/api/system/errors")
-async def get_system_errors(limit: int = 50):
-    """최근 시스템 에러 로그 조회 — 프로덕션 비활성화"""
-    if IS_PRODUCTION:
-        raise HTTPException(status_code=404, detail="not_found")
-    try:
-        from utils.error_manager import ErrorManager
-        return {
-            "success": True, 
-            "errors": ErrorManager.get_recent_errors(limit)
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+def health_check_legacy():
+    """헬스 체크 (레거시 경로 → /api/health로 통일)"""
+    return {"status": "ok", "version": "3.1.0"}
 
 # ============================================================
 # Music Video Mode API Endpoints
@@ -3506,7 +3442,7 @@ async def mv_upload_music(request: Request, music_file: UploadFile = File(...), 
                     with open(mv_manifest_path, "w", encoding="utf-8") as _mf:
                         json.dump(_mdata, _mf, ensure_ascii=False, indent=2, default=str)
                 except Exception:
-                    pass
+                    logger.debug("Silent exception caught", exc_info=True)
 
         if project.status == MVProjectStatus.FAILED:
             raise HTTPException(status_code=500, detail=project.error_message)
@@ -3523,7 +3459,6 @@ async def mv_upload_music(request: Request, music_file: UploadFile = File(...), 
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
-
 
 @app.post("/api/mv/generate", response_model=MVGenerateResponse)
 async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTasks, raw_request: Request):
@@ -3565,7 +3500,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                     with open(_mv_manifest, "w", encoding="utf-8") as _mf:
                         json.dump(_md, _mf, ensure_ascii=False, indent=2, default=str)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
     def run_mv_generation():
         try:
@@ -3579,7 +3514,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
             # R2에 앵커 이미지 + 매니페스트 업로드
             try:
                 from utils.storage import StorageManager
-                storage = StorageManager()
+                storage = storage_manager
                 project_id = request.project_id
                 project_dir = f"outputs/{project_id}"
                 manifest_path = f"{project_dir}/manifest.json"
@@ -3587,7 +3522,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                 if backend_url and not backend_url.startswith("http"):
                     backend_url = f"https://{backend_url}"
                 if not backend_url:
-                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    backend_url = BACKEND_BASE_URL
 
                 # 1) 캐릭터 앵커 이미지 R2 업로드 + 경로 변환
                 if project_updated.visual_bible and project_updated.visual_bible.characters:
@@ -3646,7 +3581,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                 logger.info(f"[MV Thread] ANCHORS_READY set after R2 upload complete")
             except Exception as e:
                 logger.error(f"[MV Thread] R2 upload error: {e}")
-                import traceback
+
                 logger.exception("Unhandled exception")
                 # R2 실패해도 ANCHORS_READY로 전환 (로컬 경로라도 표시)
                 try:
@@ -3656,11 +3591,11 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                     project_updated.current_step = "캐릭터 앵커 생성 완료 - 리뷰 대기"
                     pipeline._save_manifest(project_updated, project_dir)
                 except Exception:
-                    pass
+                    logger.debug("Silent exception caught", exc_info=True)
 
         except Exception as e:
             logger.error(f"[MV Thread] Error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
 
             # 프로젝트 상태를 FAILED로 설정하여 프론트엔드에 에러 전달
@@ -3671,7 +3606,7 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                 project_dir = f"outputs/{request.project_id}"
                 pipeline._save_manifest(project, project_dir)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
     # 백그라운드 스레드에서 실행
     thread = threading.Thread(target=run_mv_generation, daemon=True)
@@ -3684,7 +3619,6 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
         estimated_time_sec=estimated_time,
         message="뮤직비디오 생성이 시작되었습니다"
     )
-
 
 @app.post("/api/mv/regenerate/anchors/{project_id}")
 async def mv_regenerate_anchors(project_id: str):
@@ -3723,13 +3657,13 @@ async def mv_regenerate_anchors(project_id: str):
             # R2 업로드 + ANCHORS_READY 전환 (기존 로직 재사용)
             try:
                 from utils.storage import StorageManager
-                storage = StorageManager()
+                storage = storage_manager
                 manifest_path = f"{project_dir}/manifest.json"
                 backend_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
                 if backend_url and not backend_url.startswith("http"):
                     backend_url = f"https://{backend_url}"
                 if not backend_url:
-                    backend_url = "https://web-production-bb6bf.up.railway.app"
+                    backend_url = BACKEND_BASE_URL
 
                 if project_updated.visual_bible and project_updated.visual_bible.characters:
                     for char in project_updated.visual_bible.characters:
@@ -3765,7 +3699,7 @@ async def mv_regenerate_anchors(project_id: str):
                     storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json")
             except Exception as e:
                 logger.error(f"[MV Regen] R2 upload error: {e}")
-                import traceback
+
                 logger.exception("Unhandled exception")
                 project_updated.status = MVProjectStatus.ANCHORS_READY
                 project_updated.progress = 40
@@ -3775,7 +3709,7 @@ async def mv_regenerate_anchors(project_id: str):
             logger.info(f"[MV Regen] Anchors regenerated for {project_id}")
         except Exception as e:
             logger.error(f"[MV Regen] Error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
             project.status = MVProjectStatus.ANCHORS_READY
             project.progress = 40
@@ -3786,7 +3720,6 @@ async def mv_regenerate_anchors(project_id: str):
     thread.start()
 
     return {"status": "regenerating", "message": "캐릭터 앵커를 재생성합니다"}
-
 
 @app.post("/api/mv/generate/images/{project_id}")
 async def mv_generate_images(project_id: str):
@@ -3835,7 +3768,7 @@ async def mv_generate_images(project_id: str):
             # R2에 매니페스트 업로드
             try:
                 from utils.storage import StorageManager
-                storage = StorageManager()
+                storage = storage_manager
                 project_dir = f"outputs/{project_id}"
                 manifest_path = f"{project_dir}/manifest.json"
                 if os.path.exists(manifest_path):
@@ -3846,7 +3779,7 @@ async def mv_generate_images(project_id: str):
 
         except Exception as e:
             logger.error(f"[MV Thread] Image generation error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
             try:
                 project.status = MVProjectStatus.FAILED
@@ -3855,7 +3788,7 @@ async def mv_generate_images(project_id: str):
                 project_dir = f"outputs/{project_id}"
                 pipeline._save_manifest(project, project_dir)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
     thread = threading.Thread(target=run_mv_image_generation, daemon=True)
     thread.start()
@@ -3865,7 +3798,6 @@ async def mv_generate_images(project_id: str):
         "status": "generating",
         "message": "이미지 생성이 시작되었습니다"
     }
-
 
 @app.post("/api/mv/cancel/{project_id}")
 async def mv_cancel(project_id: str):
@@ -3881,7 +3813,6 @@ async def mv_cancel(project_id: str):
 
     logger.info(f"[MV] Cancel requested for {project_id}")
     return {"status": "cancel_requested", "project_id": project_id}
-
 
 @app.get("/api/mv/status/{project_id}", response_model=MVStatusResponse)
 async def mv_status(project_id: str):
@@ -3911,7 +3842,6 @@ async def mv_status(project_id: str):
         characters=characters,
         error_message=project.error_message
     )
-
 
 @app.get("/api/mv/result/{project_id}", response_model=MVResultResponse)
 async def mv_result(project_id: str):
@@ -3944,7 +3874,6 @@ async def mv_result(project_id: str):
         download_url=download_url
     )
 
-
 @app.post("/api/mv/scenes/{project_id}/{scene_id}/regenerate")
 async def mv_regenerate_scene(project_id: str, scene_id: int, req: Request = None):
     """
@@ -3968,7 +3897,7 @@ async def mv_regenerate_scene(project_id: str, scene_id: int, req: Request = Non
         body = await req.json() if req else {}
         custom_prompt = body.get("custom_prompt")
     except Exception:
-        pass
+        logger.debug("Silent exception caught", exc_info=True)
 
     if custom_prompt and custom_prompt.strip():
         scene_obj = project.scenes[scene_id - 1]
@@ -3990,7 +3919,6 @@ async def mv_regenerate_scene(project_id: str, scene_id: int, req: Request = Non
         return {"success": True, "image_path": scene.image_path, "image_url": image_url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
-
 
 @app.post("/api/mv/scenes/{project_id}/{scene_id}/i2v")
 async def mv_scene_i2v(project_id: str, scene_id: int):
@@ -4014,7 +3942,6 @@ async def mv_scene_i2v(project_id: str, scene_id: int):
         return {"success": True, "video_path": scene.video_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
-
 
 @app.post("/api/mv/compose/{project_id}")
 async def mv_compose(project_id: str):
@@ -4049,10 +3976,9 @@ async def mv_compose(project_id: str):
             # [Production] MV R2 업로드 (일반 파이프라인과 동일 패턴)
             try:
                 from utils.storage import StorageManager
-                import json
 
-                storage = StorageManager()
-                backend_url = "https://web-production-bb6bf.up.railway.app"
+                storage = storage_manager
+                backend_url = BACKEND_BASE_URL
                 project_dir = f"outputs/{project_id}"
 
                 # 1. 최종 비디오 업로드
@@ -4089,7 +4015,7 @@ async def mv_compose(project_id: str):
 
         except Exception as e:
             logger.error(f"[MV Compose Thread] Error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
             try:
                 project.status = MVProjectStatus.FAILED
@@ -4097,13 +4023,12 @@ async def mv_compose(project_id: str):
                 project_dir = f"outputs/{project_id}"
                 pipeline._save_manifest(project, project_dir)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
     thread = threading.Thread(target=run_compose, daemon=True)
     thread.start()
 
     return {"status": "composing", "project_id": project_id}
-
 
 @app.post("/api/mv/subtitle-test/{project_id}")
 async def mv_subtitle_test(project_id: str):
@@ -4132,7 +4057,7 @@ async def mv_subtitle_test(project_id: str):
             logger.info(f"[Subtitle Test Thread] Complete for {project_id}")
         except Exception as e:
             logger.error(f"[Subtitle Test Thread] Error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
 
     thread = threading.Thread(target=run_subtitle_test, daemon=True)
@@ -4144,12 +4069,10 @@ async def mv_subtitle_test(project_id: str):
         "message": "Subtitle test started. Check outputs/{project_id}/final_mv_subtitle_test.mp4",
     }
 
-
 @app.get("/api/mv/subtitle-debug/{project_id}")
 async def mv_subtitle_debug(project_id: str):
     """자막 테스트 디버그: 정렬 데이터 + ASS 파일 상태 확인"""
     validate_project_id(project_id)
-    import json as _json
 
     project_dir = f"outputs/{project_id}"
     result = {"project_id": project_id}
@@ -4158,7 +4081,7 @@ async def mv_subtitle_debug(project_id: str):
     manifest_path = f"{project_dir}/manifest.json"
     if os.path.exists(manifest_path):
         with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = _json.load(f)
+            manifest = json.load(f)
         lyrics = manifest.get("lyrics", "")
         result["lyrics_length"] = len(lyrics)
         result["lyrics_lines"] = lyrics.count("\n") + 1 if lyrics else 0
@@ -4173,7 +4096,7 @@ async def mv_subtitle_debug(project_id: str):
     align_path = f"{project_dir}/media/subtitles/alignment.json"
     if os.path.exists(align_path):
         with open(align_path, "r", encoding="utf-8") as f:
-            result["alignment_file"] = _json.load(f)
+            result["alignment_file"] = json.load(f)
 
     # ASS 파일 상태
     ass_path = f"{project_dir}/media/subtitles/lyrics_test.ass"
@@ -4195,7 +4118,6 @@ async def mv_subtitle_debug(project_id: str):
         result["test_video"] = "not found"
 
     return result
-
 
 class UpdateLyricsTimelineRequest(BaseModel):
     timed_lyrics: List[Dict[str, Any]]  # [{t: float, text: str}, ...]
@@ -4262,7 +4184,7 @@ async def update_mv_lyrics_timeline(project_id: str, req: UpdateLyricsTimelineRe
     pipeline._save_manifest(project, project_dir)
     try:
         from utils.storage import StorageManager
-        storage = StorageManager()
+        storage = storage_manager
         manifest_file = f"{project_dir}/manifest.json"
         if os.path.exists(manifest_file):
             storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
@@ -4270,7 +4192,6 @@ async def update_mv_lyrics_timeline(project_id: str, req: UpdateLyricsTimelineRe
         logger.error(f"[Lyrics Timeline] R2 manifest upload error (non-fatal): {e}")
 
     return {"success": True, "entries": len(req.timed_lyrics)}
-
 
 class UpdateLyricsRequest(BaseModel):
     lyrics: str
@@ -4310,7 +4231,7 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
     pipeline._save_manifest(project, project_dir)
     try:
         from utils.storage import StorageManager
-        storage = StorageManager()
+        storage = storage_manager
         manifest_file = f"{project_dir}/manifest.json"
         if os.path.exists(manifest_file):
             storage.upload_file(manifest_file, f"videos/{project_id}/manifest.json")
@@ -4318,7 +4239,6 @@ async def update_mv_scene_lyrics(project_id: str, scene_id: int, req: UpdateLyri
         logger.error(f"[MV Lyrics] R2 manifest upload error (non-fatal): {e}")
 
     return {"success": True, "scene_id": scene_id, "lyrics": req.lyrics}
-
 
 class SubtitleAnchorRequest(BaseModel):
     anchor_start: float
@@ -4348,7 +4268,6 @@ async def update_subtitle_anchor(project_id: str, req: SubtitleAnchorRequest):
         "subtitle_anchor_start": project.subtitle_anchor_start,
         "subtitle_anchor_end": project.subtitle_anchor_end,
     }
-
 
 @app.post("/api/mv/{project_id}/upload-music")
 async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile = File(...)):
@@ -4387,7 +4306,7 @@ async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile 
     # R2에도 업로드
     try:
         from utils.storage import StorageManager
-        storage = StorageManager()
+        storage = storage_manager
         r2_key = f"music/{project_id}/{filename}"
         storage.upload_file(music_path, r2_key)
         # 매니페스트도 R2 동기화
@@ -4397,7 +4316,6 @@ async def mv_upload_music_for_recompose(project_id: str, music_file: UploadFile 
         logger.error(f"[MV Music Upload] R2 error (non-fatal): {e}")
 
     return {"success": True, "music_path": music_path, "filename": filename}
-
 
 @app.get("/api/mv/{project_id}/debug")
 async def mv_debug(project_id: str):
@@ -4410,7 +4328,7 @@ async def mv_debug(project_id: str):
 
     pipeline = MVPipeline()
     project = pipeline.load_project(project_id)
-    storage = StorageManager()
+    storage = storage_manager
 
     if not project:
         return {"error": "Project not found"}
@@ -4455,7 +4373,6 @@ async def mv_debug(project_id: str):
 
     return info
 
-
 @app.post("/api/mv/{project_id}/recompose")
 async def mv_recompose(project_id: str):
     """MV 리컴포즈 - 가사/이미지 수정 후 최종 영상 재합성"""
@@ -4476,7 +4393,7 @@ async def mv_recompose(project_id: str):
         try:
             logger.info(f"[MV Recompose Thread] Starting recompose for {project_id}")
             from utils.storage import StorageManager
-            storage = StorageManager()
+            storage = storage_manager
 
             project_dir = f"outputs/{project_id}"
             os.makedirs(f"{project_dir}/media/images", exist_ok=True)
@@ -4573,8 +4490,8 @@ async def mv_recompose(project_id: str):
             try:
                 from utils.storage import StorageManager
 
-                storage = StorageManager()
-                backend_url = "https://web-production-bb6bf.up.railway.app"
+                storage = storage_manager
+                backend_url = BACKEND_BASE_URL
                 project_dir = f"outputs/{project_id}"
 
                 if project.final_video_path and os.path.exists(project.final_video_path):
@@ -4601,7 +4518,7 @@ async def mv_recompose(project_id: str):
 
         except Exception as e:
             logger.error(f"[MV Recompose Thread] Error: {e}")
-            import traceback
+
             logger.exception("Unhandled exception")
             try:
                 project.status = MVProjectStatus.FAILED
@@ -4609,13 +4526,12 @@ async def mv_recompose(project_id: str):
                 project_dir = f"outputs/{project_id}"
                 pipeline._save_manifest(project, project_dir)
             except Exception:
-                pass
+                logger.debug("Silent exception caught", exc_info=True)
 
     thread = threading.Thread(target=run_recompose, daemon=True)
     thread.start()
 
     return {"status": "composing", "project_id": project_id}
-
 
 @app.get("/api/mv/stream/{project_id}")
 async def mv_stream(project_id: str):
@@ -4638,7 +4554,7 @@ async def mv_stream(project_id: str):
     # 2. R2 fallback
     try:
         from utils.storage import StorageManager
-        storage = StorageManager()
+        storage = storage_manager
         data = storage.get_object(f"videos/{project_id}/final_video.mp4")
         if data:
             return Response(content=data, media_type="video/mp4")
@@ -4646,7 +4562,6 @@ async def mv_stream(project_id: str):
         logger.error(f"[MV Stream] R2 fallback error: {e}")
 
     raise HTTPException(status_code=404, detail="video_not_found")
-
 
 @app.get("/api/mv/download/{project_id}")
 async def mv_download(project_id: str):
@@ -4673,7 +4588,7 @@ async def mv_download(project_id: str):
     # 2. R2 fallback
     try:
         from utils.storage import StorageManager
-        storage = StorageManager()
+        storage = storage_manager
         data = storage.get_object(f"videos/{project_id}/final_video.mp4")
         if data:
             return Response(
@@ -4684,7 +4599,6 @@ async def mv_download(project_id: str):
         logger.error(f"[MV Download] R2 fallback error: {e}")
 
     raise HTTPException(status_code=404, detail="video_not_found")
-
 
 # ============================================================================
 # User Profile / Stats / History (mock endpoints for profile modal)
@@ -4733,10 +4647,12 @@ async def get_user_stats():
     # Try to get user info from Authorization header for member_since
     member_since = "N/A"
     try:
-        user_data = json.loads(open("outputs/.user_cache.json").read()) if os.path.exists("outputs/.user_cache.json") else {}
-        member_since = user_data.get("created_at", "N/A")
+        if os.path.exists("outputs/.user_cache.json"):
+            with open("outputs/.user_cache.json", "r", encoding="utf-8") as f:
+                user_data = json.load(f)
+            member_since = user_data.get("created_at", "N/A")
     except Exception:
-        pass
+        logger.debug("Silent exception caught", exc_info=True)
 
     top_style = max(styles, key=styles.get) if styles else None
     top_genre = max(genres, key=genres.get) if genres else None
@@ -4750,7 +4666,6 @@ async def get_user_stats():
         "top_genre": top_genre,
     }
 
-
 @app.put("/api/user/profile")
 async def update_user_profile(request: Request):
     """Mock profile update - updates username in local user cache"""
@@ -4759,7 +4674,6 @@ async def update_user_profile(request: Request):
     if not username:
         raise HTTPException(status_code=400, detail="username_required")
     return {"success": True, "username": username}
-
 
 @app.get("/api/user/history")
 async def get_user_history():
@@ -4797,14 +4711,6 @@ async def get_user_history():
         history = [{"date": e["date"], "action": e["action"], "clips": e["clips"], "project_id": e["project_id"]} for e in entries[:10]]
 
     return {"history": history}
-
-
-@app.on_event("startup")
-async def on_startup():
-    from utils.cleanup import start_cleanup_scheduler
-    start_cleanup_scheduler()
-    logger.info("[STARTUP] Cleanup scheduler registered (daily 03:00)")
-
 
 if __name__ == "__main__":
     import uvicorn

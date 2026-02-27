@@ -9,6 +9,7 @@ import random
 import requests
 from typing import Optional, List, Dict, Any, Set
 from utils.logger import get_logger
+from utils.constants import MODEL_GEMINI_FLASH
 logger = get_logger("pexels_agent")
 
 
@@ -280,7 +281,7 @@ class PexelsAgent:
                 user_prompt += f"\n{context_str}"
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=_STOCK_QUERY_SYSTEM_PROMPT,

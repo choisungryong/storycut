@@ -11,6 +11,7 @@ import math
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple
 from utils.logger import get_logger
+from utils.constants import MODEL_GEMINI_FLASH
 logger = get_logger("character_qa")
 
 
@@ -121,7 +122,7 @@ class GeminiVisionFallbackProvider(EmbeddingProvider):
             })
 
             resp = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=[{"role": "user", "parts": parts}],
             )
             score_text = resp.text.strip()

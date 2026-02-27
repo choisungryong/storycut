@@ -696,12 +696,12 @@ function showGemini3SurchargeModal(action, required, available, surcharge) {
             padding: 32px; max-width: 440px; width: 90%; text-align: center;
         ">
             <div style="font-size: 48px; margin-bottom: 16px;">&#x2728;</div>
-            <h3 style="color: #f59e0b; margin: 0 0 12px;">Gemini 3.0 추가 요금</h3>
+            <h3 style="color: #f59e0b; margin: 0 0 12px;">Gemini 추가 요금</h3>
             <p style="color: #ccc; margin: 0 0 8px;">
-                이번 달 무료 Gemini 3.0 사용량을 모두 소진했습니다.
+                이번 달 무료 Gemini 사용량을 모두 소진했습니다.
             </p>
             <p style="color: #ccc; margin: 0 0 8px;">
-                <strong>${label}</strong>에 Gemini 3.0 사용 시
+                <strong>${label}</strong>에 Gemini 사용 시
                 <span style="color: #f59e0b; font-weight: 700;">${required} 크레딧</span>이
                 필요합니다 (+${surcharge} 추가 요금 포함).
             </p>
@@ -731,7 +731,7 @@ function showGemini3SurchargeModal(action, required, available, surcharge) {
 }
 
 /**
- * Get Gemini 3.0 status for current user.
+ * Get Gemini status for current user.
  * Returns { allowed, free_limit, used, surcharge_per_image, willSurcharge }
  */
 function getGemini3Status() {

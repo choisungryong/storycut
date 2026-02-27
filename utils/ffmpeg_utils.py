@@ -15,12 +15,26 @@ import os
 import re
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
-import sys
 from utils.logger import get_logger
 logger = get_logger("ffmpeg")
 
 
-sys.path.append(str(Path(__file__).parent.parent))
+
+
+def get_media_duration(media_path: str) -> float:
+    """ffprobe로 미디어(영상/오디오) 길이(초) 반환. 독립 함수 버전."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        media_path,
+    ]
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return float(result.stdout.strip())
+    raise RuntimeError(f"ffprobe failed for {media_path}: {result.stderr}")
 
 
 # [보안] FFmpeg 필터 파라미터 검증 유틸리티

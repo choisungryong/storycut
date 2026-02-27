@@ -84,25 +84,6 @@ def get_subtitle_style() -> Dict[str, Any]:
     })
 
 
-def get_provider_config(provider_type: str) -> Dict[str, Any]:
-    """
-    프로바이더 설정 반환
-
-    Args:
-        provider_type: "video_provider", "image_provider", "llm_provider"
-
-    Returns:
-        프로바이더 설정 딕셔너리
-    """
-    config = load_feature_flags()
-    defaults = {
-        "video_provider": {"primary": "runway", "fallback": "placeholder"},
-        "image_provider": {"primary": "dalle", "fallback": "placeholder"},
-        "llm_provider": {"primary": "openai", "model": "gpt-4"},
-    }
-    return config.get(provider_type, defaults.get(provider_type, {}))
-
-
 def load_veo_policy() -> Dict[str, Any]:
     """
     Veo I2V 정책 설정 로드.

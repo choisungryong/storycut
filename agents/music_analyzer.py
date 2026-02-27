@@ -10,6 +10,7 @@ import uuid as _uuid
 from typing import Optional, List
 from pathlib import Path
 from utils.logger import get_logger
+from utils.constants import MODEL_GEMINI_FLASH
 logger = get_logger("music_analyzer")
 
 
@@ -262,7 +263,7 @@ class MusicAnalyzer:
 
             logger.info(f"  [Gemini-STT] Extracting vocal segments...")
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=[audio_file, prompt_text],
                 config=types.GenerateContentConfig(
                     temperature=0.0,
@@ -401,7 +402,7 @@ class MusicAnalyzer:
 
             logger.info(f"  [Lyrics-Align] Aligning {len(lyrics_lines)} lines to audio...")
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=[audio_file, prompt_text],
                 config=types.GenerateContentConfig(
                     temperature=0.0,
@@ -878,7 +879,7 @@ class MusicAnalyzer:
 
         logger.info(f"  [Gemini] Extracting with reference lyrics (single pass)...")
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=MODEL_GEMINI_FLASH,
             contents=[audio_file, prompt_text],
             config=types.GenerateContentConfig(
                 temperature=0.0,
@@ -976,7 +977,7 @@ class MusicAnalyzer:
 
                 logger.info(f"  [Gemini] Chunk {i+1}/{len(chunks)} ({chunk_start:.0f}s~{chunk_end:.0f}s)...")
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=MODEL_GEMINI_FLASH,
                     contents=[audio_file, prompt_text],
                     config=types.GenerateContentConfig(
                         temperature=0.0,
@@ -1166,7 +1167,7 @@ class MusicAnalyzer:
 
         logger.info(f"  [Gemini 2.5] Extracting lyrics (single pass)...")
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=MODEL_GEMINI_FLASH,
             contents=[audio_file, prompt_text],
             config=types.GenerateContentConfig(
                 temperature=0.0,
@@ -1264,7 +1265,7 @@ class MusicAnalyzer:
 
                 logger.info(f"  [Gemini 2.5] Chunk {i+1}/{len(chunks)} ({chunk_start:.0f}s~{chunk_end:.0f}s)...")
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=MODEL_GEMINI_FLASH,
                     contents=[audio_file, prompt_text],
                     config=types.GenerateContentConfig(
                         temperature=0.0,
@@ -1522,7 +1523,7 @@ class MusicAnalyzer:
             )
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=[audio_file, prompt_text],
                 config=types.GenerateContentConfig(temperature=0.0)
             )
@@ -1637,7 +1638,7 @@ class MusicAnalyzer:
             )
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_GEMINI_FLASH,
                 contents=[audio_file, prompt_text],
                 config=types.GenerateContentConfig(
                     temperature=0.0,

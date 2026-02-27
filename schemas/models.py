@@ -604,7 +604,11 @@ class Manifest(BaseModel):
             )
             scenes.append(scene)
 
-
+        return cls(
+            input=request,
+            title=story_data.get("title"),
+            scenes=scenes,
+        )
 
 
 class GenerateVideoRequest(BaseModel):

@@ -11,14 +11,13 @@ v2.0 업데이트:
 import os
 from typing import Optional, List
 from pathlib import Path
-import sys
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 
-sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import FeatureFlags
 from utils.logger import get_logger
+from utils.constants import MODEL_GEMINI_FLASH_IMAGE
 logger = get_logger("image_agent")
 
 
@@ -270,7 +269,7 @@ class ImageAgent:
             }
 
             # Google Gemini API endpoint (API key in header, not URL)
-            api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_GEMINI_FLASH_IMAGE}:generateContent"
 
             # v2.0: 단일 참조를 복수 참조 리스트로 통합
             all_reference_paths = []

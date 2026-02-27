@@ -10,12 +10,11 @@ v2.0 핵심 기능:
 import os
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from pathlib import Path
-import sys
 
-sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import CharacterSheet, GlobalStyle, AnchorSet, PoseAnchor, PoseType
 from utils.logger import get_logger
+from utils.constants import ETH_KEYWORD_MAP
 logger = get_logger("character_manager")
 
 
@@ -68,7 +67,7 @@ class CharacterManager:
                 import google.generativeai as genai
                 if self.google_api_key:
                     genai.configure(api_key=self.google_api_key)
-                    self._vision_client = genai.GenerativeModel(model_name="gemini-2.5-flash")
+                    self._vision_client = genai.GenerativeModel(model_name=MODEL_GEMINI_FLASH)
             except Exception as e:
                 logger.error(f"  [Warning] Failed to init Gemini Vision for scoring: {e}")
         return self._vision_client
@@ -159,11 +158,7 @@ class CharacterManager:
         character_images = {}
         total_chars = len(character_sheet)
 
-        _ETH_KW = {
-            "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-            "southeast_asian": "Southeast Asian", "european": "European",
-            "black": "Black", "hispanic": "Hispanic", "mixed": "Mixed ethnicity",
-        }
+        _ETH_KW = ETH_KEYWORD_MAP
 
         def _process_single_character(idx, token, char_data):
             """단일 캐릭터 앵커 생성 (병렬 실행 가능)."""
@@ -348,12 +343,7 @@ class CharacterManager:
             appearance = char.description
             ethnicity_val = getattr(project, 'character_ethnicity', None)
             if ethnicity_val and str(ethnicity_val.value) != "auto":
-                _eth_kw = {
-                    "korean": "Korean", "japanese": "Japanese", "chinese": "Chinese",
-                    "southeast_asian": "Southeast Asian", "european": "European",
-                    "black": "Black", "hispanic": "Hispanic", "mixed": "Mixed ethnicity",
-                }
-                eth_keyword = _eth_kw.get(str(ethnicity_val.value), "")
+                eth_keyword = ETH_KEYWORD_MAP.get(str(ethnicity_val.value), "")
                 if eth_keyword and eth_keyword.lower() not in appearance.lower():
                     appearance = f"{eth_keyword}, {appearance}"
 

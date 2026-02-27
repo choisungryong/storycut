@@ -5,10 +5,8 @@ Composer Agent: Composes final video using FFmpeg.
 import os
 from typing import List
 from pathlib import Path
-import sys
 
 # Add parent directory to path for imports
-sys.path.append(str(Path(__file__).parent.parent))
 
 from utils.ffmpeg_utils import FFmpegComposer
 from utils.logger import get_logger

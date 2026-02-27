@@ -4,6 +4,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from utils.logger import get_logger
+from utils.ffmpeg_utils import get_media_duration
 logger = get_logger("subtitle_utils")
 
 
@@ -50,10 +51,8 @@ def _detect_linux_font() -> str:
 # ── 기본 유틸 ──────────────────────────────────────────────
 
 def ffprobe_duration_sec(media_path: str) -> float:
-    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
-           "default=noprint_wrappers=1:nokey=1", media_path]
-    out = subprocess.check_output(cmd, text=True).strip()
-    return float(out)
+    """ffprobe로 미디어 길이(초) 반환. get_media_duration 래퍼."""
+    return get_media_duration(media_path)
 
 
 def split_lyrics_lines(user_lyrics_text: str) -> List[str]:

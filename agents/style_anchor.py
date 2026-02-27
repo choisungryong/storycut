@@ -10,9 +10,7 @@ import os
 import re
 from typing import Dict, List, Optional, Any
 from pathlib import Path
-import sys
 
-sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import GlobalStyle, Scene
 from utils.logger import get_logger

@@ -8,6 +8,7 @@ import re
 from typing import Dict, Any, List
 from pathlib import Path
 from utils.logger import get_logger
+from utils.llm_utils import parse_llm_json
 logger = get_logger("story_agent")
 
 
@@ -62,17 +63,17 @@ class StoryAgent:
     """
     Generates YouTube-optimized stories in Scene JSON format.
 
-    This agent calls Google Gemini 3 Pro API
+    This agent calls OpenAI API (gpt-4o)
     to generate structured story content.
     """
 
-    def __init__(self, api_key: str = None, model: str = "gpt-5.2"):
+    def __init__(self, api_key: str = None, model: str = "gpt-4o"):
         """
         Initialize Story Agent.
 
         Args:
             api_key: OpenAI API key
-            model: LLM model to use (default: gpt-5.2)
+            model: LLM model to use (default: gpt-4o)
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model
@@ -114,8 +115,7 @@ class StoryAgent:
         # =================================================================================
         # STEP 1: Story Architecture
         # =================================================================================
-        import sys
-        logger.info(f"  [Step 1] Planning Story Architecture...", file=sys.stderr)
+        logger.info(f"  [Step 1] Planning Story Architecture...")
 
         if include_dialogue:
             _step1_dialogue_rule = (
@@ -321,15 +321,15 @@ OUTPUT FORMAT (JSON):
         step1_response = self._call_llm_api(step1_prompt)
         try:
             structure_data = json.loads(step1_response)
-            logger.info(f"  [Step 1] Structure locked: {structure_data.get('project_title')}", file=sys.stderr)
+            logger.info(f"  [Step 1] Structure locked: {structure_data.get('project_title')}")
         except Exception as e:
-            logger.error(f"  [Step 1] Failed to parse JSON: {e}. Falling back to single-step.", file=sys.stderr)
+            logger.error(f"  [Step 1] Failed to parse JSON: {e}. Falling back to single-step.")
             structure_data = {} 
 
         # =================================================================================
         # STEP 2: Scene-level Details
         # =================================================================================
-        logger.info(f"  [Step 2] Generating Scene Details...", file=sys.stderr)
+        logger.info(f"  [Step 2] Generating Scene Details...")
         
         # Context from Step 1
         structure_context = json.dumps(structure_data, ensure_ascii=False, indent=2) if structure_data else "No structure generated."
@@ -607,10 +607,10 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
             step2_prompt += shorts_hook_instruction
 
         step2_response = self._call_llm_api(step2_prompt)
-        logger.info(f"  [Step 2] Response received, starting validation...", file=sys.stderr)
+        logger.info(f"  [Step 2] Response received, starting validation...")
         story_data = self._validate_story_json(step2_response)
 
-        logger.info(f"[Story Agent] Story generated successfully.", file=sys.stderr)
+        logger.info(f"[Story Agent] Story generated successfully.")
         return story_data
 
     def _call_llm_api(self, user_prompt: str) -> str:
@@ -662,19 +662,9 @@ GOOD (duration_sec=5 → 약 28자, 2문장):
         Raises:
             ValueError: If JSON is invalid
         """
-        # Remove markdown code blocks if present
-        json_string = json_string.strip()
-        if json_string.startswith("```json"):
-            json_string = json_string[7:]
-        if json_string.startswith("```"):
-            json_string = json_string[3:]
-        if json_string.endswith("```"):
-            json_string = json_string[:-3]
-        json_string = json_string.strip()
-
         try:
-            story_data = json.loads(json_string)
-        except json.JSONDecodeError as e:
+            story_data = parse_llm_json(json_string)
+        except (json.JSONDecodeError, ValueError) as e:
             raise ValueError(f"Invalid JSON from LLM: {e}")
 
         # Field Mapping (v2.0 -> Schema)

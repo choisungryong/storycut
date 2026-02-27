@@ -13,9 +13,7 @@ import os
 import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
-import sys
 
-sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import FeatureFlags, Scene, ProjectRequest
 from utils.logger import get_logger

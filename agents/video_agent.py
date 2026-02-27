@@ -20,9 +20,7 @@ import time
 import base64
 from typing import Dict, Any, Optional, Tuple, List
 from pathlib import Path
-import sys
 
-sys.path.append(str(Path(__file__).parent.parent))
 
 from schemas import FeatureFlags, Scene
 from utils.logger import get_logger
@@ -332,13 +330,7 @@ class VideoAgent:
         """
         if self.service == "veo":
             return self._call_veo_api(prompt, style, mood, duration_sec, output_path, first_frame_image)
-        elif self.service == "runway":
-            return self._call_runway_api(prompt, style, duration_sec, output_path)
-        elif self.service == "stability":
-            return self._call_stability_api(prompt, style, duration_sec, output_path)
         else:
-            # Default to placeholder if service not implemented
-            logger.info(f"     Service '{self.service}' not implemented yet.")
             raise NotImplementedError(f"Video service '{self.service}' not implemented")
 
     def _call_veo_api(
@@ -635,48 +627,6 @@ class VideoAgent:
             max_sec = clip_policy.get("broll_max_sec", 6)
 
         return max(min_sec, min(max_sec, duration_sec))
-
-    def _call_runway_api(
-        self,
-        prompt: str,
-        style: str,
-        duration_sec: int,
-        output_path: str
-    ) -> str:
-        """
-        Call Runway ML Gen-2 API for video generation.
-
-        TODO: Implement actual Runway API integration
-        """
-        # Runway API integration placeholder
-        # In production, this would call Runway's Gen-2 API
-        #
-        # Example structure:
-        # client = RunwayClient(api_key=self.api_key)
-        # response = client.generate_video(
-        #     prompt=f"{style} style: {prompt}",
-        #     duration=duration_sec,
-        #     aspect_ratio="16:9"
-        # )
-        # download_video(response.url, output_path)
-
-        logger.info(f"     Runway API integration pending. Using enhanced placeholder.")
-        raise NotImplementedError("Runway API not yet integrated")
-
-    def _call_stability_api(
-        self,
-        prompt: str,
-        style: str,
-        duration_sec: int,
-        output_path: str
-    ) -> str:
-        """
-        Call Stability AI Video API.
-
-        TODO: Implement actual Stability API integration
-        """
-        logger.info(f"     Stability API integration pending.")
-        raise NotImplementedError("Stability API not yet integrated")
 
     def _generate_with_kenburns(
         self,
