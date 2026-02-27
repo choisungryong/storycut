@@ -93,13 +93,13 @@ class MVPipeline:
     def __init__(self, output_base_dir: str = "outputs"):
         self.output_base_dir = output_base_dir
         self.music_analyzer = MusicAnalyzer()
+        self._image_agent = None  # lazy init - 자막 테스트 등에서 불필요한 로드 방지
+        self.ffmpeg_composer = FFmpegComposer()
+        self._genre_profiles = None  # lazy cache
 
     def _get_project_dir(self, project) -> str:
         """프로젝트 출력 디렉토리 경로 반환"""
         return f"{self.output_base_dir}/{project.project_id}"
-        self._image_agent = None  # lazy init - 자막 테스트 등에서 불필요한 로드 방지
-        self.ffmpeg_composer = FFmpegComposer()
-        self._genre_profiles = None  # lazy cache
 
     @property
     def image_agent(self):
