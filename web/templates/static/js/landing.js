@@ -12,6 +12,7 @@
       'nav.features': 'Features',
       'nav.gallery': 'Gallery',
       'nav.pricing': 'Pricing',
+      'nav.login': 'Log in',
       'nav.cta': 'Start Free',
 
       'hero.title1': 'Your story,',
@@ -143,6 +144,7 @@
       'nav.features': '\uAE30\uB2A5',
       'nav.gallery': '\uAC24\uB7EC\uB9AC',
       'nav.pricing': '\uC694\uAE08\uC81C',
+      'nav.login': '\uB85C\uADF8\uC778',
       'nav.cta': '\uBB34\uB8CC\uB85C \uC2DC\uC791',
 
       'hero.title1': '\uB2F9\uC2E0\uC758 \uC774\uC57C\uAE30\uB97C',
