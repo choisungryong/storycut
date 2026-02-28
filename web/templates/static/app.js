@@ -3783,7 +3783,7 @@ class StorycutApp {
      */
     async pollMVAnalysis(projectId) {
         const baseUrl = this.getApiBaseUrl();
-        const maxAttempts = 120;
+        const maxAttempts = 180;  // 6분 (Demucs ~90s + Gemini align ~120s + STT)
         const intervalMs = 2000;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
