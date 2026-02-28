@@ -10,7 +10,7 @@ import uuid as _uuid
 from typing import Optional, List
 from pathlib import Path
 from utils.logger import get_logger
-from utils.constants import MODEL_GEMINI_FLASH
+from utils.constants import MODEL_GEMINI_FLASH, MODEL_GEMINI_PRO
 logger = get_logger("music_analyzer")
 
 
@@ -238,6 +238,19 @@ class MusicAnalyzer:
             temp_path = _secure_temp_path("gemini_stt_upload", ext)
             shutil.copy2(audio_path, temp_path)
 
+            # STT 입력 오디오 duration 확인
+            try:
+                import subprocess as _sp
+                _probe = _sp.run(
+                    ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", temp_path],
+                    capture_output=True, text=True, timeout=10
+                )
+                _stt_dur = float(_probe.stdout.strip())
+                logger.info(f"  [Gemini-STT] Audio file: {os.path.basename(audio_path)}, duration={_stt_dur:.1f}s")
+            except Exception:
+                pass
+
             try:
                 audio_file = client.files.upload(file=temp_path)
                 logger.info(f"  [Gemini-STT] File uploaded: {audio_file.name}")
@@ -261,9 +274,9 @@ class MusicAnalyzer:
                 '[{"start": 12.5, "end": 16.2, "text": "sung phrase"}, ...]'
             )
 
-            logger.info(f"  [Gemini-STT] Extracting vocal segments...")
+            logger.info(f"  [Gemini-STT] Extracting vocal segments (model={MODEL_GEMINI_PRO})...")
             response = client.models.generate_content(
-                model=MODEL_GEMINI_FLASH,
+                model=MODEL_GEMINI_PRO,
                 contents=[audio_file, prompt_text],
                 config=types.GenerateContentConfig(
                     temperature=0.0,
@@ -335,6 +348,22 @@ class MusicAnalyzer:
             temp_path = _secure_temp_path("gemini_align_upload", ext)
             shutil.copy2(audio_path, temp_path)
 
+            # 실제 업로드할 오디오 파일의 duration 확인
+            actual_audio_dur = 0.0
+            try:
+                import subprocess as _sp
+                _probe = _sp.run(
+                    ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", temp_path],
+                    capture_output=True, text=True, timeout=10
+                )
+                actual_audio_dur = float(_probe.stdout.strip())
+            except Exception:
+                pass
+            logger.info(f"  [Lyrics-Align] Audio file: {os.path.basename(audio_path)}, actual_duration={actual_audio_dur:.1f}s, claimed_duration={audio_duration_sec:.1f}s")
+            if audio_duration_sec > 0 and actual_audio_dur > 0 and abs(actual_audio_dur - audio_duration_sec) > 5.0:
+                logger.warning(f"  [Lyrics-Align] ⚠ DURATION MISMATCH: audio file is {actual_audio_dur:.1f}s but claimed {audio_duration_sec:.1f}s — alignment may be wrong!")
+
             try:
                 audio_file = client.files.upload(file=temp_path)
                 logger.info(f"  [Lyrics-Align] File uploaded: {audio_file.name}")
@@ -400,9 +429,9 @@ class MusicAnalyzer:
                 '{"index": 5, "start": 0, "end": 0, "text": "unheard line", "unheard": true}, ...]\n'
             )
 
-            logger.info(f"  [Lyrics-Align] Aligning {len(lyrics_lines)} lines to audio...")
+            logger.info(f"  [Lyrics-Align] Aligning {len(lyrics_lines)} lines to audio (model={MODEL_GEMINI_PRO})...")
             response = client.models.generate_content(
-                model=MODEL_GEMINI_FLASH,
+                model=MODEL_GEMINI_PRO,
                 contents=[audio_file, prompt_text],
                 config=types.GenerateContentConfig(
                     temperature=0.0,

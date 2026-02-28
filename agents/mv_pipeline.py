@@ -247,7 +247,16 @@ class MVPipeline:
 
             elapsed = time.time() - start_t
             size_mb = len(resp.content) / (1024 * 1024)
-            logger.info(f"  [Demucs-Replicate] Vocals saved: {vocals_path} ({size_mb:.1f}MB, {elapsed:.1f}s)")
+
+            # 보컬 파일 실제 duration 확인
+            vocals_duration = 0.0
+            try:
+                from agents.subtitle_utils import ffprobe_duration_sec
+                vocals_duration = ffprobe_duration_sec(vocals_path)
+            except Exception:
+                pass
+            logger.info(f"  [Demucs-Replicate] Vocals saved: {vocals_path} ({size_mb:.1f}MB, duration={vocals_duration:.1f}s, elapsed={elapsed:.1f}s)")
+
             return vocals_path
 
         except Exception as e:
