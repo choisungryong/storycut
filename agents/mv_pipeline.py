@@ -1625,10 +1625,15 @@ class MVPipeline:
 
             logger.info(f"    [Fallback {i+1}/{len(characters)}] Generating anchor: {character.role}")
 
+            # 성별 기반 매력 키워드 (description 앞에 배치)
+            _desc_lower = character.description.lower()
+            _beauty = "very beautiful gorgeous" if any(kw in _desc_lower for kw in ("female", "woman", "girl", "여성", "여자", "소녀")) else \
+                      "very handsome attractive" if any(kw in _desc_lower for kw in ("male", "man", "boy", "남성", "남자", "소년")) else \
+                      "very attractive good-looking"
             portrait_prompt = (
                 f"cinematic close-up portrait, face and shoulders, beautiful volumetric lighting, "
                 f"soft bokeh background, sharp focus on eyes, "
-                f"{character.description}"
+                f"{_beauty}, {character.description}"
             )
             if getattr(character, 'unique_features', ''):
                 portrait_prompt += f", MANDATORY IDENTIFYING MARKS at EXACT positions (DO NOT relocate/mirror): {character.unique_features}"

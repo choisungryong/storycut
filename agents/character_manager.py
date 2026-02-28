@@ -340,8 +340,13 @@ class CharacterManager:
                     gender = g
                     break
 
-            # 인종 키워드를 appearance에 주입
-            appearance = char.description
+            # 매력 키워드를 appearance 앞에 주입 (Gemini는 앞부분 토큰을 더 중시)
+            _beauty_prefix = {
+                "male": "very handsome attractive",
+                "female": "very beautiful gorgeous",
+                "unknown": "very attractive good-looking",
+            }
+            appearance = f"{_beauty_prefix[gender]}, {char.description}"
             ethnicity_val = getattr(project, 'character_ethnicity', None)
             if ethnicity_val and str(ethnicity_val.value) != "auto":
                 eth_keyword = ETH_KEYWORD_MAP.get(str(ethnicity_val.value), "")
