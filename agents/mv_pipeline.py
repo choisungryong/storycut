@@ -4702,7 +4702,7 @@ class MVPipeline:
     # 자막 테스트 (이미지 생성 없이 음악 + 자막 프리뷰)
     # ================================================================
 
-    def subtitle_test(self, project: MVProject) -> MVProject:
+    def subtitle_test(self, project: MVProject, use_demucs: bool = True) -> MVProject:
         """
         이미지 생성 없이 음악 + 자막만 프리뷰하는 테스트 모드.
         프로덕션 _final_render와 동일한 ASS(pysubs2) + ass= 필터 사용.
@@ -4748,17 +4748,27 @@ class MVPipeline:
             if cached_timed and hasattr(cached_timed, 'timed_lyrics') and cached_timed.timed_lyrics:
                 cached_timed_lyrics = cached_timed.timed_lyrics
 
-            if os.path.exists(aligner_ass) and cached_timed_lyrics and len(cached_timed_lyrics) >= 2:
+            # use_demucs=False면 캐시 무시하고 원본 음악으로 강제 재정렬
+            _force_realign = not use_demucs
+            if not _force_realign and os.path.exists(aligner_ass) and cached_timed_lyrics and len(cached_timed_lyrics) >= 2:
                 logger.info(f"  [SubTest] Reusing cached aligner ASS + timed_lyrics ({len(cached_timed_lyrics)} entries) -> {aligner_ass}")
                 timed = cached_timed_lyrics
             else:
-                project.current_step = "보컬 분리 + Gemini 가사 정렬 중..."
+                if use_demucs:
+                    project.current_step = "보컬 분리 + Gemini 가사 정렬 중..."
+                else:
+                    project.current_step = "원본 음악으로 Gemini 가사 정렬 중 (Demucs 미적용)..."
                 self._save_manifest(project, project_dir)
 
-                vocals_path = os.path.join(project_dir, "music", "vocals.wav")
-                if not os.path.exists(vocals_path):
-                    vocals_path = self._separate_vocals(project.music_file_path, project_dir)
-                audio_for_align = vocals_path or project.music_file_path
+                if use_demucs:
+                    vocals_path = os.path.join(project_dir, "music", "vocals.wav")
+                    if not os.path.exists(vocals_path):
+                        vocals_path = self._separate_vocals(project.music_file_path, project_dir)
+                    audio_for_align = vocals_path or project.music_file_path
+                    logger.info(f"  [SubTest] Using Demucs vocals: {audio_for_align}")
+                else:
+                    audio_for_align = project.music_file_path
+                    logger.info(f"  [SubTest] Using original music (no Demucs): {audio_for_align}")
 
                 # Gemini alignment (보컬 분리 파일 + 가사 원문)
                 from utils.lyrics_aligner import generate_from_gemini_alignment

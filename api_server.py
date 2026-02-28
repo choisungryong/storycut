@@ -4162,15 +4162,28 @@ async def mv_compose(project_id: str):
     return {"status": "composing", "project_id": project_id}
 
 @app.post("/api/mv/subtitle-test/{project_id}")
-async def mv_subtitle_test(project_id: str):
+async def mv_subtitle_test(project_id: str, raw_request: Request):
     """
     이미지 생성 없이 음악 + 자막만 프리뷰하는 테스트 모드.
     기존 프로젝트의 가사 + 음악으로 STT 정렬 -> ASS 자막 -> 검은 배경 영상 생성.
     소요: ~30초 (STT + FFmpeg only)
+    ?use_demucs=false 로 보컬 분리 없이 원본 음악으로 정렬 테스트 가능.
     """
     validate_project_id(project_id)
     from agents.mv_pipeline import MVPipeline
     import threading
+
+    # query param 또는 body에서 use_demucs 추출
+    use_demucs = True
+    try:
+        body = await raw_request.json()
+        use_demucs = body.get("use_demucs", True)
+    except Exception:
+        pass
+    # query param 우선
+    q_demucs = raw_request.query_params.get("use_demucs")
+    if q_demucs is not None:
+        use_demucs = q_demucs.lower() not in ("false", "0", "no")
 
     pipeline = MVPipeline()
     project = pipeline.load_project(project_id)
@@ -4183,12 +4196,11 @@ async def mv_subtitle_test(project_id: str):
 
     def run_subtitle_test():
         try:
-            logger.info(f"[Subtitle Test Thread] Starting for {project_id}")
-            pipeline.subtitle_test(project)
+            logger.info(f"[Subtitle Test Thread] Starting for {project_id} (use_demucs={use_demucs})")
+            pipeline.subtitle_test(project, use_demucs=use_demucs)
             logger.info(f"[Subtitle Test Thread] Complete for {project_id}")
         except Exception as e:
             logger.error(f"[Subtitle Test Thread] Error: {e}")
-
             logger.exception("Unhandled exception")
 
     thread = threading.Thread(target=run_subtitle_test, daemon=True)
@@ -4197,7 +4209,8 @@ async def mv_subtitle_test(project_id: str):
     return {
         "project_id": project_id,
         "status": "generating",
-        "message": "Subtitle test started. Check outputs/{project_id}/final_mv_subtitle_test.mp4",
+        "use_demucs": use_demucs,
+        "message": f"Subtitle test started (demucs={'ON' if use_demucs else 'OFF'})",
     }
 
 @app.get("/api/mv/subtitle-debug/{project_id}")

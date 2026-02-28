@@ -3652,6 +3652,12 @@ class StorycutApp {
         document.getElementById('mv-subtitle-test-btn')?.addEventListener('click', () => {
             this.mvSubtitleTest();
         });
+
+        // 자막 전용 테스트 토글 → Demucs 옵션 표시/숨김
+        document.getElementById('mv-subtitle-only')?.addEventListener('change', (e) => {
+            const demucsWrap = document.getElementById('mv-subtitle-demucs-wrap');
+            if (demucsWrap) demucsWrap.style.display = e.target.checked ? '' : 'none';
+        });
     }
 
     async uploadAndAnalyzeMusic() {
@@ -4846,9 +4852,11 @@ class StorycutApp {
 
         try {
             const baseUrl = this.getApiBaseUrl();
+            const useDemucs = document.getElementById('mv-subtitle-demucs')?.checked !== false;
             const response = await fetch(`${baseUrl}/api/mv/subtitle-test/${projectId}`, {
                 method: 'POST',
-                headers: this.getAuthHeaders()
+                headers: { ...this.getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ use_demucs: useDemucs })
             });
 
             if (!response.ok) {
@@ -4856,7 +4864,8 @@ class StorycutApp {
                 throw new Error(err.detail || 'Subtitle test failed');
             }
 
-            this.showToast('자막 테스트 생성 중... 완료되면 자동으로 미리보기가 열립니다.', 'success');
+            const demucsLabel = useDemucs ? 'Demucs 적용' : 'Demucs 미적용 (원본)';
+            this.showToast(`자막 테스트 생성 중 (${demucsLabel})... 완료되면 자동으로 미리보기가 열립니다.`, 'success');
 
             // 폴링으로 완료 대기 (5초 간격, 최대 5분)
             const maxAttempts = 60;
