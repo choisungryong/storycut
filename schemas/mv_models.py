@@ -276,6 +276,9 @@ class MVProjectRequest(BaseModel):
     # 프리뷰 길이 제한 (퀵 테스트: 앞 45초만 빠르게 생성)
     preview_duration_sec: Optional[float] = Field(None, description="프리뷰 길이(초), None=전체 곡")
 
+    # 자동 진행 모드 (리뷰 스킵)
+    auto_compose: bool = Field(default=False, description="자동 생성 모드 - 캐릭터/이미지 리뷰 없이 자동 진행")
+
     # 수동 씬 분할 (Phase 1)
     manual_scenes: Optional[List[Dict[str, Any]]] = Field(
         None,
@@ -337,6 +340,9 @@ class MVProject(BaseModel):
 
     # 프리뷰 모드 (퀵 테스트에서 설정, compose_video에서 음악 트림에 사용)
     preview_duration_sec: Optional[float] = Field(None, description="프리뷰 길이(초), None=전체 곡")
+
+    # 자동 진행 모드
+    auto_compose: bool = Field(default=False, description="자동 생성 모드 - 캐릭터/이미지 리뷰 없이 자동 진행")
 
     # Visual Bible (Pass 1에서 생성)
     visual_bible: Optional[VisualBible] = Field(None, description="비주얼 바이블")

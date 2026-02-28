@@ -3616,6 +3616,95 @@ async def mv_generate(request: MVProjectRequest, background_tasks: BackgroundTas
                 except Exception:
                     logger.debug("Silent exception caught", exc_info=True)
 
+            # ── Auto-compose: 리뷰 스킵하고 자동 진행 ──
+            if getattr(request, 'auto_compose', False):
+                logger.info(f"[MV Thread] Auto-compose mode: skipping review, continuing to image generation")
+                try:
+                    # Phase A-2: 이미지 생성
+                    project_updated.status = MVProjectStatus.GENERATING
+                    project_updated.progress = 45
+                    project_updated.current_step = "자동 모드 - 씬 이미지 생성 중"
+                    pipeline._save_manifest(project_updated, project_dir)
+
+                    project_updated = pipeline.run_from_images(project_updated, request)
+                    logger.info(f"[MV Thread] Auto-compose: images ready")
+
+                    # R2에 매니페스트 업로드 (images_ready)
+                    try:
+                        manifest_path = f"{project_dir}/manifest.json"
+                        if os.path.exists(manifest_path):
+                            if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
+                                logger.info(f"[MV Thread] Auto-compose: manifest uploaded (images_ready)")
+                    except Exception as e:
+                        logger.error(f"[MV Thread] Auto-compose R2 manifest error (non-fatal): {e}")
+
+                    # Phase A-3: 최종 합성
+                    project_updated.status = MVProjectStatus.COMPOSING
+                    project_updated.progress = 75
+                    project_updated.current_step = "자동 모드 - 영상 합성 중"
+                    pipeline._save_manifest(project_updated, project_dir)
+
+                    # 음악 파일 R2 복원 (Railway 재배포 시 소실 대비)
+                    if project_updated.music_file_path and not os.path.exists(project_updated.music_file_path):
+                        try:
+                            music_filename = os.path.basename(project_updated.music_file_path)
+                            os.makedirs(os.path.dirname(project_updated.music_file_path), exist_ok=True)
+                            r2_key = f"music/{project_id}/{music_filename}"
+                            r2_data = storage_manager.get_object(r2_key)
+                            if r2_data:
+                                with open(project_updated.music_file_path, 'wb') as f:
+                                    f.write(r2_data)
+                                logger.info(f"[MV Thread] Auto-compose: music restored from R2")
+                        except Exception as e:
+                            logger.error(f"[MV Thread] Auto-compose: music restore failed: {e}")
+
+                    pipeline.compose_video(project_updated)
+                    logger.info(f"[MV Thread] Auto-compose: composition complete")
+
+                    # R2에 최종 결과물 업로드 (mv_compose 엔드포인트와 동일 패턴)
+                    try:
+                        # 1. 최종 비디오 업로드
+                        if project_updated.final_video_path and os.path.exists(project_updated.final_video_path):
+                            r2_key = f"videos/{project_id}/final_video.mp4"
+                            if storage.upload_file(project_updated.final_video_path, r2_key):
+                                logger.info(f"[MV Thread] Auto-compose: video uploaded to R2")
+
+                        # 2. 씬 이미지 업로드 + 경로 URL 변환
+                        for scene in project_updated.scenes:
+                            if scene.image_path and os.path.exists(scene.image_path):
+                                img_filename = os.path.basename(scene.image_path)
+                                img_r2_key = f"images/{project_id}/{img_filename}"
+                                if storage.upload_file(scene.image_path, img_r2_key):
+                                    scene.image_path = f"{backend_url}/api/asset/{project_id}/image/{img_filename}"
+
+                        # 3. 음악 파일 업로드
+                        if project_updated.music_file_path and os.path.exists(project_updated.music_file_path):
+                            music_filename = os.path.basename(project_updated.music_file_path)
+                            music_r2_key = f"music/{project_id}/{music_filename}"
+                            if storage.upload_file(project_updated.music_file_path, music_r2_key):
+                                logger.info(f"[MV Thread] Auto-compose: music uploaded to R2")
+
+                        # 4. 매니페스트 저장 + R2 업로드
+                        pipeline._save_manifest(project_updated, project_dir)
+                        manifest_path = f"{project_dir}/manifest.json"
+                        if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
+                            logger.info(f"[MV Thread] Auto-compose: final manifest uploaded to R2")
+
+                        logger.info(f"[MV Thread] Auto-compose: all assets uploaded for {project_id}")
+                    except Exception as e:
+                        logger.error(f"[MV Thread] Auto-compose R2 upload error (non-fatal): {e}")
+
+                except Exception as e:
+                    logger.error(f"[MV Thread] Auto-compose error: {e}")
+                    logger.exception("Unhandled exception")
+                    try:
+                        project_updated.status = MVProjectStatus.FAILED
+                        project_updated.error_message = str(e)[:500]
+                        project_updated.progress = 0
+                        pipeline._save_manifest(project_updated, project_dir)
+                    except Exception:
+                        logger.debug("Silent exception caught", exc_info=True)
+
         except Exception as e:
             logger.error(f"[MV Thread] Error: {e}")
 

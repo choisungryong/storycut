@@ -3897,6 +3897,9 @@ class StorycutApp {
             btn.innerHTML = '<span class="btn-icon">⏳</span> 생성 요청 중...';
         }
 
+        // auto_compose 플래그 저장 (폴링에서 사용)
+        this.mvAutoCompose = document.getElementById('mv-auto-compose')?.checked || false;
+
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/mv/generate`, {
@@ -3915,6 +3918,7 @@ class StorycutApp {
                     watermark_enabled: this._shouldShowWatermark(),
                     max_scenes: document.getElementById('mv-quick-test')?.checked ? 5 : null,
                     preview_duration_sec: document.getElementById('mv-quick-test')?.checked ? 45 : null,
+                    auto_compose: document.getElementById('mv-auto-compose')?.checked || false,
                     scene_descriptions: sceneDescriptions
                 })
             });
@@ -4002,16 +4006,28 @@ class StorycutApp {
 
                 // 상태별 처리
                 if (data.status === 'anchors_ready') {
-                    this.mvAddLog('SUCCESS', 'Character anchors ready. Moving to review.');
-                    this.updateMVProgress(40, '캐릭터 앵커 리뷰 대기');
-                    this.stopMVPolling();
-                    this.showMVCharacterReview(projectId, data.characters || []);
+                    if (this.mvAutoCompose) {
+                        this.mvAddLog('SUCCESS', 'Character anchors ready. Auto mode: continuing...');
+                        this.updateMVProgress(40, '캐릭터 생성 완료 → 이미지 생성 중...');
+                        // 폴링 계속 (멈추지 않음)
+                    } else {
+                        this.mvAddLog('SUCCESS', 'Character anchors ready. Moving to review.');
+                        this.updateMVProgress(40, '캐릭터 앵커 리뷰 대기');
+                        this.stopMVPolling();
+                        this.showMVCharacterReview(projectId, data.characters || []);
+                    }
 
                 } else if (data.status === 'images_ready') {
-                    this.mvAddLog('SUCCESS', 'Image generation complete. Moving to review.');
-                    this.updateMVProgress(70, '이미지 리뷰 대기');
-                    this.stopMVPolling();
-                    this.showMVImageReview(projectId);
+                    if (this.mvAutoCompose) {
+                        this.mvAddLog('SUCCESS', 'Images ready. Auto mode: composing...');
+                        this.updateMVProgress(70, '이미지 생성 완료 → 영상 합성 중...');
+                        // 폴링 계속 (멈추지 않음)
+                    } else {
+                        this.mvAddLog('SUCCESS', 'Image generation complete. Moving to review.');
+                        this.updateMVProgress(70, '이미지 리뷰 대기');
+                        this.stopMVPolling();
+                        this.showMVImageReview(projectId);
+                    }
 
                 } else if (data.status === 'completed') {
                     this.mvAddLog('SUCCESS', 'Music video generation complete!');
