@@ -4780,10 +4780,14 @@ class StorycutApp {
         }
 
         try {
-            const baseUrl = this.getApiBaseUrl();
+            // compose는 장시간 소요될 수 있으므로 Railway 직접 호출
+            const baseUrl = this.getMediaBaseUrl();
+            const token = localStorage.getItem('token');
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
             const response = await fetch(`${baseUrl}/api/mv/compose/${projectId}`, {
                 method: 'POST',
-                headers: this.getAuthHeaders()
+                headers
             });
 
             if (!response.ok) {
