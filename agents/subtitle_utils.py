@@ -9,10 +9,13 @@ logger = get_logger("subtitle_utils")
 
 
 # 괄호 없는 섹션 마커 패턴 (대소문자 무시)
+# "Chorus", "Scene 2", "Chorus — 꿈을 세우다", "Scene 1 — 만남" 등 모두 매칭
 _SECTION_BARE_RE = re.compile(
     r'^(?:verse|chorus|pre[-\s]?chorus|post[-\s]?chorus|hook|bridge|'
-    r'outro|intro|interlude|instrumental|refrain|final\s+chorus|rap)'
-    r'\s*\d*\s*$',
+    r'outro|intro|interlude|instrumental|refrain|final\s+chorus|rap|scene)'
+    r'(?:\s*\d*)'            # 선택적 번호 (Scene 1, Verse 2)
+    r'(?:\s*[-—:].+)?'       # 선택적 부제 (— 만남, : 시련)
+    r'\s*$',
     re.IGNORECASE
 )
 
