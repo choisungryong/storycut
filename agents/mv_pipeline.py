@@ -2343,6 +2343,49 @@ class MVPipeline:
 
         return prompt
 
+    def _resolve_anchor_path(self, url_or_path: str, project_dir: str) -> Optional[str]:
+        """HTTP URL 또는 로컬 경로를 실제 로컬 파일 경로로 변환.
+        R2 URL인 경우 로컬 경로 역변환 → 없으면 R2 다운로드."""
+        if not url_or_path:
+            return None
+
+        # 이미 로컬 파일이면 그대로 반환
+        if os.path.exists(url_or_path):
+            return url_or_path
+
+        # HTTP URL → 로컬 경로 역변환 시도
+        if url_or_path.startswith('http'):
+            import re as _re
+            # /api/asset/{project_id}/image/{filename} 패턴
+            m = _re.search(r'/api/asset/[^/]+/images?/(.+)', url_or_path)
+            if m:
+                filename = m.group(1)
+                # characters/ 경로와 images/ 경로 모두 탐색
+                for subdir in ['media/characters', 'media/images']:
+                    local_path = os.path.join(project_dir, subdir, filename)
+                    if os.path.exists(local_path):
+                        logger.info(f"    [AnchorResolve] URL→local: {filename} → {local_path}")
+                        return local_path
+
+                # 로컬에 없으면 R2에서 다운로드
+                try:
+                    from utils.storage import StorageManager
+                    storage = StorageManager()
+                    project_id = os.path.basename(project_dir)
+                    r2_key = f"images/{project_id}/{filename}"
+                    r2_data = storage.get_object(r2_key)
+                    if r2_data:
+                        dl_path = os.path.join(project_dir, 'media', 'characters', filename)
+                        os.makedirs(os.path.dirname(dl_path), exist_ok=True)
+                        with open(dl_path, 'wb') as f:
+                            f.write(r2_data)
+                        logger.info(f"    [AnchorResolve] R2 download: {r2_key} → {dl_path}")
+                        return dl_path
+                except Exception as e:
+                    logger.error(f"    [AnchorResolve] R2 download failed: {e}")
+
+        return None
+
     def _get_character_anchors_for_scene(self, project: MVProject, scene: MVScene) -> List[str]:
         """씬에 등장하는 캐릭터의 앵커 이미지 경로 반환 (최대 5개, shot_type 기반 포즈 선택)"""
         logger.info(f"    [AnchorDebug] scene={scene.scene_id} chars={scene.characters_in_scene}")
@@ -2350,6 +2393,7 @@ class MVPipeline:
             logger.info(f"    [AnchorDebug] NO visual_bible or no characters → returning []")
             return []
 
+        project_dir = self._get_project_dir(project)
         vb_roles = [c.role for c in project.visual_bible.characters]
         logger.info(f"    [AnchorDebug] VB roles={vb_roles}")
 
@@ -2393,19 +2437,19 @@ class MVPipeline:
             # 포즈별 앵커에서 최적 포즈 선택
             if char.anchor_poses and target_pose in char.anchor_poses:
                 pose_path = char.anchor_poses[target_pose]
-                exists = os.path.exists(pose_path)
-                logger.info(f"    [AnchorDebug] role='{role}' pose={target_pose} path={pose_path} exists={exists}")
-                if exists:
-                    results.append(pose_path)
+                resolved = self._resolve_anchor_path(pose_path, project_dir)
+                logger.info(f"    [AnchorDebug] role='{role}' pose={target_pose} path={pose_path} resolved={resolved}")
+                if resolved:
+                    results.append(resolved)
                     continue
             else:
                 logger.info(f"    [AnchorDebug] role='{role}' anchor_poses={list(char.anchor_poses.keys()) if char.anchor_poses else None} target={target_pose} → no match")
             # 폴백: 기본 anchor_image_path
             if char.anchor_image_path:
-                exists = os.path.exists(char.anchor_image_path)
-                logger.info(f"    [AnchorDebug] role='{role}' fallback={char.anchor_image_path} exists={exists}")
-                if exists:
-                    results.append(char.anchor_image_path)
+                resolved = self._resolve_anchor_path(char.anchor_image_path, project_dir)
+                logger.info(f"    [AnchorDebug] role='{role}' fallback={char.anchor_image_path} resolved={resolved}")
+                if resolved:
+                    results.append(resolved)
             else:
                 logger.info(f"    [AnchorDebug] role='{role}' NO anchor_image_path")
         logger.info(f"    [AnchorDebug] scene={scene.scene_id} → returning {len(results)} anchors")
@@ -2704,6 +2748,23 @@ class MVPipeline:
 
         total_scenes = len(project.scenes)
         project.current_step = "이미지 생성 중..."
+
+        # CharacterQA 초기화 (새 MVPipeline 인스턴스에서도 동작하도록)
+        if not getattr(self, '_character_qa', None):
+            if project.visual_bible and project.visual_bible.characters:
+                try:
+                    from agents.character_qa import CharacterQA
+                    self._character_qa = CharacterQA(threshold=0.45)
+                    for char in project.visual_bible.characters:
+                        anchor_path = self._resolve_anchor_path(
+                            char.anchor_image_path, project_dir
+                        ) if char.anchor_image_path else None
+                        if anchor_path:
+                            self._character_qa.register_anchor(char.role, anchor_path)
+                            logger.info(f"    [CharacterQA] Registered: {char.role}")
+                except Exception as e:
+                    logger.error(f"    [CharacterQA] Init failed (non-fatal): {e}")
+                    self._character_qa = None
 
         # v3.0: 전용 스타일 앵커 사용 (scene_01 의존 제거)
         style_anchor_path = project.style_anchor_path
@@ -5653,12 +5714,18 @@ class MVPipeline:
             pass
         return "Sans"
 
+    # 상태 순서 (역행 방지용) — FAILED/CANCELLED은 어디서든 전환 가능
+    _STATUS_ORDER = {
+        "uploaded": 0, "analyzing": 1, "ready": 2, "generating": 3,
+        "anchors_ready": 4, "images_ready": 5, "composing": 6, "completed": 7,
+    }
+
     def _save_manifest(self, project: MVProject, project_dir: str):
         """매니페스트 저장 (atomic write + Windows 파일 잠금 retry)"""
         manifest_path = f"{project_dir}/manifest.json"
         temp_path = f"{manifest_path}.tmp"
 
-        # progress 역행 방지: 기존 manifest의 progress보다 낮으면 유지
+        # progress + status 역행 방지
         if os.path.exists(manifest_path):
             try:
                 with open(manifest_path, 'r', encoding='utf-8') as f:
@@ -5666,6 +5733,15 @@ class MVPipeline:
                 old_progress = existing.get("progress", 0)
                 if project.progress < old_progress:
                     project.progress = old_progress
+
+                # status 역행 방지: FAILED/CANCELLED은 허용, 그 외는 순서 체크
+                old_status = existing.get("status", "")
+                new_status = project.status.value if hasattr(project.status, 'value') else str(project.status)
+                old_rank = self._STATUS_ORDER.get(old_status, -1)
+                new_rank = self._STATUS_ORDER.get(new_status, -1)
+                if new_rank >= 0 and old_rank >= 0 and new_rank < old_rank:
+                    logger.warning(f"  [Manifest] Status regression blocked: {old_status} → {new_status}, keeping {old_status}")
+                    project.status = MVProjectStatus(old_status)
             except Exception:
                 pass
 

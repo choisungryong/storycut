@@ -4413,6 +4413,11 @@ async def mv_recompose(project_id: str):
     if project.status == MVProjectStatus.COMPOSING:
         raise HTTPException(status_code=400, detail="composition_already_in_progress")
 
+    # 즉시 COMPOSING 상태로 전환 (폴링이 이전 상태를 보지 않도록)
+    project.status = MVProjectStatus.COMPOSING
+    project.current_step = "리컴포즈 준비 중"
+    pipeline._save_manifest(project, f"outputs/{project_id}")
+
     def run_recompose():
         try:
             logger.info(f"[MV Recompose Thread] Starting recompose for {project_id}")

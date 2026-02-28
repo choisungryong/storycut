@@ -4438,6 +4438,8 @@ class StorycutApp {
                     this.showToast('캐릭터를 재생성합니다', 'success');
                     this.showSection('mv-progress');
                     this.updateMVProgress(30, '캐릭터 앵커 재생성 중...');
+                    // 재생성이므로 단계 역행 방지를 리셋 (anchors_ready 복귀 허용)
+                    this._mvMinStageIdx = 0;
                     this.startMVPolling(projectId);
 
                 } catch (error) {
