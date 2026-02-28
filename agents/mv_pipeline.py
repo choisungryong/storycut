@@ -4193,6 +4193,11 @@ class MVPipeline:
         logger.info(f"\n[Step 4] Composing final video...")
 
         project_dir = self._get_project_dir(project)
+
+        # 출력 디렉토리 보장 (비동기 업로드 또는 재배포 시 누락 방지)
+        os.makedirs(f"{project_dir}/media/video", exist_ok=True)
+        os.makedirs(f"{project_dir}/media/subtitles", exist_ok=True)
+
         project.status = MVProjectStatus.COMPOSING
         project.current_step = "영상 합성 중..."
         project.progress = 75
