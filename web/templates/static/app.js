@@ -3691,7 +3691,8 @@ class StorycutApp {
             formData.append('mood', document.getElementById('mv-mood').value);
             formData.append('style', document.getElementById('mv-style').value);
 
-            const baseUrl = this.getApiBaseUrl();
+            // MV 업로드는 Demucs 분석에 100초+ 소요 → Cloudflare Worker 100초 제한 우회를 위해 Railway 직접 호출
+            const baseUrl = this.getMediaBaseUrl();
             const token = localStorage.getItem('token');
             const headers = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
