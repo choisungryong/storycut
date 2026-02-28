@@ -300,6 +300,13 @@ class MusicAnalyzer:
 
             if valid:
                 logger.info(f"  [Gemini-STT] Got {len(valid)} segments: {valid[0]['start']}s ~ {valid[-1]['end']}s")
+                # 세그먼트별 상세 로그 (5개씩 묶어서)
+                _stt_lines = []
+                for s in valid:
+                    _stt_lines.append(f"{s['start']:.1f}~{s['end']:.1f} '{s['text'][:15]}'")
+                for i in range(0, len(_stt_lines), 5):
+                    chunk = " | ".join(_stt_lines[i:i+5])
+                    logger.info(f"  [Gemini-STT] {chunk}")
             else:
                 logger.info(f"  [Gemini-STT] No valid segments")
                 return None
@@ -484,15 +491,20 @@ class MusicAnalyzer:
 
             valid.sort(key=lambda x: x["start"])
 
-            # ── Raw Gemini timestamps log (per-line) ──
+            # ── Raw Gemini timestamps log (compact single-line per entry) ──
             logger.info(f"  [Lyrics-Align] === Gemini Raw Timestamps ({len(valid)} lines) ===")
             prev_end = 0.0
+            _ts_lines = []
             for v in valid:
                 gap = v["start"] - prev_end
-                gap_str = f"  [GAP {gap:.1f}s]" if gap > 2.0 else ""
+                gap_str = f" [GAP {gap:.1f}s]" if gap > 5.0 else ""
                 dur = v["end"] - v["start"]
-                logger.info(f"    [{v['index']:2d}] {v['start']:6.1f}s ~ {v['end']:6.1f}s ({dur:.1f}s) '{v['text'][:35]}'{gap_str}")
+                _ts_lines.append(f"[{v['index']:2d}] {v['start']:.1f}~{v['end']:.1f}({dur:.1f}s){gap_str} '{v['text'][:20]}'")
                 prev_end = v["end"]
+            # 5줄씩 묶어서 출력 (Railway 로그 유실 방지)
+            for i in range(0, len(_ts_lines), 5):
+                chunk = " | ".join(_ts_lines[i:i+5])
+                logger.info(f"  [Lyrics-Align] {chunk}")
             logger.info(f"  [Lyrics-Align] === End Timestamps ===")
 
             if valid:
