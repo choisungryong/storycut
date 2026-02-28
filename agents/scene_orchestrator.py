@@ -1594,8 +1594,8 @@ JSON 형식으로 출력:
                                             _f.write(_resp.content)
                                         char_refs.append(_dl_path)
                                         logger.info(f"  [R2->Local] Downloaded master anchor for '{char_token}'")
-                                except Exception:
-                                    pass
+                                except Exception as _dl_err2:
+                                    logger.error(f"  [WARNING] Master anchor download failed for '{char_token}': {_dl_err2}")
                             else:
                                 logger.warning(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
                     logger.info(f"  [ANCHOR] Scene {scene.scene_id}: chars={scene.characters_in_scene}, refs={len(char_refs)} paths={char_refs}")
