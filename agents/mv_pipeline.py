@@ -4748,8 +4748,9 @@ class MVPipeline:
             if cached_timed and hasattr(cached_timed, 'timed_lyrics') and cached_timed.timed_lyrics:
                 cached_timed_lyrics = cached_timed.timed_lyrics
 
-            # use_demucs=False면 캐시 무시하고 원본 음악으로 강제 재정렬
-            _force_realign = not use_demucs
+            # 자막 테스트 모드는 비교 목적이므로 항상 새로 정렬
+            # (BG-Analyze 캐시 재사용하면 Demucs ON/OFF 비교 불가)
+            _force_realign = True
             if not _force_realign and os.path.exists(aligner_ass) and cached_timed_lyrics and len(cached_timed_lyrics) >= 2:
                 logger.info(f"  [SubTest] Reusing cached aligner ASS + timed_lyrics ({len(cached_timed_lyrics)} entries) -> {aligner_ass}")
                 timed = cached_timed_lyrics
