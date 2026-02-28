@@ -4502,7 +4502,26 @@ class MVPipeline:
                     except Exception as _r2_err:
                         logger.error(f"    [R2] ASS restore failed: {_r2_err}")
 
+                # ASS 커버리지 검증: Dialogue 라인 수가 원본 가사의 60% 미만이면 품질 불량 → 재생성
+                _ass_ok = False
                 if os.path.exists(gemini_ass) and os.path.getsize(gemini_ass) > 100:
+                    try:
+                        with open(gemini_ass, 'r', encoding='utf-8') as _af:
+                            _ass_dialogue_count = sum(1 for _l in _af if _l.startswith('Dialogue:'))
+                        _coverage = _ass_dialogue_count / max(n_lines, 1)
+                        if _coverage >= 0.60:
+                            _ass_ok = True
+                            logger.info(f"    [ASS QA] {_ass_dialogue_count}/{n_lines} lines ({_coverage:.0%}) - PASS")
+                        else:
+                            logger.warning(f"    [ASS QA] {_ass_dialogue_count}/{n_lines} lines ({_coverage:.0%}) - FAIL, will regenerate")
+                            # 불량 ASS 백업 후 삭제
+                            import shutil
+                            shutil.move(gemini_ass, gemini_ass + ".bak")
+                    except Exception as _qe:
+                        logger.error(f"    [ASS QA] Error: {_qe}")
+                        _ass_ok = os.path.exists(gemini_ass)
+
+                if _ass_ok:
                     srt_path = gemini_ass
                     timeline_mode = "gemini_aligned_reuse"
                     logger.info(f"    [Reuse] Gemini-aligned ASS found ({os.path.getsize(gemini_ass):,} bytes) -> {srt_path}")
@@ -4511,67 +4530,97 @@ class MVPipeline:
                     timeline_mode = "gemini_aligned_reuse_srt"
                     logger.info(f"    [Reuse] Gemini-aligned SRT found ({os.path.getsize(gemini_srt):,} bytes) -> {srt_path}")
                 else:
-                    # Gemini 정렬 파일 없음 -> STT fallback
-                    logger.info(f"    [No Gemini ASS] Falling back to STT alignment...")
-                    audio_duration = _cached_audio_duration
+                    # ASS QA 실패 또는 Gemini 정렬 파일 없음 → 보컬 파일로 재정렬 시도
+                    _vocals_path = os.path.join(project_dir, "music", "vocals.wav")
+                    _audio_dur = _cached_audio_duration or (project.music_analysis.duration_sec if project.music_analysis else 0)
+                    if os.path.exists(_vocals_path) and _audio_dur > 0:
+                        logger.info(f"    [Re-Align] Regenerating Gemini alignment with vocals ({_audio_dur:.1f}s)...")
+                        try:
+                            _realign = self.music_analyzer.align_lyrics_to_audio(
+                                _vocals_path, lines, _audio_dur
+                            )
+                            if _realign and len(_realign) >= n_lines * 0.6:
+                                from utils.lyrics_aligner import generate_from_gemini_alignment
+                                _sub_dir = os.path.join(project_dir, "media", "subtitles")
+                                os.makedirs(_sub_dir, exist_ok=True)
+                                _new_ass = os.path.join(_sub_dir, "lyrics_gemini.ass")
+                                _new_srt = os.path.join(_sub_dir, "lyrics_gemini.srt")
+                                _caps, _new_ass, _new_srt = generate_from_gemini_alignment(
+                                    _realign, lines, _new_ass, _new_srt,
+                                    audio_duration_sec=_audio_dur
+                                )
+                                if _caps and os.path.exists(_new_ass):
+                                    srt_path = _new_ass
+                                    timeline_mode = "gemini_realigned"
+                                    logger.info(f"    [Re-Align] Success: {len(_caps)} captions -> {_new_ass}")
+                                else:
+                                    logger.warning(f"    [Re-Align] ASS generation failed, falling back to STT")
+                            else:
+                                logger.warning(f"    [Re-Align] Only {len(_realign) if _realign else 0}/{n_lines} lines, falling back to STT")
+                        except Exception as _re_err:
+                            logger.error(f"    [Re-Align] Error: {_re_err}")
 
-                    # 앵커 추정 (사용자 보정 > 세그먼트 > VAD > fallback)
-                    segments = None
-                    if project.music_analysis and project.music_analysis.segments:
-                        segments = project.music_analysis.segments
-                    anchor_info = detect_anchors(
-                        media_path=project.music_file_path,
-                        segments=segments,
-                        user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
-                        user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
-                    )
-                    logger.info(f"    Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s] method={anchor_info.method}")
+                    if timeline_mode == "none":
+                        logger.info(f"    [No Gemini ASS] Falling back to STT alignment...")
+                        audio_duration = _cached_audio_duration
 
-                    # STT 정렬 시도
-                    stt_segments = getattr(project, 'stt_segments', None)
-                    if not stt_segments:
-                        logger.info(f"    [Gemini-STT] Running audio STT for subtitle alignment...")
-                        stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
-                            project.music_file_path
+                        # 앵커 추정 (사용자 보정 > 세그먼트 > VAD > fallback)
+                        segments = None
+                        if project.music_analysis and project.music_analysis.segments:
+                            segments = project.music_analysis.segments
+                        anchor_info = detect_anchors(
+                            media_path=project.music_file_path,
+                            segments=segments,
+                            user_anchor_start=getattr(project, 'subtitle_anchor_start', None),
+                            user_anchor_end=getattr(project, 'subtitle_anchor_end', None),
                         )
+                        logger.info(f"    Anchor: [{anchor_info.anchor_start:.1f}s ~ {anchor_info.anchor_end:.1f}s] method={anchor_info.method}")
+
+                        # STT 정렬 시도
+                        stt_segments = getattr(project, 'stt_segments', None)
+                        if not stt_segments:
+                            logger.info(f"    [Gemini-STT] Running audio STT for subtitle alignment...")
+                            stt_segments = self.music_analyzer.transcribe_with_gemini_audio(
+                                project.music_file_path
+                            )
+                            if stt_segments:
+                                project.stt_segments = stt_segments
+                                logger.info(f"    [Gemini-STT] Got {len(stt_segments)} segments")
+                            else:
+                                logger.error(f"    [Gemini-STT] Failed, will use uniform distribution")
+
                         if stt_segments:
-                            project.stt_segments = stt_segments
-                            logger.info(f"    [Gemini-STT] Got {len(stt_segments)} segments")
+                            logger.info(f"    [STT-Align] Using {len(stt_segments)} STT segments for alignment...")
+                            aligned = align_lyrics_with_stt(
+                                lines, stt_segments,
+                                anchor_info.anchor_start, anchor_info.anchor_end,
+                            )
+                            timeline_mode = "stt_aligned"
+                            avg_conf = sum(a.confidence for a in aligned) / len(aligned) if aligned else 0
+                            logger.info(f"    [STT-Align] {len(aligned)} lines aligned, avg confidence={avg_conf:.1f}")
                         else:
-                            logger.error(f"    [Gemini-STT] Failed, will use uniform distribution")
+                            logger.info(f"    [Fallback] No STT segments, using uniform distribution...")
+                            timeline = clamp_timeline_anchored(
+                                lines, anchor_info.anchor_start, anchor_info.anchor_end
+                            )
+                            aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
+                            timeline_mode = "uniform_fallback"
 
-                    if stt_segments:
-                        logger.info(f"    [STT-Align] Using {len(stt_segments)} STT segments for alignment...")
-                        aligned = align_lyrics_with_stt(
-                            lines, stt_segments,
-                            anchor_info.anchor_start, anchor_info.anchor_end,
-                        )
-                        timeline_mode = "stt_aligned"
-                        avg_conf = sum(a.confidence for a in aligned) / len(aligned) if aligned else 0
-                        logger.info(f"    [STT-Align] {len(aligned)} lines aligned, avg confidence={avg_conf:.1f}")
-                    else:
-                        logger.info(f"    [Fallback] No STT segments, using uniform distribution...")
-                        timeline = clamp_timeline_anchored(
-                            lines, anchor_info.anchor_start, anchor_info.anchor_end
-                        )
-                        aligned = [AlignedSubtitle(s.start, s.end, s.text, 0.0) for s in timeline]
-                        timeline_mode = "uniform_fallback"
+                        # ASS 출력 (render_ass: 순수 문자열, pysubs2 불필요)
+                        from utils.lyrics_aligner import render_ass as _render_ass, Caption as _Caption
+                        _caps = [_Caption(a.start, a.end, a.text) for a in aligned]
+                        srt_path = gemini_ass
+                        _render_ass(_caps, srt_path)
+                        logger.info(f"    ASS: {n_lines} lines -> {srt_path}")
 
-                    # ASS 출력 (render_ass: 순수 문자열, pysubs2 불필요)
-                    from utils.lyrics_aligner import render_ass as _render_ass, Caption as _Caption
-                    _caps = [_Caption(a.start, a.end, a.text) for a in aligned]
-                    srt_path = gemini_ass
-                    _render_ass(_caps, srt_path)
-                    logger.info(f"    ASS: {n_lines} lines -> {srt_path}")
-
-                    # alignment.json 저장 (디버깅용)
-                    project.aligned_lyrics = [
-                        {"t": a.start, "end": a.end, "text": a.text, "confidence": a.confidence}
-                        for a in aligned
-                    ]
-                    alignment_path = f"{project_dir}/media/subtitles/alignment.json"
-                    with open(alignment_path, "w", encoding="utf-8") as af:
-                        json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
+                        # alignment.json 저장 (디버깅용)
+                        project.aligned_lyrics = [
+                            {"t": a.start, "end": a.end, "text": a.text, "confidence": a.confidence}
+                            for a in aligned
+                        ]
+                        alignment_path = f"{project_dir}/media/subtitles/alignment.json"
+                        with open(alignment_path, "w", encoding="utf-8") as af:
+                            json.dump(project.aligned_lyrics, af, ensure_ascii=False, indent=2)
             else:
                 logger.info(f"  [Lyrics Check] No user lyrics or subtitle disabled (subtitle_enabled={subtitle_on})")
 

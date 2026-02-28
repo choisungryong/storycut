@@ -422,7 +422,9 @@ class MusicAnalyzer:
                 "5. If you CANNOT hear a lyric line being sung anywhere in the audio, include it with '\"unheard\": true' and set start/end to 0. Do NOT invent timestamps for lines you cannot hear.\n"
                 "6. Be as precise as possible (0.1 second accuracy).\n"
                 "7. Timestamps are in SECONDS from the start of the audio file. No timestamp may exceed the audio duration.\n"
-                "8. Do NOT compress all lyrics into the first few seconds, but also do NOT place lyrics beyond where vocals actually end.\n\n"
+                "8. Do NOT compress all lyrics into the first few seconds, but also do NOT place lyrics beyond where vocals actually end.\n"
+                "9. MAXIMUM DURATION PER LINE: Each line's duration (end - start) must NOT exceed 10 seconds. "
+                "A typical sung line lasts 2-5 seconds. If you think a line spans longer, you are likely hearing an instrumental section — end the line where the singing stops.\n\n"
                 "## INSTRUMENTAL BREAKS (VERY IMPORTANT)\n"
                 "- If there is an instrumental break (no singing), there MUST be a TIME GAP in your output.\n"
                 "- Do NOT assign lyrics to instrumental sections. Lyrics ONLY appear when the voice is singing.\n"
@@ -468,6 +470,12 @@ class MusicAnalyzer:
 
                 if not (0 <= idx < len(lyrics_lines) and start < end):
                     continue
+
+                # per-line max duration 강제 (Gemini가 한 줄에 43초 배정하는 버그 방지)
+                _MAX_LINE_DUR = 10.0
+                if end - start > _MAX_LINE_DUR:
+                    logger.warning(f"  [Lyrics-Align] Line [{idx}] duration {end - start:.1f}s exceeds {_MAX_LINE_DUR}s, clamping: '{text[:30]}'")
+                    end = start + _MAX_LINE_DUR
 
                 # audio_duration_sec 초과 검증
                 if audio_duration_sec > 0 and start >= audio_duration_sec:
