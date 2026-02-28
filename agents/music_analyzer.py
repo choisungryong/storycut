@@ -319,7 +319,7 @@ class MusicAnalyzer:
             logger.exception("Unhandled exception")
             return None
 
-    def align_lyrics_to_audio(self, audio_path: str, lyrics_lines: list, audio_duration_sec: float = 0.0) -> Optional[list]:
+    def align_lyrics_to_audio(self, audio_path: str, lyrics_lines: list, audio_duration_sec: float = 0.0, _is_retry: bool = False) -> Optional[list]:
         """
         Forced Alignment: 가사 원문 + 오디오를 Gemini에 함께 전달하여
         각 줄의 정확한 시작/끝 타임스탬프를 받는다.
@@ -498,6 +498,84 @@ class MusicAnalyzer:
                 logger.info(f"  [Lyrics-Align] {_n_over_dur} lines rejected (start >= {audio_duration_sec:.1f}s audio duration)")
 
             valid.sort(key=lambda x: x["start"])
+
+            # ── 재시도: rejected 라인이 있으면 강화 프롬프트로 1회 재호출 ──
+            _retry_threshold = max(2, int(len(lyrics_lines) * 0.10))  # 10% 이상 탈락 시
+            if _n_over_dur >= _retry_threshold and not _is_retry:
+                logger.info(f"  [Lyrics-Align] RETRY: {_n_over_dur} lines exceeded duration (threshold={_retry_threshold}). Re-aligning with stronger prompt...")
+                retry_prompt = (
+                    "You are a professional lyrics timing specialist for karaoke/subtitle systems.\n"
+                    "Listen to this music VERY carefully and align each lyric line to the EXACT moment it is sung.\n"
+                    f"{dur_hint}"
+                    "## LYRICS (numbered)\n"
+                    f"{numbered_lyrics}\n\n"
+                    "## CRITICAL RULES\n"
+                    "1. LISTEN to the audio carefully from start to finish. Each line's start/end must match EXACTLY when the singer sings those words.\n"
+                    "2. 'start' = the moment the first syllable of that line begins being sung.\n"
+                    "3. 'end' = the moment the last syllable of that line finishes being sung.\n"
+                    "4. Lines must be in chronological order. start < end for every entry.\n"
+                    "5. If you CANNOT hear a lyric line being sung anywhere in the audio, include it with '\"unheard\": true' and set start/end to 0. Do NOT invent timestamps for lines you cannot hear.\n"
+                    "6. Be as precise as possible (0.1 second accuracy).\n"
+                    "7. Timestamps are in SECONDS from the start of the audio file. No timestamp may exceed the audio duration.\n"
+                    "8. Do NOT compress all lyrics into the first few seconds, but also do NOT place lyrics beyond where vocals actually end.\n"
+                    "9. MAXIMUM DURATION PER LINE: Each line's duration (end - start) must NOT exceed 10 seconds. "
+                    "A typical sung line lasts 2-5 seconds. If you think a line spans longer, you are likely hearing an instrumental section — end the line where the singing stops.\n\n"
+                    "## PREVIOUS ATTEMPT FAILED\n"
+                    f"A previous alignment attempt placed {_n_over_dur} lines BEYOND the {audio_duration_sec:.0f}s audio boundary.\n"
+                    f"This means your timing was too spread out. ALL {len(lyrics_lines)} lines MUST have timestamps between 0 and {audio_duration_sec:.0f}s.\n"
+                    "If some lines are truly not sung in the audio, mark them as 'unheard' instead of placing them past the end.\n"
+                    "Pay extra attention to NOT assigning excessively long durations (>10s) to any single line.\n\n"
+                    "## INSTRUMENTAL BREAKS (VERY IMPORTANT)\n"
+                    "- If there is an instrumental break (no singing), there MUST be a TIME GAP in your output.\n"
+                    "- Do NOT assign lyrics to instrumental sections. Lyrics ONLY appear when the voice is singing.\n\n"
+                    "## OUTPUT FORMAT\n"
+                    "JSON array only, one object per line:\n"
+                    '[{"index": 0, "start": 12.5, "end": 16.2, "text": "first line"}, '
+                    '{"index": 5, "start": 0, "end": 0, "text": "unheard line", "unheard": true}, ...]\n'
+                )
+
+                retry_response = client.models.generate_content(
+                    model=MODEL_GEMINI_PRO,
+                    contents=[audio_file, retry_prompt],
+                    config=types.GenerateContentConfig(
+                        temperature=0.2,
+                        response_mime_type="application/json",
+                    )
+                )
+                retry_result = json.loads(retry_response.text.strip())
+                if isinstance(retry_result, list):
+                    retry_valid = []
+                    _retry_over = 0
+                    for entry in retry_result:
+                        idx = int(entry.get("index", -1))
+                        start = float(entry.get("start", 0))
+                        end = float(entry.get("end", 0))
+                        text = str(entry.get("text", "")).strip()
+                        if entry.get("unheard"):
+                            continue
+                        if not (0 <= idx < len(lyrics_lines) and start < end):
+                            continue
+                        if end - start > _MAX_LINE_DUR:
+                            end = start + _MAX_LINE_DUR
+                        if audio_duration_sec > 0 and start >= audio_duration_sec:
+                            _retry_over += 1
+                            continue
+                        if audio_duration_sec > 0 and end > audio_duration_sec:
+                            end = audio_duration_sec
+                        retry_valid.append({
+                            "index": idx, "start": round(start, 2),
+                            "end": round(end, 2), "text": text or lyrics_lines[idx]
+                        })
+                    retry_valid.sort(key=lambda x: x["start"])
+                    logger.info(f"  [Lyrics-Align] RETRY result: {len(retry_valid)}/{len(lyrics_lines)} lines, {_retry_over} still over duration")
+
+                    # 재시도가 더 나으면 채택
+                    if len(retry_valid) > len(valid):
+                        logger.info(f"  [Lyrics-Align] RETRY accepted: {len(valid)} -> {len(retry_valid)} lines")
+                        valid = retry_valid
+                        _n_over_dur = _retry_over
+                    else:
+                        logger.info(f"  [Lyrics-Align] RETRY not better ({len(retry_valid)} <= {len(valid)}), keeping original")
 
             # ── Raw Gemini timestamps log (compact single-line per entry) ──
             logger.info(f"  [Lyrics-Align] === Gemini Raw Timestamps ({len(valid)} lines) ===")
