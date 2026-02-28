@@ -4502,21 +4502,43 @@ class MVPipeline:
                     except Exception as _r2_err:
                         logger.error(f"    [R2] ASS restore failed: {_r2_err}")
 
-                # ASS 커버리지 검증: Dialogue 라인 수가 원본 가사의 60% 미만이면 품질 불량 → 재생성
+                # ASS 커버리지 + 개별 줄 길이 검증
                 _ass_ok = False
+                _MAX_LINE_DUR_QA = 10.0  # 한 줄 최대 허용 시간
                 if os.path.exists(gemini_ass) and os.path.getsize(gemini_ass) > 100:
                     try:
+                        _ass_dialogue_count = 0
+                        _long_lines = []
                         with open(gemini_ass, 'r', encoding='utf-8') as _af:
-                            _ass_dialogue_count = sum(1 for _l in _af if _l.startswith('Dialogue:'))
+                            for _l in _af:
+                                if not _l.startswith('Dialogue:'):
+                                    continue
+                                _ass_dialogue_count += 1
+                                # Dialogue: 0,H:MM:SS.cc,H:MM:SS.cc,Style,...
+                                _parts = _l.split(',', 3)
+                                if len(_parts) >= 3:
+                                    try:
+                                        def _ass_to_sec(t):
+                                            h, m, s = t.strip().split(':')
+                                            return int(h) * 3600 + int(m) * 60 + float(s)
+                                        _s = _ass_to_sec(_parts[1])
+                                        _e = _ass_to_sec(_parts[2])
+                                        if _e - _s > _MAX_LINE_DUR_QA:
+                                            _long_lines.append((_ass_dialogue_count - 1, round(_e - _s, 1)))
+                                    except Exception:
+                                        pass
                         _coverage = _ass_dialogue_count / max(n_lines, 1)
-                        if _coverage >= 0.60:
-                            _ass_ok = True
-                            logger.info(f"    [ASS QA] {_ass_dialogue_count}/{n_lines} lines ({_coverage:.0%}) - PASS")
-                        else:
-                            logger.warning(f"    [ASS QA] {_ass_dialogue_count}/{n_lines} lines ({_coverage:.0%}) - FAIL, will regenerate")
-                            # 불량 ASS 백업 후 삭제
+                        if _coverage < 0.60:
+                            logger.warning(f"    [ASS QA] {_ass_dialogue_count}/{n_lines} lines ({_coverage:.0%}) - FAIL (coverage), will regenerate")
                             import shutil
                             shutil.move(gemini_ass, gemini_ass + ".bak")
+                        elif _long_lines:
+                            logger.warning(f"    [ASS QA] {_ass_dialogue_count}/{n_lines} lines ({_coverage:.0%}) - FAIL ({len(_long_lines)} lines > {_MAX_LINE_DUR_QA}s: {_long_lines[:5]}), will regenerate")
+                            import shutil
+                            shutil.move(gemini_ass, gemini_ass + ".bak")
+                        else:
+                            _ass_ok = True
+                            logger.info(f"    [ASS QA] {_ass_dialogue_count}/{n_lines} lines ({_coverage:.0%}) - PASS (no long lines)")
                     except Exception as _qe:
                         logger.error(f"    [ASS QA] Error: {_qe}")
                         _ass_ok = os.path.exists(gemini_ass)
@@ -4525,10 +4547,6 @@ class MVPipeline:
                     srt_path = gemini_ass
                     timeline_mode = "gemini_aligned_reuse"
                     logger.info(f"    [Reuse] Gemini-aligned ASS found ({os.path.getsize(gemini_ass):,} bytes) -> {srt_path}")
-                elif os.path.exists(gemini_srt) and os.path.getsize(gemini_srt) > 50:
-                    srt_path = gemini_srt
-                    timeline_mode = "gemini_aligned_reuse_srt"
-                    logger.info(f"    [Reuse] Gemini-aligned SRT found ({os.path.getsize(gemini_srt):,} bytes) -> {srt_path}")
                 else:
                     # ASS QA 실패 또는 Gemini 정렬 파일 없음 → 보컬 파일로 재정렬 시도
                     _vocals_path = os.path.join(project_dir, "music", "vocals.wav")
