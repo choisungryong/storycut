@@ -132,13 +132,13 @@ class MVPipeline:
             logger.info(f"  [Demucs] Using cached vocals: {vocals_path}")
             return vocals_path
 
-        # ── Tier 1: 로컬 GPU Demucs ──
-        result = self._separate_vocals_local(music_path, vocals_path)
+        # ── Tier 1: Replicate API Demucs (클라우드 GPU, 우선) ──
+        result = self._separate_vocals_replicate(music_path, vocals_path)
         if result:
             return result
 
-        # ── Tier 2: Replicate API Demucs ──
-        result = self._separate_vocals_replicate(music_path, vocals_path)
+        # ── Tier 2: 로컬 GPU Demucs (로컬 개발 환경용) ──
+        result = self._separate_vocals_local(music_path, vocals_path)
         if result:
             return result
 
