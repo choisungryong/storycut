@@ -3994,6 +3994,24 @@ async def mv_compose(project_id: str):
     def run_compose():
         try:
             logger.info(f"[MV Compose Thread] Starting composition for {project_id}")
+            project_dir = f"outputs/{project_id}"
+
+            # 음악 파일 R2 복원 (Railway 재배포 시 로컬 파일 소실 대비)
+            if project.music_file_path and not os.path.exists(project.music_file_path):
+                try:
+                    music_filename = os.path.basename(project.music_file_path)
+                    os.makedirs(os.path.dirname(project.music_file_path), exist_ok=True)
+                    r2_key = f"music/{project_id}/{music_filename}"
+                    r2_data = storage_manager.get_object(r2_key)
+                    if r2_data:
+                        with open(project.music_file_path, 'wb') as f:
+                            f.write(r2_data)
+                        logger.info(f"[MV Compose] Music restored from R2: {r2_key}")
+                    else:
+                        logger.error(f"[MV Compose] Music not found in R2: {r2_key}")
+                except Exception as e:
+                    logger.error(f"[MV Compose] Music restore failed: {e}")
+
             pipeline.compose_video(project)
             logger.info(f"[MV Compose Thread] Composition complete: {project.status}")
 
