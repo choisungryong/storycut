@@ -1607,13 +1607,13 @@ class MVPipeline:
 
         # 스타일별 전용 캐릭터 앵커 directive
         _style_directives = {
-            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader",
-            "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime proportions, NOT a photograph",
-            "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, NOT a photograph",
-            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, natural imperfections, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin, NOT 3D render, NOT CGI, NOT toon shader, NOT doll-like",
-            "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, NOT a photograph",
-            "abstract": "abstract expressionist art, surreal dreamlike, bold geometric shapes",
-            "game_anime": "3D cel-shaded toon-rendered scene, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn illustration, NOT western cartoon",
+            "cinematic": "cinematic film still shot on ARRI Alexa, anamorphic bokeh, dramatic volumetric lighting, color graded like a Hollywood blockbuster, real human skin texture, beautiful attractive face, NOT 3D render, NOT CGI, NOT anime, NOT cartoon",
+            "anime": "beautiful Japanese anime character, high-budget anime production quality, vibrant colors, expressive eyes, detailed hair, clean bold outlines, NOT a photograph",
+            "webtoon": "beautiful Korean webtoon manhwa character, clean sharp lineart, soft gradient shading, attractive design, NOT a photograph",
+            "realistic": "professional fashion editorial photograph, Canon EOS R5, 85mm f/1.4, beautiful natural lighting, sharp focus, visible skin texture, attractive and photogenic, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin",
+            "illustration": "stunning digital painting by Artgerm and WLOP, painterly brushstrokes, beautiful character design, NOT a photograph",
+            "abstract": "abstract expressionist character art, surreal dreamlike, bold geometric shapes",
+            "game_anime": "beautiful 3D game character, AAA game quality (Genshin Impact, Honkai Star Rail style), high-fidelity 3D with toon shader, crisp cel-shading, rim lighting with bloom, vibrant colors, attractive design, NOT photorealistic, NOT flat 2D",
         }
         style_context = _style_directives.get(project.style.value, f"{project.style.value} style")
         style_context += f", {project.mood.value} mood"
@@ -1626,7 +1626,8 @@ class MVPipeline:
             logger.info(f"    [Fallback {i+1}/{len(characters)}] Generating anchor: {character.role}")
 
             portrait_prompt = (
-                f"Character portrait, upper body, face clearly visible, centered composition, "
+                f"cinematic close-up portrait, face and shoulders, beautiful volumetric lighting, "
+                f"soft bokeh background, sharp focus on eyes, "
                 f"{character.description}"
             )
             if getattr(character, 'unique_features', ''):
@@ -1634,8 +1635,9 @@ class MVPipeline:
             if character.outfit:
                 portrait_prompt += f", wearing {character.outfit}"
             portrait_prompt += (
-                f", {style_context}, neutral background, studio lighting, "
-                f"no text, no letters, no words, no watermark"
+                f", {style_context}, "
+                f"masterpiece quality, highly detailed, attractive character design, "
+                f"no text, no watermark, no border"
             )
 
             try:

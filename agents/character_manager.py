@@ -25,12 +25,12 @@ if TYPE_CHECKING:
 
 # 포즈별 프롬프트 설정
 POSE_CONFIGS = {
-    "front": "close-up portrait, face and shoulders only, front facing, centered, looking directly at camera, head-and-shoulders framing, hands NOT visible in frame, arms below frame edge, NO hands touching face or collar",
-    "three_quarter": "upper body portrait, turned 45 degrees to the right, body angled away from camera, looking over shoulder, waist-up framing, arms relaxed at sides",
-    "side": "portrait, face and upper body, side profile view, looking to the side",
-    "full_body": "full body portrait from head to feet, arms relaxed naturally at sides, feet visible, medium-wide shot with slight space above and below, same style and rendering as close-up shots, realistic human body proportions, natural anatomy, NOT stubby NOT short-limbed NOT chibi NOT cartoonish proportions, NOT anime proportions, NOT elongated limbs",
-    "emotion_neutral": "portrait, neutral expression, calm, relaxed",
-    "emotion_intense": "portrait, intense emotional expression, dramatic lighting",
+    "front": "cinematic close-up portrait, face and shoulders, front facing, looking directly at camera with confident expression, head-and-shoulders framing, beautiful volumetric lighting, soft bokeh background, sharp focus on eyes, hands NOT visible in frame",
+    "three_quarter": "upper body portrait, turned 30 degrees, natural relaxed pose, slight smile, warm rim lighting from behind, waist-up framing, soft depth of field, magazine editorial quality",
+    "side": "elegant side profile portrait, face and upper body, looking into the distance, dramatic silhouette lighting, atmospheric",
+    "full_body": "full body portrait from head to feet, natural confident stance, medium-wide shot, cinematic lighting, realistic human proportions, natural anatomy, NOT stubby NOT chibi NOT cartoonish proportions, NOT elongated limbs",
+    "emotion_neutral": "portrait, calm confident expression, soft natural lighting",
+    "emotion_intense": "portrait, intense emotional expression, dramatic chiaroscuro lighting",
 }
 
 
@@ -383,13 +383,13 @@ class CharacterManager:
 
         # 스타일별 전용 캐릭터 앵커 directive
         _style_anchor_directives = {
-            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader, NOT doll-like",
-            "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime character proportions, NOT a photograph, NOT photorealistic",
-            "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, manhwa character design, NOT a photograph, NOT photorealistic",
-            "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin, NOT 3D render, NOT CGI, NOT toon shader, NOT doll-like",
-            "illustration": "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph",
-            "abstract": "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, non-representational",
-            "game_anime": "3D cel-shaded toon-rendered character, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D model with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, dynamic hair and cloth physics, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn, NOT western cartoon, NOT watercolor",
+            "cinematic": "cinematic film still shot on ARRI Alexa, anamorphic lens bokeh, dramatic volumetric lighting, shallow depth of field, color graded like a Hollywood blockbuster, real human skin texture with pores, beautiful attractive face, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader, NOT doll-like",
+            "anime": "beautiful Japanese anime character illustration, high-budget anime production quality, vibrant saturated colors, expressive eyes, detailed hair rendering, clean bold outlines, NOT a photograph, NOT photorealistic",
+            "webtoon": "beautiful Korean webtoon manhwa character, clean sharp lineart, soft gradient shading, attractive character design, manhwa art style, NOT a photograph, NOT photorealistic",
+            "realistic": "professional fashion editorial photograph, shot on Canon EOS R5, 85mm f/1.4 lens, beautiful natural lighting, sharp focus on eyes, visible skin texture, natural beauty, attractive and photogenic, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin, NOT 3D render, NOT doll-like",
+            "illustration": "stunning digital painting, concept art by Artgerm and WLOP, painterly brushstrokes, rich color palette, beautiful character design, NOT a photograph",
+            "abstract": "abstract expressionist character art, surreal dreamlike, bold geometric shapes, striking visual design",
+            "game_anime": "beautiful 3D game character, AAA game quality (Genshin Impact, Honkai Star Rail style), high-fidelity 3D model with toon shader, crisp cel-shading, strong rim lighting with bloom, detailed hair and cloth rendering, vibrant colors, attractive character design, NOT photorealistic, NOT flat 2D, NOT western cartoon",
         }
         style_directive = _style_anchor_directives.get(project.style.value, f"{project.style.value} style")
 
@@ -679,18 +679,16 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         # art_style을 최상단에 배치 (Gemini가 앞부분을 더 중시하므로 스타일 일관성 확보)
         prompt_parts = []
         prompt_parts.append(art_style)
+
+        # 포즈 + 라이팅을 앞부분에 (구도 결정에 중요)
+        prompt_parts.append(pose_description)
+
         if appearance:
             prompt_parts.append(appearance)
         if gender and gender != "unknown":
             prompt_parts.append(f"{gender}")
         if age and age != "unknown":
             prompt_parts.append(f"{age}")
-        prompt_parts.extend([
-            "Character portrait for reference sheet",
-            pose_description,
-            "neutral pose",
-            "clean background, studio lighting",
-        ])
         if clothing:
             prompt_parts.append(f"wearing {clothing}")
 
@@ -704,7 +702,12 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         if color_palette:
             prompt_parts.append(color_palette)
 
-        prompt_parts.append("high quality, detailed, character design")
+        prompt_parts.append(
+            "masterpiece quality, highly detailed, sharp focus, "
+            "professional photography lighting, 8K resolution, "
+            "attractive and appealing character design, "
+            "no text, no watermark, no border, no frame"
+        )
 
         return ", ".join(prompt_parts)
 
