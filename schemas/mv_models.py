@@ -348,7 +348,7 @@ class MVUploadResponse(BaseModel):
     """음악 업로드 응답"""
     project_id: str
     status: str
-    music_analysis: MusicAnalysis
+    music_analysis: Optional[MusicAnalysis] = None
     extracted_lyrics: Optional[str] = Field(None, description="자동 추출된 가사")
     message: str = "음악 업로드 및 분석 완료"
 
@@ -370,6 +370,7 @@ class MVStatusResponse(BaseModel):
     current_step: Optional[str]
     scenes: List[MVScene]
     characters: Optional[List[MVCharacter]] = None
+    music_analysis: Optional[MusicAnalysis] = None
     error_message: Optional[str] = None
 
 

@@ -8,6 +8,7 @@ v2.0 핵심 기능:
 """
 
 import os
+import random
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from pathlib import Path
 
@@ -371,7 +372,7 @@ class CharacterManager:
                 appearance=appearance,
                 clothing_default=char.outfit or "",
                 unique_features=getattr(char, 'unique_features', '') or "",
-                visual_seed=42,
+                visual_seed=random.randint(1, 99999),
             )
             character_sheet[token] = sheet
 
@@ -395,7 +396,7 @@ class CharacterManager:
         global_style = GlobalStyle(
             art_style=f"{style_directive}, {project.mood.value} mood",
             color_palette=color_palette,
-            visual_seed=42,
+            visual_seed=random.randint(1, 99999),
         )
 
         mv_poses = ["front", "three_quarter", "full_body"]

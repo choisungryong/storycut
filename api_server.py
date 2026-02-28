@@ -3422,39 +3422,62 @@ async def mv_upload_music(request: Request, music_file: UploadFile = File(...), 
 
     logger.info(f"[MV API] Music uploaded: {music_path}".encode('ascii', 'replace').decode())
 
-    # 분석
+    # 즉시 프로젝트 생성 + manifest 저장 (ANALYZING 상태)
     try:
         pipeline = MVPipeline()
         user_lyrics = lyrics.strip() if lyrics else None
-        if user_lyrics:
-            logger.info(f"[MV API] User provided lyrics: {len(user_lyrics)} chars")
-        project = pipeline.upload_and_analyze(music_path, project_id, user_lyrics=user_lyrics)
 
-        # user_id를 manifest에 기록 (history 필터링용)
+        from schemas.mv_models import MVProject as _MVProject
+        project = _MVProject(
+            project_id=project_id,
+            status=MVProjectStatus.ANALYZING,
+            music_file_path=music_path,
+            created_at=datetime.now()
+        )
+
+        # manifest 저장 (user_id 포함)
         mv_user_id = request.headers.get("X-User-Id", "")
+        pipeline._save_manifest(project, project_dir)
         if mv_user_id:
             mv_manifest_path = f"{project_dir}/manifest.json"
-            if os.path.exists(mv_manifest_path):
+            try:
+                with open(mv_manifest_path, "r", encoding="utf-8") as _mf:
+                    _mdata = json.load(_mf)
+                _mdata["user_id"] = mv_user_id
+                with open(mv_manifest_path, "w", encoding="utf-8") as _mf:
+                    json.dump(_mdata, _mf, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                logger.debug("Silent exception caught", exc_info=True)
+
+        # 백그라운드 스레드에서 Demucs + 가사 정렬 실행
+        import threading
+        def _bg_analyze():
+            try:
+                pipeline.analyze_music_background(music_path, project_id, user_lyrics=user_lyrics)
+            except Exception as e:
+                logger.error(f"[MV BG-Analyze] Unhandled error: {e}", exc_info=True)
+                # FAILED 상태로 manifest 업데이트
                 try:
-                    with open(mv_manifest_path, "r", encoding="utf-8") as _mf:
-                        _mdata = json.load(_mf)
-                    _mdata["user_id"] = mv_user_id
-                    with open(mv_manifest_path, "w", encoding="utf-8") as _mf:
-                        json.dump(_mdata, _mf, ensure_ascii=False, indent=2, default=str)
+                    proj = pipeline.load_project(project_id)
+                    if proj:
+                        proj.status = MVProjectStatus.FAILED
+                        proj.error_message = f"Analysis failed: {str(e)}"
+                        pipeline._save_manifest(proj, project_dir)
                 except Exception:
-                    logger.debug("Silent exception caught", exc_info=True)
+                    pass
 
-        if project.status == MVProjectStatus.FAILED:
-            raise HTTPException(status_code=500, detail=project.error_message)
+        threading.Thread(target=_bg_analyze, daemon=False).start()
 
-        extracted_lyrics = project.music_analysis.extracted_lyrics if project.music_analysis else None
+        if user_lyrics:
+            logger.info(f"[MV API] User provided lyrics: {len(user_lyrics)} chars")
+        logger.info(f"[MV API] Background analysis started for {project_id}")
 
         return MVUploadResponse(
-            project_id=project.project_id,
-            status=project.status.value,
-            music_analysis=project.music_analysis,
-            extracted_lyrics=extracted_lyrics,
-            message="음악 업로드 및 분석 완료"
+            project_id=project_id,
+            status="analyzing",
+            music_analysis=None,
+            extracted_lyrics=None,
+            message="음악 업로드 완료. 분석 진행 중..."
         )
 
     except Exception as e:
@@ -3840,6 +3863,7 @@ async def mv_status(project_id: str):
         current_step=project.current_step,
         scenes=project.scenes,
         characters=characters,
+        music_analysis=project.music_analysis,
         error_message=project.error_message
     )
 

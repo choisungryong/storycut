@@ -3691,7 +3691,8 @@ class StorycutApp {
             formData.append('mood', document.getElementById('mv-mood').value);
             formData.append('style', document.getElementById('mv-style').value);
 
-            // MV 업로드는 Demucs 분석에 100초+ 소요 → Cloudflare Worker 100초 제한 우회를 위해 Railway 직접 호출
+            // 비동기 업로드: 백엔드 배포 후 즉시 응답 → Worker 경유 전환 예정
+            // TODO: Railway 배포 확인 후 this.getApiBaseUrl()로 변경
             const baseUrl = this.getMediaBaseUrl();
             const token = localStorage.getItem('token');
             const headers = {};
@@ -3713,7 +3714,22 @@ class StorycutApp {
 
             const result = await response.json();
             this.mvProjectId = result.project_id;
-            this.mvAnalysis = result.music_analysis;
+
+            // 비동기 분석: status가 analyzing이면 폴링으로 완료 대기
+            if (result.status === 'analyzing') {
+                btn.innerHTML = '<span class="btn-icon">🎵</span> 음악 분석 중...';
+                const analysisResult = await this.pollMVAnalysis(result.project_id);
+                if (!analysisResult) {
+                    throw new Error('음악 분석에 실패했습니다.');
+                }
+                this.mvAnalysis = analysisResult.music_analysis;
+                // 폴링 결과를 result 형태로 합성
+                result.music_analysis = analysisResult.music_analysis;
+                result.status = 'ready';
+            } else {
+                // 동기 응답 (로컬 테스트 등)
+                this.mvAnalysis = result.music_analysis;
+            }
 
             // Gemini로 추출된 가사가 있고, 사용자가 직접 입력하지 않았으면 자동 채우기
             const lyricsInput = document.getElementById('mv-lyrics');
@@ -3748,11 +3764,54 @@ class StorycutApp {
 
         } catch (error) {
             console.error('MV 업로드 실패:', error);
-            this.showToast('오류가 발생했습니다. 다시 시도해주세요.', 'error');
+            this.showToast(error.message || '오류가 발생했습니다. 다시 시도해주세요.', 'error');
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
         }
+    }
+
+    /**
+     * 음악 분석 완료까지 폴링 (2초 간격, 최대 120회 = 4분)
+     * @returns {Object|null} 분석 완료 시 status 응답, 실패 시 null
+     */
+    async pollMVAnalysis(projectId) {
+        const baseUrl = this.getApiBaseUrl();
+        const maxAttempts = 120;
+        const intervalMs = 2000;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, intervalMs));
+
+            try {
+                const response = await fetch(`${baseUrl}/api/mv/status/${projectId}`, {
+                    headers: this.getAuthHeaders()
+                });
+
+                if (!response.ok) {
+                    console.warn(`[MV Analysis Poll] Status check failed: ${response.status}`);
+                    continue;
+                }
+
+                const data = await response.json();
+                console.log(`[MV Analysis Poll] attempt=${attempt + 1}, status=${data.status}`);
+
+                if (data.status === 'ready') {
+                    return data;
+                } else if (data.status === 'failed') {
+                    console.error('[MV Analysis Poll] Analysis failed:', data.error_message);
+                    this.showToast(`음악 분석 실패: ${data.error_message || '알 수 없는 오류'}`, 'error');
+                    return null;
+                }
+                // analyzing → 계속 폴링
+            } catch (err) {
+                console.warn('[MV Analysis Poll] Error:', err);
+            }
+        }
+
+        console.error('[MV Analysis Poll] Timeout after max attempts');
+        this.showToast('음악 분석 시간이 초과되었습니다. 다시 시도해주세요.', 'error');
+        return null;
     }
 
     renderMVAnalysisResult(result) {

@@ -586,6 +586,134 @@ class MVPipeline:
 
         return project
 
+    def analyze_music_background(
+        self,
+        music_file_path: str,
+        project_id: str,
+        user_lyrics: Optional[str] = None
+    ) -> None:
+        """
+        백그라운드에서 음악 분석 실행 (Demucs + 가사 정렬).
+        api_server에서 threading.Thread로 호출됨.
+        완료 시 manifest를 READY/FAILED로 업데이트.
+        """
+        project_dir = f"{self.output_base_dir}/{project_id}"
+
+        # manifest 로드
+        project = self.load_project(project_id)
+        if not project:
+            logger.error(f"[MV BG-Analyze] Project not found: {project_id}")
+            return
+
+        stored_music_path = music_file_path
+
+        try:
+            logger.info(f"\n[BG-Analyze] Analyzing music for {project_id}...")
+            analysis_result = self.music_analyzer.analyze(stored_music_path)
+
+            # Demucs 보컬 분리
+            logger.info(f"\n[BG-Analyze] Separating vocals with Demucs...")
+            vocals_path = self._separate_vocals(stored_music_path, project_dir)
+            lyrics_audio_path = vocals_path or stored_music_path
+
+            # 가사 처리
+            extracted_lyrics = ""
+            if user_lyrics and user_lyrics.strip():
+                extracted_lyrics = user_lyrics.strip()
+                analysis_result["extracted_lyrics"] = extracted_lyrics
+                logger.info(f"\n[BG-Analyze] User lyrics received ({len(extracted_lyrics)} chars)")
+
+                # Gemini 가사-오디오 정렬
+                lyrics_lines = split_lyrics_lines(extracted_lyrics)
+                logger.info(f"\n[BG-Analyze] Gemini lyrics alignment ({len(lyrics_lines)} lines)...")
+
+                _dur = analysis_result.get("duration_sec", 0.0)
+                gemini_aligned = self.music_analyzer.align_lyrics_to_audio(
+                    lyrics_audio_path, lyrics_lines, audio_duration_sec=_dur
+                )
+
+                if gemini_aligned:
+                    from utils.lyrics_aligner import generate_from_gemini_alignment
+                    sub_dir = os.path.join(project_dir, "media", "subtitles")
+                    os.makedirs(sub_dir, exist_ok=True)
+                    ass_path = os.path.join(sub_dir, "lyrics_gemini.ass")
+                    srt_path = os.path.join(sub_dir, "lyrics_gemini.srt")
+
+                    captions, _, _ = generate_from_gemini_alignment(
+                        gemini_aligned, lyrics_lines, ass_path, srt_path,
+                        audio_duration_sec=_dur,
+                    )
+                    if captions:
+                        timed_lyrics = [
+                            {"t": round(c.start_sec, 2), "text": c.text}
+                            for c in captions
+                        ]
+                        analysis_result["timed_lyrics"] = timed_lyrics
+                        logger.info(f"  [BG-Analyze] {len(timed_lyrics)} entries aligned")
+
+                        # R2 업로드
+                        try:
+                            from utils.storage import StorageManager
+                            from concurrent.futures import ThreadPoolExecutor
+                            _storage = StorageManager()
+                            _upload_tasks = []
+                            for _sub_file in [ass_path, srt_path]:
+                                if os.path.exists(_sub_file):
+                                    _r2_key = f"{project_id}/{os.path.relpath(_sub_file, project_dir).replace(os.sep, '/')}"
+                                    _upload_tasks.append((_sub_file, _r2_key))
+                            if _upload_tasks:
+                                with ThreadPoolExecutor(max_workers=2) as _executor:
+                                    _futs = [_executor.submit(_storage.upload_file, f, k) for f, k in _upload_tasks]
+                                    for _fut in _futs:
+                                        _fut.result()
+                                for _, _k in _upload_tasks:
+                                    logger.info(f"    [R2] Uploaded subtitle: {_k}")
+                        except Exception as _r2_err:
+                            logger.error(f"    [R2] Subtitle upload failed (non-fatal): {_r2_err}")
+                    else:
+                        logger.info("  [BG-Analyze] No captions generated")
+                else:
+                    logger.error("  [BG-Analyze] Alignment failed - subtitles will use even distribution")
+            else:
+                logger.info(f"\n[BG-Analyze] No user lyrics provided - skipping subtitle alignment")
+
+            project.music_analysis = MusicAnalysis(**analysis_result)
+            project.lyrics = extracted_lyrics or ""
+            project.status = MVProjectStatus.READY
+            project.progress = 10
+
+            logger.info(f"  [BG-Analyze] Duration: {project.music_analysis.duration_sec:.1f}s")
+            logger.info(f"  [BG-Analyze] BPM: {project.music_analysis.bpm or 'N/A'}")
+            logger.info(f"  [BG-Analyze] Segments: {len(project.music_analysis.segments)}")
+
+            # STT 사전 캐싱
+            import threading
+            def _bg_stt(pipeline, proj, proj_dir, audio_path):
+                try:
+                    logger.info(f"\n[BG-STT] Pre-caching Gemini Audio STT...")
+                    segs = pipeline.music_analyzer.transcribe_with_gemini_audio(audio_path)
+                    if segs:
+                        proj.stt_segments = segs
+                        pipeline._save_manifest(proj, proj_dir)
+                        logger.info(f"  [BG-STT] {len(segs)} segments cached")
+                    else:
+                        logger.error(f"  [BG-STT] STT failed, will retry at subtitle/compose time")
+                except Exception as e:
+                    logger.error(f"  [BG-STT] Non-critical error: {e}")
+            threading.Thread(
+                target=_bg_stt,
+                args=(self, project, project_dir, stored_music_path),
+                daemon=True
+            ).start()
+
+        except Exception as e:
+            project.status = MVProjectStatus.FAILED
+            project.error_message = f"Music analysis failed: {str(e)}"
+            logger.error(f"  [BG-Analyze ERROR] {project.error_message}")
+
+        # 매니페스트 저장
+        self._save_manifest(project, project_dir)
+
     # ================================================================
     # Step 2: 씬 생성
     # ================================================================
