@@ -447,7 +447,6 @@ class MusicAnalyzer:
                     temperature=0.0,
                     response_mime_type="application/json",
                 ),
-                http_options={"timeout": 180_000},  # 3분 timeout
             )
 
             result = json.loads(response.text.strip())
@@ -543,7 +542,6 @@ class MusicAnalyzer:
                         temperature=0.2,
                         response_mime_type="application/json",
                     ),
-                    http_options={"timeout": 180_000},  # 3분 timeout
                 )
                 retry_result = json.loads(retry_response.text.strip())
                 if isinstance(retry_result, list):
