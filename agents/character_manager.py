@@ -14,7 +14,7 @@ from pathlib import Path
 
 from schemas import CharacterSheet, GlobalStyle, AnchorSet, PoseAnchor, PoseType
 from utils.logger import get_logger
-from utils.constants import ETH_KEYWORD_MAP
+from utils.constants import ETH_KEYWORD_MAP, MODEL_GEMINI_FLASH
 logger = get_logger("character_manager")
 
 

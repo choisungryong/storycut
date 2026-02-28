@@ -1445,8 +1445,12 @@ class MVPipeline:
                     logger.info(f"         poses: {list(poses.keys())}")
 
         except Exception as e:
-            logger.error(f"  [WARNING] CharacterManager failed, falling back to simple method: {e}")
+            import traceback
+            logger.error(f"  [WARNING] CharacterManager failed, falling back to simple method: {e}\n{traceback.format_exc()}")
             self._generate_character_anchors_simple(project, project_dir)
+            # 폴백 결과 확인
+            for c in characters:
+                logger.info(f"    [Fallback Result] {c.role}: anchor={c.anchor_image_path}, poses={list(c.anchor_poses.keys()) if c.anchor_poses else None}")
 
         # CharacterQA: 앵커 임베딩 추출 + 등록
         try:
@@ -2731,6 +2735,8 @@ class MVPipeline:
                 char_anchor_paths = self._get_character_anchors_for_scene(project, scene)
                 if char_anchor_paths:
                     logger.info(f"    [Characters] {len(char_anchor_paths)} anchor(s) for scene {scene.scene_id}")
+                elif scene.characters_in_scene:
+                    logger.warning(f"    [Characters] WARNING: scene {scene.scene_id} has characters {scene.characters_in_scene} but 0 anchors — style consistency will be degraded")
 
                 final_prompt = self._inject_character_descriptions(project, scene, scene.image_prompt)
 
