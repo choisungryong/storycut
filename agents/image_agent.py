@@ -136,7 +136,7 @@ class ImageAgent:
         if self.nanobanana_token:
             for attempt in range(1, max_retries + 1):
                 try:
-                    logger.info(f"     Attempting Gemini 2.5 Flash Image ({quality}) [attempt {attempt}/{max_retries}]...")
+                    logger.info(f"     Attempting Gemini 3.1 Flash Image ({quality}) [attempt {attempt}/{max_retries}]...")
                     return self._call_nanobana_api(
                         prompt=prompt,
                         style=style,
@@ -261,7 +261,7 @@ class ImageAgent:
             import base64
             from utils.prompt_builder import MultimodalPromptBuilder
 
-            logger.info(f"     Calling Gemini 2.5 Flash Image API...")
+            logger.info(f"     Calling Gemini 3.1 Flash Image API...")
 
             headers = {
                 "Content-Type": "application/json",

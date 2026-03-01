@@ -1035,42 +1035,8 @@ class StorycutApp {
     }
 
     updateImageModelHint() {
-        const select = document.getElementById('image_model');
         const hint = document.getElementById('image_model_hint');
-        if (!select || !hint) return;
-
-        const isPremium = select.value === 'premium';
-        if (!isPremium) {
-            hint.style.display = 'none';
-            return;
-        }
-
-        // Check Gemini status from auth.js
-        if (typeof getGemini3Status === 'function') {
-            const g3 = getGemini3Status();
-            if (!g3.allowed) {
-                hint.style.display = 'block';
-                hint.style.color = '#ef4444';
-                hint.textContent = 'Gemini는 유료 플랜에서만 사용 가능합니다.';
-                select.value = 'standard';
-                return;
-            }
-            if (g3.willSurcharge) {
-                hint.style.display = 'block';
-                hint.style.color = '#f59e0b';
-                hint.textContent = `무료 할당량 소진 (${g3.used}/${g3.freeLimit}). 이미지당 +${g3.surchargePerImage} 크레딧 추가 차감됩니다.`;
-            } else if (g3.freeLimit >= 0) {
-                hint.style.display = 'block';
-                hint.style.color = '#22c55e';
-                hint.textContent = `무료 Gemini: 이번 달 ${g3.used}/${g3.freeLimit} 사용.`;
-            } else {
-                hint.style.display = 'block';
-                hint.style.color = '#22c55e';
-                hint.textContent = 'Gemini 무제한 사용 가능한 플랜입니다.';
-            }
-        } else {
-            hint.style.display = 'none';
-        }
+        if (hint) hint.style.display = 'none';
     }
 
     // ==================== Step 2: 영상 생성 시작 ====================

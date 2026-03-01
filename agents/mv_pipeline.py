@@ -29,19 +29,19 @@ _STYLE_RUNTIME = {
         "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin",
     },
     "game_anime": {
-        "prefix": "3D cel-shaded toon-rendered scene, Genshin Impact / Honkai Star Rail style, high-fidelity 3D models with toon shader and bloom",
+        "prefix": "3D cel-shaded toon-rendered scene, high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines 2-3px thick, strong rim lighting with bloom and god rays, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast, detailed ornate costumes, dynamic hair and cloth physics, elemental glow effects, epic fantasy backgrounds",
         "check": ("cel-shaded", "toon"),
-        "negative": "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly",
+        "negative": "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly, chibi deformed, mundane everyday objects",
     },
     "anime": {
-        "prefix": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors",
+        "prefix": "Japanese anime cel-shaded illustration, bold black outlines 1-2px, flat color fills with gradient shadows, vibrant saturated palette, anime character proportions (large expressive eyes, stylized hair), clean digital lineart, screentone-style shading, manga-inspired dynamic composition",
         "check": ("anime", "cel-shaded"),
-        "negative": "photorealistic, photograph, 3D render, western cartoon, watercolor, oil painting",
+        "negative": "photorealistic, photograph, 3D render, western cartoon, watercolor, oil painting, real human skin texture, DSLR quality",
     },
     "webtoon": {
-        "prefix": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks",
+        "prefix": "Korean webtoon manhwa digital art, clean sharp lineart with uniform stroke width, flat color blocks with soft cell shading, vertical-scroll optimized composition, modern manhwa character design with semi-realistic proportions, soft ambient lighting with clean gradients, polished digital coloring",
         "check": ("webtoon", "manhwa"),
-        "negative": "photorealistic, photograph, 3D render, western cartoon, oil painting, anime cel-shading",
+        "negative": "photorealistic, photograph, 3D render, western cartoon, oil painting, anime cel-shading, rough sketchy lines, watercolor bleed",
     },
     "realistic": {
         "prefix": "RAW photograph shot on Canon EOS R5 85mm f/1.8, hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, real human skin texture with pores and fine lines",
@@ -49,9 +49,9 @@ _STYLE_RUNTIME = {
         "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin",
     },
     "illustration": {
-        "prefix": "digital painting illustration, painterly brushstrokes, concept art quality",
+        "prefix": "digital painting illustration, visible painterly brushstrokes with textured edges, concept art quality, rich layered color palette, soft blended lighting with painted shadows, art station trending quality, hand-painted atmosphere with depth and warmth",
         "check": ("illustration", "painting", "concept art"),
-        "negative": "photorealistic, photograph, anime cel-shading, flat webtoon style",
+        "negative": "photorealistic, photograph, anime cel-shading, flat webtoon style, 3D render, sharp vector lines",
     },
 }
 
@@ -2270,12 +2270,12 @@ class MVPipeline:
         # 스타일 프리픽스
         style_map = {
             MVStyle.CINEMATIC: "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
-            MVStyle.ANIME: "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime eyes and proportions, manga-inspired composition, NOT a photograph, NOT photorealistic",
-            MVStyle.WEBTOON: "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, manhwa character design, NOT a photograph, NOT photorealistic",
+            MVStyle.ANIME: "Japanese anime cel-shaded illustration, bold black outlines 1-2px, flat color fills with gradient shadows, vibrant saturated palette, anime character proportions with large expressive eyes, clean digital lineart, screentone-style shading, manga-inspired dynamic composition, NOT a photograph, NOT photorealistic",
+            MVStyle.WEBTOON: "Korean webtoon manhwa digital art, clean sharp lineart with uniform stroke width, flat color blocks with soft cell shading, modern manhwa character design with semi-realistic proportions, soft ambient lighting with clean gradients, polished digital coloring, NOT a photograph, NOT photorealistic",
             MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, candid feel, 35mm film grain, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",
-            MVStyle.ILLUSTRATION: "digital painting illustration, painterly brushstrokes, concept art quality, rich color palette, NOT a photograph",
+            MVStyle.ILLUSTRATION: "digital painting illustration, visible painterly brushstrokes with textured edges, concept art quality, rich layered color palette, soft blended lighting with painted shadows, hand-painted atmosphere, NOT a photograph",
             MVStyle.ABSTRACT: "abstract expressionist art, surreal dreamlike imagery, bold geometric shapes, color field painting, non-representational",
-            MVStyle.GAME_ANIME: "3D cel-shaded toon-rendered scene, modern anime action RPG game quality (Genshin Impact, Honkai Star Rail, Wuthering Waves style), high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, Unreal Engine quality toon rendering, vibrant saturated colors, NOT photorealistic, NOT flat 2D hand-drawn illustration, NOT western cartoon",
+            MVStyle.GAME_ANIME: "3D cel-shaded toon-rendered scene, high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines 2-3px thick, strong rim lighting with bloom and god rays, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast, detailed ornate costumes, dynamic hair and cloth physics, elemental glow effects, NOT photorealistic, NOT flat 2D hand-drawn illustration, NOT western cartoon",
         }
         style_prefix = style_map.get(request.style, "cinematic")
 
@@ -2802,6 +2802,19 @@ class MVPipeline:
         if era_prefix:
             logger.info(f"  [Era Lock] Detected historical setting: {era_prefix[:40]}...")
 
+        # GenreProfile lighting/motif 추출 (이미지 프롬프트에 직접 주입)
+        genre_gp = self.genre_profiles.get(project.genre.value, {})
+        style_gp = self.genre_profiles.get(project.style.value, {}) if project.style else {}
+        _gp_merged = dict(genre_gp)
+        if style_gp and project.genre.value != (project.style.value if project.style else ""):
+            for _k in ("lighting", "motif_library", "avoid_keywords"):
+                if style_gp.get(_k):
+                    _gp_merged[_k] = style_gp[_k]
+        _gp_lighting = _gp_merged.get("lighting", "")
+        _gp_motifs = _gp_merged.get("motif_library", [])
+        if _gp_lighting or _gp_motifs:
+            logger.info(f"  [GenreProfile] Injecting lighting + {len(_gp_motifs)} motifs into image prompts")
+
         # Pexels B-roll 에이전트 초기화 (기존 사용 ID 로드하여 재생성 시 중복 방지)
         pexels = None
         pexels_key = os.environ.get("PEXELS_API_KEY")
@@ -2981,6 +2994,16 @@ class MVPipeline:
                         ).strip(', ')
                     final_prompt = f"{_prefix}, {final_prompt}"
                     _scene_neg = f"{_sr['negative']}, {_scene_neg}" if _scene_neg else _sr["negative"]
+
+                # GenreProfile lighting/motif 직접 주입
+                if _gp_lighting and _gp_lighting.lower() not in final_prompt.lower()[:200]:
+                    final_prompt = f"{final_prompt}, {_gp_lighting}"
+                if _gp_motifs:
+                    # 씬별로 2-3개 모티프 순환 선택 (전체 목록에서 씬 인덱스 기반)
+                    _motif_count = min(3, len(_gp_motifs))
+                    _start = (scene.scene_id - 1) * _motif_count % len(_gp_motifs)
+                    _selected = [_gp_motifs[(_start + j) % len(_gp_motifs)] for j in range(_motif_count)]
+                    final_prompt = f"{final_prompt}, {', '.join(_selected)}"
 
                 # 스타일 앵커는 캐릭터-free 이미지이므로 모든 씬에 전달
                 _scene_style_anchor = style_anchor_path
@@ -5261,6 +5284,24 @@ class MVPipeline:
                 ).strip(', ')
             final_prompt = f"{_prefix}, {final_prompt}"
             _regen_neg = f"{_sr['negative']}, {_regen_neg}" if _regen_neg else _sr["negative"]
+
+        # GenreProfile lighting/motif 직접 주입
+        _regen_genre_gp = self.genre_profiles.get(project.genre.value, {})
+        _regen_style_gp = self.genre_profiles.get(project.style.value, {}) if project.style else {}
+        _regen_gp = dict(_regen_genre_gp)
+        if _regen_style_gp and project.genre.value != (project.style.value if project.style else ""):
+            for _k in ("lighting", "motif_library"):
+                if _regen_style_gp.get(_k):
+                    _regen_gp[_k] = _regen_style_gp[_k]
+        _regen_lighting = _regen_gp.get("lighting", "")
+        _regen_motifs = _regen_gp.get("motif_library", [])
+        if _regen_lighting and _regen_lighting.lower() not in final_prompt.lower()[:200]:
+            final_prompt = f"{final_prompt}, {_regen_lighting}"
+        if _regen_motifs:
+            _motif_count = min(3, len(_regen_motifs))
+            _start = (scene.scene_id - 1) * _motif_count % len(_regen_motifs)
+            _selected = [_regen_motifs[(_start + j) % len(_regen_motifs)] for j in range(_motif_count)]
+            final_prompt = f"{final_prompt}, {', '.join(_selected)}"
 
         try:
             image_path, _ = self.image_agent.generate_image(

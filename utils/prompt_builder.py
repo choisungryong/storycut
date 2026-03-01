@@ -264,12 +264,16 @@ class MultimodalPromptBuilder:
         lock_declaration = MultimodalPromptBuilder._build_lock_declaration()
         parts.append({"text": lock_declaration})
 
-        # Style anchor - composition/layout reference only, not style override
+        # Style anchor - rendering style guidance depends on style type
+        _NON_REALISTIC_STYLES = {"anime", "webtoon", "game_anime", "illustration", "abstract"}
         if style_anchor_path and os.path.exists(style_anchor_path):
             image_part = MultimodalPromptBuilder._encode_image_part(style_anchor_path)
             if image_part:
                 parts.append(image_part)
-                parts.append({"text": "[REFERENCE] Use this image as a composition and quality reference. The art style MUST follow the text instructions below, NOT this reference image's rendering style."})
+                if style in _NON_REALISTIC_STYLES:
+                    parts.append({"text": "[STYLE ANCHOR] Match this image's rendering style, color palette, shading technique, and visual quality. All generated images MUST look like they belong in the same project as this reference."})
+                else:
+                    parts.append({"text": "[REFERENCE] Use this image as a composition and quality reference. The art style MUST follow the text instructions below, NOT this reference image's rendering style."})
 
         # Environment anchor
         if environment_anchor_path and os.path.exists(environment_anchor_path):

@@ -16,7 +16,7 @@ if BACKEND_BASE_URL and not BACKEND_BASE_URL.startswith("http"):
 # ─── Gemini 모델명 ────────────────────────────────────────
 MODEL_GEMINI_FLASH = "gemini-2.5-flash"
 MODEL_GEMINI_PRO = "gemini-2.5-pro"
-MODEL_GEMINI_FLASH_IMAGE = "gemini-2.5-flash-image"
+MODEL_GEMINI_FLASH_IMAGE = "gemini-3.1-flash-image-preview"
 
 # ─── 인종 키워드 매핑 (공용) ──────────────────────────────
 ETH_KEYWORD_MAP = {

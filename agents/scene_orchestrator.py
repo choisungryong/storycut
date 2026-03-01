@@ -406,14 +406,15 @@ JSON 형식으로 출력:
         Returns:
             영상 생성 프롬프트
         """
-        if style == "webtoon":
-            # Webtoon Style (Primary target)
-            style_prompt = "Premium Webtoon Style, manhwa aesthetics, 2D cel shaded, vibrant colors, clean lines, high quality anime art"
-        elif style == "realistic":
-            style_prompt = "Cinematic Lighting, 4k, detailed texture, photorealistic, photography"
-        else:
-            # Fallback but biased towards illustration for safety
-            style_prompt = f"{style}, cinematic animation, high contrast"
+        _STYLE_PREFIX = {
+            "cinematic": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, real human skin texture with pores",
+            "realistic": "RAW photograph shot on Canon EOS R5 85mm f/1.8, hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, real human skin texture with pores and fine lines",
+            "game_anime": "3D cel-shaded toon-rendered scene, high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines 2-3px thick, strong rim lighting with bloom and god rays, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast, detailed ornate costumes, dynamic hair and cloth physics, elemental glow effects, epic fantasy backgrounds",
+            "anime": "Japanese anime cel-shaded illustration, bold black outlines 1-2px, flat color fills with gradient shadows, vibrant saturated palette, anime character proportions (large expressive eyes, stylized hair), clean digital lineart, screentone-style shading, manga-inspired dynamic composition",
+            "webtoon": "Korean webtoon manhwa digital art, clean sharp lineart with uniform stroke width, flat color blocks with soft cell shading, modern manhwa character design with semi-realistic proportions, soft ambient lighting with clean gradients, polished digital coloring",
+            "illustration": "digital painting illustration, visible painterly brushstrokes with textured edges, concept art quality, rich layered color palette, soft blended lighting with painted shadows, art station trending quality, hand-painted atmosphere with depth and warmth",
+        }
+        style_prompt = _STYLE_PREFIX.get(style, f"{style}, cinematic animation, high contrast")
 
         inherited_str = ", ".join(inherited) if inherited else "none"
 
