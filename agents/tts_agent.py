@@ -89,6 +89,10 @@ class TTSAgent:
                 result = self._call_elevenlabs_with_alignment(narration, self.voice, output_path)
                 audio_path = result["audio_path"]
                 char_alignment = result.get("alignment")
+                if char_alignment:
+                    logger.info(f"     [TTS] alignment OK: {len(char_alignment['characters'])} chars, first5={char_alignment['characters'][:5]}, times=[{char_alignment['start_times'][0]:.3f}..{char_alignment['end_times'][-1]:.3f}]")
+                else:
+                    logger.warning(f"     [TTS] alignment is None - ElevenLabs returned no alignment data")
             except Exception as e:
                 logger.error(f"     [Warning] ElevenLabs TTS failed: {e}")
                 audio_path = None

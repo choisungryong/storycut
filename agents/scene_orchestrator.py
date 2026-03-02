@@ -1912,11 +1912,13 @@ JSON 형식으로 출력:
 
             # 1순위: ElevenLabs char_alignment (캐릭터별 정밀 타이밍)
             _alignment = getattr(scene, '_char_alignment', None)
+            _has_timings = getattr(scene, '_sentence_timings', None)
+            logger.info(f"  [SRT-ROUTE] Scene {scene.scene_id}: _char_alignment={'YES '+str(len(_alignment.get('characters',[])))+'chars' if _alignment and _alignment.get('characters') else 'None'}, _sentence_timings={'YES' if _has_timings else 'None'}")
             if _alignment and _alignment.get('characters'):
                 self._generate_srt_from_alignment(_alignment, narration, srt_path, composer)
                 logger.info(f"  [SRT] Scene {scene.scene_id}: char_alignment 기반 정밀 SRT")
             # 2순위: sentence_timings (문장별 타이밍)
-            elif getattr(scene, '_sentence_timings', None):
+            elif _has_timings:
                 self._generate_srt_from_timings(scene._sentence_timings, srt_path, composer)
                 logger.info(f"  [SRT] Scene {scene.scene_id}: sentence_timings 기반 SRT ({len(scene._sentence_timings)}문장)")
             else:
@@ -1927,7 +1929,7 @@ JSON 형식으로 출력:
                     "duration_sec": actual_duration
                 }]
                 composer.generate_srt_from_scenes(scene_data, srt_path)
-                logger.info(f"  [SRT] Scene {scene.scene_id}: 글자수 비례 fallback SRT")
+                logger.info(f"  [SRT] Scene {scene.scene_id}: 글자수비례 fallback (dur={actual_duration}s)")
 
             # 디버그 로그: SRT 내용 출력
             try:
