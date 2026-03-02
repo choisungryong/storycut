@@ -2207,13 +2207,13 @@ async def regenerate_character(project_id: str, token: str):
     def do_regenerate():
         from agents.character_manager import CharacterManager
         manager = CharacterManager()
-        # 전체 3포즈 재생성 (reference 기반 일관성 적용)
+        # 전체 3포즈 재생성 (후보 1개로 빠르게 — 재생성이므로 스코어링 불필요)
         manager.cast_characters(
             character_sheet=char_sheet,
             global_style=global_style,
             project_dir=project_dir,
             poses=["front", "three_quarter", "full_body"],
-            candidates_per_pose=2,
+            candidates_per_pose=1,
             ethnicity=_ethnicity
         )
         # anchor_set 전체 포즈 이미지 경로 반환
