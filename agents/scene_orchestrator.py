@@ -407,8 +407,8 @@ JSON 형식으로 출력:
             영상 생성 프롬프트
         """
         _STYLE_PREFIX = {
-            "cinematic": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, flawless clear skin, beautiful attractive characters with ideal body proportions, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks",
-            "realistic": "RAW photograph shot on Canon EOS R5 85mm f/1.8, hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, flawless clear skin, beautiful attractive characters with ideal body proportions, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks",
+            "cinematic": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic cinematic lighting with rich vibrant colors, color graded like a Hollywood blockbuster, flawless clear skin, beautiful attractive characters with ideal body proportions, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks",
+            "realistic": "RAW photograph shot on Canon EOS R5 85mm f/1.8, hyperrealistic photograph, DSLR quality, beautiful natural lighting with rich colors, sharp focus, flawless clear skin, beautiful attractive characters with ideal body proportions, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks",
             "game_anime": "3D cel-shaded toon-rendered scene, high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines 2-3px thick, strong rim lighting with bloom and god rays, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast, detailed ornate costumes, dynamic hair and cloth physics, elemental glow effects, epic fantasy backgrounds, attractive characters with ideal proportions, NO moles, NO scars, NO blemishes",
             "anime": "Japanese anime cel-shaded illustration, bold black outlines 1-2px, flat color fills with gradient shadows, vibrant saturated palette, anime character proportions (large expressive eyes, stylized hair), clean digital lineart, screentone-style shading, manga-inspired dynamic composition, attractive characters with ideal proportions, NO moles, NO scars, NO blemishes",
             "webtoon": "Korean webtoon manhwa digital art, clean sharp lineart with uniform stroke width, flat color blocks with soft cell shading, modern manhwa character design with semi-realistic proportions, soft ambient lighting with clean gradients, polished digital coloring, attractive characters with ideal proportions, NO moles, NO scars, NO blemishes",
@@ -458,14 +458,21 @@ JSON 형식으로 출력:
             "blurry, low quality, distorted, disfigured, "
             "watermark, text, logo, bad anatomy, extra limbs, "
             "mutant, deformed, ugly, missing fingers, extra fingers, "
-            "inconsistent characters, changing clothes, different face, morphing features, cropped head"
+            "inconsistent characters, changing clothes, different face, morphing features, cropped head, "
+            "moles, tattoos, scars, blemishes, birthmarks, skin imperfections, wounds, "
+            "desaturated, monochrome, grayscale, black and white, washed out colors"
         )
-        
-        if style == "webtoon":
-            # Webtoon specific negatives
-            return f"{base_negative}, photorealistic, 3d render, uncanny valley, realistic texture"
-        else:
-            return base_negative
+
+        _style_negatives = {
+            "cinematic": "anime, cartoon, illustration, cel-shaded, flat colors, 3D render, toon shader, plastic skin, doll-like",
+            "realistic": "anime, cartoon, illustration, cel-shaded, flat colors, 3D render, toon shader, plastic skin, doll-like, AI-generated look",
+            "anime": "photorealistic, photograph, 3D render, western cartoon, real human skin texture",
+            "webtoon": "photorealistic, photograph, 3D render, western cartoon, uncanny valley, realistic texture",
+            "game_anime": "photorealistic, flat 2D illustration, western cartoon, watercolor, oil painting, low-poly, chibi deformed",
+            "illustration": "photorealistic, photograph, anime cel-shading, flat webtoon style, 3D render",
+        }
+        style_neg = _style_negatives.get(style, "")
+        return f"{base_negative}, {style_neg}" if style_neg else base_negative
 
     # =========================================================================
     # 메인 처리 로직

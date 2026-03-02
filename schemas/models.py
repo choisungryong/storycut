@@ -290,7 +290,7 @@ class GlobalStyle(BaseModel):
         description="아트 스타일"
     )
     color_palette: str = Field(
-        default="desaturated blues and warm amber highlights",
+        default="rich vibrant blues and warm amber highlights",
         description="색상 팔레트"
     )
     aspect_ratio: str = Field(default="16:9", description="화면 비율")

@@ -24,7 +24,7 @@ _STRIP_PAREN_RE = re.compile(r'^\(.*?\)\s*|\s*\(.*?\)$')
 # 스타일별 런타임 프리픽스 + 네거티브 (generate_images / regenerate 공용)
 _STYLE_RUNTIME = {
     "cinematic": {
-        "prefix": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, flawless clear skin, beautiful attractive characters with ideal body proportions",
+        "prefix": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic cinematic lighting with rich vibrant colors, color graded like a Hollywood blockbuster, flawless clear skin, beautiful attractive characters with ideal body proportions",
         "check": ("cinematic", "film still", "dramatic lighting"),
         "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin, moles, tattoos, scars, blemishes, birthmarks, skin imperfections, wounds",
     },
@@ -1493,7 +1493,7 @@ class MVPipeline:
 
         # 스타일 디렉티브 (앵커 프롬프트 최상단에 강제 삽입)
         _anchor_style_directives = {
-            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader",
+            "cinematic": "cinematic film still, dramatic cinematic lighting with rich vibrant colors, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader",
             "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, NOT a photograph",
             "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, NOT a photograph",
             "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, visible skin texture, NOT anime, NOT cartoon, NOT illustration",
@@ -1908,7 +1908,7 @@ class MVPipeline:
 
             # 스타일별 구체적 비주얼 가이드
             style_guide = {
-                "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
+                "cinematic": "cinematic film still, dramatic cinematic lighting with rich vibrant colors, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
                 "anime": "Japanese anime cel-shaded illustration, bold outlines, vibrant saturated colors, anime eyes and proportions, manga-inspired composition",
                 "webtoon": "Korean webtoon digital art style, clean sharp lines, flat color blocks, manhwa character design, vertical scroll composition",
                 "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, candid feel, 35mm film grain",
@@ -1939,7 +1939,7 @@ class MVPipeline:
                     "fantasy": "magical fantasy world, enchanted forests, glowing runes, ethereal creatures, mythical landscapes, moonlit atmosphere",
                     "romance": "intimate romantic scenes, warm golden hour lighting, soft bokeh, couples in tender moments, rain reflections, night city warmth",
                     "action": "high-energy action scenes, dynamic motion blur, explosive effects, intense close-ups, sparks and debris",
-                    "horror": "dark horror atmosphere, unsettling shadows, eerie fog, distorted perspectives, muted desaturated colors, narrow light sources",
+                    "horror": "dark horror atmosphere, unsettling shadows, eerie fog, distorted perspectives, deep rich dark tones, narrow light sources",
                     "scifi": "futuristic sci-fi environment, neon holographics, cyberpunk city, advanced technology, chrome surfaces, data streams",
                     "drama": "dramatic emotional scenes, naturalistic lighting, expressive faces, strong contrast, muted tones",
                     "comedy": "bright cheerful scenes, exaggerated expressions, warm vivid colors, playful compositions, comedic timing",
@@ -1953,7 +1953,7 @@ class MVPipeline:
                 "calm": "serene peaceful mood, soft natural light, muted earth tones, minimalist composition",
                 "dark": "dark moody atmosphere, deep shadows, cool blue-black tones, film noir inspired",
                 "romantic": "warm romantic ambiance, rose and amber tones, soft candlelight, intimate framing",
-                "melancholic": "melancholic bittersweet tone, rain and mist, faded desaturated colors, solitary figures",
+                "melancholic": "melancholic bittersweet tone, rain and mist, soft muted tones with cool blue undertones, solitary figures",
                 "uplifting": "bright uplifting feeling, sun rays breaking through, warm golden tones, upward angles"
             }.get(request.mood.value, "")
 
@@ -2273,7 +2273,7 @@ class MVPipeline:
 
         # 스타일 프리픽스
         style_map = {
-            MVStyle.CINEMATIC: "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
+            MVStyle.CINEMATIC: "cinematic film still, dramatic cinematic lighting with rich vibrant colors, shallow depth of field, anamorphic lens flare, color graded like a Hollywood blockbuster",
             MVStyle.ANIME: "Japanese anime cel-shaded illustration, bold black outlines 1-2px, flat color fills with gradient shadows, vibrant saturated palette, anime character proportions with large expressive eyes, clean digital lineart, screentone-style shading, manga-inspired dynamic composition, NOT a photograph, NOT photorealistic",
             MVStyle.WEBTOON: "Korean webtoon manhwa digital art, clean sharp lineart with uniform stroke width, flat color blocks with soft cell shading, modern manhwa character design with semi-realistic proportions, soft ambient lighting with clean gradients, polished digital coloring, NOT a photograph, NOT photorealistic",
             MVStyle.REALISTIC: "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, candid feel, 35mm film grain, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin",

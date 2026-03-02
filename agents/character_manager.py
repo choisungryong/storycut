@@ -30,7 +30,7 @@ POSE_CONFIGS = {
     "side": "elegant side profile portrait, face and upper body, looking into the distance, dramatic silhouette lighting, atmospheric",
     "full_body": "full body portrait from head to feet, natural confident stance, medium-wide shot, cinematic lighting, realistic human proportions, natural anatomy, NOT stubby NOT chibi NOT cartoonish proportions, NOT elongated limbs",
     "emotion_neutral": "portrait, calm confident expression, soft natural lighting",
-    "emotion_intense": "portrait, intense emotional expression, dramatic chiaroscuro lighting",
+    "emotion_intense": "portrait, intense emotional expression, dramatic cinematic lighting with rich colors",
 }
 
 
@@ -127,7 +127,7 @@ class CharacterManager:
 
         # 스타일 directive 강화 (MV와 동일): LLM이 생성한 art_style 대신 명시적 스타일 지시
         _STYLE_DIRECTIVES = {
-            "cinematic": "cinematic film still, dramatic chiaroscuro lighting, shallow depth of field, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader, NOT doll-like",
+            "cinematic": "cinematic film still, dramatic cinematic lighting with rich colors, shallow depth of field, color graded like a Hollywood blockbuster, real human skin texture, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader, NOT doll-like",
             "anime": "Japanese anime cel-shaded illustration, bold black outlines, vibrant saturated colors, anime character proportions, NOT a photograph, NOT photorealistic",
             "webtoon": "Korean webtoon manhwa digital art, clean sharp lines, flat color blocks, manhwa character design, NOT a photograph, NOT photorealistic",
             "realistic": "hyperrealistic photograph, DSLR quality, natural lighting, photojournalistic, sharp focus, real-world textures, visible skin pores, natural asymmetry, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin, NOT 3D render, NOT CGI, NOT toon shader, NOT doll-like",

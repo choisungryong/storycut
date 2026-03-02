@@ -178,7 +178,7 @@ class StyleAnchorAgent:
             스타일 앵커 프롬프트
         """
         art_style = "cinematic animation, high contrast, dramatic lighting"
-        color_palette = "desaturated blues and warm amber highlights"
+        color_palette = "rich vibrant blues and warm amber highlights"
 
         if global_style:
             if isinstance(global_style, GlobalStyle):

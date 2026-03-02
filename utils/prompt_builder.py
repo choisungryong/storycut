@@ -219,9 +219,9 @@ class MultimodalPromptBuilder:
         "dreamy": "soft pastel haze, lavender and pink tones, ethereal glow, lens diffusion",
         "energetic": "vivid neon accents, high saturation, speed lines feel, angular dynamic lighting",
         "calm": "soft natural light, muted earth tones, gentle gradient sky, minimal contrast",
-        "dark": "deep blue-black shadows, desaturated, cold steel tones, film noir",
+        "dark": "deep blue-black shadows, cold steel tones, dramatic contrast, rich dark color palette",
         "romantic": "warm rose and amber tones, soft candlelight, golden bokeh, intimate warmth",
-        "melancholic": "faded desaturated colors, misty rain, cool blue undertones, muted highlights",
+        "melancholic": "soft muted tones, misty rain, cool blue undertones, gentle diffused lighting",
         "uplifting": "bright sun rays, warm golden tones, upward light beams, vibrant greens",
     }
 
@@ -316,15 +316,15 @@ class MultimodalPromptBuilder:
         # NOTE: 각 스타일의 positive에 "캐릭터 디자인은 참조 이미지 기반" 명시
         style_directives = {
             "cinematic": {
-                "positive": "Generate a cinematic film still with dramatic chiaroscuro lighting, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster. Natural skin texture, real-world imperfections. If character reference images are provided, the characters MUST look identical to those references.",
+                "positive": "Generate a cinematic film still with dramatic cinematic lighting, rich vibrant color grading, shallow depth of field, and anamorphic lens quality. Color graded like a Hollywood blockbuster. Flawless clear skin, beautiful attractive characters with ideal body proportions. If character reference images are provided, the characters MUST look identical to those references. NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks.",
                 "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT cel-shaded, NOT stylized, NOT 3D render, NOT 3D animation, NOT CGI, NOT Unreal Engine, NOT game screenshot, NOT toon shader. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT doll-like, NOT porcelain skin, NOT airbrushed, NOT uncanny valley."
             },
             "anime": {
-                "positive": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. This MUST look like hand-drawn anime art. If character reference images are provided, adapt their design to anime style while preserving hair color, eye color, outfit design, and distinguishing features.",
+                "positive": "Generate a Japanese anime cel-shaded illustration with bold black outlines, vibrant saturated colors, and anime character proportions. Beautiful attractive characters with ideal proportions. This MUST look like hand-drawn anime art. If character reference images are provided, adapt their design to anime style while preserving hair color, eye color, outfit design, and distinguishing features. NO moles, NO scars, NO blemishes.",
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
             },
             "webtoon": {
-                "positive": "Generate a Korean webtoon (manhwa) style digital art with clean sharp lines, flat color blocks, and stylized character design. This MUST look like a webtoon panel. If character reference images are provided, adapt their design to webtoon style while preserving hair color, eye color, outfit design, and distinguishing features.",
+                "positive": "Generate a Korean webtoon (manhwa) style digital art with clean sharp lines, flat color blocks, and stylized character design. Beautiful attractive characters with ideal proportions. This MUST look like a webtoon panel. If character reference images are provided, adapt their design to webtoon style while preserving hair color, eye color, outfit design, and distinguishing features. NO moles, NO scars, NO blemishes.",
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
             },
             "realistic": {
@@ -332,7 +332,7 @@ class MultimodalPromptBuilder:
                 "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized, NOT 3D render, NOT 3D animation, NOT CGI, NOT Unreal Engine, NOT game screenshot, NOT toon shader. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT doll-like, NOT porcelain skin, NOT symmetrical face, NOT glowing eyes, NOT airbrushed, NOT uncanny valley, NOT stock photo, NOT oversaturated."
             },
             "illustration": {
-                "positive": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. This MUST look like a hand-painted artwork. If character reference images are provided, paint the SAME characters in illustration style — preserve their hair color, eye color, skin tone, outfit design, and body proportions. The characters must be recognizably the same people, just rendered as a painting.",
+                "positive": "Generate a digital painting illustration with visible painterly brushstrokes, rich color palette, and concept art quality. Beautiful attractive characters with ideal proportions. This MUST look like a hand-painted artwork. If character reference images are provided, paint the SAME characters in illustration style — preserve their hair color, eye color, skin tone, outfit design, and body proportions. The characters must be recognizably the same people, just rendered as a painting. NO moles, NO scars, NO blemishes.",
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic."
             },
             "abstract": {
@@ -340,7 +340,7 @@ class MultimodalPromptBuilder:
                 "negative": "ABSOLUTELY NOT realistic, NOT photorealistic, NOT representational."
             },
             "game_anime": {
-                "positive": "Generate a 3D cel-shaded toon-rendered character scene in the style of modern anime action RPG games (Genshin Impact, Honkai Star Rail, Wuthering Waves). High-fidelity 3D models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, detailed ornate costumes and fantasy weapons, dynamic hair and cloth physics, Unreal Engine quality rendering, vibrant saturated colors with high contrast, epic open-world fantasy backgrounds. If character reference images are provided, model the SAME characters — preserve their hair color/style, eye color, outfit design, weapon/accessory design, and body proportions.",
+                "positive": "Generate a 3D cel-shaded toon-rendered character scene in the style of modern anime action RPG games (Genshin Impact, Honkai Star Rail, Wuthering Waves). High-fidelity 3D models with cartoon/toon shader, crisp cel-shading outlines, strong rim lighting with bloom, detailed ornate costumes and fantasy weapons, dynamic hair and cloth physics, Unreal Engine quality rendering, vibrant saturated colors with high contrast, epic open-world fantasy backgrounds. Beautiful attractive characters with ideal proportions. If character reference images are provided, model the SAME characters — preserve their hair color/style, eye color, outfit design, weapon/accessory design, and body proportions. NO moles, NO scars, NO blemishes.",
                 "negative": "ABSOLUTELY NOT photorealistic, NOT western cartoon, NOT flat 2D illustration, NOT hand-drawn anime, NOT watercolor, NOT oil painting, NOT low-poly, NOT chibi deformed, NOT mundane everyday objects, NOT real-world brands, NOT pixel art."
             },
         }
