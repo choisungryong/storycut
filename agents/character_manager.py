@@ -25,12 +25,12 @@ if TYPE_CHECKING:
 
 # 포즈별 프롬프트 설정
 POSE_CONFIGS = {
-    "front": "cinematic close-up portrait, face and shoulders, front facing, looking directly at camera with confident expression, head-and-shoulders framing, beautiful volumetric lighting, soft bokeh background, sharp focus on eyes, hands NOT visible in frame",
-    "three_quarter": "upper body portrait, turned 30 degrees, natural relaxed pose, slight smile, warm rim lighting from behind, waist-up framing, soft depth of field, magazine editorial quality",
-    "side": "elegant side profile portrait, face and upper body, looking into the distance, dramatic silhouette lighting, atmospheric",
-    "full_body": "full body portrait from head to feet, natural confident stance, medium-wide shot, cinematic lighting, realistic human proportions, natural anatomy, NOT stubby NOT chibi NOT cartoonish proportions, NOT elongated limbs",
-    "emotion_neutral": "portrait, calm confident expression, soft natural lighting",
-    "emotion_intense": "portrait, intense emotional expression, dramatic cinematic lighting with rich colors",
+    "front": "high-end fashion editorial close-up portrait, face and shoulders, front facing, looking directly at camera with charismatic confident expression, head-and-shoulders framing, professional studio beauty lighting with softbox and rim light, creamy bokeh background, tack sharp focus on eyes, hands NOT visible in frame",
+    "three_quarter": "Vogue magazine editorial upper body portrait, turned 30 degrees, natural elegant pose, charming slight smile, warm golden rim lighting from behind, waist-up framing, shallow depth of field, luxury fashion photography quality",
+    "side": "elegant cinematic side profile portrait, face and upper body, looking into the distance with captivating gaze, dramatic backlit rim lighting, atmospheric",
+    "full_body": "full body fashion editorial portrait from head to feet, confident model stance with elegant posture, medium-wide shot, professional studio lighting, ideal human proportions, long legs, NOT stubby NOT chibi NOT cartoonish proportions, NOT elongated limbs",
+    "emotion_neutral": "beauty campaign portrait, calm charismatic expression, soft professional beauty lighting",
+    "emotion_intense": "dramatic portrait, intense captivating emotional expression, cinematic lighting with rich colors",
 }
 
 
@@ -342,11 +342,24 @@ class CharacterManager:
 
             # 매력 키워드를 appearance 앞에 주입 (Gemini는 앞부분 토큰을 더 중시)
             _beauty_prefix = {
-                "male": "extremely handsome attractive well-built man with ideal masculine proportions",
-                "female": "extremely beautiful gorgeous woman with ideal slim hourglass figure and elegant proportions",
-                "unknown": "extremely attractive good-looking person with ideal body proportions",
+                "male": (
+                    "stunningly handsome male celebrity face, top Korean actor visuals, "
+                    "sharp defined jawline, perfect facial symmetry, piercing expressive eyes, "
+                    "thick well-groomed eyebrows, tall nose bridge, clear double eyelids, "
+                    "athletic fit body with broad shoulders and ideal V-line torso"
+                ),
+                "female": (
+                    "stunningly beautiful female celebrity face, top K-pop idol visuals, "
+                    "perfect V-line jawline, large bright doe eyes with double eyelids, "
+                    "small delicate nose, full lips, perfect facial symmetry, "
+                    "slim hourglass figure with long elegant legs and ideal body proportions"
+                ),
+                "unknown": (
+                    "stunningly attractive celebrity-level visuals, perfect facial symmetry, "
+                    "sharp defined features, expressive eyes, ideal body proportions"
+                ),
             }
-            appearance = f"{_beauty_prefix[gender]}, flawless clear skin, no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, {char.description}"
+            appearance = f"{_beauty_prefix[gender]}, flawless porcelain-clear skin, luminous dewy complexion, no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, no wrinkles, no dark circles, {char.description}"
             ethnicity_val = getattr(project, 'character_ethnicity', None)
             if ethnicity_val and str(ethnicity_val.value) != "auto":
                 eth_keyword = ETH_KEYWORD_MAP.get(str(ethnicity_val.value), "")
@@ -708,11 +721,12 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
             prompt_parts.append(color_palette)
 
         prompt_parts.append(
-            "masterpiece quality, highly detailed, sharp focus, "
-            "professional photography lighting, 8K resolution, "
-            "extremely attractive and appealing character design, ideal body proportions, "
-            "flawless clear skin, no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
-            "no text, no watermark, no border, no frame"
+            "masterpiece quality, ultra detailed, tack sharp focus, "
+            "professional beauty photography lighting, 8K resolution, "
+            "celebrity-level stunning visuals, magazine cover worthy face, ideal body proportions, "
+            "flawless porcelain-clear skin, luminous dewy complexion, "
+            "no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
+            "no wrinkles, no dark circles, no text, no watermark, no border, no frame"
         )
 
         return ", ".join(prompt_parts)

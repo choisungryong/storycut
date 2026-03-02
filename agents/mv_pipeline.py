@@ -1638,12 +1638,22 @@ class MVPipeline:
 
             # 성별 기반 매력 키워드 (description 앞에 배치)
             _desc_lower = character.description.lower()
-            _beauty = "extremely beautiful gorgeous woman with ideal slim hourglass figure and elegant proportions" if any(kw in _desc_lower for kw in ("female", "woman", "girl", "여성", "여자", "소녀")) else \
-                      "extremely handsome attractive well-built man with ideal masculine proportions" if any(kw in _desc_lower for kw in ("male", "man", "boy", "남성", "남자", "소년")) else \
-                      "extremely attractive good-looking person with ideal body proportions"
+            _beauty = (
+                "stunningly beautiful female celebrity face, top K-pop idol visuals, "
+                "perfect V-line jawline, large bright doe eyes, small delicate nose, full lips, "
+                "slim hourglass figure with long elegant legs"
+            ) if any(kw in _desc_lower for kw in ("female", "woman", "girl", "여성", "여자", "소녀")) else (
+                "stunningly handsome male celebrity face, top Korean actor visuals, "
+                "sharp defined jawline, piercing expressive eyes, tall nose bridge, "
+                "athletic fit body with broad shoulders and ideal V-line torso"
+            ) if any(kw in _desc_lower for kw in ("male", "man", "boy", "남성", "남자", "소년")) else (
+                "stunningly attractive celebrity-level visuals, perfect facial symmetry, "
+                "sharp defined features, ideal body proportions"
+            )
             portrait_prompt = (
-                f"cinematic close-up portrait, face and shoulders, beautiful volumetric lighting, "
-                f"soft bokeh background, sharp focus on eyes, flawless clear skin, "
+                f"high-end fashion editorial close-up portrait, face and shoulders, professional beauty lighting, "
+                f"creamy bokeh background, tack sharp focus on eyes, "
+                f"flawless porcelain-clear skin, luminous dewy complexion, "
                 f"no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
                 f"{_beauty}, {character.description}"
             )
@@ -1653,8 +1663,9 @@ class MVPipeline:
                 portrait_prompt += f", wearing {character.outfit}"
             portrait_prompt += (
                 f", {style_context}, "
-                f"masterpiece quality, highly detailed, extremely attractive character design, ideal body proportions, "
-                f"flawless clear skin, no moles, no tattoos, no scars, no blemishes, "
+                f"masterpiece quality, ultra detailed, celebrity-level stunning visuals, magazine cover worthy face, "
+                f"flawless porcelain-clear skin, luminous dewy complexion, ideal body proportions, "
+                f"no moles, no tattoos, no scars, no blemishes, no wrinkles, no dark circles, "
                 f"no text, no watermark, no border"
             )
 
