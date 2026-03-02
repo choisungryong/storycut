@@ -1299,7 +1299,7 @@ class StorycutApp {
                     this.isGenerating = false;
                     this.showToast('영상 생성에 실패했습니다. 다시 시도해주세요.', 'error');
 
-                } else if (data.status === 'processing' || data.status === 'images_ready') {
+                } else if (data.status === 'processing' || data.status === 'images_ready' || data.status === 'generating') {
                     // 진행 중 상태 업데이트
                     const progress = data.progress || 25;
                     const message = data.message || '영상 생성 중...';

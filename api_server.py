@@ -1109,8 +1109,8 @@ async def generate_one_shot(req: GenerateRequest, request: Request):
     user_id = request.headers.get("X-User-Id", "")
     initial_manifest = {
         "project_id": project_id,
-        "status": "generating",
-        "progress": 0,
+        "status": "processing",
+        "progress": 5,
         "message": "스토리 생성 중...",
         "created_at": datetime.now().isoformat(),
         "title": req.topic or "원샷 생성",
@@ -1133,8 +1133,26 @@ async def generate_one_shot(req: GenerateRequest, request: Request):
         try:
             # Step 1: 스토리 생성
             logger.info(f"[ONE-SHOT] Starting story generation for {project_id}")
+
+            # manifest 진행률 업데이트 헬퍼
+            def _update_manifest(progress, message, **extra):
+                try:
+                    with open(manifest_path, 'r', encoding='utf-8') as f:
+                        m = json.load(f)
+                    m['progress'] = progress
+                    m['message'] = message
+                    for k, v in extra.items():
+                        m[k] = v
+                    with open(manifest_path, 'w', encoding='utf-8') as f:
+                        json.dump(m, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+
+            _update_manifest(10, '스토리 생성 중... AI가 시나리오를 구상하고 있습니다.')
             story_data = pipeline.generate_story_only(project_request)
             logger.info(f"[ONE-SHOT] Story generated: {story_data.get('title')}, {len(story_data.get('scenes', []))} scenes")
+
+            _update_manifest(20, '스토리 완성! 영상 생성을 시작합니다...', title=story_data.get('title', '원샷 생성'))
 
             # user_id 주입
             if user_id:

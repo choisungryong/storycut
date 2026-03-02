@@ -138,24 +138,17 @@
 }
 
 .sc-nav__cta {
-  opacity: 0;
-  transform: translateY(-8px);
-  pointer-events: none;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
   transition: opacity var(--duration-normal) var(--ease-out),
               transform var(--duration-normal) var(--ease-out);
 }
 
-.sc-nav.scrolled .sc-nav__cta,
-.sc-nav.scrolled .sc-nav__login {
+.sc-nav__login {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
-}
-
-.sc-nav__login {
-  opacity: 0;
-  transform: translateY(-8px);
-  pointer-events: none;
   transition: opacity var(--duration-normal) var(--ease-out),
               transform var(--duration-normal) var(--ease-out);
 }
