@@ -103,6 +103,7 @@ class StoryAgent:
         Step 2: Scene-level Detail (Script, Prompts, Camera Work)
         """
         logger.info(f"[Story Agent] Generating story (2-Step Chain): {genre} / {mood} / {style}")
+        logger.info(f"[Story Agent] duration={total_duration_sec}s, is_shorts={is_shorts}, user_idea={user_idea}")
 
         # Calculate target scene count
         if is_shorts:
@@ -111,6 +112,7 @@ class StoryAgent:
         else:
             min_scenes = max(5, total_duration_sec // 8)
             max_scenes = total_duration_sec // 4
+        logger.info(f"[Story Agent] Target scene count: {min_scenes}~{max_scenes}")
 
         # =================================================================================
         # STEP 1: Story Architecture
@@ -148,7 +150,7 @@ class StoryAgent:
 - character "name": 한국어 이름 사용 (예: 지민, 준혁, 서연)
 - character "appearance": 영어로 작성 (이미지 생성용)
 
-{'USER IDEA: ' + user_idea if user_idea else ''}
+{('USER IDEA (최우선 반영 — 이 주제/소재를 반드시 중심으로 스토리를 구성할 것): ' + user_idea) if user_idea else ''}
 
 [TIME SETTING vs CHARACTER AGE — 필수 구분]
 - "N년 뒤", "미래", "2080년" 같은 시간 표현은 **세계관/시대 배경**을 의미한다. 캐릭터 나이가 아니다.

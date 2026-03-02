@@ -1184,6 +1184,7 @@ async def generate_one_shot(req: GenerateRequest, request: Request):
     thread.start()
 
     logger.info(f"[ONE-SHOT] Background thread started for {project_id}")
+    logger.info(f"[ONE-SHOT] topic={req.topic}, duration={req.duration}, platform={req.platform}, style={req.style}, genre={req.genre}")
 
     return {
         "project_id": project_id,
