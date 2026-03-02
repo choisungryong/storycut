@@ -1914,15 +1914,22 @@ JSON 형식으로 출력:
             _alignment = getattr(scene, '_char_alignment', None)
             _has_timings = getattr(scene, '_sentence_timings', None)
             logger.info(f"  [SRT-ROUTE] Scene {scene.scene_id}: _char_alignment={'YES '+str(len(_alignment.get('characters',[])))+'chars' if _alignment and _alignment.get('characters') else 'None'}, _sentence_timings={'YES' if _has_timings else 'None'}")
+
+            _srt_generated = False
             if _alignment and _alignment.get('characters'):
-                self._generate_srt_from_alignment(_alignment, narration, srt_path, composer)
-                logger.info(f"  [SRT] Scene {scene.scene_id}: char_alignment 기반 정밀 SRT")
-            # 2순위: sentence_timings (문장별 타이밍)
-            elif _has_timings:
+                success = self._generate_srt_from_alignment(_alignment, narration, srt_path, composer)
+                if success:
+                    logger.info(f"  [SRT] Scene {scene.scene_id}: char_alignment 기반 정밀 SRT")
+                    _srt_generated = True
+                else:
+                    logger.warning(f"  [SRT] Scene {scene.scene_id}: alignment 매칭 실패 → fallback")
+
+            if not _srt_generated and _has_timings:
                 self._generate_srt_from_timings(scene._sentence_timings, srt_path, composer)
                 logger.info(f"  [SRT] Scene {scene.scene_id}: sentence_timings 기반 SRT ({len(scene._sentence_timings)}문장)")
-            else:
-                # 3순위: 글자 수 비례 (레거시 fallback)
+                _srt_generated = True
+
+            if not _srt_generated:
                 actual_duration = scene.tts_duration_sec if scene.tts_duration_sec else scene.duration_sec
                 scene_data = [{
                     "narration": narration,
@@ -2034,14 +2041,17 @@ JSON 형식으로 출력:
         srt_content = []
         sub_index = 1
         char_offset = 0  # alignment 캐릭터 배열에서의 현재 위치
+        total_matched = 0
+        total_expected = 0
 
         for chunk in chunks:
             chunk_stripped = chunk.strip()
             if not chunk_stripped:
                 continue
 
+            total_expected += len(chunk_stripped.replace(' ', ''))
+
             # 청크의 첫 글자/마지막 글자를 alignment에서 찾기
-            # alignment 텍스트와 clean_text가 다를 수 있으므로 글자 단위 매칭
             chunk_start_time = None
             chunk_end_time = None
             matched_chars = 0
@@ -2069,15 +2079,16 @@ JSON 형식으로 출력:
                     chunk_char_idx += 1
                     char_offset = ai + 1
 
+            total_matched += matched_chars
+
             # 매칭 실패 시 fallback: 이전 끝 시간 ~ 비례 추정
             if chunk_start_time is None:
                 if sub_index > 1 and srt_content:
-                    # 이전 엔트리의 끝 시간에서 시작
                     chunk_start_time = ends[min(char_offset, len(ends) - 1)] if char_offset < len(ends) else ends[-1]
                 else:
                     chunk_start_time = 0.0
             if chunk_end_time is None:
-                chunk_end_time = chunk_start_time + 2.0  # fallback 2초
+                chunk_end_time = chunk_start_time + 2.0
 
             start_ms = int(chunk_start_time * 1000)
             end_ms = int(chunk_end_time * 1000)
@@ -2088,11 +2099,20 @@ JSON 형식으로 출력:
             srt_content.append("")
             sub_index += 1
 
+        # 매칭률 검사 — 50% 미만이면 alignment 완전 실패로 판단
+        match_rate = total_matched / max(total_expected, 1)
+        if match_rate < 0.5:
+            logger.warning(f"     [Alignment FAIL] match_rate={match_rate:.0%} ({total_matched}/{total_expected})")
+            return False
+
+        logger.info(f"     [Alignment OK] match_rate={match_rate:.0%} ({total_matched}/{total_expected})")
+
         os.makedirs(os.path.dirname(srt_path) or ".", exist_ok=True)
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write("\n".join(srt_content))
 
         logger.info(f"     [Alignment SRT] {sub_index - 1} entries written to {srt_path}")
+        return True
 
     def get_processing_stats(
         self,

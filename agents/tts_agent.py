@@ -513,7 +513,8 @@ class TTSAgent:
 
             # alignment 추출
             alignment_data = None
-            _align = response.normalized_alignment or response.alignment
+            # normalized_alignment은 한국어를 로마자로 변환하므로 원본 alignment 우선 사용
+            _align = response.alignment or response.normalized_alignment
             if _align:
                 alignment_data = {
                     "characters": list(_align.characters),
