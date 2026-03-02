@@ -456,111 +456,183 @@ class StorycutApp {
 
         this.currentRequestParams = requestData;
 
+        // 원샷 모드 확인
+        const isOneShot = document.getElementById('auto-compose')?.checked || false;
+
         try {
             // 즉시 progress 화면으로 전환
             btn.disabled = false;
             btn.innerHTML = originalBtnText;
             this.showSection('progress');
-            this.updateStepStatus('story', '스토리 생성 중...');
-            document.getElementById('status-message').textContent = 'AI가 스토리를 구상하고 있습니다...';
-            document.getElementById('progress-percentage').textContent = '5%';
-            document.getElementById('progress-bar').style.width = '5%';
 
-            // 가짜 진행률 애니메이션 (체감 속도 개선)
-            const storyMessages = [
-                { pct: 8, msg: '장르와 분위기를 분석하고 있습니다...' },
-                { pct: 15, msg: '캐릭터와 세계관을 설계하고 있습니다...' },
-                { pct: 22, msg: '스토리 구조를 잡고 있습니다...' },
-                { pct: 30, msg: '기승전결 아크를 설계하고 있습니다...' },
-                { pct: 38, msg: '장면별 내러티브를 작성하고 있습니다...' },
-                { pct: 45, msg: '대사와 나레이션을 다듬고 있습니다...' },
-                { pct: 52, msg: '비주얼 프롬프트를 생성하고 있습니다...' },
-                { pct: 58, msg: '카메라 워크를 설정하고 있습니다...' },
-                { pct: 64, msg: '스토리 일관성을 검증하고 있습니다...' },
-                { pct: 70, msg: '화자(Speaker)를 분석하고 있습니다...' },
-                { pct: 75, msg: '시나리오를 최종 정리하고 있습니다...' },
-                { pct: 78, msg: '거의 완료 - 화자 확인 & 음성 선택 화면으로 이동합니다...' },
-            ];
-            let msgIndex = 0;
-            const progressInterval = setInterval(() => {
-                if (msgIndex < storyMessages.length) {
-                    const { pct, msg } = storyMessages[msgIndex];
-                    this.updateProgress(pct, msg);
-                    msgIndex++;
-                }
-            }, 2500);
+            if (isOneShot) {
+                // ===== 원샷 모드: 스토리+영상 한 번에 =====
+                this.updateStepStatus('story', '원샷 생성 중...');
+                document.getElementById('status-message').textContent = '스토리 생성 후 자동으로 영상을 만듭니다...';
+                document.getElementById('progress-percentage').textContent = '5%';
+                document.getElementById('progress-bar').style.width = '5%';
+                const progressTitle = document.getElementById('progress-title');
+                if (progressTitle) progressTitle.textContent = '⏳ 원샷 생성 중...';
 
-            // 스토리 생성: Worker 먼저 시도, 타임아웃 시 Railway 폴백
-            const workerUrl = this.getWorkerUrl();
-            const railwayUrl = this.getApiBaseUrl();
-            const token = localStorage.getItem('token');
-            let response;
+                const workerUrl = this.getWorkerUrl();
+                const railwayUrl = this.getApiBaseUrl();
+                let response;
 
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 120000); // 2분 타임아웃
-                response = await fetch(`${workerUrl}/api/generate/story`, {
-                    method: 'POST',
-                    headers: this.getAuthHeaders(),
-                    body: JSON.stringify(requestData),
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-            } catch (workerError) {
-                console.warn('[Story] Worker 실패, Railway 폴백:', workerError.message);
-                this.updateProgress(40, 'Worker 타임아웃 — 백엔드로 재시도 중...');
-                response = await fetch(`${railwayUrl}/api/generate/story`, {
-                    method: 'POST',
-                    headers: this.getAuthHeaders(),
-                    body: JSON.stringify(requestData)
-                });
-            }
-
-            clearInterval(progressInterval);
-
-            if (!response.ok) {
-                if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'video')) {
-                    return;
-                }
-                let errorMsg = 'Story generation failed';
                 try {
-                    const error = await response.json();
-                    errorMsg = error.detail || error.error || errorMsg;
-                } catch (e) { }
-                throw new Error(errorMsg);
-            }
-
-            // 완료 애니메이션
-            this.updateProgress(90, '스토리 생성 완료! 결과를 불러오는 중...');
-
-            const result = await response.json();
-
-            if (result.story_data) {
-                this.updateProgress(100, '스토리가 완성되었습니다!');
-                this.currentStoryData = result.story_data;
-                this.currentRequestParams = requestData;
-
-                // Store detected speakers from API response
-                if (result.detected_speakers) {
-                    this.currentStoryData.detected_speakers = result.detected_speakers;
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000);
+                    response = await fetch(`${workerUrl}/api/generate/one-shot`, {
+                        method: 'POST',
+                        headers: this.getAuthHeaders(),
+                        body: JSON.stringify(requestData),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                } catch (workerError) {
+                    console.warn('[OneShot] Worker 실패, Railway 폴백:', workerError.message);
+                    response = await fetch(`${railwayUrl}/api/generate/one-shot`, {
+                        method: 'POST',
+                        headers: this.getAuthHeaders(),
+                        body: JSON.stringify(requestData)
+                    });
                 }
+
+                if (!response.ok) {
+                    if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'video')) {
+                        return;
+                    }
+                    let errorMsg = 'One-shot generation failed';
+                    try {
+                        const error = await response.json();
+                        errorMsg = error.detail || error.error || errorMsg;
+                    } catch (e) { }
+                    throw new Error(errorMsg);
+                }
+
+                const result = await response.json();
+                this.projectId = result.project_id;
+                this.isGenerating = true;
+                this._requestNotificationPermission();
 
                 // 크레딧 차감 반영
                 if (typeof deductLocalCredits === 'function') deductLocalCredits('video');
 
-                // 짧은 딜레이로 100% 표시 후 전환
-                await new Promise(r => setTimeout(r, 500));
-                this.renderStoryReview(this.currentStoryData);
-                this.showSection('review');
-                this.setNavActive('nav-create');
+                this.addLog('INFO', `✅ 원샷 생성 시작됨 (Project ID: ${this.projectId})`);
+                this.addLog('INFO', '⏳ 스토리 생성 → 영상 생성 자동 진행 중...');
+
+                // WebSocket + Polling
+                this.connectWebSocket(this.projectId);
+                setTimeout(() => {
+                    if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+                        this.addLog('INFO', 'Polling으로 상태 확인 중...');
+                        this.startPolling(this.projectId);
+                    }
+                }, 2000);
+
             } else {
-                throw new Error('잘못된 응답 형식');
+                // ===== 기존 2단계 모드 =====
+                this.updateStepStatus('story', '스토리 생성 중...');
+                document.getElementById('status-message').textContent = 'AI가 스토리를 구상하고 있습니다...';
+                document.getElementById('progress-percentage').textContent = '5%';
+                document.getElementById('progress-bar').style.width = '5%';
+
+                // 가짜 진행률 애니메이션 (체감 속도 개선)
+                const storyMessages = [
+                    { pct: 8, msg: '장르와 분위기를 분석하고 있습니다...' },
+                    { pct: 15, msg: '캐릭터와 세계관을 설계하고 있습니다...' },
+                    { pct: 22, msg: '스토리 구조를 잡고 있습니다...' },
+                    { pct: 30, msg: '기승전결 아크를 설계하고 있습니다...' },
+                    { pct: 38, msg: '장면별 내러티브를 작성하고 있습니다...' },
+                    { pct: 45, msg: '대사와 나레이션을 다듬고 있습니다...' },
+                    { pct: 52, msg: '비주얼 프롬프트를 생성하고 있습니다...' },
+                    { pct: 58, msg: '카메라 워크를 설정하고 있습니다...' },
+                    { pct: 64, msg: '스토리 일관성을 검증하고 있습니다...' },
+                    { pct: 70, msg: '화자(Speaker)를 분석하고 있습니다...' },
+                    { pct: 75, msg: '시나리오를 최종 정리하고 있습니다...' },
+                    { pct: 78, msg: '거의 완료 - 화자 확인 & 음성 선택 화면으로 이동합니다...' },
+                ];
+                let msgIndex = 0;
+                const progressInterval = setInterval(() => {
+                    if (msgIndex < storyMessages.length) {
+                        const { pct, msg } = storyMessages[msgIndex];
+                        this.updateProgress(pct, msg);
+                        msgIndex++;
+                    }
+                }, 2500);
+
+                // 스토리 생성: Worker 먼저 시도, 타임아웃 시 Railway 폴백
+                const workerUrl = this.getWorkerUrl();
+                const railwayUrl = this.getApiBaseUrl();
+                const token = localStorage.getItem('token');
+                let response;
+
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2분 타임아웃
+                    response = await fetch(`${workerUrl}/api/generate/story`, {
+                        method: 'POST',
+                        headers: this.getAuthHeaders(),
+                        body: JSON.stringify(requestData),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                } catch (workerError) {
+                    console.warn('[Story] Worker 실패, Railway 폴백:', workerError.message);
+                    this.updateProgress(40, 'Worker 타임아웃 — 백엔드로 재시도 중...');
+                    response = await fetch(`${railwayUrl}/api/generate/story`, {
+                        method: 'POST',
+                        headers: this.getAuthHeaders(),
+                        body: JSON.stringify(requestData)
+                    });
+                }
+
+                clearInterval(progressInterval);
+
+                if (!response.ok) {
+                    if (typeof handleApiError === 'function' && await handleApiError(response.clone(), 'video')) {
+                        return;
+                    }
+                    let errorMsg = 'Story generation failed';
+                    try {
+                        const error = await response.json();
+                        errorMsg = error.detail || error.error || errorMsg;
+                    } catch (e) { }
+                    throw new Error(errorMsg);
+                }
+
+                // 완료 애니메이션
+                this.updateProgress(90, '스토리 생성 완료! 결과를 불러오는 중...');
+
+                const result = await response.json();
+
+                if (result.story_data) {
+                    this.updateProgress(100, '스토리가 완성되었습니다!');
+                    this.currentStoryData = result.story_data;
+                    this.currentRequestParams = requestData;
+
+                    // Store detected speakers from API response
+                    if (result.detected_speakers) {
+                        this.currentStoryData.detected_speakers = result.detected_speakers;
+                    }
+
+                    // 크레딧 차감 반영
+                    if (typeof deductLocalCredits === 'function') deductLocalCredits('video');
+
+                    // 짧은 딜레이로 100% 표시 후 전환
+                    await new Promise(r => setTimeout(r, 500));
+                    this.renderStoryReview(this.currentStoryData);
+                    this.showSection('review');
+                    this.setNavActive('nav-create');
+                } else {
+                    throw new Error('잘못된 응답 형식');
+                }
             }
 
         } catch (error) {
             console.error('스토리 생성 실패:', error);
             this.showToast('스토리 생성 중 오류가 발생했습니다. 다시 시도해주세요.', 'error');
             this.showSection('input');
+            this.isGenerating = false;
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalBtnText;

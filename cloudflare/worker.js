@@ -210,6 +210,9 @@ async function routeRequest(url, request, env, ctx, cors) {
   if (path === '/api/generate/from-script' && method === 'POST') {
     return proxyToRailway(request, env, user, 'script_video', path, cors);
   }
+  if (path === '/api/generate/one-shot' && method === 'POST') {
+    return proxyToRailway(request, env, user, 'video', path, cors);
+  }
   if (path === '/api/generate/video' && method === 'POST') {
     return proxyToRailway(request, env, user, null, path, cors);
   }

@@ -1064,6 +1064,115 @@ async def generate_story(req: GenerateRequest, request: Request):
         logger.exception("Unhandled exception")
         raise HTTPException(status_code=500, detail=safe_error_detail(e))
 
+@app.post("/api/generate/one-shot")
+async def generate_one_shot(req: GenerateRequest, request: Request):
+    """원샷 생성: 스토리 생성 + 영상 생성을 한 번에 (백그라운드)"""
+    import uuid
+    import threading
+    from pathlib import Path
+
+    project_id = req.project_id or str(uuid.uuid4())[:8]
+
+    # 1. Feature flags 구성
+    feature_flags = FeatureFlags(
+        hook_scene1_video=req.hook_scene1_video,
+        ffmpeg_kenburns=req.ffmpeg_kenburns,
+        ffmpeg_audio_ducking=req.ffmpeg_audio_ducking,
+        subtitle_burn_in=req.subtitle_burn_in,
+        context_carry_over=req.context_carry_over,
+        optimization_pack=req.optimization_pack,
+    )
+
+    platform = TargetPlatform.YOUTUBE_SHORTS if req.platform == "youtube_shorts" else TargetPlatform.YOUTUBE_LONG
+
+    project_request = ProjectRequest(
+        topic=req.topic,
+        genre=req.genre,
+        mood=req.mood,
+        style_preset=req.style,
+        duration_target_sec=req.duration,
+        target_platform=platform,
+        voice_id=req.voice,
+        voice_over=True,
+        bgm=True,
+        subtitles=req.subtitle_burn_in,
+        character_ethnicity=req.character_ethnicity,
+        include_dialogue=req.include_dialogue,
+        feature_flags=feature_flags,
+    )
+
+    # 2. 초기 manifest 생성 (폴링용)
+    project_dir = f"outputs/{project_id}"
+    Path(project_dir).mkdir(parents=True, exist_ok=True)
+    manifest_path = f"{project_dir}/manifest.json"
+
+    user_id = request.headers.get("X-User-Id", "")
+    initial_manifest = {
+        "project_id": project_id,
+        "status": "generating",
+        "progress": 0,
+        "message": "스토리 생성 중...",
+        "created_at": datetime.now().isoformat(),
+        "title": req.topic or "원샷 생성",
+        "user_id": user_id,
+        "input": {},
+        "outputs": {},
+        "error_message": None,
+    }
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(initial_manifest, f, ensure_ascii=False, indent=2)
+
+    # 3. 백그라운드 스레드에서 스토리 + 영상 순차 실행
+    tracker = ProgressTracker(project_id)
+    pipeline = TrackedPipeline(tracker)
+
+    def run_one_shot_thread():
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # Step 1: 스토리 생성
+            logger.info(f"[ONE-SHOT] Starting story generation for {project_id}")
+            story_data = pipeline.generate_story_only(project_request)
+            logger.info(f"[ONE-SHOT] Story generated: {story_data.get('title')}, {len(story_data.get('scenes', []))} scenes")
+
+            # user_id 주입
+            if user_id:
+                story_data["user_id"] = user_id
+
+            # Step 2: 영상 생성
+            logger.info(f"[ONE-SHOT] Starting video generation for {project_id}")
+            request_params = project_request.dict()
+            run_video_pipeline_wrapper(pipeline, story_data, request_params)
+            logger.info(f"[ONE-SHOT] Video generation completed for {project_id}")
+
+        except Exception as e:
+            logger.error(f"[ONE-SHOT] Failed for {project_id}: {e}")
+            logger.exception("One-shot pipeline error")
+            # manifest에 에러 기록
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    m = json.load(f)
+                m['status'] = 'failed'
+                m['error_message'] = str(e)
+                with open(manifest_path, 'w', encoding='utf-8') as f:
+                    json.dump(m, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=run_one_shot_thread, daemon=True)
+    thread.start()
+
+    logger.info(f"[ONE-SHOT] Background thread started for {project_id}")
+
+    return {
+        "project_id": project_id,
+        "status": "generating",
+        "message": "원샷 생성이 시작되었습니다. 스토리 생성 후 자동으로 영상을 만듭니다.",
+    }
+
 @app.post("/api/generate/from-script")
 async def generate_from_script(req: ScriptRequest):
     """스크립트 직접 입력 → 씬 분할 + 이미지 프롬프트 생성"""
