@@ -1,5 +1,5 @@
 /**
- * STORYCUT Cloudflare Worker
+ * STORYCUT Cloudflare Worker (v2.1)
  *
  * 역할:
  * 1. API 엔드포인트 제공 (/api/*)
