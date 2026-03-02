@@ -158,11 +158,11 @@ class StoryAgent:
 - "조선시대 전사" = 조선시대 배경의 **젊은** 전사다. 500살 노인이 아니다.
 - 시대 배경은 global_style과 씬 비주얼에 반영하고, 캐릭터 나이는 스토리에 적합한 나이(보통 20~30대)로 설정하라.
 
-[CREATIVE TOPIC RULE — 이것이 가장 중요]
-- 진부하고 예측 가능한 전제는 절대 금지. 시청자가 "오, 이건 봐야겠다" 느끼게 만들어라.
+[CREATIVE TOPIC RULE]
+{'- TOPIC이 주어졌으면 그 주제/소재/세계관을 반드시 스토리의 핵심으로 사용하라. 주제를 무시하거나 다른 이야기로 바꾸는 것은 절대 금지.' if user_idea else '- 진부하고 예측 가능한 전제는 절대 금지. 시청자가 "오, 이건 봐야겠다" 느끼게 만들어라.'}
 - 장르별 강력한 플롯 씨앗 (참고, 그대로 쓰지 말 것 — 창의적으로 변형):
   {_plot_seeds}
-- 주제 자체에 반전의 방향이 암시되어야 한다.
+- 주제 안에서 반전의 방향을 찾아라.
 - 제목은 궁금증을 유발하는 질문형 또는 충격적 진술형이어야 한다.
 """
 
@@ -184,6 +184,7 @@ class StoryAgent:
             step1_prompt = f"""
 ROLE: Master Storyteller — 유튜브 쇼츠 바이럴 전문가. 30~60초 안에 시청자를 못 놓게 만드는 전문가.
 TASK: {total_duration_sec}초짜리 YouTube Shorts를 위한 **극한 밀도의 4단 구조** 스토리를 설계하라.
+{('TOPIC (필수 반영): ' + user_idea) if user_idea else ''}
 GENRE: {genre}
 MOOD: {mood}
 STYLE: {style}
@@ -253,6 +254,7 @@ OUTPUT FORMAT (JSON):
             step1_prompt = f"""
 ROLE: Master Storyteller & Film Director — 20년 경력의 단편 영상 바이럴 콘텐츠 전문가.
 TASK: {total_duration_sec}초짜리 YouTube 영상을 위한 **반전과 서사가 탄탄한** 스토리 구조를 설계하라.
+{('TOPIC (필수 반영): ' + user_idea) if user_idea else ''}
 GENRE: {genre}
 MOOD: {mood}
 STYLE: {style}
