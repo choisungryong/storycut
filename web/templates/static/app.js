@@ -1260,6 +1260,8 @@ class StorycutApp {
 
         // 2초마다 상태 확인
         this.pollingFailCount = 0;
+        this.pollingStaleCount = 0;
+        this._lastPollingProgress = -1;
         this.pollingInterval = setInterval(async () => {
             try {
                 let urlToUse = this.getApiBaseUrl();
@@ -1305,6 +1307,22 @@ class StorycutApp {
                     const message = data.message || '영상 생성 중...';
 
                     this.updateProgress(progress, message);
+
+                    // 진행률 변화 감지 (3분간 변화 없으면 타임아웃)
+                    if (progress === this._lastPollingProgress) {
+                        this.pollingStaleCount++;
+                        if (this.pollingStaleCount >= 90) { // 90 * 2초 = 3분
+                            this.addLog('ERROR', '❌ 영상 생성이 응답하지 않습니다. 다시 시도해주세요.');
+                            this.updateProgress(0, '타임아웃');
+                            this.stopPolling();
+                            this.isGenerating = false;
+                            this.showToast('영상 생성이 응답하지 않습니다. 페이지를 새로고침 후 다시 시도해주세요.', 'error');
+                            return;
+                        }
+                    } else {
+                        this.pollingStaleCount = 0;
+                        this._lastPollingProgress = progress;
+                    }
 
                     // 진행률 기반 단계 추정
                     if (progress < 20) {
