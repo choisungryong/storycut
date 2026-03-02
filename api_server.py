@@ -1410,10 +1410,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 context_carry_over=request_params.get('context_carry_over', True),
                 optimization_pack=request_params.get('optimization_pack', True),
             )
-            # image_model, film_look을 feature_flags에 주입
-            _im = request_params.get('image_model', 'standard')
-            if _im:
-                setattr(feature_flags, 'image_model', _im)
+            # film_look을 feature_flags에 주입
             feature_flags.film_look = request_params.get('film_look', False)
 
             # Platform 매핑 (frontend는 'platform', schema는 'target_platform')
@@ -1438,6 +1435,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                 # subtitle_burn_in is what frontend sends. Map it to subtitles.
                 subtitles=request_params.get('subtitle_burn_in', True),
                 character_ethnicity=request_params.get('character_ethnicity', 'auto'),
+                image_model=request_params.get('image_model', 'standard'),
                 feature_flags=feature_flags
             )
             logger.info(f"[WRAPPER] ProjectRequest created successfully")
