@@ -614,7 +614,7 @@ JSON 형식으로 출력:
             consistency_validator = ConsistencyValidator()
             logger.info(f"[ConsistencyValidator] Enabled (max_retries={self.feature_flags.consistency_max_retries})")
 
-        logger.info()
+        logger.info("")
 
         # Scene 처리
         video_clips = []
@@ -1369,8 +1369,8 @@ JSON 형식으로 출력:
                         _pp = _pv.get("image_path", "") if isinstance(_pv, dict) else ""
                         _pe = os.path.exists(_pp) if _pp else False
                         logger.debug(f"    [DEBUG] pose={_pk}: path={_pp}, exists={_pe}")
-        logger.info()
-        
+        logger.info("")
+
         processed_scenes = [None] * total_scenes  # pre-allocate for ordered results
 
         # Image output directory
