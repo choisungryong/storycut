@@ -865,11 +865,16 @@ class FFmpegComposer:
         output_path: str,
         fade_duration: float = 0.3,
         transition_plan: List[dict] = None,
+        audio_path: Optional[str] = None,
+        srt_path: Optional[str] = None,
     ) -> bool:
         """씬 그룹 단위로 전환을 적용하여 연결.
 
         같은 씬 내 컷들은 하드 컷으로 빠르게 연결하고,
         씬 간 전환에는 transition_plan에 따라 다양한 전환 타입을 적용합니다.
+
+        audio_path/srt_path가 제공되면 xfade + 자막 + 오디오를 단일 패스로 처리하여
+        이중 인코딩을 제거합니다 (_final_render 불필요).
 
         Args:
             scene_groups: [[cut1_a, cut1_b], [cut2_a], [cut3_a, cut3_b, cut3_c], ...]
@@ -877,6 +882,8 @@ class FFmpegComposer:
             output_path: 최종 출력 경로
             fade_duration: 기본 크로스페이드 길이 (초, transition_plan 없을 때 사용)
             transition_plan: TransitionPlanner 출력. 씬 경계마다 전환 타입 지정.
+            audio_path: 오디오 파일 경로 (제공 시 단일 패스 통합 렌더링)
+            srt_path: 자막 파일 경로 (SRT 또는 ASS)
 
         Returns:
             성공 여부
@@ -963,6 +970,17 @@ class FFmpegComposer:
                 return self._batched_crossfade(
                     temp_scene_videos, durations, output_path,
                     fade_duration, MAX_XFADE_BATCH, output_dir,
+                    boundary_transitions=boundary_transitions,
+                    audio_path=audio_path,
+                    srt_path=srt_path,
+                )
+
+            # 통합 패스: audio_path가 있으면 xfade + 자막 + 오디오를 한 번에 처리
+            if audio_path:
+                return self._apply_xfade_chain_unified(
+                    temp_scene_videos, durations, output_path, fade_duration,
+                    audio_path=audio_path,
+                    srt_path=srt_path,
                     boundary_transitions=boundary_transitions,
                 )
 
@@ -1140,6 +1158,150 @@ class FFmpegComposer:
         logger.info(f"[FFmpeg] Crossfade complete: {output_path}")
         return True
 
+    def _apply_xfade_chain_unified(
+        self,
+        video_paths: List[str],
+        durations: List[float],
+        output_path: str,
+        fade_duration: float,
+        audio_path: str,
+        srt_path: Optional[str] = None,
+        boundary_transitions: List[dict] = None,
+    ) -> bool:
+        """xfade + 자막 + 오디오를 단일 FFmpeg 패스로 처리 (이중 인코딩 제거).
+
+        기존 _apply_xfade_chain의 xfade 필터 체인 끝에
+        fps=30, ass/subtitles, tpad 필터를 체이닝하고,
+        오디오 입력을 추가하여 최종 출력을 한 번에 생성합니다.
+        """
+        import platform
+        n = len(video_paths)
+        if n <= 1:
+            return False
+
+        # 입력 파일 (비디오들 + 오디오)
+        inputs = []
+        for path in video_paths:
+            inputs.extend(["-i", os.path.abspath(path)])
+        audio_abs = os.path.abspath(audio_path)
+        audio_input_idx = n  # 오디오는 마지막 입력
+        inputs.extend(["-i", audio_abs])
+
+        # xfade 필터 체인 구성
+        filter_parts = []
+        offset = durations[0] - fade_duration
+
+        for i in range(1, n):
+            if boundary_transitions and i - 1 < len(boundary_transitions):
+                bt = boundary_transitions[i - 1]
+                transition_type = bt.get("transition_type", "xfade")
+                xfade_name = self._XFADE_MAP.get(transition_type, "fade")
+                t_frames = bt.get("transition_frames", int(fade_duration * self.fps))
+                actual_fade = t_frames / self.fps if t_frames > 0 else fade_duration
+            else:
+                xfade_name = "fade"
+                actual_fade = fade_duration
+
+            actual_fade = min(actual_fade, durations[i] * 0.4, durations[i-1] * 0.4 if i == 1 else actual_fade)
+            if actual_fade < 0.05:
+                actual_fade = 0.05
+
+            if i == 1:
+                offset = durations[0] - actual_fade
+
+            prev_label = f"[v{i-1}]" if i > 1 else "[0:v]"
+            curr_label = f"[{i}:v]"
+            out_label = f"[v{i}]"
+
+            filter_parts.append(
+                f"{prev_label}{curr_label}xfade=transition={xfade_name}:duration={actual_fade:.3f}:offset={max(0, offset):.3f}{out_label}"
+            )
+
+            if i < n - 1:
+                offset += durations[i] - actual_fade
+
+        xfade_out_label = f"[v{n-1}]"
+
+        # tpad: 음악이 영상보다 길면 마지막 프레임 freeze
+        tpad_filter = ""
+        try:
+            from agents.subtitle_utils import ffprobe_duration_sec
+            video_total_dur = sum(durations) - fade_duration * (n - 1)
+            audio_dur = ffprobe_duration_sec(audio_abs)
+            if audio_dur and video_total_dur and audio_dur > video_total_dur + 0.5:
+                gap = audio_dur - video_total_dur
+                tpad_filter = f",tpad=stop_mode=clone:stop_duration={gap + 1:.1f}"
+                logger.info(f"[FFmpeg Unified] tpad: video ~{video_total_dur:.1f}s, audio {audio_dur:.1f}s, gap {gap:.1f}s")
+        except Exception as e:
+            logger.info(f"[FFmpeg Unified] Duration check skipped: {e}")
+
+        # 자막 필터
+        sub_filter = ""
+        if srt_path and os.path.exists(srt_path):
+            sub_abs = os.path.abspath(srt_path)
+            sub_escaped = sub_abs.replace("\\", "/").replace(":", "\\:")
+            if srt_path.endswith(".ass"):
+                sub_filter = f",ass='{sub_escaped}'"
+            else:
+                system = platform.system()
+                if system == "Windows":
+                    font_name = "Malgun Gothic"
+                else:
+                    from agents.subtitle_utils import _detect_linux_font
+                    font_name = _detect_linux_font()
+                force_style = (
+                    f"FontName={font_name},"
+                    f"FontSize=42,"
+                    f"Outline=2,"
+                    f"Shadow=1,"
+                    f"MarginV=60"
+                )
+                sub_filter = f",subtitles='{sub_escaped}':force_style='{force_style}'"
+
+        # 최종 비디오 필터: xfade결과 → fps=30 → tpad → 자막
+        filter_parts.append(
+            f"{xfade_out_label}fps=30{tpad_filter}{sub_filter}[v_out]"
+        )
+
+        # 오디오 필터
+        filter_parts.append(
+            f"[{audio_input_idx}:a]aresample=48000,asetpts=N/SR/TB[a_out]"
+        )
+
+        filter_complex = ";".join(filter_parts)
+
+        cmd = ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_complex,
+            "-map", "[v_out]", "-map", "[a_out]",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-profile:v", "high", "-level", "4.1",
+            "-preset", "veryfast", "-crf", "20",
+            "-r", "30",
+            "-c:a", "aac", "-ar", "48000", "-b:a", "192k",
+            output_path
+        ]
+
+        timeout = max(300, n * 30)
+        logger.info(f"[FFmpeg Unified] Single-pass render: {n} clips, sub={'Yes' if srt_path else 'No'} (timeout={timeout}s)")
+
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=timeout)
+
+        if result.returncode != 0:
+            logger.error(f"[FFmpeg Unified] Failed: {result.stderr[-500:]}")
+            return False
+
+        # 출력 파일 크기 확인
+        if os.path.exists(output_path):
+            out_size = os.path.getsize(output_path)
+            if out_size < 1024:
+                logger.error(f"[FFmpeg Unified] Output too small ({out_size}B)")
+                return False
+            logger.info(f"[FFmpeg Unified] Success: {output_path} ({out_size:,} bytes)")
+            return True
+
+        return False
+
     def _batched_crossfade(
         self,
         video_paths: List[str],
@@ -1149,8 +1311,13 @@ class FFmpegComposer:
         batch_size: int,
         output_dir: str,
         boundary_transitions: List[dict] = None,
+        audio_path: Optional[str] = None,
+        srt_path: Optional[str] = None,
     ) -> bool:
-        """씬이 많을 때 배치 처리로 xfade 적용. 배치별 전환 정보 슬라이싱."""
+        """씬이 많을 때 배치 처리로 xfade 적용. 배치별 전환 정보 슬라이싱.
+
+        audio_path/srt_path가 제공되면 마지막 합침 단계에서만 통합 패스 사용.
+        """
         batch_outputs = []
         try:
             for start in range(0, len(video_paths), batch_size):
@@ -1188,6 +1355,15 @@ class FFmpegComposer:
                 return True
 
             batch_durs = [self.get_video_duration(p) for p in batch_outputs]
+
+            # 마지막 합침에서만 통합 패스 사용 (audio + subtitle 포함)
+            if audio_path:
+                return self._apply_xfade_chain_unified(
+                    batch_outputs, batch_durs, output_path, fade_duration,
+                    audio_path=audio_path,
+                    srt_path=srt_path,
+                )
+
             return self._apply_xfade_chain(batch_outputs, batch_durs, output_path, fade_duration)
 
         finally:

@@ -417,7 +417,7 @@ class CharacterManager:
             visual_seed=random.randint(1, 99999),
         )
 
-        mv_poses = ["front", "three_quarter", "full_body"]
+        mv_poses = ["front", "three_quarter"]
         logger.info(f"  Characters: {len(character_sheet)}")
         logger.info(f"  Style: {global_style.art_style}")
         logger.info(f"  Poses: {mv_poses}, Candidates: {candidates_per_pose}")

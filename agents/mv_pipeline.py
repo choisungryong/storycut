@@ -1569,7 +1569,7 @@ class MVPipeline:
                 characters=characters,
                 project=project,
                 project_dir=project_dir,
-                candidates_per_pose=2,
+                candidates_per_pose=1,
             )
 
             # 결과를 MVCharacter.anchor_image_path + anchor_poses에 저장
@@ -2847,7 +2847,7 @@ class MVPipeline:
                 logger.info(f"  [B-roll] Pexels agent enabled")
 
         # 모든 씬에 고유 이미지 생성 (병렬 처리)
-        logger.info(f"  Generating {total_scenes} unique images (parallel, max_workers=4)")
+        logger.info(f"  Generating {total_scenes} unique images (parallel, max_workers=8)")
         import threading
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -3143,7 +3143,7 @@ class MVPipeline:
         # Scene 2+: 병렬 처리
         if len(project.scenes) > 1:
             remaining = list(enumerate(project.scenes[1:], start=1))
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {
                     executor.submit(_process_scene, i, scene): scene
                     for i, scene in remaining
@@ -4463,15 +4463,11 @@ class MVPipeline:
                     logger.info(f"  [BRIGHTNESS] Applied {ramp_count} brightness ramps at scene boundaries")
                 scene_groups = scene_groups_clean
 
-            # 2. 클립들 이어붙이기 (전환 플랜 기반)
-            concat_video = f"{project_dir}/media/video/concat.mp4"
+            # 2. 씬 그룹 준비 + 전환 플랜
             # 빈 그룹 제거
             scene_groups = [g for g in scene_groups if g]
             total_dur = sum(s.duration_sec for s in completed_scenes)
-            logger.info(f"  Concatenating {len(video_clips)} clips in {len(scene_groups)} scenes (total ~{total_dur:.0f}s)...")
-            project.progress = 86
-            project.current_step = f"영상 {len(scene_groups)}개 씬 전환 합성 중... (시간 소요)"
-            self._save_manifest(project, project_dir)
+            logger.info(f"  Prepared {len(video_clips)} clips in {len(scene_groups)} scenes (total ~{total_dur:.0f}s)")
 
             # 씬 경계 전환만 추출 (within-scene "cut" 제거)
             boundary_transitions = []
@@ -4481,25 +4477,8 @@ class MVPipeline:
                         if cut_plan[ti]["parent_scene_id"] != cut_plan[ti + 1]["parent_scene_id"]:
                             boundary_transitions.append(t)
 
-            if len(scene_groups) >= 2:
-                concat_result = self.ffmpeg_composer.concatenate_with_crossfade(
-                    scene_groups=scene_groups,
-                    output_path=concat_video,
-                    fade_duration=0.6,
-                    transition_plan=boundary_transitions if boundary_transitions else None,
-                )
-            else:
-                # 씬이 1개면 크로스페이드 불필요
-                concat_result = self.ffmpeg_composer.concatenate_videos(
-                    video_paths=video_clips,
-                    output_path=concat_video
-                )
-
-            if not concat_result or not os.path.exists(concat_video):
-                raise RuntimeError("Video concatenation failed - output file not created")
-
-            logger.info(f"  Concatenation complete: {concat_video}")
-            project.progress = 90
+            # 3. 가사 자막 처리 (통합 렌더링에 필요하므로 concat 전에 먼저 처리)
+            project.progress = 87
             project.current_step = "자막 처리 중..."
             self._save_manifest(project, project_dir)
 
@@ -4680,13 +4659,9 @@ class MVPipeline:
             else:
                 logger.info(f"  [Lyrics Check] No user lyrics or subtitle disabled (subtitle_enabled={subtitle_on})")
 
-            project.progress = 95
-            project.current_step = "최종 렌더링 중..."
-            self._save_manifest(project, project_dir)
-
-            # 4. 최종 렌더링 (자막 + 음악 + 워터마크 통합 FFmpeg 패스)
+            # 4. 통합 렌더링 (xfade + 자막 + 오디오를 단일 FFmpeg 패스로 처리)
             final_video = f"{project_dir}/final_mv.mp4"
-            watermark = "Made with Klippa" if getattr(project, 'watermark_enabled', True) else None
+            concat_video = f"{project_dir}/media/video/concat.mp4"
 
             # 프리뷰 모드: 음악을 preview_duration_sec로 트림
             audio_path = project.music_file_path
@@ -4707,19 +4682,59 @@ class MVPipeline:
                 except Exception as e:
                     logger.error(f"  Preview audio trim failed: {e}, using full audio")
 
-            def _render_progress_cb(pct):
-                project.progress = pct
-                project.current_step = f"최종 렌더링 중... {pct}%"
-                self._save_manifest(project, project_dir)
+            project.progress = 95
+            project.current_step = "최종 렌더링 중..."
+            self._save_manifest(project, project_dir)
 
-            self._final_render(
-                video_in=concat_video,
-                audio_path=audio_path,
-                out_path=final_video,
-                srt_path=srt_path,
-                watermark_text=watermark,
-                progress_callback=_render_progress_cb,
-            )
+            # 통합 패스 시도: xfade + 자막 + 오디오 → final_video (1회 인코딩)
+            unified_ok = False
+            if len(scene_groups) >= 2:
+                logger.info(f"  [Unified Render] Attempting single-pass: xfade + subtitle + audio...")
+                unified_ok = self.ffmpeg_composer.concatenate_with_crossfade(
+                    scene_groups=scene_groups,
+                    output_path=final_video,
+                    fade_duration=0.6,
+                    transition_plan=boundary_transitions if boundary_transitions else None,
+                    audio_path=audio_path,
+                    srt_path=srt_path,
+                )
+                if unified_ok and os.path.exists(final_video):
+                    logger.info(f"  [Unified Render] Success! Skipped _final_render (saved ~60-120s)")
+                else:
+                    unified_ok = False
+                    logger.warning(f"  [Unified Render] Failed, falling back to 2-pass...")
+
+            if not unified_ok:
+                # Fallback: 기존 2패스 (xfade → concat.mp4 → _final_render → final_video)
+                if len(scene_groups) >= 2:
+                    concat_result = self.ffmpeg_composer.concatenate_with_crossfade(
+                        scene_groups=scene_groups,
+                        output_path=concat_video,
+                        fade_duration=0.6,
+                        transition_plan=boundary_transitions if boundary_transitions else None,
+                    )
+                else:
+                    concat_result = self.ffmpeg_composer.concatenate_videos(
+                        video_paths=video_clips,
+                        output_path=concat_video,
+                    )
+
+                if not concat_result or not os.path.exists(concat_video):
+                    raise RuntimeError("Video concatenation failed - output file not created")
+
+                def _render_progress_cb(pct):
+                    project.progress = pct
+                    project.current_step = f"최종 렌더링 중... {pct}%"
+                    self._save_manifest(project, project_dir)
+
+                self._final_render(
+                    video_in=concat_video,
+                    audio_path=audio_path,
+                    out_path=final_video,
+                    srt_path=srt_path,
+                    watermark_text=None,
+                    progress_callback=_render_progress_cb,
+                )
 
             # render.log 기록
             render_log_path = f"{project_dir}/render.log"

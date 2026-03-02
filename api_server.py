@@ -637,7 +637,30 @@ class TrackedPipeline(StorycutPipeline):
             story_data = self._generate_story(request)
             logger.debug(f"[DEBUG] _generate_story() completed")
             manifest.title = story_data.get("title")
+            manifest.hook_text = story_data.get("hook_text")
             manifest.script = json.dumps(story_data, ensure_ascii=False)
+
+            # v2.0: character_sheet와 global_style 저장
+            if "character_sheet" in story_data:
+                from schemas import CharacterSheet, GlobalStyle
+                manifest.character_sheet = {
+                    token: CharacterSheet(**data)
+                    for token, data in story_data["character_sheet"].items()
+                }
+                logger.info(f"[v2.0] Loaded {len(manifest.character_sheet)} characters from story")
+
+            if "global_style" in story_data:
+                from schemas import GlobalStyle
+                manifest.global_style = GlobalStyle(**story_data["global_style"])
+                logger.info(f"[v2.0] Global style: {manifest.global_style.art_style}")
+
+            if "character_voices" in story_data:
+                from schemas import CharacterVoice
+                manifest.character_voices = [
+                    CharacterVoice(**cv) for cv in story_data["character_voices"]
+                ]
+                logger.info(f"[v3.0] Loaded {len(manifest.character_voices)} character voices")
+
             await self.tracker.story_complete(story_data["title"], len(story_data["scenes"]), story_data)
 
             # Step 2: Scene 처리
@@ -770,16 +793,37 @@ class TrackedPipeline(StorycutPipeline):
         project_id = self.tracker.project_id
         project_dir = self._create_project_structure(project_id)
         
-        from schemas import Manifest
+        from schemas import Manifest, CharacterSheet, GlobalStyle
         manifest = Manifest(
             project_id=project_id,
             input=request,
             status="processing",
             title=story_data.get("title"),
+            hook_text=story_data.get("hook_text"),
             user_id=story_data.get("user_id", ""),
             script=json.dumps(story_data, ensure_ascii=False)
         )
-        
+
+        # v2.0: character_sheet와 global_style 저장 (pipeline.py와 동일)
+        if "character_sheet" in story_data:
+            manifest.character_sheet = {
+                token: CharacterSheet(**data)
+                for token, data in story_data["character_sheet"].items()
+            }
+            logger.info(f"[v2.0] Loaded {len(manifest.character_sheet)} characters from story")
+
+        if "global_style" in story_data:
+            manifest.global_style = GlobalStyle(**story_data["global_style"])
+            logger.info(f"[v2.0] Global style: {manifest.global_style.art_style}")
+
+        # v3.0: character_voices 저장
+        if "character_voices" in story_data:
+            from schemas import CharacterVoice
+            manifest.character_voices = [
+                CharacterVoice(**cv) for cv in story_data["character_voices"]
+            ]
+            logger.info(f"[v3.0] Loaded {len(manifest.character_voices)} character voices")
+
         try:
             # 진행상황 초기화 (Story complete = 25% of total, matching initial manifest)
             await self.tracker.update("story", 25, "스토리 확정됨 - 영상 생성 시작", {
