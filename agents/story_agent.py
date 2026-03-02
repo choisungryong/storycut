@@ -63,17 +63,17 @@ class StoryAgent:
     """
     Generates YouTube-optimized stories in Scene JSON format.
 
-    This agent calls OpenAI API (gpt-4o)
+    This agent calls OpenAI API (gpt-5.2)
     to generate structured story content.
     """
 
-    def __init__(self, api_key: str = None, model: str = "gpt-4o"):
+    def __init__(self, api_key: str = None, model: str = "gpt-5.2"):
         """
         Initialize Story Agent.
 
         Args:
             api_key: OpenAI API key
-            model: LLM model to use (default: gpt-4o)
+            model: LLM model to use (default: gpt-5.2)
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model
