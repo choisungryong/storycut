@@ -69,6 +69,10 @@ class TTSAgent:
         Returns:
             TTSResult with audio_path and duration_sec
         """
+        # 화자 태그 제거: [narrator], [female_1](감정) 등을 TTS 입력에서 제거
+        import re
+        narration = re.sub(r'\[[\w_]+\](?:\([^)]*\))?\s*', '', narration).strip()
+
         logger.info(f"  [TTS Agent] Generating narration for scene {scene_id}...")
         logger.info(f"     Text: {narration[:60]}...")
 
