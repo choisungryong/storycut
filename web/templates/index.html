@@ -132,23 +132,31 @@
                         </div>
                     </div>
 
-                    <!-- Style & Genre -->
+                    <!-- Content Type & Mood -->
                     <div class="app-card">
-                        <div class="app-card-label" data-i18n="input.style_genre">스타일 & 장르</div>
+                        <div class="app-card-label" data-i18n="input.style_genre">콘텐츠 유형 & 분위기</div>
                         <div class="form-grid-2">
                             <div class="form-group">
-                                <label for="genre" data-i18n="input.genre">장르</label>
+                                <label for="content_category" data-i18n="input.content_category">콘텐츠 대분류</label>
                                 <div class="select-wrapper">
-                                    <select id="genre" name="genre" class="form-select">
-                                        <option value="emotional">감성</option>
-                                        <option value="mystery" selected>미스터리</option>
-                                        <option value="thriller">스릴러</option>
-                                        <option value="fantasy">판타지</option>
-                                        <option value="horror">호러</option>
-                                        <option value="comedy">코미디</option>
+                                    <select id="content_category" name="content_category" class="form-select">
+                                        <option value="fiction" selected>창작 픽션</option>
+                                        <option value="traditional">전통/설화</option>
+                                        <option value="nonfiction">역사/교양</option>
+                                        <option value="children">아동/동화</option>
                                     </select>
                                 </div>
                             </div>
+                            <div class="form-group">
+                                <label for="content_type" data-i18n="input.content_type">콘텐츠 소분류</label>
+                                <div class="select-wrapper">
+                                    <select id="content_type" name="content_type" class="form-select">
+                                        <!-- JS에서 동적 생성 -->
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-grid-2">
                             <div class="form-group">
                                 <label for="mood" data-i18n="input.mood">분위기</label>
                                 <div class="select-wrapper">
@@ -159,6 +167,14 @@
                                         <option value="heartwarming">따뜻한</option>
                                         <option value="dark">어두운</option>
                                         <option value="cheerful">밝은</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group" style="display:none;">
+                                <label for="genre">장르 (레거시)</label>
+                                <div class="select-wrapper">
+                                    <select id="genre" name="genre" class="form-select">
+                                        <option value="emotional" selected>감성</option>
                                     </select>
                                 </div>
                             </div>
@@ -1278,7 +1294,7 @@
         <p><a href="/privacy.html">개인정보처리방침</a> | <a href="/terms.html">이용약관</a> | <a href="/docs" target="_blank">API 문서</a></p>
     </footer>
 
-    <script src="/static/app.js?v=20260228_2020"></script>
+    <script src="/static/app.js?v=20260303_0130"></script>
     <script>
     // ─── App i18n (synced with landing page via localStorage) ───
     (function() {
@@ -1297,7 +1313,8 @@
           'input.script_label': '내레이션 스크립트',
           'input.script_placeholder': '내레이션 스크립트를 붙여넣으세요.\n\n빈 줄로 씬을 구분합니다.\n\n예시:\n망해가는 상가 속 번창하는 가게.\n비즈니스 랩에 오신 걸 환영합니다.\n\n지난번 소개한 매장은\n엄청난 반응을 얻었습니다.',
           'input.script_hint': '빈 줄로 씬을 구분하세요. AI가 각 씬에 맞는 이미지를 생성합니다.',
-          'input.style_genre': '스타일 & 장르',
+          'input.style_genre': '콘텐츠 유형 & 분위기',
+          'input.content_category': '콘텐츠 대분류', 'input.content_type': '콘텐츠 소분류',
           'input.genre': '장르', 'input.mood': '분위기',
           'input.style': '비주얼 스타일', 'input.ethnicity': '캐릭터 인종',
           'input.voice_duration': '음성 & 길이',

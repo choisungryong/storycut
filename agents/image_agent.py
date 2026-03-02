@@ -85,6 +85,7 @@ class ImageAgent:
         visual_bible: Optional[dict] = None,    # v3.0: Visual Bible
         color_mood: Optional[str] = None,       # v3.0: Visual Bible
         camera_directive: Optional[str] = None, # v3.1: 카메라/프레이밍 지시
+        content_type: Optional[str] = None,    # v4.0: 콘텐츠 유형 (3차 방어)
     ) -> tuple:
         """
         Generate an image with specific model strategies.
@@ -297,6 +298,7 @@ class ImageAgent:
                 visual_bible=visual_bible,
                 color_mood=color_mood,
                 camera_directive=camera_directive,
+                content_type=content_type,
             )
 
             # Log what anchors are being used

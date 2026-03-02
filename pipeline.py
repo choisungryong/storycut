@@ -687,7 +687,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     with open(manifest_path, "r", encoding="utf-8") as f:
                         _md = json.load(f)
                     _md["casting_status"] = "casting"
-                    _md["casting_message"] = f"환경 앵커 이미지 생성 중... ({len(story_data['scenes'])}장)"
+                    _md["casting_message"] = f"환경 앵커 이미지 생성 중... (최대 3장)"
                     with open(manifest_path, "w", encoding="utf-8") as f:
                         json.dump(_md, f, ensure_ascii=False, indent=2)
 
@@ -1202,6 +1202,7 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
             user_idea=request.topic or request.user_idea,
             is_shorts=_is_shorts,
             include_dialogue=getattr(request, 'include_dialogue', False),
+            content_type=getattr(request, 'content_type', 'fiction'),
         )
 
         return story_data

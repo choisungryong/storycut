@@ -59,6 +59,287 @@ GENRE_PLOT_SEEDS = {
 }
 
 
+# content_type → 기존 genre 시스템 매핑
+CONTENT_TYPE_TO_GENRE = {
+    "folktale": "fantasy",
+    "myth": "fantasy",
+    "historical": "drama",
+    "economy": "drama",
+    "documentary": "drama",
+    "fiction": "emotional",
+    "mystery": "mystery",
+    "romance": "romance",
+    "sf": "fantasy",
+    "horror": "horror",
+    "fairytale": "comedy",
+    "educational": "drama",
+}
+
+# 콘텐츠 유형별 규칙 딕셔너리 (3중 방어 체계의 핵심)
+CONTENT_TYPE_RULES = {
+    "folktale": {
+        "story_structure": (
+            "[CONTENT TYPE: 전래동화]\n"
+            "- 전통 서사 구조를 따를 것: 권선징악, 교훈, 인과응보.\n"
+            "- 옛이야기 화법 사용: '옛날 옛적에...', '~했답니다', '~했다고 합니다'.\n"
+            "- 한국 전래동화의 전형적 캐릭터 사용: 나무꾼, 도깨비, 선녀, 호랑이, 임금님, 효자/효녀 등.\n"
+            "- 시대 배경: 조선시대 또는 그 이전 한국 전통 시대. 절대 현대 배경 금지."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Traditional Korean Joseon-era setting. "
+            "Thatched-roof houses (초가집) or traditional Korean hanok with curved tile roofs. "
+            "Korean countryside landscape with rice paddies, bamboo groves, mountain paths. "
+            "Characters wear hanbok (한복). Traditional Korean props: 절구, 도리깨, 부채, 등잔."
+        ),
+        "image_context": "traditional Korean Joseon-era village, hanok architecture, hanbok clothing, Korean countryside",
+        "avoid": "modern buildings, cars, smartphones, European architecture, Western clothing, suits, neon lights, skyscrapers",
+        "character_design": (
+            "- 모든 캐릭터는 반드시 한복(hanbok) 착용. 현대 의상 절대 금지.\n"
+            "- 전통 한국식 헤어스타일: 남성은 상투/갓, 여성은 댕기/비녀.\n"
+            "- clothing_default에 한복 종류를 구체적으로 명시 (예: 'white jeogori with indigo chima', 'blue dopo overcoat with gat hat')."
+        ),
+        "plot_seeds": (
+            "마법의 보은 / 동물이 은혜를 갚다 / 게으른 자의 응징 / "
+            "현명한 판결 / 도깨비의 장난 / 효도의 기적"
+        ),
+    },
+    "myth": {
+        "story_structure": (
+            "[CONTENT TYPE: 신화/전설]\n"
+            "- 신화적 서사 구조: 영웅의 여정, 신들의 개입, 운명과 시련.\n"
+            "- 서사시적 화법 사용: 장엄하고 격식 있는 톤.\n"
+            "- TOPIC에서 문화권을 추론하라:\n"
+            "  한국 신화(단군, 주몽, 삼국유사) → 한국 고대 배경\n"
+            "  그리스 신화 → 고대 그리스 배경\n"
+            "  북유럽 신화 → 바이킹/북유럽 배경\n"
+            "- 해당 문화권의 시대와 세계관을 반드시 유지."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Ancient mythological setting matching the story's cultural origin. "
+            "If Korean myth: ancient Korean kingdom with palace architecture, traditional armor, sacred mountains. "
+            "If Greek myth: marble temples, olive groves, ancient Mediterranean. "
+            "If Norse myth: fjords, longhouses, runic carvings."
+        ),
+        "image_context": "ancient mythological setting, epic scale, sacred/divine atmosphere",
+        "avoid": "modern elements, contemporary clothing, urban environments, technology",
+        "character_design": (
+            "- 해당 문화권의 전통 의상/갑옷 착용 필수.\n"
+            "- 신적 존재는 신성한 아우라/후광 등 시각적 표현.\n"
+            "- clothing_default에 문화권에 맞는 구체적 의상 명시."
+        ),
+        "plot_seeds": (
+            "신의 시련을 통과하는 영웅 / 금기를 어긴 대가 / 신과 인간의 사랑 / "
+            "예언된 운명에 맞서는 자 / 세계를 창조하는 희생"
+        ),
+    },
+    "historical": {
+        "story_structure": (
+            "[CONTENT TYPE: 역사 이야기]\n"
+            "- 시대 정확성 필수. TOPIC에서 시대를 추론하라.\n"
+            "- 역사적 사실을 바탕으로 하되, 드라마적 각색 허용.\n"
+            "- 해당 시대의 사회 구조, 문화, 언어 습관을 반영.\n"
+            "- 시대착오적 요소 절대 금지 (해당 시대에 없는 기술/문화/사물)."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Historically accurate setting matching the story's time period. "
+            "Architecture, clothing, props, and landscape must be period-appropriate. "
+            "Infer the era from TOPIC and apply correct historical visual details."
+        ),
+        "image_context": "historically accurate period setting, era-appropriate architecture and clothing",
+        "avoid": "anachronistic elements, modern technology in historical settings, wrong-era architecture",
+        "character_design": (
+            "- 해당 시대의 의상 착용 필수.\n"
+            "- 사회적 지위에 맞는 복장 (왕족, 무사, 평민 등).\n"
+            "- clothing_default에 시대와 신분에 맞는 의상 구체적 명시."
+        ),
+        "plot_seeds": (
+            "역사의 전환점에 선 인물의 선택 / 알려지지 않은 영웅의 이야기 / "
+            "권력과 의리의 충돌 / 시대를 앞서간 인물의 비극"
+        ),
+    },
+    "economy": {
+        "story_structure": (
+            "[CONTENT TYPE: 경제/비즈니스]\n"
+            "- 다큐멘터리 해설체 사용. 데이터와 사실 기반.\n"
+            "- 경제 사건/기업 스토리를 극적으로 재구성.\n"
+            "- 수치, 금액, 시장 상황 등 구체적 디테일 포함.\n"
+            "- 현대 배경이 기본. TOPIC에서 시대를 추론."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Modern business/financial environment. "
+            "City skylines, office buildings, trading floors, boardrooms. "
+            "Professional business attire, graphs and charts as visual elements."
+        ),
+        "image_context": "modern business environment, financial district, professional corporate setting",
+        "avoid": "fantasy elements, medieval settings, magic, supernatural",
+        "character_design": (
+            "- 비즈니스 복장 (정장, 셔츠, 비즈니스 캐주얼).\n"
+            "- 현대적이고 프로페셔널한 외형.\n"
+            "- clothing_default에 비즈니스 복장 명시."
+        ),
+        "plot_seeds": (
+            "누구도 예상 못 한 시장의 붕괴 / 작은 회사가 거인을 이기다 / "
+            "한 번의 결정이 수조 원을 날리다 / 위기 속에서 기회를 잡은 자"
+        ),
+    },
+    "documentary": {
+        "story_structure": (
+            "[CONTENT TYPE: 실화/다큐]\n"
+            "- 사실 기반, 차분하고 객관적인 해설체.\n"
+            "- 실제 사건을 극적으로 재구성하되 사실 왜곡 금지.\n"
+            "- 포토저널리스틱 스타일의 시각적 접근."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Photojournalistic style. Realistic, documentary-grade lighting. "
+            "Setting matches the actual event's time and location."
+        ),
+        "image_context": "photojournalistic documentary style, realistic setting, natural lighting",
+        "avoid": "fantasy elements, exaggerated expressions, cartoon style, supernatural",
+        "character_design": (
+            "- 실제 시대/상황에 맞는 현실적 의상.\n"
+            "- 과장된 외형이나 판타지 요소 금지."
+        ),
+        "plot_seeds": (
+            "은폐된 진실이 드러나는 순간 / 평범한 사람의 비범한 행동 / "
+            "재난 속 인간의 선택 / 역사가 감춘 이야기"
+        ),
+    },
+    "fiction": {
+        "story_structure": "",
+        "era_context": "",
+        "image_context": "",
+        "avoid": "",
+        "character_design": "",
+        "plot_seeds": "",
+    },
+    "mystery": {
+        "story_structure": (
+            "[CONTENT TYPE: 미스터리/스릴러]\n"
+            "- 단서→추리→반전 구조. 복선 배치 필수.\n"
+            "- 서스펜스와 긴장감 유지. 모든 씬에 미스터리 요소."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Dark, atmospheric setting with dramatic shadows and mystery ambience. "
+            "Dim lighting, rain, fog, noir-style visual elements."
+        ),
+        "image_context": "dark atmospheric mystery setting, dramatic shadows, suspenseful mood",
+        "avoid": "bright cheerful colors, cartoon style, cute elements",
+        "character_design": "",
+        "plot_seeds": "",
+    },
+    "romance": {
+        "story_structure": (
+            "[CONTENT TYPE: 로맨스/감성]\n"
+            "- 감성적 서사. 캐릭터 간 감정 변화가 핵심.\n"
+            "- 따뜻하고 감성적인 톤. 섬세한 감정 묘사."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Warm, emotionally resonant setting. Soft golden lighting, warm color tones. "
+            "Romantic atmosphere with cherry blossoms, sunset, cafe, rain."
+        ),
+        "image_context": "warm romantic atmosphere, soft golden lighting, emotionally resonant setting",
+        "avoid": "gore, horror elements, dark oppressive atmosphere",
+        "character_design": "",
+        "plot_seeds": "",
+    },
+    "sf": {
+        "story_structure": (
+            "[CONTENT TYPE: SF]\n"
+            "- 미래적 세계관 필수. 과학/기술 기반 설정.\n"
+            "- TOPIC에서 SF 하위 장르 추론: 사이버펑크, 우주, AI, 시간여행 등.\n"
+            "- 세계관 설정이 스토리 전반에 일관되게 유지되어야 함."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Futuristic sci-fi setting. Neon-lit cityscapes, holographic displays, "
+            "advanced technology, sleek futuristic architecture, space stations, starships."
+        ),
+        "image_context": "futuristic sci-fi setting, advanced technology, neon-lit cityscape or space environment",
+        "avoid": "medieval elements, traditional/historical clothing, horses, castles, swords, magic wands",
+        "character_design": (
+            "- 미래적 의상: 테크웨어, 우주복, 사이버네틱 요소 등.\n"
+            "- clothing_default에 SF 세계관에 맞는 의상 명시."
+        ),
+        "plot_seeds": (
+            "AI가 인간을 넘어서는 순간 / 시간여행의 패러독스 / "
+            "외계 문명과의 첫 접촉 / 디스토피아에서의 저항"
+        ),
+    },
+    "horror": {
+        "story_structure": (
+            "[CONTENT TYPE: 호러/공포]\n"
+            "- 공포와 불안감 조성이 핵심. 점진적 공포 상승.\n"
+            "- 심리적 공포 > 물리적 공포. 분위기와 암시 활용."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Dark, unsettling horror atmosphere. Deep shadows, eerie lighting, "
+            "decayed/abandoned environments, fog, moonlight, isolated locations."
+        ),
+        "image_context": "dark eerie horror atmosphere, deep shadows, unsettling environment",
+        "avoid": "bright cheerful colors, cute cartoon style, comedy elements",
+        "character_design": "",
+        "plot_seeds": "",
+    },
+    "fairytale": {
+        "story_structure": (
+            "[CONTENT TYPE: 동화]\n"
+            "- 아동 친화적 동화체 사용: '옛날 옛적에...', 따뜻하고 교훈적.\n"
+            "- 밝고 긍정적인 결말 필수. 교훈/메시지 포함.\n"
+            "- 폭력, 공포, 어두운 요소 절대 금지.\n"
+            "- 쉽고 간결한 문장. 아이들이 이해할 수 있는 수준."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Bright, colorful storybook illustration style. "
+            "Warm pastel colors, soft lighting, whimsical and cute elements. "
+            "Friendly characters, rounded shapes, magical sparkles."
+        ),
+        "image_context": "bright colorful storybook style, warm pastel colors, cute whimsical elements",
+        "avoid": "violence, blood, horror, dark shadows, scary elements, weapons, death, gore",
+        "character_design": (
+            "- 귀엽고 친근한 외형. 과장된 큰 눈, 둥근 얼굴.\n"
+            "- 밝고 화사한 색감의 의상.\n"
+            "- 무서운 외형 요소 금지."
+        ),
+        "plot_seeds": (
+            "용기를 찾아 떠나는 모험 / 서로 다른 친구들의 우정 / "
+            "작은 친절이 만드는 큰 기적 / 두려움을 극복하는 이야기"
+        ),
+    },
+    "educational": {
+        "story_structure": (
+            "[CONTENT TYPE: 교육 콘텐츠]\n"
+            "- 학습 목적. 쉬운 설명과 명확한 구조.\n"
+            "- 핵심 개념을 스토리에 자연스럽게 녹여낼 것.\n"
+            "- 시청자가 무언가를 배우고 가야 함."
+        ),
+        "era_context": (
+            "MANDATORY VISUAL CONTEXT for image_prompt: "
+            "Clean, bright educational visual style. "
+            "Clear compositions, well-lit scenes, infographic-like clarity."
+        ),
+        "image_context": "clean bright educational style, clear well-lit compositions",
+        "avoid": "violence, horror, dark atmosphere, complex abstract imagery",
+        "character_design": (
+            "- 깨끗하고 밝은 이미지의 캐릭터.\n"
+            "- 학습 환경에 적합한 의상."
+        ),
+        "plot_seeds": (
+            "궁금증에서 시작되는 탐험 / 실수에서 배우는 교훈 / "
+            "과학 원리가 만드는 마법 같은 순간"
+        ),
+    },
+}
+
+
 class StoryAgent:
     """
     Generates YouTube-optimized stories in Scene JSON format.
@@ -95,6 +376,7 @@ class StoryAgent:
         user_idea: str = None,
         is_shorts: bool = False,
         include_dialogue: bool = False,
+        content_type: str = "fiction",
     ) -> Dict[str, Any]:
         """
         Generate a scene-based story JSON using a 2-Step Hierarchical Chain.
@@ -102,8 +384,22 @@ class StoryAgent:
         Step 1: Structure & Architecture (Title, Characters, Outline)
         Step 2: Scene-level Detail (Script, Prompts, Camera Work)
         """
-        logger.info(f"[Story Agent] Generating story (2-Step Chain): {genre} / {mood} / {style}")
+        logger.info(f"[Story Agent] Generating story (2-Step Chain): {genre} / {mood} / {style} / content_type={content_type}")
         logger.info(f"[Story Agent] duration={total_duration_sec}s, is_shorts={is_shorts}, user_idea={user_idea}")
+
+        # content_type 규칙 로드
+        _ct_rules = CONTENT_TYPE_RULES.get(content_type, CONTENT_TYPE_RULES["fiction"])
+        _ct_story_structure = _ct_rules.get("story_structure", "")
+        _ct_era_context = _ct_rules.get("era_context", "")
+        _ct_character_design = _ct_rules.get("character_design", "")
+        _ct_avoid = _ct_rules.get("avoid", "")
+        _ct_plot_seeds = _ct_rules.get("plot_seeds", "")
+
+        # content_type 전용 플롯 씨앗이 있으면 genre 플롯 씨앗보다 우선
+        if _ct_plot_seeds:
+            _genre_key_for_seeds = CONTENT_TYPE_TO_GENRE.get(content_type, genre.lower().strip())
+        else:
+            _genre_key_for_seeds = genre.lower().strip()
 
         # Calculate target scene count
         if is_shorts:
@@ -136,10 +432,13 @@ class StoryAgent:
                 "- Treat this as a documentary or audiobook narration, NOT a drama with conversations."
             )
 
-        # 장르별 플롯 씨앗 참조
+        # 장르별 플롯 씨앗 참조 (content_type 전용 씨앗 우선)
         _genre_key = genre.lower().strip()
-        _plot_seeds = GENRE_PLOT_SEEDS.get(_genre_key, GENRE_PLOT_SEEDS.get("drama",
-            "뒤늦게 알게 되는 진실 / 믿었던 사람의 배신 / 선택의 대가 / 감추어진 비밀"))
+        if _ct_plot_seeds:
+            _plot_seeds = _ct_plot_seeds
+        else:
+            _plot_seeds = GENRE_PLOT_SEEDS.get(_genre_key, GENRE_PLOT_SEEDS.get("drama",
+                "뒤늦게 알게 되는 진실 / 믿었던 사람의 배신 / 선택의 대가 / 감추어진 비밀"))
 
         # ── 공통 블록 ──
         _common_language_rule = f"""
@@ -172,6 +471,8 @@ class StoryAgent:
   → 캐릭터 의상/소품/배경도 원작 시대에 맞춰야 한다.
 - TOPIC이 "현대판 도깨비", "SF 버전 콩쥐팥쥐"처럼 명시적으로 리메이크를 요청한 경우에만 시대 변경 허용.
 - 원작을 모르면 가장 널리 알려진 전통적 버전을 기준으로 스토리를 구성하라.
+
+{_ct_story_structure}
 """
 
         _common_characters_block = f"""
@@ -186,6 +487,13 @@ class StoryAgent:
       "role": "Protagonist/Antagonist/Supporting"
     }}
   }},"""
+
+        # content_type 캐릭터 디자인 가이드 주입 (characters_block 뒤에 추가)
+        if _ct_character_design:
+            _common_characters_block += f"""
+[CHARACTER DESIGN GUIDE — content_type={content_type}]
+{_ct_character_design}
+"""
 
         # ── 숏폼 vs 롱폼 Step 1 분기 ──
         if is_shorts:
@@ -407,11 +715,22 @@ REQUIREMENTS:
 {_dialogue_format}
 """
 
+        # content_type 시각 컨텍스트 블록 (f-string 밖에서 조립)
+        _ct_visual_block = ""
+        if _ct_era_context:
+            _ct_visual_block = (
+                "[CONTENT TYPE VISUAL CONTEXT — image_prompt에 반드시 반영할 것]\n"
+                + _ct_era_context + "\n"
+                + "AVOID in image_prompt: " + _ct_avoid + "\n"
+            )
+
         _common_language_and_image_rules = f"""
 [LANGUAGE RULE - CRITICAL]
 - "narrative"와 "tts_script"는 반드시 한국어로 작성할 것. 영어 금지.
 - "image_prompt"만 영어로 작성 (이미지 생성 AI용).
 - "title"도 반드시 한국어로 작성.
+
+{_ct_visual_block}
 
 [STRICT] IMAGE PROMPT RULE:
 - Do NOT use character token IDs (e.g., STORYCUT_HERO_A) in "image_prompt". The system injects character visuals automatically.

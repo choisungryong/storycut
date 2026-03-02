@@ -3,6 +3,7 @@ STORYCUT Data Models (Pydantic Schemas)
 """
 
 from .models import (
+    ContentType,
     FeatureFlags,
     ProjectRequest,
     SceneAssets,
@@ -27,6 +28,7 @@ from .models import (
 )
 
 __all__ = [
+    "ContentType",
     "FeatureFlags",
     "ProjectRequest",
     "SceneAssets",

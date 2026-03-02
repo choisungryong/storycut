@@ -1636,9 +1636,10 @@ JSON 형식으로 출력:
                         _camera_directive = _shot_val
                         break
 
-                # genre / mood 추출 (request에서 가져옴)
+                # genre / mood / content_type 추출 (request에서 가져옴)
                 _genre = getattr(request, 'genre', None) if request else None
                 _mood = scene.mood or (getattr(request, 'mood', None) if request else None)
+                _content_type = getattr(request, 'content_type', None) if request else None
 
                 # Generate image
                 image_path, image_id = image_agent.generate_image(
@@ -1656,6 +1657,7 @@ JSON 형식으로 출력:
                     genre=_genre,
                     mood=_mood,
                     camera_directive=_camera_directive,
+                    content_type=_content_type,
                 )
 
                 scene.assets.image_path = image_path
@@ -1693,6 +1695,7 @@ JSON 형식으로 출력:
                             genre=_genre,
                             mood=_mood,
                             camera_directive=_camera_directive,
+                            content_type=_content_type,
                         )
                         scene.assets.image_path = image_path
                         with _phash_lock:

@@ -402,6 +402,7 @@ def run_pipeline_wrapper(pipeline: 'TrackedPipeline', request: 'ProjectRequest')
 class GenerateRequest(BaseModel):
     """영상 생성 요청"""
     topic: Optional[str] = None
+    content_type: str = "fiction"  # 콘텐츠 유형 (folktale, myth, historical, economy, documentary, fiction, mystery, romance, sf, horror, fairytale, educational)
     genre: str = "emotional"
     mood: str = "dramatic"
     style: str = "cinematic, high contrast"
@@ -427,6 +428,7 @@ class GenerateRequest(BaseModel):
 class ScriptRequest(BaseModel):
     """스크립트 직접 입력으로 영상 생성 요청"""
     script: str              # 전체 내레이션 스크립트 텍스트
+    content_type: str = "fiction"
     genre: str = "emotional"
     mood: str = "dramatic"
     style: str = "cinematic, high contrast"
@@ -1062,6 +1064,7 @@ async def generate_story(req: GenerateRequest, request: Request):
     
     project_request = ProjectRequest(
         topic=req.topic,
+        content_type=getattr(req, 'content_type', 'fiction'),
         genre=req.genre,
         mood=req.mood,
         style_preset=req.style,
@@ -1131,6 +1134,7 @@ async def generate_one_shot(req: GenerateRequest, request: Request):
 
     project_request = ProjectRequest(
         topic=req.topic,
+        content_type=getattr(req, 'content_type', 'fiction'),
         genre=req.genre,
         mood=req.mood,
         style_preset=req.style,
@@ -1256,6 +1260,7 @@ async def generate_from_script(req: ScriptRequest):
 
     project_request = ProjectRequest(
         topic=None,
+        content_type=getattr(req, 'content_type', 'fiction'),
         genre=req.genre,
         mood=req.mood,
         style_preset=req.style,

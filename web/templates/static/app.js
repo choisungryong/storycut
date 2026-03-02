@@ -1,5 +1,98 @@
 // STORYCUT v2.0 - 프론트엔드 로직 (완전 재작성)
 
+// ─── 콘텐츠 유형 2단계 분류 ───
+const CONTENT_CATEGORIES = {
+    "fiction": {
+        label: "창작 픽션",
+        types: [
+            { value: "fiction", label: "자유 창작" },
+            { value: "mystery", label: "미스터리/스릴러" },
+            { value: "romance", label: "로맨스/감성" },
+            { value: "sf", label: "SF" },
+            { value: "horror", label: "호러/공포" },
+        ]
+    },
+    "traditional": {
+        label: "전통/설화",
+        types: [
+            { value: "folktale", label: "전래동화" },
+            { value: "myth", label: "신화/전설" },
+        ]
+    },
+    "nonfiction": {
+        label: "역사/교양",
+        types: [
+            { value: "historical", label: "역사 이야기" },
+            { value: "economy", label: "경제/비즈니스" },
+            { value: "documentary", label: "실화/다큐" },
+        ]
+    },
+    "children": {
+        label: "아동/동화",
+        types: [
+            { value: "fairytale", label: "동화" },
+            { value: "educational", label: "교육 콘텐츠" },
+        ]
+    }
+};
+
+// content_type → genre 자동 매핑 (백엔드 호환)
+const CONTENT_TYPE_TO_GENRE = {
+    "folktale": "fantasy", "myth": "fantasy",
+    "historical": "drama", "economy": "drama", "documentary": "drama",
+    "fiction": "emotional", "mystery": "mystery", "romance": "romance",
+    "sf": "fantasy", "horror": "horror",
+    "fairytale": "comedy", "educational": "drama",
+};
+
+// 콘텐츠 소분류 드롭다운 갱신
+function updateContentTypeOptions(categoryValue) {
+    const typeSelect = document.getElementById('content_type');
+    const genreSelect = document.getElementById('genre');
+    if (!typeSelect) return;
+
+    typeSelect.innerHTML = '';
+    const category = CONTENT_CATEGORIES[categoryValue];
+    if (category) {
+        category.types.forEach((t, idx) => {
+            const opt = document.createElement('option');
+            opt.value = t.value;
+            opt.textContent = t.label;
+            if (idx === 0) opt.selected = true;
+            typeSelect.appendChild(opt);
+        });
+    }
+
+    // genre 숨겨진 필드 자동 매핑
+    if (genreSelect && typeSelect.value) {
+        genreSelect.value = CONTENT_TYPE_TO_GENRE[typeSelect.value] || 'emotional';
+    }
+}
+
+// 초기화: 대분류 변경 이벤트 + 최초 소분류 세팅
+document.addEventListener('DOMContentLoaded', function() {
+    const catSelect = document.getElementById('content_category');
+    const typeSelect = document.getElementById('content_type');
+    const genreSelect = document.getElementById('genre');
+
+    if (catSelect) {
+        catSelect.addEventListener('change', function() {
+            updateContentTypeOptions(this.value);
+        });
+        // 초기 소분류 세팅
+        updateContentTypeOptions(catSelect.value);
+    }
+
+    if (typeSelect) {
+        typeSelect.addEventListener('change', function() {
+            // genre 숨겨진 필드 자동 매핑
+            if (genreSelect) {
+                genreSelect.value = CONTENT_TYPE_TO_GENRE[this.value] || 'emotional';
+            }
+        });
+    }
+});
+
 // 서버 에러 코드 → 한국어 매핑
 const ERROR_MESSAGES = {
     'project_not_found': '프로젝트를 찾을 수 없습니다.',
@@ -433,9 +526,11 @@ class StorycutApp {
             topic = '남녀 캐릭터 간 대화가 풍부한 드라마 시나리오 (최소 2명 이상의 화자, 나레이터 + 남성 + 여성)';
         }
 
+        const selectedContentType = document.getElementById('content_type')?.value || 'fiction';
         const requestData = {
             topic: topic,
-            genre: formData.get('genre'),
+            content_type: selectedContentType,
+            genre: CONTENT_TYPE_TO_GENRE[selectedContentType] || formData.get('genre') || 'emotional',
             mood: formData.get('mood'),
             style: formData.get('style'),
             voice: formData.get('voice'),
@@ -687,9 +782,11 @@ class StorycutApp {
         btn.disabled = true;
         btn.innerHTML = '<span class="btn-icon">⏳</span> 씬 분할 중...';
 
+        const selectedContentType2 = document.getElementById('content_type')?.value || 'fiction';
         const requestData = {
             script: scriptText,
-            genre: formData.get('genre'),
+            content_type: selectedContentType2,
+            genre: CONTENT_TYPE_TO_GENRE[selectedContentType2] || formData.get('genre') || 'emotional',
             mood: formData.get('mood'),
             style: formData.get('style'),
             voice: formData.get('voice'),

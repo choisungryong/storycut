@@ -15,6 +15,26 @@ from pydantic import BaseModel, Field
 import uuid
 
 
+class ContentType(str, Enum):
+    """콘텐츠 유형 (2단계 분류 소분류)"""
+    # 전통/설화
+    FOLKTALE = "folktale"
+    MYTH = "myth"
+    # 역사/교양
+    HISTORICAL = "historical"
+    ECONOMY = "economy"
+    DOCUMENTARY = "documentary"
+    # 창작 픽션
+    FICTION = "fiction"      # 기본값
+    MYSTERY = "mystery"
+    ROMANCE = "romance"
+    SF = "sf"
+    HORROR = "horror"
+    # 아동/동화
+    FAIRYTALE = "fairytale"
+    EDUCATIONAL = "educational"
+
+
 class TargetPlatform(str, Enum):
     """대상 플랫폼"""
     YOUTUBE_LONG = "youtube_long"
@@ -202,6 +222,9 @@ class ProjectRequest(BaseModel):
     voice_over: bool = Field(default=True, description="내레이션 포함 여부")
     bgm: bool = Field(default=True, description="배경 음악 포함 여부")
     subtitles: bool = Field(default=True, description="자막 포함 여부")
+
+    # 콘텐츠 유형 (2단계 분류)
+    content_type: str = Field(default="fiction", description="콘텐츠 유형 (folktale, myth, historical, economy, documentary, fiction, mystery, romance, sf, horror, fairytale, educational)")
 
     # 장르/무드
     genre: Optional[str] = Field(default="emotional", description="장르")

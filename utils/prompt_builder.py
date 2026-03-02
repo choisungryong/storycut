@@ -238,6 +238,7 @@ class MultimodalPromptBuilder:
         visual_bible: Optional[dict] = None,
         color_mood: Optional[str] = None,
         camera_directive: Optional[str] = None,
+        content_type: Optional[str] = None,
     ) -> List[Dict]:
         """
         간단한 멀티모달 요청 구성 (단순 프롬프트 + 참조 이미지).
@@ -353,6 +354,18 @@ class MultimodalPromptBuilder:
             genre_neg = MultimodalPromptBuilder._get_genre_negatives(genre)
             if genre_neg:
                 genre_negative = f"AVOID: {genre_neg}."
+
+        # --- content_type 3차 방어 (이미지 생성 시 시대/문화 컨텍스트 재주입) ---
+        ct_image_prefix = ""
+        if content_type and content_type != "fiction":
+            from agents.story_agent import CONTENT_TYPE_RULES
+            ct_rules = CONTENT_TYPE_RULES.get(content_type, {})
+            ct_img_ctx = ct_rules.get("image_context", "")
+            ct_avoid = ct_rules.get("avoid", "")
+            if ct_img_ctx:
+                ct_image_prefix = f"[SETTING] {ct_img_ctx}. "
+            if ct_avoid:
+                genre_negative = f"{genre_negative} AVOID: {ct_avoid}.".strip()
 
         # --- 무드 색감 부스트 (Pass 4) ---
         mood_boost = ""
@@ -509,7 +522,7 @@ class MultimodalPromptBuilder:
                 f"If the reference shows a real photo, the output MUST be a real photo. "
                 f"Do NOT convert photorealistic characters to anime/cartoon/illustration or vice versa."
             )
-        full_prompt = f"{framing_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}.{_anchor_reminder} All characters must have celebrity-level stunning attractive visuals with ideal body proportions, flawless clear skin. Anatomically correct human body with proper proportions, natural hands with exactly five fingers on each hand, correct finger count. Aspect ratio 16:9."
+        full_prompt = f"{framing_prefix}{ct_image_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}.{_anchor_reminder} All characters must have celebrity-level stunning attractive visuals with ideal body proportions, flawless clear skin. Anatomically correct human body with proper proportions, natural hands with exactly five fingers on each hand, correct finger count. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts
