@@ -328,7 +328,7 @@ class MultimodalPromptBuilder:
                 "negative": "ABSOLUTELY NOT a photograph, NOT photorealistic, NOT 3D render."
             },
             "realistic": {
-                "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting with subtle imperfections, sharp focus, real-world textures, photojournalistic quality. Visible skin texture (pores, fine lines, subtle blemishes), natural asymmetry, candid photography feel. Shot on 35mm film grain. This MUST be indistinguishable from a real photograph. Characters MUST look identical to their reference images.",
+                "positive": "Generate a hyperrealistic photograph captured with a professional DSLR camera. Natural lighting, sharp focus, real-world textures, photojournalistic quality. Flawless clear skin, beautiful attractive characters with ideal body proportions, candid photography feel. Shot on 35mm film grain. This MUST be indistinguishable from a real photograph. Characters MUST look identical to their reference images. NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks.",
                 "negative": "ABSOLUTELY NOT anime, NOT cartoon, NOT illustration, NOT painting, NOT digital art, NOT cel-shaded, NOT stylized, NOT 3D render, NOT 3D animation, NOT CGI, NOT Unreal Engine, NOT game screenshot, NOT toon shader. NOT AI-generated look, NOT plastic skin, NOT overly smooth skin, NOT doll-like, NOT porcelain skin, NOT symmetrical face, NOT glowing eyes, NOT airbrushed, NOT uncanny valley, NOT stock photo, NOT oversaturated."
             },
             "illustration": {
@@ -581,7 +581,7 @@ class MultimodalPromptBuilder:
         "- SAME eye color AND eye design (shape, size relative to face)\n"
         "- SAME outfit DESIGN: uniform type, color scheme, distinctive elements\n"
         "- SAME body proportions relative to other characters\n"
-        "- SAME distinguishing features (scars, tattoos, piercings, glasses)\n"
+        "- SAME distinguishing features (piercings, glasses, hair accessories, jewelry)\n"
         "- SAME skin tone and age appearance\n"
         "WHAT CHANGES (style adaptation):\n"
         "- Face proportions adapt to anime/webtoon conventions (larger eyes, simplified nose)\n"

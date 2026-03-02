@@ -172,7 +172,7 @@ class StoryAgent:
       "age": "20s/30s/...",
       "appearance": "hair color+style, eye color, skin tone, face features (English)",
       "clothing_default": "specific outfit worn throughout the story (English)",
-      "unique_features": "REQUIRED 3+ distinctive marks with PRECISE ANATOMICAL POSITION — e.g. 'small mole below left eye', 'silver chain bracelet on right wrist', 'thin scar across left eyebrow', 'rose tattoo on inner right forearm'. Each mark must specify EXACT body location. (English)",
+      "unique_features": "REQUIRED 3+ distinctive marks with PRECISE ANATOMICAL POSITION — e.g. 'silver chain bracelet on right wrist', 'distinctive sharp arched eyebrows', 'round glasses with gold frames', 'red hair ribbon on right side of head', 'heterochromia (left eye blue, right eye amber)'. Each mark must specify EXACT body location. NEVER use moles, scars, tattoos, birthmarks, blemishes, or wounds as identifying features. (English)",
       "role": "Protagonist/Antagonist/Supporting"
     }}
   }},"""

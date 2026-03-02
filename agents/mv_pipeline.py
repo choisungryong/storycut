@@ -24,34 +24,34 @@ _STRIP_PAREN_RE = re.compile(r'^\(.*?\)\s*|\s*\(.*?\)$')
 # 스타일별 런타임 프리픽스 + 네거티브 (generate_images / regenerate 공용)
 _STYLE_RUNTIME = {
     "cinematic": {
-        "prefix": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, real human skin texture with pores",
+        "prefix": "cinematic film still shot on ARRI Alexa 65, anamorphic lens, shallow depth of field, dramatic chiaroscuro lighting, color graded like a Hollywood blockbuster, flawless clear skin, beautiful attractive characters with ideal body proportions",
         "check": ("cinematic", "film still", "dramatic lighting"),
-        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin",
+        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin, moles, tattoos, scars, blemishes, birthmarks, skin imperfections, wounds",
     },
     "game_anime": {
-        "prefix": "3D cel-shaded toon-rendered scene, high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines 2-3px thick, strong rim lighting with bloom and god rays, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast, detailed ornate costumes, dynamic hair and cloth physics, elemental glow effects, epic fantasy backgrounds",
+        "prefix": "3D cel-shaded toon-rendered scene, high-fidelity 3D character models with cartoon/toon shader, crisp cel-shading outlines 2-3px thick, strong rim lighting with bloom and god rays, Unreal Engine quality toon rendering, vibrant saturated colors with high contrast, detailed ornate costumes, dynamic hair and cloth physics, elemental glow effects, epic fantasy backgrounds, attractive characters with ideal proportions",
         "check": ("cel-shaded", "toon"),
-        "negative": "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly, chibi deformed, mundane everyday objects",
+        "negative": "flat 2D hand-drawn illustration, traditional anime cel animation, watercolor, oil painting, photorealistic skin textures, western cartoon, pixel art, low-poly, chibi deformed, mundane everyday objects, moles, tattoos, scars, blemishes, birthmarks, skin imperfections",
     },
     "anime": {
-        "prefix": "Japanese anime cel-shaded illustration, bold black outlines 1-2px, flat color fills with gradient shadows, vibrant saturated palette, anime character proportions (large expressive eyes, stylized hair), clean digital lineart, screentone-style shading, manga-inspired dynamic composition",
+        "prefix": "Japanese anime cel-shaded illustration, bold black outlines 1-2px, flat color fills with gradient shadows, vibrant saturated palette, anime character proportions (large expressive eyes, stylized hair), clean digital lineart, screentone-style shading, manga-inspired dynamic composition, beautiful attractive characters with ideal proportions",
         "check": ("anime", "cel-shaded"),
-        "negative": "photorealistic, photograph, 3D render, western cartoon, watercolor, oil painting, real human skin texture, DSLR quality",
+        "negative": "photorealistic, photograph, 3D render, western cartoon, watercolor, oil painting, real human skin texture, DSLR quality, moles, tattoos, scars, blemishes, birthmarks, skin imperfections",
     },
     "webtoon": {
-        "prefix": "Korean webtoon manhwa digital art, clean sharp lineart with uniform stroke width, flat color blocks with soft cell shading, vertical-scroll optimized composition, modern manhwa character design with semi-realistic proportions, soft ambient lighting with clean gradients, polished digital coloring",
+        "prefix": "Korean webtoon manhwa digital art, clean sharp lineart with uniform stroke width, flat color blocks with soft cell shading, vertical-scroll optimized composition, modern manhwa character design with semi-realistic proportions, soft ambient lighting with clean gradients, polished digital coloring, attractive characters with ideal proportions",
         "check": ("webtoon", "manhwa"),
-        "negative": "photorealistic, photograph, 3D render, western cartoon, oil painting, anime cel-shading, rough sketchy lines, watercolor bleed",
+        "negative": "photorealistic, photograph, 3D render, western cartoon, oil painting, anime cel-shading, rough sketchy lines, watercolor bleed, moles, tattoos, scars, blemishes, birthmarks, skin imperfections",
     },
     "realistic": {
-        "prefix": "RAW photograph shot on Canon EOS R5 85mm f/1.8, hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, real human skin texture with pores and fine lines",
+        "prefix": "RAW photograph shot on Canon EOS R5 85mm f/1.8, hyperrealistic photograph, DSLR quality, natural lighting, sharp focus, flawless clear skin, beautiful attractive characters with ideal body proportions",
         "check": ("photorealistic", "photograph", "dslr"),
-        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin",
+        "negative": "anime, cartoon, illustration, cel-shaded, flat colors, digital painting, plastic skin, AI-generated look, 3D render, 3D animation, CGI, Unreal Engine, game screenshot, toon shader, smooth plastic skin, doll-like, porcelain skin, moles, tattoos, scars, blemishes, birthmarks, skin imperfections, wounds",
     },
     "illustration": {
-        "prefix": "digital painting illustration, visible painterly brushstrokes with textured edges, concept art quality, rich layered color palette, soft blended lighting with painted shadows, art station trending quality, hand-painted atmosphere with depth and warmth",
+        "prefix": "digital painting illustration, visible painterly brushstrokes with textured edges, concept art quality, rich layered color palette, soft blended lighting with painted shadows, art station trending quality, hand-painted atmosphere with depth and warmth, beautiful attractive characters with ideal proportions",
         "check": ("illustration", "painting", "concept art"),
-        "negative": "photorealistic, photograph, anime cel-shading, flat webtoon style, 3D render, sharp vector lines",
+        "negative": "photorealistic, photograph, anime cel-shading, flat webtoon style, 3D render, sharp vector lines, moles, tattoos, scars, blemishes, birthmarks, skin imperfections",
     },
 }
 
@@ -1030,9 +1030,10 @@ class MVPipeline:
                     "from all others and remain constant across every scene. "
                     "CRITICAL: Include PRECISE ANATOMICAL POSITION for each mark (e.g., 'centered on forehead' not just 'on forehead'). "
                     "The position MUST NEVER change between scenes. Examples: "
-                    "'small mole 1cm below left eye, silver pendant necklace, distinctive sharp eyebrows', "
-                    "'red hair ribbon on right side of head, heterochromia (left eye blue, right eye amber), thin scar on left cheek near jawline', "
-                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring on left ear'. "
+                    "'silver pendant necklace, distinctive sharp arched eyebrows, always wears a leather wristband on left wrist', "
+                    "'red hair ribbon on right side of head, heterochromia (left eye blue, right eye amber), round glasses with gold frames', "
+                    "'small star-shaped earring on left ear, dimple on left cheek, always wears a signature ring on right hand'. "
+                    "NEVER use moles, scars, tattoos, birthmarks, blemishes, or wounds as identifying features. "
                     "These must be VISIBLE, SPECIFIC, and POSITIONALLY FIXED to identify the character in any scene.\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
@@ -1152,9 +1153,10 @@ class MVPipeline:
                     "from all others and remain constant across every scene. "
                     "CRITICAL: Include PRECISE ANATOMICAL POSITION for each mark (e.g., 'centered on forehead' not just 'on forehead'). "
                     "The position MUST NEVER change between scenes. Examples: "
-                    "'small mole 1cm below left eye, silver pendant necklace, distinctive sharp eyebrows', "
-                    "'red hair ribbon on right side of head, heterochromia (left eye blue, right eye amber), thin scar on left cheek near jawline', "
-                    "'round glasses with gold frames, beauty mark on right cheekbone, always wears one earring on left ear'. "
+                    "'silver pendant necklace, distinctive sharp arched eyebrows, always wears a leather wristband on left wrist', "
+                    "'red hair ribbon on right side of head, heterochromia (left eye blue, right eye amber), round glasses with gold frames', "
+                    "'small star-shaped earring on left ear, dimple on left cheek, always wears a signature ring on right hand'. "
+                    "NEVER use moles, scars, tattoos, birthmarks, blemishes, or wounds as identifying features. "
                     "These must be VISIBLE, SPECIFIC, and POSITIONALLY FIXED to identify the character in any scene.\n"
                     "  - outfit: clothing description\n"
                     f"  - appears_in: array of scene IDs (1-{total_scenes}) where this character appears\n\n"
@@ -1616,13 +1618,13 @@ class MVPipeline:
 
         # 스타일별 전용 캐릭터 앵커 directive
         _style_directives = {
-            "cinematic": "cinematic film still shot on ARRI Alexa, anamorphic bokeh, dramatic volumetric lighting, color graded like a Hollywood blockbuster, real human skin texture, beautiful attractive face, NOT 3D render, NOT CGI, NOT anime, NOT cartoon",
-            "anime": "beautiful Japanese anime character, high-budget anime production quality, vibrant colors, expressive eyes, detailed hair, clean bold outlines, NOT a photograph",
-            "webtoon": "beautiful Korean webtoon manhwa character, clean sharp lineart, soft gradient shading, attractive design, NOT a photograph",
-            "realistic": "professional fashion editorial photograph, Canon EOS R5, 85mm f/1.4, beautiful natural lighting, sharp focus, visible skin texture, attractive and photogenic, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin",
-            "illustration": "stunning digital painting by Artgerm and WLOP, painterly brushstrokes, beautiful character design, NOT a photograph",
+            "cinematic": "cinematic film still shot on ARRI Alexa, anamorphic bokeh, dramatic volumetric lighting, color graded like a Hollywood blockbuster, flawless clear skin, beautiful attractive face, ideal body proportions, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks",
+            "anime": "beautiful Japanese anime character, high-budget anime production quality, vibrant colors, expressive eyes, detailed hair, clean bold outlines, attractive face, ideal body proportions, NOT a photograph, NO moles, NO scars, NO blemishes",
+            "webtoon": "beautiful Korean webtoon manhwa character, clean sharp lineart, soft gradient shading, attractive design with ideal body proportions, NOT a photograph, NO moles, NO scars, NO blemishes",
+            "realistic": "professional fashion editorial photograph, Canon EOS R5, 85mm f/1.4, beautiful natural lighting, sharp focus, flawless clear skin, attractive and photogenic, ideal body proportions, NOT anime, NOT cartoon, NOT AI look, NOT plastic skin, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks",
+            "illustration": "stunning digital painting by Artgerm and WLOP, painterly brushstrokes, beautiful character design, ideal body proportions, NOT a photograph, NO moles, NO scars, NO blemishes",
             "abstract": "abstract expressionist character art, surreal dreamlike, bold geometric shapes",
-            "game_anime": "beautiful 3D game character, AAA game quality (Genshin Impact, Honkai Star Rail style), high-fidelity 3D with toon shader, crisp cel-shading, rim lighting with bloom, vibrant colors, attractive design, NOT photorealistic, NOT flat 2D",
+            "game_anime": "beautiful 3D game character, AAA game quality (Genshin Impact, Honkai Star Rail style), high-fidelity 3D with toon shader, crisp cel-shading, rim lighting with bloom, vibrant colors, attractive design with ideal body proportions, NOT photorealistic, NOT flat 2D, NO moles, NO scars, NO blemishes",
         }
         style_context = _style_directives.get(project.style.value, f"{project.style.value} style")
         style_context += f", {project.mood.value} mood"
@@ -1636,12 +1638,13 @@ class MVPipeline:
 
             # 성별 기반 매력 키워드 (description 앞에 배치)
             _desc_lower = character.description.lower()
-            _beauty = "very beautiful gorgeous" if any(kw in _desc_lower for kw in ("female", "woman", "girl", "여성", "여자", "소녀")) else \
-                      "very handsome attractive" if any(kw in _desc_lower for kw in ("male", "man", "boy", "남성", "남자", "소년")) else \
-                      "very attractive good-looking"
+            _beauty = "extremely beautiful gorgeous woman with ideal slim hourglass figure and elegant proportions" if any(kw in _desc_lower for kw in ("female", "woman", "girl", "여성", "여자", "소녀")) else \
+                      "extremely handsome attractive well-built man with ideal masculine proportions" if any(kw in _desc_lower for kw in ("male", "man", "boy", "남성", "남자", "소년")) else \
+                      "extremely attractive good-looking person with ideal body proportions"
             portrait_prompt = (
                 f"cinematic close-up portrait, face and shoulders, beautiful volumetric lighting, "
-                f"soft bokeh background, sharp focus on eyes, "
+                f"soft bokeh background, sharp focus on eyes, flawless clear skin, "
+                f"no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
                 f"{_beauty}, {character.description}"
             )
             if getattr(character, 'unique_features', ''):
@@ -1650,7 +1653,8 @@ class MVPipeline:
                 portrait_prompt += f", wearing {character.outfit}"
             portrait_prompt += (
                 f", {style_context}, "
-                f"masterpiece quality, highly detailed, attractive character design, "
+                f"masterpiece quality, highly detailed, extremely attractive character design, ideal body proportions, "
+                f"flawless clear skin, no moles, no tattoos, no scars, no blemishes, "
                 f"no text, no watermark, no border"
             )
 

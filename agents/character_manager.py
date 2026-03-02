@@ -342,11 +342,11 @@ class CharacterManager:
 
             # 매력 키워드를 appearance 앞에 주입 (Gemini는 앞부분 토큰을 더 중시)
             _beauty_prefix = {
-                "male": "very handsome attractive",
-                "female": "very beautiful gorgeous",
-                "unknown": "very attractive good-looking",
+                "male": "extremely handsome attractive well-built man with ideal masculine proportions",
+                "female": "extremely beautiful gorgeous woman with ideal slim hourglass figure and elegant proportions",
+                "unknown": "extremely attractive good-looking person with ideal body proportions",
             }
-            appearance = f"{_beauty_prefix[gender]}, {char.description}"
+            appearance = f"{_beauty_prefix[gender]}, flawless clear skin, no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, {char.description}"
             ethnicity_val = getattr(project, 'character_ethnicity', None)
             if ethnicity_val and str(ethnicity_val.value) != "auto":
                 eth_keyword = ETH_KEYWORD_MAP.get(str(ethnicity_val.value), "")
@@ -388,13 +388,13 @@ class CharacterManager:
 
         # 스타일별 전용 캐릭터 앵커 directive
         _style_anchor_directives = {
-            "cinematic": "cinematic film still shot on ARRI Alexa, anamorphic lens bokeh, dramatic volumetric lighting, shallow depth of field, color graded like a Hollywood blockbuster, real human skin texture with pores, beautiful attractive face, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader, NOT doll-like",
-            "anime": "beautiful Japanese anime character illustration, high-budget anime production quality, vibrant saturated colors, expressive eyes, detailed hair rendering, clean bold outlines, NOT a photograph, NOT photorealistic",
-            "webtoon": "beautiful Korean webtoon manhwa character, clean sharp lineart, soft gradient shading, attractive character design, manhwa art style, NOT a photograph, NOT photorealistic",
-            "realistic": "professional fashion editorial photograph, shot on Canon EOS R5, 85mm f/1.4 lens, beautiful natural lighting, sharp focus on eyes, visible skin texture, natural beauty, attractive and photogenic, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin, NOT 3D render, NOT doll-like",
-            "illustration": "stunning digital painting, concept art by Artgerm and WLOP, painterly brushstrokes, rich color palette, beautiful character design, NOT a photograph",
+            "cinematic": "cinematic film still shot on ARRI Alexa, anamorphic lens bokeh, dramatic volumetric lighting, shallow depth of field, color graded like a Hollywood blockbuster, flawless clear skin, beautiful attractive face, ideal body proportions, NOT 3D render, NOT CGI, NOT anime, NOT cartoon, NOT toon shader, NOT doll-like, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks, NO skin imperfections",
+            "anime": "beautiful Japanese anime character illustration, high-budget anime production quality, vibrant saturated colors, expressive eyes, detailed hair rendering, clean bold outlines, attractive face, ideal body proportions, NOT a photograph, NOT photorealistic, NO moles, NO scars, NO blemishes",
+            "webtoon": "beautiful Korean webtoon manhwa character, clean sharp lineart, soft gradient shading, attractive character design with ideal body proportions, manhwa art style, NOT a photograph, NOT photorealistic, NO moles, NO scars, NO blemishes",
+            "realistic": "professional fashion editorial photograph, shot on Canon EOS R5, 85mm f/1.4 lens, beautiful natural lighting, sharp focus on eyes, flawless clear skin, natural beauty, attractive and photogenic, ideal body proportions, NOT anime, NOT cartoon, NOT illustration, NOT AI-generated look, NOT plastic skin, NOT 3D render, NOT doll-like, NO moles, NO tattoos, NO scars, NO blemishes, NO birthmarks",
+            "illustration": "stunning digital painting, concept art by Artgerm and WLOP, painterly brushstrokes, rich color palette, beautiful character design, ideal body proportions, NOT a photograph, NO moles, NO scars, NO blemishes",
             "abstract": "abstract expressionist character art, surreal dreamlike, bold geometric shapes, striking visual design",
-            "game_anime": "beautiful 3D game character, AAA game quality (Genshin Impact, Honkai Star Rail style), high-fidelity 3D model with toon shader, crisp cel-shading, strong rim lighting with bloom, detailed hair and cloth rendering, vibrant colors, attractive character design, NOT photorealistic, NOT flat 2D, NOT western cartoon",
+            "game_anime": "beautiful 3D game character, AAA game quality (Genshin Impact, Honkai Star Rail style), high-fidelity 3D model with toon shader, crisp cel-shading, strong rim lighting with bloom, detailed hair and cloth rendering, vibrant colors, attractive character design with ideal body proportions, NOT photorealistic, NOT flat 2D, NOT western cartoon, NO moles, NO scars, NO blemishes",
         }
         style_directive = _style_anchor_directives.get(project.style.value, f"{project.style.value} style")
 
@@ -710,7 +710,8 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         prompt_parts.append(
             "masterpiece quality, highly detailed, sharp focus, "
             "professional photography lighting, 8K resolution, "
-            "attractive and appealing character design, "
+            "extremely attractive and appealing character design, ideal body proportions, "
+            "flawless clear skin, no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
             "no text, no watermark, no border, no frame"
         )
 
