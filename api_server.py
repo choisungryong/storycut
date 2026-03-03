@@ -2422,9 +2422,10 @@ async def regenerate_character(project_id: str, token: str):
 
     project_dir = f"outputs/{project_id}"
 
-    # manifest에서 ethnicity 추출
+    # manifest에서 ethnicity, content_type 추출
     _input = manifest_data.get("input", {})
     _ethnicity = _input.get("character_ethnicity", "auto") if isinstance(_input, dict) else "auto"
+    _content_type = _input.get("content_type", "fiction") if isinstance(_input, dict) else "fiction"
 
     def do_regenerate():
         from agents.character_manager import CharacterManager
@@ -2436,7 +2437,8 @@ async def regenerate_character(project_id: str, token: str):
             project_dir=project_dir,
             poses=["front", "three_quarter", "full_body"],
             candidates_per_pose=1,
-            ethnicity=_ethnicity
+            ethnicity=_ethnicity,
+            content_type=_content_type,
         )
         # anchor_set 전체 포즈 이미지 경로 반환
         char_obj = char_sheet.get(token)
