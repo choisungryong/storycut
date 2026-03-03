@@ -708,6 +708,8 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
 
         if appearance:
             prompt_parts.append(appearance)
+        # 안경 방지: 포지티브 프롬프트 앞쪽에 명시 (네거티브만으로는 Gemini가 무시함)
+        prompt_parts.append("bare naked eyes without any glasses or eyewear")
         if gender and gender != "unknown":
             prompt_parts.append(f"{gender}")
         if age and age != "unknown":
