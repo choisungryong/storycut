@@ -742,7 +742,8 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
             "celebrity-level stunning visuals, magazine cover worthy face, ideal body proportions, "
             "flawless porcelain-clear skin, luminous dewy complexion, "
             "no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
-            "no wrinkles, no dark circles, no text, no watermark, no border, no frame"
+            "no wrinkles, no dark circles, no glasses, no eyeglasses, no spectacles, "
+            "no text, no watermark, no border, no frame"
         )
 
         return ", ".join(prompt_parts)
