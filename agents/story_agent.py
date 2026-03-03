@@ -83,21 +83,60 @@ CONTENT_TYPE_RULES = {
             "- 전통 서사 구조를 따를 것: 권선징악, 교훈, 인과응보.\n"
             "- 옛이야기 화법 사용: '옛날 옛적에...', '~했답니다', '~했다고 합니다'.\n"
             "- 한국 전래동화의 전형적 캐릭터 사용: 나무꾼, 도깨비, 선녀, 호랑이, 임금님, 효자/효녀 등.\n"
-            "- 시대 배경: 조선시대 또는 그 이전 한국 전통 시대. 절대 현대 배경 금지."
+            "- 시대 배경: 조선시대 또는 그 이전 한국 전통 시대. 절대 현대 배경 금지.\n"
+            "- 톤: 밝고 따뜻하며 교훈적. 공포/괴기/호러/잔인한 톤 절대 금지.\n"
+            "- 결말은 반드시 교훈이 담긴 해피엔딩 또는 권선징악 구조."
         ),
         "era_context": (
             "MANDATORY VISUAL CONTEXT for image_prompt: "
             "Traditional Korean Joseon-era setting. "
             "Thatched-roof houses (초가집) or traditional Korean hanok with curved tile roofs. "
             "Korean countryside landscape with rice paddies, bamboo groves, mountain paths. "
-            "Characters wear hanbok (한복). Traditional Korean props: 절구, 도리깨, 부채, 등잔."
+            "Characters wear hanbok (한복). Traditional Korean props: 절구, 도리깨, 부채, 등잔. "
+            "CRITICAL — Korean folklore creature/character visual dictionary (image_prompt에 반드시 이 묘사를 사용할 것): "
+            "도깨비(dokkaebi) = Korean mythical being with horn(s) on head, muscular humanoid, "
+            "wearing tiger-skin loincloth (호피 바지), carrying a magic wooden club (도깨비 방망이), "
+            "playful tricksters with reddish or bluish skin. NOT Western goblins, NOT green goblins. "
+            "호랑이 = Korean folklore tiger, large majestic Korean tiger with warm amber fur, "
+            "often depicted as wise or humorous, sometimes wearing a traditional hat or smoking a pipe (담뱃대), "
+            "anthropomorphized with expressive human-like facial expressions. NOT a ferocious wild beast. "
+            "선녀(seonnyeo) = Korean celestial fairy/maiden, ethereal beauty wearing flowing pastel-colored "
+            "cheonuimu (천의무봉) heavenly garments with long trailing ribbons, floating gracefully, "
+            "with a serene gentle expression. NOT a Western fairy with butterfly wings. "
+            "까치(magpie) = Korean magpie (까치), black and white plumage with iridescent blue-green tail, "
+            "often depicted as a helpful messenger bird in Korean folklore. "
+            "토끼 = Korean folklore rabbit, cute white rabbit often depicted as clever trickster, "
+            "anthropomorphized with human-like expressions, sometimes standing upright. "
+            "용왕(Dragon King) = Korean sea dragon king, dignified elderly figure wearing "
+            "royal dragon-embroidered hanbok robes and a golden crown, with dragon motifs, "
+            "residing in an underwater palace. NOT a Western dragon. "
+            "구미호(gumiho) = Korean nine-tailed fox spirit, beautiful woman in elegant hanbok "
+            "with fox ears and nine tails visible, seductive but dangerous. NOT a Japanese kitsune style."
         ),
-        "image_context": "traditional Korean Joseon-era village, hanok architecture, hanbok clothing, Korean countryside",
-        "avoid": "modern buildings, cars, smartphones, European architecture, Western clothing, suits, neon lights, skyscrapers",
+        "image_context": (
+            "traditional Korean Joseon-era village, hanok architecture, hanbok clothing, Korean countryside, "
+            "Korean folklore characters in traditional Korean visual style"
+        ),
+        "avoid": (
+            "modern buildings, cars, smartphones, European architecture, Western clothing, suits, neon lights, skyscrapers, "
+            "Western goblin, European goblin, green goblin, orc, troll, elf, dwarf, Western fairy with wings, "
+            "Western dragon, Japanese yokai style, Western fantasy creatures, "
+            "dark horror atmosphere, grotesque imagery, gore, blood, scary monsters"
+        ),
         "character_design": (
-            "- 모든 캐릭터는 반드시 한복(hanbok) 착용. 현대 의상 절대 금지.\n"
+            "- 인간 캐릭터는 반드시 한복(hanbok) 착용. 현대 의상 절대 금지.\n"
             "- 전통 한국식 헤어스타일: 남성은 상투/갓, 여성은 댕기/비녀.\n"
-            "- clothing_default에 한복 종류를 구체적으로 명시 (예: 'white jeogori with indigo chima', 'blue dopo overcoat with gat hat')."
+            "- clothing_default에 한복 종류를 구체적으로 명시 (예: 'white jeogori with indigo chima', 'blue dopo overcoat with gat hat').\n"
+            "- appearance 필드에 반드시 해당 캐릭터의 한국 전래동화 시각 특징을 영어로 상세 기술할 것:\n"
+            "  도깨비 → 'Korean dokkaebi, horn on head, muscular, reddish skin, tiger-skin loincloth, magic wooden club'\n"
+            "  호랑이 → 'Korean folklore tiger, majestic warm amber fur, wise expressive face, anthropomorphized'\n"
+            "  선녀 → 'Korean celestial maiden (seonnyeo), ethereal, flowing heavenly garments with ribbons'\n"
+            "  까치 → 'Korean magpie, black-white with iridescent blue-green tail, helpful messenger'\n"
+            "  토끼 → 'Korean folklore rabbit, cute white, clever, anthropomorphized with human expressions'\n"
+            "  용왕 → 'Korean Dragon King, dignified elderly in royal dragon-embroidered hanbok, golden crown'\n"
+            "  구미호 → 'Korean gumiho, beautiful woman in elegant hanbok, fox ears, nine tails'\n"
+            "- 전래동화 캐릭터 외형은 친근하고 따뜻한 느낌. 무섭거나 괴기한 외형 금지.\n"
+            "- 동물 캐릭터는 의인화하여 표정이 풍부하고 감정이 드러나야 한다."
         ),
         "plot_seeds": (
             "마법의 보은 / 동물이 은혜를 갚다 / 게으른 자의 응징 / "

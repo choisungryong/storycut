@@ -81,7 +81,8 @@ class CharacterManager:
         poses: Optional[List[str]] = None,
         candidates_per_pose: int = 2,
         ethnicity: str = "auto",
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        content_type: str = "fiction",
     ) -> Dict[str, str]:
         """
         모든 캐릭터의 마스터 앵커 이미지 생성.
@@ -222,6 +223,7 @@ class CharacterManager:
                 candidates_per_pose=candidates_per_pose,
                 char_dir=char_dir,
                 unique_features=_unique_features,
+                content_type=content_type,
             )
 
             logger.info(f"    [OK] Anchor set complete: {len(anchor_set.poses)} poses")
@@ -467,6 +469,7 @@ class CharacterManager:
         candidates_per_pose: int,
         char_dir: str,
         unique_features: str = "",
+        content_type: str = "fiction",
     ) -> AnchorSet:
         """
         포즈별 후보 이미지 생성 및 best 선택.
@@ -519,6 +522,7 @@ class CharacterManager:
                     color_palette=color_palette,
                     pose_description=pose_desc,
                     unique_features=unique_features,
+                    content_type=content_type,
                 )
                 # 참조 이미지가 있으면 "포즈는 무시, 얼굴/의상만 참조" 지시 추가
                 # art_style은 프롬프트 최상단에 유지하여 스타일 일관성 확보
@@ -676,6 +680,7 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         color_palette: str,
         pose_description: str = "three-quarter view or front facing",
         unique_features: str = "",
+        content_type: str = "fiction",
     ) -> str:
         """
         캐스팅 이미지 생성을 위한 프롬프트 구성.
@@ -719,6 +724,17 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
 
         if color_palette:
             prompt_parts.append(color_palette)
+
+        # content_type별 시각 컨텍스트 주입 (캐릭터 앵커에도 시대/문화 반영)
+        _CT_ANCHOR_CONTEXT = {
+            "folktale": "Traditional Korean Joseon-era character, wearing hanbok (한복), warm friendly appearance, NOT Western fantasy, NOT European medieval",
+            "myth": "Ancient mythological character, culturally accurate attire and appearance",
+            "historical": "Historically accurate period character, era-appropriate clothing and hairstyle",
+            "fairytale": "Bright colorful storybook character, warm friendly appearance, cute whimsical style",
+        }
+        _ct_ctx = _CT_ANCHOR_CONTEXT.get(content_type, "")
+        if _ct_ctx:
+            prompt_parts.append(_ct_ctx)
 
         prompt_parts.append(
             "masterpiece quality, ultra detailed, tack sharp focus, "

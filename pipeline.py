@@ -433,7 +433,8 @@ IMPORTANT: Return exactly {len(paragraphs)} objects, one for each scene. Return 
                     character_sheet=manifest.character_sheet,
                     global_style=manifest.global_style,
                     project_dir=project_dir,
-                    ethnicity=getattr(request, 'character_ethnicity', 'auto')
+                    ethnicity=getattr(request, 'character_ethnicity', 'auto'),
+                    content_type=getattr(request, 'content_type', 'fiction'),
                 )
                 if "character_sheet" in story_data:
                     for token, image_path in character_images.items():
