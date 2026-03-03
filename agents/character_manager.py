@@ -43,7 +43,30 @@ POSE_CONFIGS_BY_CONTENT_TYPE = {
         "emotion_neutral": "children's storybook portrait, calm gentle expression, warm soft lighting",
         "emotion_intense": "children's storybook portrait, determined brave expression, warm dramatic lighting with bright colors",
     },
+    # SF/미래 그룹
+    "sf": {
+        "front": "cinematic sci-fi character portrait, face and shoulders, front facing, futuristic neon-lit environment, holographic reflections on skin, cybernetic or tech-enhanced appearance, cool blue and teal rim lighting, confident futuristic gaze",
+        "three_quarter": "sci-fi movie still upper body portrait, turned 30 degrees, futuristic techwear outfit visible, neon accent lighting from behind, holographic HUD elements in background, waist-up framing, shallow depth of field",
+        "side": "futuristic cinematic side profile, face and upper body, gazing toward distant stars or city lights, dramatic neon backlighting with lens flare, atmospheric sci-fi environment",
+        "full_body": "full body sci-fi character portrait from head to feet, futuristic stance, techwear or spacesuit visible, neon-lit corridor or spacecraft interior, medium-wide shot, NOT stubby NOT chibi NOT cartoonish proportions",
+        "emotion_neutral": "sci-fi character portrait, calm determined expression, cool ambient tech lighting with subtle holographic reflections",
+        "emotion_intense": "dramatic sci-fi portrait, intense focused expression, dynamic neon lighting with high contrast, cinematic sci-fi atmosphere",
+    },
+    # 느와르/다크 그룹
+    "mystery": {
+        "front": "film noir character portrait, face and shoulders, front facing, deep dramatic shadows across face, single hard light source from side, moody low-key lighting, mysterious intense gaze, dark atmospheric background",
+        "three_quarter": "noir detective portrait, upper body, turned slightly, dramatic chiaroscuro lighting, deep shadows, cigarette smoke or rain atmosphere, waist-up framing",
+        "side": "noir cinematic side profile, face and upper body, silhouetted against dim window light, heavy shadows, mysterious atmospheric mood",
+        "full_body": "full body noir character portrait from head to feet, standing in shadowy doorway or rain-soaked alley, dramatic single light source, high contrast, NOT stubby NOT chibi NOT cartoonish proportions",
+        "emotion_neutral": "noir portrait, guarded unreadable expression, low-key dramatic lighting with deep shadows",
+        "emotion_intense": "dramatic noir portrait, intense suspicious or fearful expression, harsh directional lighting, deep chiaroscuro",
+    },
 }
+
+# 동일 그룹 content_type은 같은 포즈 설정 공유
+for _ct_alias in ("fairytale", "educational"):
+    POSE_CONFIGS_BY_CONTENT_TYPE[_ct_alias] = POSE_CONFIGS_BY_CONTENT_TYPE["folktale"]
+POSE_CONFIGS_BY_CONTENT_TYPE["horror"] = POSE_CONFIGS_BY_CONTENT_TYPE["mystery"]
 
 
 class CharacterManager:
@@ -747,6 +770,13 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
             "myth": "Ancient mythological character, culturally accurate attire and appearance",
             "historical": "Historically accurate period character, era-appropriate clothing and hairstyle",
             "fairytale": "Bright colorful storybook character, warm friendly appearance, cute whimsical style",
+            "sf": "Futuristic sci-fi character, advanced technology attire, cybernetic or tech-enhanced elements, neon-lit environment",
+            "horror": "Dark atmospheric character, unsettling mood, dramatic shadow lighting, eerie presence",
+            "mystery": "Film noir character, atmospheric dark lighting, detective or suspense mood, deep shadows",
+            "romance": "Warm emotionally resonant character, soft golden lighting, gentle tender expression",
+            "economy": "Modern professional business character, corporate attire, confident polished demeanor",
+            "documentary": "Photojournalistic realistic character, natural lighting, authentic unposed appearance",
+            "educational": "Clean bright character, clear friendly appearance, approachable inviting design",
         }
         _ct_ctx = _CT_ANCHOR_CONTEXT.get(content_type, "")
         if _ct_ctx:
@@ -762,7 +792,28 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
                 "no glasses, no eyeglasses, no spectacles, "
                 "no text, no watermark, no border, no frame"
             ),
+            "sf": (
+                "cinematic sci-fi character portrait, futuristic neon glow lighting, "
+                "tech-enhanced atmospheric render, holographic ambient reflections, "
+                "ultra detailed, sharp focus, 8K resolution, "
+                "no glasses, no eyeglasses, no spectacles, "
+                "no text, no watermark, no border, no frame"
+            ),
+            "mystery": (
+                "cinematic noir character portrait, dramatic chiaroscuro lighting, "
+                "deep moody shadows, high contrast, atmospheric film grain, "
+                "ultra detailed, sharp focus, 8K resolution, "
+                "no glasses, no eyeglasses, no spectacles, "
+                "no text, no watermark, no border, no frame"
+            ),
         }
+        # 아동 그룹: folktale과 동일 품질 키워드 공유
+        for _ct_alias in ("fairytale", "educational"):
+            if _ct_alias not in _QUALITY_BY_CT:
+                _QUALITY_BY_CT[_ct_alias] = _QUALITY_BY_CT["folktale"]
+        # 느와르 그룹: mystery와 동일
+        if "horror" not in _QUALITY_BY_CT:
+            _QUALITY_BY_CT["horror"] = _QUALITY_BY_CT["mystery"]
         _quality = _QUALITY_BY_CT.get(content_type)
         if not _quality:
             _quality = (

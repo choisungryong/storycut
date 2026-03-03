@@ -274,7 +274,11 @@ CONTENT_TYPE_RULES = {
         ),
         "image_context": "dark atmospheric mystery setting, dramatic shadows, suspenseful mood",
         "avoid": "bright cheerful colors, cartoon style, cute elements",
-        "character_design": "",
+        "character_design": (
+            "- 느와르/서스펜스에 어울리는 의상: 트렌치코트, 어두운 색조 정장, 비에 젖은 외투 등.\n"
+            "- 표정에 긴장감/경계심/의심 반영.\n"
+            "- clothing_default에 어두운 톤의 구체적 의상 명시 (예: 'dark trench coat over black turtleneck')."
+        ),
         "plot_seeds": "",
     },
     "romance": {
@@ -290,7 +294,11 @@ CONTENT_TYPE_RULES = {
         ),
         "image_context": "warm romantic atmosphere, soft golden lighting, emotionally resonant setting",
         "avoid": "gore, horror elements, dark oppressive atmosphere",
-        "character_design": "",
+        "character_design": (
+            "- 감성적이고 따뜻한 외형. 부드러운 표정과 눈빛.\n"
+            "- 세련되고 감각적인 의상: 캐주얼 세미포멀, 니트, 코트, 원피스 등.\n"
+            "- clothing_default에 따뜻한 색조의 구체적 의상 명시 (예: 'cream knit sweater with camel wool coat')."
+        ),
         "plot_seeds": "",
     },
     "sf": {
@@ -308,8 +316,14 @@ CONTENT_TYPE_RULES = {
         "image_context": "futuristic sci-fi setting, advanced technology, neon-lit cityscape or space environment",
         "avoid": "medieval elements, traditional/historical clothing, horses, castles, swords, magic wands",
         "character_design": (
-            "- 미래적 의상: 테크웨어, 우주복, 사이버네틱 요소 등.\n"
-            "- clothing_default에 SF 세계관에 맞는 의상 명시."
+            "- TOPIC에서 SF 서브장르를 추론하여 의상/외형을 결정할 것:\n"
+            "  사이버펑크 → 네온 액센트 의상, 사이버네틱 임플란트, 테크웨어, LED 장식\n"
+            "  우주/스페이스 → 스페이스슈트, 선내복, 함장 유니폼, 우주선 배지\n"
+            "  디스토피아 → 낡은 전투복, 저항군 복장, 패치워크 방호복\n"
+            "  AI/로봇 → 메탈릭 요소, 홀로그램 인터페이스, 첨단 유니폼\n"
+            "- appearance 필드에 반드시 'futuristic' 키워드 포함.\n"
+            "- clothing_default에 SF 세계관에 맞는 구체적 의상 명시 (예: 'black techwear jacket with neon blue trim and cybernetic arm implant').\n"
+            "- 중세/전통 의상 절대 금지. 미래적이지 않은 일반 캐주얼 의상도 지양."
         ),
         "plot_seeds": (
             "AI가 인간을 넘어서는 순간 / 시간여행의 패러독스 / "
@@ -329,7 +343,11 @@ CONTENT_TYPE_RULES = {
         ),
         "image_context": "dark eerie horror atmosphere, deep shadows, unsettling environment",
         "avoid": "bright cheerful colors, cute cartoon style, comedy elements",
-        "character_design": "",
+        "character_design": (
+            "- 불안감을 주는 외형 요소: 창백한 피부, 어두운 눈 밑 그림자, 긴장된 표정.\n"
+            "- 어둡고 칙칙한 톤의 의상: 낡은 옷, 피 묻은 흔적, 찢어진 의복 등.\n"
+            "- clothing_default에 호러 분위기의 구체적 의상 명시 (예: 'worn pale hospital gown with dark stains')."
+        ),
         "plot_seeds": "",
     },
     "fairytale": {
