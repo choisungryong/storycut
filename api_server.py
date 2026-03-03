@@ -826,6 +826,52 @@ class TrackedPipeline(StorycutPipeline):
             ]
             logger.info(f"[v3.0] Loaded {len(manifest.character_voices)} character voices")
 
+        # [STEP 1.5] Character Casting - 앵커 이미지 생성 (pipeline.py 동일 로직)
+        if manifest.character_sheet:
+            _all_have_anchors = all(
+                cs.master_image_path and os.path.exists(cs.master_image_path)
+                for cs in manifest.character_sheet.values()
+            )
+
+            if not _all_have_anchors:
+                logger.info(f"\n[STEP 1.5] Casting characters (generating master anchor images)...")
+                from agents import CharacterManager
+                character_manager = CharacterManager()
+                character_images = character_manager.cast_characters(
+                    character_sheet=manifest.character_sheet,
+                    global_style=manifest.global_style,
+                    project_dir=project_dir,
+                    ethnicity=getattr(request, 'character_ethnicity', 'auto'),
+                    content_type=getattr(request, 'content_type', 'fiction'),
+                )
+                # story_data에 master_image_path 동기화
+                if "character_sheet" in story_data:
+                    for token, image_path in character_images.items():
+                        if token in story_data["character_sheet"]:
+                            story_data["character_sheet"][token]["master_image_path"] = image_path
+                    # anchor_set도 story_data에 동기화
+                    for token in manifest.character_sheet:
+                        cs = manifest.character_sheet[token]
+                        if hasattr(cs, 'anchor_set') and cs.anchor_set and token in story_data["character_sheet"]:
+                            story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump()
+                # manifest에도 동기화
+                for token, image_path in character_images.items():
+                    if token in manifest.character_sheet:
+                        manifest.character_sheet[token].master_image_path = image_path
+                self._save_manifest(manifest, project_dir)
+                logger.info(f"  [STEP 1.5] Character anchors saved ({len(character_images)} characters)")
+            else:
+                logger.info(f"\n[STEP 1.5] Reusing existing character anchors ({len(manifest.character_sheet)} characters).")
+                # story_data에 master_image_path 동기화
+                if "character_sheet" in story_data:
+                    for token, cs in manifest.character_sheet.items():
+                        _mp = cs.master_image_path if hasattr(cs, 'master_image_path') else None
+                        if _mp and token in story_data["character_sheet"]:
+                            story_data["character_sheet"][token]["master_image_path"] = _mp
+                            if hasattr(cs, 'anchor_set') and cs.anchor_set:
+                                story_data["character_sheet"][token]["anchor_set"] = cs.anchor_set.model_dump() if hasattr(cs.anchor_set, 'model_dump') else None
+                            logger.info(f"    [Sync] {token}: {_mp}")
+
         try:
             # 진행상황 초기화 (Story complete = 25% of total, matching initial manifest)
             await self.tracker.update("story", 25, "스토리 확정됨 - 영상 생성 시작", {
@@ -1474,6 +1520,7 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
             # ProjectRequest 생성
             request = ProjectRequest(
                 topic=request_params.get('topic'),
+                content_type=request_params.get('content_type', 'fiction'),
                 genre=request_params.get('genre', 'emotional'),
                 mood=request_params.get('mood', 'dramatic'),
                 style_preset=request_params.get('style_preset') or request_params.get('style', 'cinematic'),
