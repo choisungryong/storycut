@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from schemas.mv_models import MVCharacter, MVProject
 
 
-# 포즈별 프롬프트 설정
+# 포즈별 프롬프트 설정 (기본: 성인 대상 영상)
 POSE_CONFIGS = {
     "front": "high-end fashion editorial close-up portrait, face and shoulders, front facing, looking directly at camera with charismatic confident expression, head-and-shoulders framing, professional studio beauty lighting with softbox and rim light, creamy bokeh background, tack sharp focus on eyes, hands NOT visible in frame",
     "three_quarter": "Vogue magazine editorial upper body portrait, turned 30 degrees, natural elegant pose, charming slight smile, warm golden rim lighting from behind, waist-up framing, shallow depth of field, luxury fashion photography quality",
@@ -31,6 +31,18 @@ POSE_CONFIGS = {
     "full_body": "full body fashion editorial portrait from head to feet, confident model stance with elegant posture, medium-wide shot, professional studio lighting, ideal human proportions, long legs, NOT stubby NOT chibi NOT cartoonish proportions, NOT elongated limbs",
     "emotion_neutral": "beauty campaign portrait, calm charismatic expression, soft professional beauty lighting",
     "emotion_intense": "dramatic portrait, intense captivating emotional expression, cinematic lighting with rich colors",
+}
+
+# content_type별 포즈 오버라이드 (해당 장르 특성에 맞는 포즈/라이팅)
+POSE_CONFIGS_BY_CONTENT_TYPE = {
+    "folktale": {
+        "front": "children's storybook character portrait, face and shoulders, front facing, warm friendly smile, bright soft natural lighting, simple clean background with warm colors, approachable and lovable expression, gentle round features",
+        "three_quarter": "children's picture book illustration, upper body, turned slightly, kind gentle smile, warm sunlight, soft pastel background, inviting and friendly character, waist-up framing",
+        "side": "children's storybook side portrait, face and upper body, looking warmly into the distance, gentle soft lighting, dreamy warm background",
+        "full_body": "children's book full body character illustration from head to feet, friendly standing pose, bright cheerful lighting, simple warm background, clear character silhouette, proportionate body, NOT stubby NOT chibi NOT cartoonish proportions",
+        "emotion_neutral": "children's storybook portrait, calm gentle expression, warm soft lighting",
+        "emotion_intense": "children's storybook portrait, determined brave expression, warm dramatic lighting with bright colors",
+    },
 }
 
 
@@ -504,7 +516,9 @@ class CharacterManager:
             """단일 포즈 이미지 생성.
             reference_image_path: 첫 포즈 완성 후 나머지 포즈에 캐릭터 참조 이미지 전달"""
             from agents.image_agent import ImageAgent as _IA
-            pose_desc = POSE_CONFIGS.get(pose_key, pose_key)
+            # content_type별 포즈 설정 분기
+            _ct_poses = POSE_CONFIGS_BY_CONTENT_TYPE.get(content_type, {})
+            pose_desc = _ct_poses.get(pose_key) or POSE_CONFIGS.get(pose_key, pose_key)
             logger.info(f"      [Pose] Generating: {pose_key} ({pose_desc})" + (f" [ref: {os.path.basename(reference_image_path)}]" if reference_image_path else ""))
 
             best_candidate_path = None
@@ -738,15 +752,29 @@ Respond ONLY with JSON: {{"face_clarity": 0.0, "pose_accuracy": 0.0, "style_matc
         if _ct_ctx:
             prompt_parts.append(_ct_ctx)
 
-        prompt_parts.append(
-            "masterpiece quality, ultra detailed, tack sharp focus, "
-            "professional beauty photography lighting, 8K resolution, "
-            "celebrity-level stunning visuals, magazine cover worthy face, ideal body proportions, "
-            "flawless porcelain-clear skin, luminous dewy complexion, "
-            "no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
-            "no wrinkles, no dark circles, no glasses, no eyeglasses, no spectacles, "
-            "no text, no watermark, no border, no frame"
-        )
+        # content_type별 품질 키워드 분기
+        _QUALITY_BY_CT = {
+            "folktale": (
+                "high quality children's storybook illustration, bright vivid colors, "
+                "warm inviting atmosphere, friendly approachable character design, "
+                "clean clear lines, expressive face with gentle features, "
+                "soft warm lighting like a picture book, "
+                "no glasses, no eyeglasses, no spectacles, "
+                "no text, no watermark, no border, no frame"
+            ),
+        }
+        _quality = _QUALITY_BY_CT.get(content_type)
+        if not _quality:
+            _quality = (
+                "masterpiece quality, ultra detailed, tack sharp focus, "
+                "professional beauty photography lighting, 8K resolution, "
+                "celebrity-level stunning visuals, magazine cover worthy face, ideal body proportions, "
+                "flawless porcelain-clear skin, luminous dewy complexion, "
+                "no moles, no tattoos, no scars, no blemishes, no birthmarks, no skin imperfections, "
+                "no wrinkles, no dark circles, no glasses, no eyeglasses, no spectacles, "
+                "no text, no watermark, no border, no frame"
+            )
+        prompt_parts.append(_quality)
 
         return ", ".join(prompt_parts)
 

@@ -124,6 +124,11 @@ CONTENT_TYPE_RULES = {
             "dark horror atmosphere, grotesque imagery, gore, blood, scary monsters"
         ),
         "character_design": (
+            "- 이 영상은 어린이가 주 시청자이다. 캐릭터 외형은 아이들이 친근하게 느낄 수 있도록 따뜻하고 부드럽게 묘사할 것.\n"
+            "- appearance 필드에 추상적/성인 표현 절대 금지: 'idol-level', 'celebrity-level', 'stunning', 'gorgeous', 'seductive', 'sexy' 등 사용 금지.\n"
+            "- appearance 필드에는 아이들이 이해할 수 있는 구체적이고 쉬운 표현 사용:\n"
+            "  좋은 예: 'kind-looking young man with bright round eyes and a warm smile, neat black topknot hair'\n"
+            "  나쁜 예: 'idol-level handsome Joseon-era woodcutter with intense gaze and defined jawline'\n"
             "- 인간 캐릭터는 반드시 한복(hanbok) 착용. 현대 의상 절대 금지.\n"
             "- 전통 한국식 헤어스타일: 남성은 상투/갓, 여성은 댕기/비녀.\n"
             "- clothing_default에 한복 종류를 구체적으로 명시 (예: 'white jeogori with indigo chima', 'blue dopo overcoat with gat hat').\n"
