@@ -9,8 +9,11 @@ P1 핵심 기능:
 import os
 import json
 import re
-from typing import Dict, Any, List, Optional
+import math
+import time
+from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 from agents.video_agent import VideoAgent
@@ -623,19 +626,19 @@ JSON 형식으로 출력:
 
         logger.info("")
 
-        # Scene 처리
-        video_clips = []
-        narration_clips = []
-        processed_scenes = []
+        # =====================================================================
+        # Phase 0: 프롬프트 사전 빌드 (순차, CPU only)
+        # =====================================================================
+        phase0_start = time.time()
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[Phase 0] Prompt Pre-Build (sequential, CPU only)")
+        logger.info(f"{'='*60}")
+
+        scene_preparations = []  # 순서 보장된 Scene 리스트
         prev_scene = None
+        character_voices = story_data.get("character_voices", [])
 
         for i, scene_data in enumerate(scenes, 1):
-            logger.info(f"\n{'─'*60}")
-            logger.info(f"Processing Scene {i}/{total_scenes} (ID: {scene_data['scene_id']})")
-            logger.info(f"{'─'*60}")
-            logger.debug(f"  [DEBUG] Starting scene {i} processing...")
-
-            # Scene 객체 생성
             scene = Scene(
                 index=i,
                 scene_id=scene_data["scene_id"],
@@ -644,7 +647,6 @@ JSON 형식으로 출력:
                 visual_description=scene_data.get("visual_description"),
                 mood=scene_data.get("mood"),
                 duration_sec=scene_data.get("duration_sec", 5),
-                # v2.0 필드
                 narrative=scene_data.get("narrative"),
                 image_prompt=scene_data.get("image_prompt"),
                 characters_in_scene=scene_data.get("characters_in_scene", []),
@@ -653,68 +655,46 @@ JSON 형식으로 출력:
             # v2.2: Set existing image path if available (skip image generation)
             if scene_data["scene_id"] in existing_images:
                 scene.assets.image_path = existing_images[scene_data["scene_id"]]
-                logger.info(f"  [v2.2] Using existing image: {scene.assets.image_path}")
+                logger.info(f"  Scene {i}: [v2.2] Using existing image: {scene.assets.image_path}")
 
-            # v2.0: Character reference 로그 및 시드 추출
+            # v2.0: 시드 추출
             scene_seed = None
-            if scene.image_prompt:
-                logger.info(f"  [v2.0] Using image_prompt (character reference enabled)")
-            if scene.characters_in_scene:
-                logger.info(f"  [v2.0] Characters: {', '.join(scene.characters_in_scene)}")
+            if scene.characters_in_scene and character_sheet:
+                all_seeds = []
+                for char_token in scene.characters_in_scene:
+                    if char_token in character_sheet:
+                        s = character_sheet[char_token].get("visual_seed")
+                        if s is not None:
+                            all_seeds.append(s)
+                if all_seeds:
+                    _base = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
+                    scene_seed = (_base + scene.scene_id * 31337) % (2**31)
 
-                # 모든 캐릭터의 visual_seed 결합
-                if character_sheet and scene.characters_in_scene:
-                    all_seeds = []
-                    for char_token in scene.characters_in_scene:
-                        if char_token in character_sheet:
-                            s = character_sheet[char_token].get("visual_seed")
-                            if s is not None:
-                                all_seeds.append(s)
-                    if all_seeds:
-                        _base = sum(all_seeds) % (2**31) if len(all_seeds) > 1 else all_seeds[0]
-                        # 씬 인덱스를 반영하여 같은 캐릭터 조합이라도 씬마다 다른 시드 생성
-                        scene_seed = (_base + scene.scene_id * 31337) % (2**31)
-                        logger.info(f"  [v2.0] Combined visual_seed: {scene_seed} (from {len(all_seeds)} characters: {all_seeds}, scene_id: {scene.scene_id})")
-
-            # v2.0: Scene에 메타데이터 저장 (video_agent가 활용)
-            if not hasattr(scene, '_seed'):
-                scene._seed = scene_seed
-            if not hasattr(scene, '_global_style'):
-                scene._global_style = global_style
-            if not hasattr(scene, '_character_sheet'):
-                scene._character_sheet = character_sheet
-            if not hasattr(scene, '_style_anchor_path'):
-                scene._style_anchor_path = style_anchor_path
-            if not hasattr(scene, '_env_anchor_path'):
-                env_path = environment_anchors.get(scene.scene_id) if environment_anchors else None
-                scene._env_anchor_path = env_path
+            # Scene 메타데이터 저장
+            scene._seed = scene_seed
+            scene._global_style = global_style
+            scene._character_sheet = character_sheet
+            scene._style_anchor_path = style_anchor_path
+            scene._env_anchor_path = environment_anchors.get(scene.scene_id) if environment_anchors else None
 
             # P1: Context Carry-over
             if self.feature_flags.context_carry_over and prev_scene:
                 scene.context_summary = self.summarize_prev_scene(prev_scene)
                 scene.inherited_keywords = self.extract_key_terms(prev_scene)
-                logger.info(f"  [CONTEXT] Inherited: {scene.inherited_keywords}")
             else:
                 scene.inherited_keywords = []
 
             # 엔티티 추출
-            scene.entities = self.extract_entities(
-                scene.sentence,
-                scene.inherited_keywords
-            )
+            scene.entities = self.extract_entities(scene.sentence, scene.inherited_keywords)
 
             # 프롬프트 생성
-            # v2.0: image_prompt가 있으면 우선 사용, 없으면 기존 방식
             if scene.image_prompt:
-                # image_prompt에 global_style 정보 추가
                 if global_style:
                     style_suffix = f", {global_style.get('art_style', '')}, {global_style.get('color_palette', '')}"
                     scene.prompt = scene.image_prompt + style_suffix
                 else:
                     scene.prompt = scene.image_prompt
-                logger.info(f"  [v2.0] Using pre-defined image_prompt")
             else:
-                # v1.0 방식: build_prompt로 생성
                 scene.prompt = self.build_prompt(
                     sentence=scene.sentence,
                     inherited=scene.inherited_keywords,
@@ -724,7 +704,7 @@ JSON 형식으로 출력:
 
             scene.negative_prompt = self.build_negative_prompt(style)
 
-            # 캐릭터 외형 설명 주입 — MV 파이프라인 방식 (렌즈/손/의상/unique_features 포함)
+            # 캐릭터 외형 설명 주입 — MV 파이프라인 방식
             if scene.characters_in_scene and character_sheet:
                 import re as _re
                 _char_descs = []
@@ -766,7 +746,6 @@ JSON 형식으로 출력:
                     _outfit_str = " ".join(_outfit_locks)
                     _clean = _re.sub(r'STORYCUT_\w+', '', scene.prompt).strip().strip(',').strip()
                     scene.prompt = f"{'. '.join(_pfx)}.{' ' + _outfit_str if _outfit_str else ''} {_clean}"
-                    # 네거티브 강화 (MV 포팅)
                     _lens_neg = "wide-angle distortion, fisheye, exaggerated facial features"
                     _hand_neg = "extra fingers, deformed hands, fused fingers, missing fingers"
                     _id_neg = "different face, identity change, age change, ethnicity change, different outfit, wardrobe change"
@@ -784,87 +763,240 @@ JSON 형식으로 출력:
             # 카메라 워크 할당 (감정 기반)
             scene.camera_work = self._select_camera_work(scene, i - 1, len(scenes))
 
+            scene_preparations.append(scene)
+            prev_scene = scene
+            logger.info(f"  Scene {i} (ID:{scene.scene_id}): prompt ready, camera={scene.camera_work}")
+
+        logger.info(f"[Phase 0] Complete: {len(scene_preparations)} scenes prepared ({time.time() - phase0_start:.1f}s)")
+
+        # =====================================================================
+        # Phase 1: 이미지 + TTS 병렬 선행 생성
+        # =====================================================================
+        phase1_start = time.time()
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[Phase 1] Parallel Image + TTS Generation")
+        logger.info(f"{'='*60}")
+
+        _audio_dir = f"{os.path.dirname(output_path)}/media/audio"
+        _image_dir = f"{os.path.dirname(output_path)}/media/images"
+        _video_dir = f"{os.path.dirname(output_path)}/media/video"
+        os.makedirs(_audio_dir, exist_ok=True)
+        os.makedirs(_image_dir, exist_ok=True)
+        os.makedirs(_video_dir, exist_ok=True)
+
+        # --- Phase 1A: 이미지 병렬 생성 ---
+        image_results = {}  # scene_id → image_path
+
+        def _gen_image_for_scene(sc: Scene) -> Tuple[int, Optional[str]]:
+            """스레드에서 실행: 이미지 생성 (기존 이미지 있으면 스킵)"""
+            sid = sc.scene_id
+            # 기존 이미지가 이미 있으면 스킵
+            if sc.assets.image_path and os.path.exists(sc.assets.image_path):
+                logger.info(f"  [IMG] Scene {sid}: skip (existing image)")
+                return sid, sc.assets.image_path
+
+            from agents.image_agent import ImageAgent
+            img_agent = ImageAgent()
+
+            # 캐릭터 참조 이미지 추출 (video_agent._generate_with_kenburns 로직 재사용)
+            _seed = getattr(sc, '_seed', None)
+            _char_tokens = sc.characters_in_scene if sc.characters_in_scene else None
+            _char_ref_paths = []
+            _char_ref_path = None
+            _char_ref_id = None
+
+            if _char_tokens and getattr(sc, '_character_sheet', None):
+                detailed_descriptions = []
+                for idx, token in enumerate(_char_tokens):
+                    c_data = sc._character_sheet.get(token)
+                    if not c_data:
+                        continue
+                    if isinstance(c_data, dict):
+                        master_path = c_data.get('master_image_path')
+                        desc = c_data.get('appearance') or c_data.get('visual_description') or c_data.get('description')
+                    elif hasattr(c_data, 'master_image_path'):
+                        master_path = c_data.master_image_path
+                        desc = getattr(c_data, 'appearance', None)
+                    else:
+                        continue
+                    if master_path and os.path.exists(master_path):
+                        _char_ref_paths.append(master_path)
+                        if idx == 0:
+                            _char_ref_path = master_path
+                            _char_ref_id = c_data.get('master_image_id') if isinstance(c_data, dict) else None
+                    if desc:
+                        detailed_descriptions.append(f"{token} ({desc})")
+                    elif isinstance(c_data, str):
+                        detailed_descriptions.append(f"{token} ({c_data})")
+                if detailed_descriptions:
+                    _char_tokens = detailed_descriptions
+
+            _style_anchor = getattr(sc, '_style_anchor_path', None)
+            _env_anchor = getattr(sc, '_env_anchor_path', None)
+            _img_model = self.feature_flags.image_model if hasattr(self.feature_flags, 'image_model') else "standard"
+
             try:
-                # Phase 1: TTS 먼저 생성하여 실제 duration 확보
-                scene.status = SceneStatus.GENERATING_TTS
+                img_path, _ = img_agent.generate_image(
+                    scene_id=sid,
+                    prompt=sc.prompt,
+                    negative_prompt=sc.negative_prompt,
+                    style=style,
+                    output_dir=_image_dir,
+                    seed=_seed,
+                    character_tokens=_char_tokens,
+                    character_reference_id=_char_ref_id,
+                    character_reference_path=_char_ref_path,
+                    character_reference_paths=_char_ref_paths,
+                    style_anchor_path=_style_anchor,
+                    environment_anchor_path=_env_anchor,
+                    image_model=_img_model,
+                )
+                logger.info(f"  [IMG] Scene {sid}: generated → {os.path.basename(img_path)}")
+                return sid, img_path
+            except Exception as e:
+                logger.error(f"  [IMG] Scene {sid}: FAILED - {e}")
+                return sid, None
 
-                # v3.0: 멀티 화자 TTS 지원
-                scene_dict = scenes[i - 1] if isinstance(scenes[i - 1], dict) else {}
-                character_voices = story_data.get("character_voices", [])
+        # --- Phase 1B: TTS 병렬 생성 ---
+        tts_results = {}  # scene_id → TTSResult
 
-                # dialogue_lines를 현재 narration에서 재파싱 (프론트엔드 편집 반영)
-                _current_narration = scene.narration or ""
-                dialogue_lines = []
-                if character_voices and re.search(r'\[[^\]]+\]', _current_narration):
-                    from agents.story_agent import StoryAgent
-                    dialogue_lines = StoryAgent.parse_dialogue_lines(_current_narration)
+        def _gen_tts_for_scene(sc: Scene) -> Tuple[int, Optional[Any]]:
+            """스레드에서 실행: TTS 생성"""
+            sid = sc.scene_id
+            _audio_path = f"{_audio_dir}/narration_{sid:02d}.mp3"
+            _narration = sc.narration or ""
 
-                # 프로젝트별 TTS 출력 경로 (동시 생성 시 파일 충돌 방지)
-                _audio_dir = f"{os.path.dirname(output_path)}/media/audio"
-                os.makedirs(_audio_dir, exist_ok=True)
-                _audio_path = f"{_audio_dir}/narration_{scene.scene_id:02d}.mp3"
+            dialogue_lines = []
+            if character_voices and re.search(r'\[[^\]]+\]', _narration):
+                from agents.story_agent import StoryAgent
+                dialogue_lines = StoryAgent.parse_dialogue_lines(_narration)
 
-                logger.info(f"     [TTS INPUT] Scene {scene.scene_id} narration: {scene.narration[:150]}")
-                if dialogue_lines:
-                    logger.info(f"     [TTS INPUT] Scene {scene.scene_id} dialogue_lines: {dialogue_lines[:3]}")
-
+            try:
                 if dialogue_lines and character_voices:
-                    # 멀티 화자 TTS (line_timings 포함)
-                    tts_result = self.tts_agent.generate_dialogue_audio(
+                    result = self.tts_agent.generate_dialogue_audio(
                         dialogue_lines=dialogue_lines,
                         character_voices=character_voices,
                         output_path=_audio_path,
                     )
                 else:
-                    # alignment 포함 TTS 생성 (정밀 자막 싱크)
-                    tts_result = self.tts_agent.generate_speech(
-                        scene_id=scene.scene_id,
-                        narration=scene.narration,
-                        emotion=scene.mood,
-                        output_path=_audio_path
+                    result = self.tts_agent.generate_speech(
+                        scene_id=sid,
+                        narration=sc.narration,
+                        emotion=sc.mood,
+                        output_path=_audio_path,
                     )
+                logger.info(f"  [TTS] Scene {sid}: {result.duration_sec:.1f}s → {os.path.basename(result.audio_path)}")
+                return sid, result
+            except Exception as e:
+                logger.error(f"  [TTS] Scene {sid}: FAILED - {e}")
+                return sid, None
+
+        # 이미지와 TTS를 동시에 병렬 실행 (각각 max_workers=3)
+        # 하나의 ThreadPoolExecutor로 합쳐서 실행 (총 6개 스레드)
+        _img_scenes = [s for s in scene_preparations if not (s.assets.image_path and os.path.exists(s.assets.image_path))]
+        _img_skip_count = len(scene_preparations) - len(_img_scenes)
+        if _img_skip_count:
+            logger.info(f"  [IMG] {_img_skip_count} scenes with existing images (skip generation)")
+            for s in scene_preparations:
+                if s.assets.image_path and os.path.exists(s.assets.image_path):
+                    image_results[s.scene_id] = s.assets.image_path
+
+        with ThreadPoolExecutor(max_workers=6, thread_name_prefix="phase1") as executor:
+            # 이미지 futures
+            img_futures = {executor.submit(_gen_image_for_scene, s): ("img", s.scene_id) for s in _img_scenes}
+            # TTS futures
+            tts_futures = {executor.submit(_gen_tts_for_scene, s): ("tts", s.scene_id) for s in scene_preparations}
+
+            all_futures = {**img_futures, **tts_futures}
+            for future in as_completed(all_futures):
+                task_type, sid = all_futures[future]
+                try:
+                    result_sid, result_data = future.result()
+                    if task_type == "img":
+                        image_results[result_sid] = result_data
+                    else:
+                        tts_results[result_sid] = result_data
+                except Exception as e:
+                    logger.error(f"  [Phase 1] {task_type} Scene {sid}: unhandled exception - {e}")
+                    if task_type == "img":
+                        image_results[sid] = None
+                    else:
+                        tts_results[sid] = None
+
+        phase1_elapsed = time.time() - phase1_start
+        _img_ok = sum(1 for v in image_results.values() if v)
+        _tts_ok = sum(1 for v in tts_results.values() if v)
+        logger.info(f"[Phase 1] Complete: IMG {_img_ok}/{total_scenes}, TTS {_tts_ok}/{total_scenes} ({phase1_elapsed:.1f}s)")
+
+        # =====================================================================
+        # Phase 2: 후처리 순차 (Ken Burns + 자막 + Validation)
+        # =====================================================================
+        phase2_start = time.time()
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[Phase 2] Post-Processing (sequential: KenBurns + Subtitles)")
+        logger.info(f"{'='*60}")
+
+        processed_scenes = []
+
+        for i, scene in enumerate(scene_preparations, 1):
+            sid = scene.scene_id
+            logger.info(f"\n  {'─'*50}")
+            logger.info(f"  Scene {i}/{total_scenes} (ID: {sid}) - Post-Processing")
+
+            try:
+                # --- TTS 결과 바인딩 ---
+                tts_result = tts_results.get(sid)
+                if not tts_result:
+                    logger.error(f"     [SKIP] Scene {sid}: TTS failed, marking as FAILED")
+                    scene.status = SceneStatus.FAILED
+                    scene.error_message = "TTS generation failed in Phase 1"
+                    processed_scenes.append(scene)
+                    continue
+
                 scene.assets.narration_path = tts_result.audio_path
                 scene.tts_duration_sec = tts_result.duration_sec
-                # 실제 발화 타이밍 저장 (SRT 생성에 사용)
                 if tts_result.sentence_timings:
                     scene._sentence_timings = tts_result.sentence_timings
-                # ElevenLabs 캐릭터별 정밀 alignment 저장
                 if getattr(tts_result, 'char_alignment', None):
                     scene._char_alignment = tts_result.char_alignment
-                    logger.info(f"     [TTS] Scene {scene.scene_id}: char_alignment 저장 ({len(tts_result.char_alignment['characters'])} chars)")
 
-                # TTS 기반으로 duration 조정 — 나레이션 원본 보존, duration만 TTS에 맞춤
+                # TTS 기반 duration 조정
                 if tts_result.duration_sec > 0:
-                    import math
                     original_dur = scene.duration_sec
                     tts_dur = math.ceil(tts_result.duration_sec) + 1
-
-                    # 씬 duration을 TTS에 맞춤 (최소 3초)
                     scene.duration_sec = max(3, tts_dur)
-                    logger.info(f"     [Duration] Final: {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s, original: {original_dur}s)")
+                    logger.info(f"     [Duration] {scene.duration_sec}s (TTS: {scene.tts_duration_sec:.1f}s)")
 
-                # 영상 생성 (업데이트된 duration 사용)
+                # --- 이미지 결과 바인딩 ---
+                img_path = image_results.get(sid)
+                if not img_path:
+                    logger.error(f"     [SKIP] Scene {sid}: Image failed, marking as FAILED")
+                    scene.status = SceneStatus.FAILED
+                    scene.error_message = "Image generation failed in Phase 1"
+                    processed_scenes.append(scene)
+                    continue
+
+                scene.assets.image_path = img_path
+
+                # --- Ken Burns / Video 생성 (이미지 이미 존재 → 스킵, KenBurns만 적용) ---
                 scene.status = SceneStatus.GENERATING_VIDEO
-
-                # 프로젝트 구조에 맞는 비디오/이미지 출력 경로 설정
                 video_output_dir = f"{os.path.dirname(output_path)}/media/video"
 
+                # Hook Scene 1: 이미지가 이미 있으므로 generate_video가 기존 이미지를 재사용
                 video_path = self.video_agent.generate_video(
-                    scene_id=scene.scene_id,
+                    scene_id=sid,
                     visual_description=scene.visual_description or scene.prompt,
                     style=style,
                     mood=scene.mood,
                     duration_sec=scene.duration_sec,
                     scene=scene,
                     output_dir=video_output_dir,
-                    resolution=_resolution
+                    resolution=_resolution,
                 )
-                # video_clips.append(video_path) -> REMOVED: 나중에 한꺼번에 수집
                 scene.assets.video_path = video_path
 
-                # v2.0: ConsistencyValidator 검증 (이미지 생성 후, 비디오 합성 전)
+                # --- ConsistencyValidator 검증 ---
                 if consistency_validator and scene.assets.image_path:
-                    # 캐릭터 앵커 경로 수집 (포즈 선택 활성화)
                     char_anchor_paths = []
                     if scene.characters_in_scene and character_sheet:
                         from agents.character_manager import CharacterManager
@@ -875,67 +1007,48 @@ JSON 형식으로 출력:
                             )
                             if pose_path and os.path.exists(pose_path):
                                 char_anchor_paths.append(pose_path)
-                            else:
-                                logger.warning(f"  [WARNING] Anchor missing for character '{char_token}' in scene {scene.scene_id}")
                         if len(char_anchor_paths) < len(scene.characters_in_scene):
-                            logger.warning(f"  [WARNING] Only {len(char_anchor_paths)}/{len(scene.characters_in_scene)} character anchors found")
+                            logger.warning(f"     [WARNING] Only {len(char_anchor_paths)}/{len(scene.characters_in_scene)} character anchors found")
 
-                    env_anchor = environment_anchors.get(scene.scene_id) if environment_anchors else None
-
-                    # Anchor audit log
-                    logger.info(f"  [ANCHOR AUDIT] Scene {scene.scene_id}: chars={[os.path.basename(p) for p in char_anchor_paths]}, style={os.path.basename(style_anchor_path) if style_anchor_path else 'None'}, env={os.path.basename(env_anchor) if env_anchor else 'None'}")
+                    env_anchor = environment_anchors.get(sid) if environment_anchors else None
+                    logger.info(f"     [ANCHOR AUDIT] chars={[os.path.basename(p) for p in char_anchor_paths]}, style={os.path.basename(style_anchor_path) if style_anchor_path else 'None'}, env={os.path.basename(env_anchor) if env_anchor else 'None'}")
 
                     val_result = consistency_validator.validate_scene_image(
                         generated_image_path=scene.assets.image_path,
-                        scene_id=scene.scene_id,
+                        scene_id=sid,
                         character_anchor_paths=char_anchor_paths,
                         style_anchor_path=style_anchor_path,
                         environment_anchor_path=env_anchor,
                     )
-
                     if not val_result.passed and val_result.overall_score <= 0.4:
-                        logger.error(f"     [ConsistencyValidator] Scene {i} FAILED validation (score={val_result.overall_score:.2f})")
+                        logger.error(f"     [ConsistencyValidator] FAILED (score={val_result.overall_score:.2f})")
                         scene.status = SceneStatus.FAILED
                         scene.error_message = f"Consistency validation failed: {val_result.issues}"
                         processed_scenes.append(scene)
-                        prev_scene = scene
                         continue
 
-                # [Fix] Generate & Burn-in Subtitles
+                # --- 자막 생성 + Burn-in ---
                 try:
-                    # 1. Generate SRT
                     subtitle_dir = f"{os.path.dirname(output_path)}/media/subtitles"
                     self.generate_subtitle_files([scene], subtitle_dir)
-                    
-                    # 2. Burn-in if enabled
+
                     if getattr(self.feature_flags, 'subtitle_burn_in', True):
-                        logger.info(f"     [Subtitle] Burning in subtitles for scene {i}...")
                         subtitled_video_path = video_path.replace(".mp4", "_sub.mp4")
-                        
                         result_path, subtitle_success = self.composer_agent.composer.overlay_subtitles(
                             video_in=video_path,
                             srt_path=scene.assets.subtitle_srt_path,
                             out_path=subtitled_video_path,
-                             style={
-                                "font_size": 16,
-                                "margin_v": 30
-                            }
+                            style={"font_size": 16, "margin_v": 30},
                         )
-                        
-                        # Check actual subtitle application result
                         if subtitle_success and os.path.exists(result_path):
                             scene.assets.video_path = result_path
-                            logger.info(f"     [Subtitle] Subtitles burned successfully: {result_path}")
+                            logger.info(f"     [Subtitle] Burned: {os.path.basename(result_path)}")
                         else:
-                            logger.error(f"     [Warning] Subtitle burn-in failed (OOM?), using original video without subtitles.")
-                            # Keep original video path (fallback was already copied)
+                            logger.error(f"     [Subtitle] Burn-in failed, using original video")
                             scene.assets.video_path = result_path
-                            
                 except Exception as sub_e:
-                     logger.error(f"     [Warning] Subtitle processing failed: {sub_e}")
-                     # Do not fail the scene, just proceed without subtitles
+                    logger.error(f"     [Subtitle] Failed: {sub_e}")
 
-                # 완료
                 scene.status = SceneStatus.COMPLETED
 
             except Exception as e:
@@ -943,26 +1056,24 @@ JSON 형식으로 출력:
                 scene.error_message = str(e)
                 scene.retry_count += 1
                 logger.error(f"     [ERROR] Scene {i} failed: {e}")
-                # 계속 진행 (실패한 씬은 나중에 재생성 가능)
 
             processed_scenes.append(scene)
-            prev_scene = scene
-
-            logger.info(f"Scene {i} complete (status: {scene.status})\n")
+            logger.info(f"     Scene {i} → {scene.status}")
 
             if progress_callback:
                 try:
                     import asyncio
                     if asyncio.iscoroutinefunction(progress_callback):
-                        # Async callback - skip in sync context
-                        logger.debug(f"  [DEBUG] Skipping async progress_callback")
                         pass
                     else:
-                        # Sync callback
-                        logger.debug(f"  [DEBUG] Calling progress_callback for scene {i}")
                         progress_callback(scene, i)
                 except Exception as cb_error:
-                    logger.error(f"  [WARNING] Progress callback failed: {cb_error}")
+                    logger.error(f"     [WARNING] Progress callback failed: {cb_error}")
+
+        phase2_elapsed = time.time() - phase2_start
+        total_elapsed = time.time() - phase0_start
+        logger.info(f"\n[Phase 2] Complete ({phase2_elapsed:.1f}s)")
+        logger.info(f"[TOTAL] Pipeline: {total_elapsed:.1f}s (Phase0={time.time()-phase0_start-phase1_elapsed-phase2_elapsed:.1f}s + Phase1={phase1_elapsed:.1f}s + Phase2={phase2_elapsed:.1f}s)")
 
         # =================================================================
         # ROBUSTNESS FIX: Collect clips only from successfully completed scenes
