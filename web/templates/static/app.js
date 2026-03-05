@@ -3850,9 +3850,8 @@ class StorycutApp {
             formData.append('mood', document.getElementById('mv-mood').value);
             formData.append('style', document.getElementById('mv-style').value);
 
-            // 비동기 업로드: 백엔드 배포 후 즉시 응답 → Worker 경유 전환 예정
-            // TODO: Railway 배포 확인 후 this.getApiBaseUrl()로 변경
-            const baseUrl = this.getMediaBaseUrl();
+            // Worker 경유 업로드 (인증 + 프록시)
+            const baseUrl = this.getApiBaseUrl();
             const token = localStorage.getItem('token');
             const headers = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -4955,8 +4954,8 @@ class StorycutApp {
         }
 
         try {
-            // compose는 장시간 소요될 수 있으므로 Railway 직접 호출
-            const baseUrl = this.getMediaBaseUrl();
+            // Worker 경유 compose (인증 + 프록시)
+            const baseUrl = this.getApiBaseUrl();
             const token = localStorage.getItem('token');
             const headers = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
