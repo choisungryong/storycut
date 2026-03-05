@@ -198,6 +198,12 @@ async function routeRequest(url, request, env, ctx, cors) {
   // Admin
   if ((path === '/api/admin/grant-clips' || path === '/api/admin/grant-credits') && method === 'POST') return handleAdminGrantClips(request, user, env, cors);
 
+  // Coupons
+  if (path === '/api/coupons/redeem' && method === 'POST') return handleCouponRedeem(request, user, env, cors);
+  if (path === '/api/admin/coupons' && method === 'POST') return handleAdminCreateCoupon(request, user, env, cors);
+  if (path === '/api/admin/coupons' && method === 'GET') return handleAdminListCoupons(user, env, cors);
+  if (path.match(/^\/api\/admin\/coupons\/[A-Za-z0-9_-]+$/) && method === 'DELETE') return handleAdminDeactivateCoupon(url, user, env, cors);
+
   // Generation (클립 차감 포함)
   if (path === '/api/generate' && method === 'POST') return handleGenerate(request, user, env, ctx, cors);
 
@@ -1367,6 +1373,199 @@ async function handleAdminGrantClips(request, user, env, cors) {
     `Admin grant by ${user.email}: ${reason || 'no reason'}`);
 
   return jsonResponse({ message: `Granted ${amount} credits`, target_user_id: targetId }, 200, cors);
+}
+
+// ==================== 쿠폰 시스템 ====================
+
+async function handleCouponRedeem(request, user, env, cors) {
+  const { code } = await request.json();
+  if (!code || typeof code !== 'string') {
+    return jsonResponse({ error: '쿠폰 코드를 입력해주세요', detail: 'code required' }, 400, cors);
+  }
+
+  const couponCode = code.trim().toUpperCase();
+
+  // 쿠폰 조회
+  const coupon = await env.DB.prepare('SELECT * FROM coupons WHERE code = ?').bind(couponCode).first();
+  if (!coupon) {
+    return jsonResponse({ error: '유효하지 않은 쿠폰 코드입니다', detail: 'coupon not found' }, 404, cors);
+  }
+  if (!coupon.active) {
+    return jsonResponse({ error: '만료된 쿠폰입니다', detail: 'coupon inactive' }, 400, cors);
+  }
+  if (coupon.expiry_date && new Date(coupon.expiry_date) < new Date()) {
+    return jsonResponse({ error: '사용 기간이 만료된 쿠폰입니다', detail: 'coupon expired' }, 400, cors);
+  }
+  if (coupon.usage_count >= coupon.max_uses) {
+    return jsonResponse({ error: '쿠폰 사용 한도가 초과되었습니다', detail: 'coupon usage limit reached' }, 400, cors);
+  }
+
+  // 유저 중복 사용 체크
+  const existing = await env.DB.prepare(
+    'SELECT id FROM coupon_redemptions WHERE coupon_code = ? AND user_id = ?'
+  ).bind(couponCode, user.id).first();
+  if (existing) {
+    return jsonResponse({ error: '이미 사용한 쿠폰입니다', detail: 'already redeemed' }, 400, cors);
+  }
+
+  const now = new Date().toISOString();
+
+  if (coupon.type === 'credits') {
+    // 크레딧 지급: redemption 기록 + usage_count 증가 + addClips
+    await env.DB.batch([
+      env.DB.prepare(
+        'INSERT INTO coupon_redemptions (coupon_code, user_id, redeemed_at) VALUES (?, ?, ?)'
+      ).bind(couponCode, user.id, now),
+      env.DB.prepare(
+        'UPDATE coupons SET usage_count = usage_count + 1 WHERE code = ?'
+      ).bind(couponCode),
+    ]);
+    await addClips(env, user.id, coupon.credits, 'coupon', 'coupon_redeem',
+      `쿠폰 사용: ${couponCode} (${coupon.credits} credits)`);
+
+    const freshUser = await env.DB.prepare('SELECT credits FROM users WHERE id = ?').bind(user.id).first();
+    return jsonResponse({
+      message: `${coupon.credits} 크레딧이 지급되었습니다`,
+      type: 'credits',
+      credits_added: coupon.credits,
+      total_credits: freshUser.credits,
+    }, 200, cors);
+
+  } else if (coupon.type === 'plan') {
+    const plan = PLANS[coupon.plan_id];
+    if (!plan || coupon.plan_id === 'free') {
+      return jsonResponse({ error: '쿠폰에 설정된 플랜이 유효하지 않습니다', detail: 'invalid plan in coupon' }, 400, cors);
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + (coupon.duration_days || 30));
+
+    await env.DB.batch([
+      env.DB.prepare(
+        'INSERT INTO coupon_redemptions (coupon_code, user_id, redeemed_at) VALUES (?, ?, ?)'
+      ).bind(couponCode, user.id, now),
+      env.DB.prepare(
+        'UPDATE coupons SET usage_count = usage_count + 1 WHERE code = ?'
+      ).bind(couponCode),
+      env.DB.prepare(
+        `UPDATE users SET plan_id = ?, monthly_credits = ?, credits = credits + ?,
+         plan_expires_at = ?, updated_at = ? WHERE id = ?`
+      ).bind(coupon.plan_id, plan.monthlyClips, plan.monthlyClips,
+        expiresAt.toISOString(), now, user.id),
+    ]);
+
+    await addClips(env, user.id, 0, 'coupon', 'coupon_redeem',
+      `쿠폰 플랜 업그레이드: ${couponCode} → ${plan.name} (${coupon.duration_days || 30}일)`);
+
+    const freshUser = await env.DB.prepare('SELECT credits, plan_id, plan_expires_at FROM users WHERE id = ?').bind(user.id).first();
+    return jsonResponse({
+      message: `${plan.name} 플랜이 활성화되었습니다 (${coupon.duration_days || 30}일)`,
+      type: 'plan',
+      plan_id: coupon.plan_id,
+      plan_name: plan.name,
+      duration_days: coupon.duration_days || 30,
+      credits_added: plan.monthlyClips,
+      total_credits: freshUser.credits,
+      plan_expires_at: freshUser.plan_expires_at,
+    }, 200, cors);
+  }
+
+  return jsonResponse({ error: '알 수 없는 쿠폰 타입입니다', detail: 'unknown coupon type' }, 400, cors);
+}
+
+async function handleAdminCreateCoupon(request, user, env, cors) {
+  const adminEmails = (env.ADMIN_EMAILS || '').split(',').map(e => e.trim());
+  if (!adminEmails.includes(user.email)) {
+    return jsonResponse({ error: 'Forbidden', detail: 'Forbidden' }, 403, cors);
+  }
+
+  const { code, type, plan_id, duration_days, credits, max_uses, expiry_date } = await request.json();
+
+  // 코드 형식 검증
+  if (!code || typeof code !== 'string' || code.trim().length < 3) {
+    return jsonResponse({ error: '쿠폰 코드는 3자 이상이어야 합니다', detail: 'code must be at least 3 characters' }, 400, cors);
+  }
+  const couponCode = code.trim().toUpperCase();
+  if (!/^[A-Z0-9_-]+$/.test(couponCode)) {
+    return jsonResponse({ error: '쿠폰 코드는 영문대문자, 숫자, -, _만 허용됩니다', detail: 'invalid code format' }, 400, cors);
+  }
+
+  // 타입 검증
+  if (type !== 'plan' && type !== 'credits') {
+    return jsonResponse({ error: 'type은 plan 또는 credits여야 합니다', detail: 'type must be plan or credits' }, 400, cors);
+  }
+
+  if (type === 'plan') {
+    if (!plan_id || !PLANS[plan_id] || plan_id === 'free') {
+      return jsonResponse({ error: '유효한 plan_id를 입력해주세요 (lite/pro/premium)', detail: 'invalid plan_id' }, 400, cors);
+    }
+    if (!duration_days || !Number.isInteger(duration_days) || duration_days <= 0) {
+      return jsonResponse({ error: 'duration_days는 양의 정수여야 합니다', detail: 'invalid duration_days' }, 400, cors);
+    }
+  }
+
+  if (type === 'credits') {
+    if (!credits || !Number.isInteger(credits) || credits <= 0) {
+      return jsonResponse({ error: 'credits는 양의 정수여야 합니다', detail: 'invalid credits' }, 400, cors);
+    }
+  }
+
+  // 중복 체크
+  const existing = await env.DB.prepare('SELECT code FROM coupons WHERE code = ?').bind(couponCode).first();
+  if (existing) {
+    return jsonResponse({ error: '이미 존재하는 쿠폰 코드입니다', detail: 'duplicate code' }, 409, cors);
+  }
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO coupons (code, type, plan_id, duration_days, credits, max_uses, expiry_date, active, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+  ).bind(
+    couponCode,
+    type,
+    type === 'plan' ? plan_id : null,
+    type === 'plan' ? duration_days : null,
+    type === 'credits' ? credits : null,
+    max_uses || 1,
+    expiry_date || null,
+    user.email,
+    now,
+  ).run();
+
+  return jsonResponse({
+    message: '쿠폰이 생성되었습니다',
+    coupon: { code: couponCode, type, plan_id: plan_id || null, duration_days: duration_days || null, credits: credits || null, max_uses: max_uses || 1, expiry_date: expiry_date || null },
+  }, 201, cors);
+}
+
+async function handleAdminListCoupons(user, env, cors) {
+  const adminEmails = (env.ADMIN_EMAILS || '').split(',').map(e => e.trim());
+  if (!adminEmails.includes(user.email)) {
+    return jsonResponse({ error: 'Forbidden', detail: 'Forbidden' }, 403, cors);
+  }
+
+  const result = await env.DB.prepare(
+    'SELECT * FROM coupons ORDER BY created_at DESC'
+  ).all();
+
+  return jsonResponse({ coupons: result.results }, 200, cors);
+}
+
+async function handleAdminDeactivateCoupon(url, user, env, cors) {
+  const adminEmails = (env.ADMIN_EMAILS || '').split(',').map(e => e.trim());
+  if (!adminEmails.includes(user.email)) {
+    return jsonResponse({ error: 'Forbidden', detail: 'Forbidden' }, 403, cors);
+  }
+
+  const couponCode = url.pathname.split('/').pop().toUpperCase();
+  const coupon = await env.DB.prepare('SELECT code FROM coupons WHERE code = ?').bind(couponCode).first();
+  if (!coupon) {
+    return jsonResponse({ error: '유효하지 않은 쿠폰 코드입니다', detail: 'coupon not found' }, 404, cors);
+  }
+
+  await env.DB.prepare('UPDATE coupons SET active = 0 WHERE code = ?').bind(couponCode).run();
+
+  return jsonResponse({ message: '쿠폰이 비활성화되었습니다', code: couponCode }, 200, cors);
 }
 
 // ==================== 게시판 핸들러 ====================

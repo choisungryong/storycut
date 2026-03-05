@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Klippa</title>
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="stylesheet" href="/static/css/design-tokens.css">
+    <link rel="stylesheet" href="/static/css/shared.css">
+    <style>
+        body {
+            font-family: var(--font-body);
+            background: var(--bg-base);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .admin-wrapper {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: var(--space-8) var(--container-padding);
+        }
+
+        .admin-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-8);
+        }
+
+        .admin-header h1 {
+            font-size: var(--text-2xl);
+            font-weight: var(--weight-bold);
+        }
+
+        .admin-header .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: var(--text-sm);
+            transition: color var(--duration-fast);
+        }
+
+        .admin-header .back-link:hover {
+            color: var(--text-primary);
+        }
+
+        /* Auth gate */
+        #auth-gate {
+            text-align: center;
+            padding: var(--space-16) 0;
+        }
+
+        #auth-gate p {
+            color: var(--text-secondary);
+            margin-bottom: var(--space-4);
+        }
+
+        /* Tabs */
+        .admin-tabs {
+            display: flex;
+            gap: var(--space-2);
+            margin-bottom: var(--space-6);
+            border-bottom: 1px solid var(--border-default);
+            padding-bottom: var(--space-2);
+        }
+
+        .admin-tab {
+            padding: var(--space-2) var(--space-4);
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+            font-family: var(--font-body);
+            cursor: pointer;
+            border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+            transition: all var(--duration-fast);
+        }
+
+        .admin-tab:hover {
+            color: var(--text-primary);
+            background: var(--glass-bg-hover);
+        }
+
+        .admin-tab.active {
+            color: var(--brand-primary-light);
+            border-bottom: 2px solid var(--brand-primary);
+            font-weight: var(--weight-semibold);
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        /* Card */
+        .admin-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg);
+            padding: var(--space-6);
+            margin-bottom: var(--space-6);
+            backdrop-filter: blur(var(--glass-blur));
+        }
+
+        .admin-card h2 {
+            font-size: var(--text-lg);
+            font-weight: var(--weight-semibold);
+            margin-bottom: var(--space-4);
+        }
+
+        /* Form */
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-4);
+            margin-bottom: var(--space-4);
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-1);
+        }
+
+        .form-group.full {
+            grid-column: 1 / -1;
+        }
+
+        .form-group label {
+            font-size: var(--text-sm);
+            color: var(--text-secondary);
+            font-weight: var(--weight-medium);
+        }
+
+        .form-group input,
+        .form-group select {
+            padding: var(--space-2) var(--space-3);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: var(--text-sm);
+            font-family: var(--font-body);
+            outline: none;
+            transition: border-color var(--duration-fast);
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            border-color: var(--border-focus);
+        }
+
+        .form-group input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .form-hint {
+            font-size: var(--text-xs);
+            color: var(--text-muted);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: var(--space-2) var(--space-5);
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: var(--text-sm);
+            font-family: var(--font-body);
+            font-weight: var(--weight-semibold);
+            cursor: pointer;
+            transition: all var(--duration-fast);
+        }
+
+        .btn-primary {
+            background: var(--brand-gradient);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: rgba(244, 63, 94, 0.15);
+            color: var(--accent-rose);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: rgba(244, 63, 94, 0.25);
+        }
+
+        .btn-sm {
+            padding: var(--space-1) var(--space-3);
+            font-size: var(--text-xs);
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: var(--space-4);
+            right: var(--space-4);
+            padding: var(--space-3) var(--space-5);
+            border-radius: var(--radius-md);
+            font-size: var(--text-sm);
+            z-index: 9000;
+            animation: fadeUp var(--duration-normal) var(--ease-out);
+            max-width: 400px;
+        }
+
+        .toast.success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: var(--accent-emerald);
+        }
+
+        .toast.error {
+            background: rgba(244, 63, 94, 0.15);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            color: var(--accent-rose);
+        }
+
+        /* Table */
+        .coupon-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: var(--text-sm);
+        }
+
+        .coupon-table th {
+            text-align: left;
+            color: var(--text-muted);
+            font-weight: var(--weight-medium);
+            padding: var(--space-2) var(--space-3);
+            border-bottom: 1px solid var(--border-default);
+            font-size: var(--text-xs);
+            text-transform: uppercase;
+            letter-spacing: var(--tracking-wide);
+        }
+
+        .coupon-table td {
+            padding: var(--space-3);
+            border-bottom: 1px solid var(--border-subtle);
+            vertical-align: middle;
+        }
+
+        .coupon-table tr:hover td {
+            background: var(--glass-bg-light);
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 2px var(--space-2);
+            border-radius: var(--radius-full);
+            font-size: var(--text-xs);
+            font-weight: var(--weight-medium);
+        }
+
+        .badge-plan {
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--brand-primary-light);
+        }
+
+        .badge-credits {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--accent-cyan);
+        }
+
+        .badge-active {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-emerald);
+        }
+
+        .badge-inactive {
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-muted);
+        }
+
+        .badge-expired {
+            background: rgba(244, 63, 94, 0.15);
+            color: var(--accent-rose);
+        }
+
+        /* Stats row */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: var(--space-4);
+            margin-bottom: var(--space-6);
+        }
+
+        .stat-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-md);
+            padding: var(--space-4);
+            text-align: center;
+        }
+
+        .stat-card .stat-value {
+            font-size: var(--text-2xl);
+            font-weight: var(--weight-bold);
+        }
+
+        .stat-card .stat-label {
+            font-size: var(--text-xs);
+            color: var(--text-muted);
+            margin-top: var(--space-1);
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: var(--space-12) 0;
+            color: var(--text-muted);
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: var(--space-8) 0;
+            color: var(--text-muted);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .coupon-table {
+                font-size: var(--text-xs);
+            }
+
+            .coupon-table th:nth-child(5),
+            .coupon-table td:nth-child(5),
+            .coupon-table th:nth-child(6),
+            .coupon-table td:nth-child(6) {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Auth Gate -->
+    <div id="auth-gate">
+        <div class="admin-wrapper">
+            <p>관리자 인증 확인 중...</p>
+        </div>
+    </div>
+
+    <!-- Admin Content (hidden until auth verified) -->
+    <div id="admin-content" style="display: none;">
+        <div class="admin-wrapper">
+            <div class="admin-header">
+                <h1>Klippa Admin</h1>
+                <a href="/" class="back-link">< 앱으로 돌아가기</a>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats-row" id="stats-row">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total">-</div>
+                    <div class="stat-label">전체 쿠폰</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-active">-</div>
+                    <div class="stat-label">활성</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-used">-</div>
+                    <div class="stat-label">총 사용 횟수</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="admin-tabs">
+                <button class="admin-tab active" data-tab="list">쿠폰 목록</button>
+                <button class="admin-tab" data-tab="create">쿠폰 생성</button>
+            </div>
+
+            <!-- Tab: List -->
+            <div id="tab-list" class="tab-panel active">
+                <div id="coupon-list-loading" class="loading">불러오는 중...</div>
+                <div id="coupon-list-empty" class="empty-state" style="display:none;">
+                    생성된 쿠폰이 없습니다.
+                </div>
+                <div id="coupon-list-content" style="display:none;">
+                    <table class="coupon-table">
+                        <thead>
+                            <tr>
+                                <th>코드</th>
+                                <th>타입</th>
+                                <th>값</th>
+                                <th>사용</th>
+                                <th>만료일</th>
+                                <th>상태</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="coupon-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab: Create -->
+            <div id="tab-create" class="tab-panel">
+                <div class="admin-card">
+                    <h2>새 쿠폰 생성</h2>
+                    <form id="create-coupon-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="coupon-code">쿠폰 코드</label>
+                                <input type="text" id="coupon-code" placeholder="PREMIUM2026" required
+                                    pattern="[A-Za-z0-9_-]{3,}" style="text-transform: uppercase;">
+                                <span class="form-hint">영문, 숫자, -, _ (3자 이상)</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="coupon-type">타입</label>
+                                <select id="coupon-type">
+                                    <option value="credits">크레딧 지급</option>
+                                    <option value="plan">플랜 업그레이드</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Credits fields -->
+                        <div id="credits-fields">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="coupon-credits">지급 크레딧</label>
+                                    <input type="number" id="coupon-credits" min="1" max="100000" value="100">
+                                </div>
+                                <div class="form-group"></div>
+                            </div>
+                        </div>
+
+                        <!-- Plan fields -->
+                        <div id="plan-fields" style="display: none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="coupon-plan">플랜</label>
+                                    <select id="coupon-plan">
+                                        <option value="lite">Lite (150 clips/월)</option>
+                                        <option value="pro">Pro (500 clips/월)</option>
+                                        <option value="premium">Premium (2000 clips/월)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="coupon-duration">기간 (일)</label>
+                                    <input type="number" id="coupon-duration" min="1" max="365" value="30">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="coupon-max-uses">최대 사용 횟수</label>
+                                <input type="number" id="coupon-max-uses" min="1" max="100000" value="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="coupon-expiry">만료일 (선택)</label>
+                                <input type="date" id="coupon-expiry">
+                                <span class="form-hint">비워두면 무기한</span>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" id="create-btn">쿠폰 생성</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script>
+        const WORKER_URL = 'https://storycut-worker.twinspa0713.workers.dev';
+
+        function getToken() {
+            return localStorage.getItem('token');
+        }
+
+        function authHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${getToken()}`,
+            };
+        }
+
+        // ==================== Toast ====================
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        // ==================== Auth Check ====================
+
+        async function checkAdmin() {
+            const token = getToken();
+            if (!token) {
+                document.getElementById('auth-gate').innerHTML =
+                    '<div class="admin-wrapper"><p>로그인이 필요합니다. <a href="/login.html" style="color:var(--brand-primary-light)">로그인</a></p></div>';
+                return false;
+            }
+
+            // Verify by calling admin endpoint - if 403, not admin
+            try {
+                const res = await fetch(`${WORKER_URL}/api/admin/coupons`, {
+                    headers: authHeaders(),
+                });
+                if (res.status === 403) {
+                    document.getElementById('auth-gate').innerHTML =
+                        '<div class="admin-wrapper"><p style="color:var(--accent-rose)">접근 권한이 없습니다.</p><p><a href="/" style="color:var(--brand-primary-light)">홈으로</a></p></div>';
+                    return false;
+                }
+                if (res.status === 401) {
+                    document.getElementById('auth-gate').innerHTML =
+                        '<div class="admin-wrapper"><p>로그인이 필요합니다. <a href="/login.html" style="color:var(--brand-primary-light)">로그인</a></p></div>';
+                    return false;
+                }
+                return true;
+            } catch {
+                document.getElementById('auth-gate').innerHTML =
+                    '<div class="admin-wrapper"><p style="color:var(--accent-rose)">서버 연결 실패</p></div>';
+                return false;
+            }
+        }
+
+        // ==================== Load Coupons ====================
+
+        async function loadCoupons() {
+            const loading = document.getElementById('coupon-list-loading');
+            const empty = document.getElementById('coupon-list-empty');
+            const content = document.getElementById('coupon-list-content');
+            const tbody = document.getElementById('coupon-tbody');
+
+            loading.style.display = 'block';
+            empty.style.display = 'none';
+            content.style.display = 'none';
+
+            try {
+                const res = await fetch(`${WORKER_URL}/api/admin/coupons`, {
+                    headers: authHeaders(),
+                });
+                const data = await res.json();
+                const coupons = data.coupons || [];
+
+                // Stats
+                document.getElementById('stat-total').textContent = coupons.length;
+                document.getElementById('stat-active').textContent = coupons.filter(c => c.active).length;
+                document.getElementById('stat-used').textContent = coupons.reduce((s, c) => s + (c.usage_count || 0), 0);
+
+                loading.style.display = 'none';
+
+                if (coupons.length === 0) {
+                    empty.style.display = 'block';
+                    return;
+                }
+
+                tbody.innerHTML = coupons.map(c => {
+                    const typeBadge = c.type === 'plan'
+                        ? `<span class="badge badge-plan">${c.plan_id}</span>`
+                        : `<span class="badge badge-credits">크레딧</span>`;
+
+                    const value = c.type === 'plan'
+                        ? `${c.duration_days || 30}일`
+                        : `${c.credits} clips`;
+
+                    const usage = `${c.usage_count || 0} / ${c.max_uses}`;
+
+                    const now = new Date();
+                    const expired = c.expiry_date && new Date(c.expiry_date) < now;
+                    const expiry = c.expiry_date
+                        ? new Date(c.expiry_date).toLocaleDateString('ko-KR')
+                        : '-';
+
+                    let statusBadge;
+                    if (!c.active) {
+                        statusBadge = '<span class="badge badge-inactive">비활성</span>';
+                    } else if (expired) {
+                        statusBadge = '<span class="badge badge-expired">만료</span>';
+                    } else {
+                        statusBadge = '<span class="badge badge-active">활성</span>';
+                    }
+
+                    const actions = c.active
+                        ? `<button class="btn btn-danger btn-sm" onclick="deactivateCoupon('${c.code}')">비활성화</button>`
+                        : '';
+
+                    return `<tr>
+                        <td><strong>${c.code}</strong></td>
+                        <td>${typeBadge}</td>
+                        <td>${value}</td>
+                        <td>${usage}</td>
+                        <td>${expiry}</td>
+                        <td>${statusBadge}</td>
+                        <td>${actions}</td>
+                    </tr>`;
+                }).join('');
+
+                content.style.display = 'block';
+            } catch (err) {
+                loading.textContent = '불러오기 실패';
+            }
+        }
+
+        // ==================== Create Coupon ====================
+
+        document.getElementById('create-coupon-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('create-btn');
+            btn.disabled = true;
+
+            const type = document.getElementById('coupon-type').value;
+            const body = {
+                code: document.getElementById('coupon-code').value.trim().toUpperCase(),
+                type,
+                max_uses: parseInt(document.getElementById('coupon-max-uses').value) || 1,
+            };
+
+            const expiry = document.getElementById('coupon-expiry').value;
+            if (expiry) body.expiry_date = new Date(expiry).toISOString();
+
+            if (type === 'credits') {
+                body.credits = parseInt(document.getElementById('coupon-credits').value) || 100;
+            } else {
+                body.plan_id = document.getElementById('coupon-plan').value;
+                body.duration_days = parseInt(document.getElementById('coupon-duration').value) || 30;
+            }
+
+            try {
+                const res = await fetch(`${WORKER_URL}/api/admin/coupons`, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    showToast(data.error || '생성 실패', 'error');
+                    return;
+                }
+
+                showToast(`쿠폰 ${body.code} 생성 완료`);
+                document.getElementById('create-coupon-form').reset();
+
+                // Switch to list tab and reload
+                switchTab('list');
+                loadCoupons();
+            } catch (err) {
+                showToast('서버 오류', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // ==================== Deactivate Coupon ====================
+
+        async function deactivateCoupon(code) {
+            if (!confirm(`"${code}" 쿠폰을 비활성화하시겠습니까?`)) return;
+
+            try {
+                const res = await fetch(`${WORKER_URL}/api/admin/coupons/${code}`, {
+                    method: 'DELETE',
+                    headers: authHeaders(),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    showToast(data.error || '비활성화 실패', 'error');
+                    return;
+                }
+
+                showToast(`${code} 비활성화 완료`);
+                loadCoupons();
+            } catch {
+                showToast('서버 오류', 'error');
+            }
+        }
+
+        // ==================== Tabs ====================
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelector(`.admin-tab[data-tab="${tabName}"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        document.querySelectorAll('.admin-tab').forEach(tab => {
+            tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+        });
+
+        // Toggle plan/credits fields
+        document.getElementById('coupon-type').addEventListener('change', (e) => {
+            document.getElementById('credits-fields').style.display = e.target.value === 'credits' ? 'block' : 'none';
+            document.getElementById('plan-fields').style.display = e.target.value === 'plan' ? 'block' : 'none';
+        });
+
+        // ==================== Init ====================
+
+        (async () => {
+            const isAdmin = await checkAdmin();
+            if (isAdmin) {
+                document.getElementById('auth-gate').style.display = 'none';
+                document.getElementById('admin-content').style.display = 'block';
+                loadCoupons();
+            }
+        })();
+    </script>
+</body>
+
+</html>
