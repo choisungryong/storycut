@@ -278,7 +278,7 @@ def sync_project_to_worker(project_id: str, manifest_data: dict, user_id: str = 
                 img_p = (sc.get("assets") or {}).get("image_path", "") or sc.get("image_path", "")
                 if img_p:
                     fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-                    thumb_url = f"/api/asset/{project_id}/image/{fname}"
+                    thumb_url = f"/api/asset/{project_id}/images/{fname}"
                     break
 
             payload = {

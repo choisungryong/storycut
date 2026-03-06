@@ -158,6 +158,10 @@ async function routeRequest(url, request, env, ctx, cors) {
     if (!adminEmails.includes(user.email)) return jsonResponse({ error: 'Forbidden' }, 403, cors);
     return handleMigrateFromRailway(request, user, env, cors);
   }
+  // R2 스캔 기반 D1 마이그레이션 (1회성, shared secret 인증)
+  if (path === '/api/projects/migrate-from-r2' && method === 'POST') {
+    return handleMigrateFromR2(request, env, cors);
+  }
   if (path.startsWith('/api/status/')) {
     const user = await authenticateUser(request, env);
     return proxyToRailwayPublic(request, env, path, cors, user);
@@ -2201,6 +2205,146 @@ async function handleMigrateFromRailway(request, user, env, cors) {
   } catch (error) {
     console.error('Migration error:', error);
     return jsonResponse({ error: 'Migration failed' }, 500, cors);
+  }
+}
+
+// ==================== Migration: R2 Scan → D1 ====================
+
+async function handleMigrateFromR2(request, env, cors) {
+  const secret = request.headers.get('X-Worker-Secret') || '';
+  if (!env.WORKER_SHARED_SECRET || secret !== env.WORKER_SHARED_SECRET) {
+    return jsonResponse({ error: 'Forbidden' }, 403, cors);
+  }
+
+  try {
+    let synced = 0, errors = 0, skipped = 0;
+    let cursor = undefined;
+    const allManifests = [];
+
+    // R2에서 videos/ 하위의 manifest.json 파일 목록 수집
+    while (true) {
+      const listOpts = { prefix: 'videos/', delimiter: '/', cursor };
+      const listed = await env.R2_BUCKET.list(listOpts);
+
+      // delimiter='/' → delimitedPrefixes에 videos/{pid}/ 형태로 나옴
+      for (const prefix of (listed.delimitedPrefixes || [])) {
+        // prefix = "videos/{project_id}/"
+        const pid = prefix.replace('videos/', '').replace('/', '');
+        if (pid) allManifests.push(pid);
+      }
+
+      if (listed.truncated) {
+        cursor = listed.cursor;
+      } else {
+        break;
+      }
+    }
+
+    // 각 프로젝트의 manifest.json을 읽어서 D1에 upsert
+    for (const pid of allManifests) {
+      try {
+        // 이미 D1에 완료 상태로 있으면 스킵
+        const existing = await env.DB.prepare(
+          'SELECT id, status FROM projects WHERE id = ?'
+        ).bind(pid).first();
+        if (existing && existing.status === 'completed') {
+          skipped++;
+          continue;
+        }
+
+        const manifestKey = `videos/${pid}/manifest.json`;
+        const obj = await env.R2_BUCKET.get(manifestKey);
+        if (!obj) {
+          skipped++;
+          continue;
+        }
+
+        const manifest = await obj.json();
+        const userId = manifest.user_id;
+        if (!userId) {
+          skipped++;
+          continue;
+        }
+
+        // user가 D1에 없으면 스킵 (FK 제약)
+        const userExists = await env.DB.prepare(
+          'SELECT id FROM users WHERE id = ?'
+        ).bind(userId).first();
+        if (!userExists) {
+          skipped++;
+          continue;
+        }
+
+        const title = manifest.title || manifest.topic || '제목 없음';
+        const type = manifest.type || (manifest.mv_mode ? 'mv' : 'video');
+        const status = manifest.status || 'completed';
+        const sceneCount = manifest.scene_count || (manifest.scenes ? manifest.scenes.length : 0);
+        const durationSec = manifest.duration_sec || null;
+        const genre = manifest.genre || null;
+        const style = manifest.style || null;
+
+        // 썸네일 URL 추출: manifest의 실제 파일명 사용
+        let thumbnailUrl = manifest.thumbnail_url || null;
+        if (!thumbnailUrl && manifest.scenes && manifest.scenes.length > 0) {
+          const s1 = manifest.scenes[0];
+          if (s1.image_url) {
+            thumbnailUrl = s1.image_url;
+          } else if (s1.assets && s1.assets.image_path) {
+            // image_path: "/media/{pid}/media/images/scene_01.png" → 파일명만 추출
+            const imgPath = s1.assets.image_path;
+            const imgFilename = imgPath.split('/').pop(); // "scene_01.png"
+            thumbnailUrl = `/api/asset/${pid}/images/${imgFilename}`;
+          } else {
+            // 폴백: zero-padded scene_id
+            const sceneIdx = s1.scene_id || s1.index || 1;
+            thumbnailUrl = `/api/asset/${pid}/images/scene_${String(sceneIdx).padStart(2, '0')}.png`;
+          }
+        }
+
+        const videoUrl = manifest.video_url || null;
+        const downloadUrl = manifest.download_url || null;
+        const createdAt = manifest.created_at || new Date().toISOString();
+
+        if (existing) {
+          await env.DB.prepare(`
+            UPDATE projects SET
+              status = ?, title = ?, type = ?, thumbnail_url = ?,
+              video_url = ?, download_url = ?, scene_count = ?,
+              duration_sec = ?, genre = ?, style = ?,
+              completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, ?) ELSE completed_at END
+            WHERE id = ?
+          `).bind(
+            status, title, type, thumbnailUrl,
+            videoUrl, downloadUrl, sceneCount,
+            durationSec, genre, style,
+            status, createdAt, pid
+          ).run();
+        } else {
+          await env.DB.prepare(`
+            INSERT INTO projects (id, user_id, status, title, type, thumbnail_url, video_url, download_url,
+                                  scene_count, duration_sec, genre, style, created_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    CASE WHEN ? = 'completed' THEN ? ELSE NULL END)
+          `).bind(
+            pid, userId, status, title, type, thumbnailUrl,
+            videoUrl, downloadUrl, sceneCount, durationSec, genre, style,
+            createdAt, status, createdAt
+          ).run();
+        }
+        synced++;
+      } catch (e) {
+        console.error(`R2 migration error for ${pid}:`, e);
+        errors++;
+      }
+    }
+
+    return jsonResponse({
+      success: true, synced, errors, skipped,
+      total: allManifests.length
+    }, 200, cors);
+  } catch (error) {
+    console.error('R2 migration error:', error);
+    return jsonResponse({ error: 'Migration failed', detail: String(error) }, 500, cors);
   }
 }
 
