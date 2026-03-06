@@ -2120,16 +2120,6 @@ async function handleAssetServe(url, env, cors, request) {
   try {
     const r2Key = `${r2Prefix}/${projectId}/${filename}`;
 
-    // Range 요청 지원 (비디오 썸네일 preload="metadata" 효율화)
-    const rangeHeader = request ? request.headers.get('Range') : null;
-    const object = rangeHeader
-      ? await env.R2_BUCKET.get(r2Key, { range: { suffix: undefined } })
-      : await env.R2_BUCKET.get(r2Key);
-
-    if (!object) {
-      return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);
-    }
-
     // Content-Type 결정
     let ct = contentTypes[assetType] || 'application/octet-stream';
     if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) ct = 'image/jpeg';
@@ -2137,28 +2127,48 @@ async function handleAssetServe(url, env, cors, request) {
     else if (filename.endsWith('.mp3')) ct = 'audio/mpeg';
     else if (filename.endsWith('.wav')) ct = 'audio/wav';
 
+    // Range 요청 처리 (비디오 썸네일 preload="metadata" 효율화)
+    const rangeHeader = request ? request.headers.get('Range') : null;
+
+    if (rangeHeader) {
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+      if (match) {
+        const start = parseInt(match[1]);
+        // head()로 전체 크기만 조회
+        const head = await env.R2_BUCKET.head(r2Key);
+        if (!head) return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);
+
+        const totalSize = head.size;
+        const end = match[2] ? Math.min(parseInt(match[2]), totalSize - 1) : totalSize - 1;
+        const rangeObj = await env.R2_BUCKET.get(r2Key, { range: { offset: start, length: end - start + 1 } });
+        if (!rangeObj) return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);
+
+        return new Response(rangeObj.body, {
+          status: 206,
+          headers: {
+            ...cors,
+            'Content-Type': ct,
+            'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+            'Content-Length': String(end - start + 1),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'public, max-age=86400',
+          },
+        });
+      }
+    }
+
+    // 일반 요청: 전체 파일 서빙
+    const object = await env.R2_BUCKET.get(r2Key);
+    if (!object) {
+      return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);
+    }
+
     const headers = {
       ...cors,
       'Content-Type': ct,
       'Cache-Control': 'public, max-age=86400',
       'Accept-Ranges': 'bytes',
     };
-
-    // Range 요청 처리
-    if (rangeHeader && object.size) {
-      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-      if (match) {
-        const start = parseInt(match[1]);
-        const end = match[2] ? parseInt(match[2]) : object.size - 1;
-        const rangeObj = await env.R2_BUCKET.get(r2Key, { range: { offset: start, length: end - start + 1 } });
-        if (rangeObj) {
-          headers['Content-Range'] = `bytes ${start}-${end}/${object.size}`;
-          headers['Content-Length'] = String(end - start + 1);
-          return new Response(rangeObj.body, { status: 206, headers });
-        }
-      }
-    }
-
     if (object.size) headers['Content-Length'] = String(object.size);
     return new Response(object.body, { status: 200, headers });
   } catch (error) {
