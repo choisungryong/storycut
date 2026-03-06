@@ -522,7 +522,15 @@ class MultimodalPromptBuilder:
                 f"If the reference shows a real photo, the output MUST be a real photo. "
                 f"Do NOT convert photorealistic characters to anime/cartoon/illustration or vice versa."
             )
-        full_prompt = f"{framing_prefix}{ct_image_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}.{_anchor_reminder} All characters must have celebrity-level stunning attractive visuals with ideal body proportions, flawless clear skin. Anatomically correct human body with proper proportions, natural hands with exactly five fingers on each hand, correct finger count. Aspect ratio 16:9."
+        # content_type별 캐릭터 비주얼 품질 텍스트
+        _CT_QUALITY_SUFFIX = {
+            "folktale": "All characters must have warm, friendly, child-appropriate visuals with gentle expressions and proper Korean traditional appearance.",
+            "fairytale": "All characters must have cute, bright, child-friendly visuals with expressive round eyes and warm appearance.",
+            "educational": "All characters must have clean, approachable, natural visuals with friendly expressions.",
+            "documentary": "All characters must have realistic, natural, believable visuals with authentic appearance.",
+        }
+        _quality_text = _CT_QUALITY_SUFFIX.get(content_type, "All characters must have celebrity-level stunning attractive visuals with ideal body proportions, flawless clear skin.")
+        full_prompt = f"{framing_prefix}{ct_image_prefix}[MANDATORY STYLE]{negative_part} {directive['positive']}{boost_part} {prompt}.{_anchor_reminder} {_quality_text} Anatomically correct human body with proper proportions, natural hands with exactly five fingers on each hand, correct finger count. Aspect ratio 16:9."
         parts.append({"text": full_prompt})
 
         return parts
