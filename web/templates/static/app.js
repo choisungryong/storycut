@@ -2370,13 +2370,13 @@ class StorycutApp {
             }
 
             // 썸네일 결정: 이미지 > 비디오 프레임 > 폴백 아이콘
+            const shimmer = `<div class="thumb-shimmer" style="position:absolute;inset:0;background:linear-gradient(90deg,#1a1a2e 25%,#252547 50%,#1a1a2e 75%);background-size:200% 100%;animation:shimmer 1.5s infinite"></div>`;
             let thumbContent;
             if (project.thumbnail_url) {
-                thumbContent = `<img loading="lazy" data-src="${this.getMediaBaseUrl()}${escapeHtml(project.thumbnail_url)}" alt="${escapeHtml(project.title)}" onerror="this.style.display='none'; this.parentElement.querySelector('.thumb-fallback').style.display='flex'" style="opacity:0;transition:opacity 0.3s"><div class="thumb-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
+                thumbContent = `${shimmer}<img loading="lazy" data-src="${this.getMediaBaseUrl()}${escapeHtml(project.thumbnail_url)}" alt="${escapeHtml(project.title)}" onerror="this.style.display='none'; this.parentElement.querySelector('.thumb-fallback').style.display='flex'; this.parentElement.querySelector('.thumb-shimmer')?.remove()" style="opacity:0;transition:opacity 0.3s;position:relative;z-index:1"><div class="thumb-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
             } else if (project.status === 'completed') {
-                // R2에서 비디오 첫 프레임을 썸네일로 표시 (Range 요청으로 메타데이터만 로드)
                 const videoAssetUrl = `${this.getMediaBaseUrl()}/api/asset/${project.project_id}/video/final_video.mp4`;
-                thumbContent = `<video muted preload="metadata" data-video-thumb="${videoAssetUrl}#t=1" style="width:100%;height:100%;object-fit:cover;pointer-events:none;opacity:0;transition:opacity 0.3s" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'"></video><div class="thumb-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
+                thumbContent = `${shimmer}<video muted preload="metadata" data-video-thumb="${videoAssetUrl}#t=0.5" style="width:100%;height:100%;object-fit:cover;pointer-events:none;opacity:0;transition:opacity 0.3s;position:relative;z-index:1" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.parentElement.querySelector('.thumb-shimmer')?.remove()"></video><div class="thumb-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
             } else {
                 thumbContent = `<div class="thumb-fallback" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
             }
@@ -2416,12 +2416,17 @@ class StorycutApp {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         const el = entry.target;
+                        const removeShimmer = () => {
+                            el.style.opacity = '1';
+                            const shimmer = el.parentElement?.querySelector('.thumb-shimmer');
+                            if (shimmer) shimmer.remove();
+                        };
                         if (el.tagName === 'IMG') {
                             el.src = el.dataset.src;
-                            el.onload = () => { el.style.opacity = '1'; };
+                            el.onload = removeShimmer;
                         } else if (el.tagName === 'VIDEO') {
                             el.src = el.dataset.videoThumb;
-                            el.onloadeddata = () => { el.style.opacity = '1'; };
+                            el.onloadeddata = removeShimmer;
                         }
                         observer.unobserve(el);
                     }
