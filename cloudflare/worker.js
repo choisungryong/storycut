@@ -135,20 +135,20 @@ async function routeRequest(url, request, env, ctx, cors) {
   }
   if (path === '/api/config/google-client-id' && method === 'GET') return handleGoogleClientId(env, cors);
 
+  // Railway → Worker 프로젝트 동기화 (shared secret 인증, JWT 불필요)
+  if (path === '/api/projects/sync' && method === 'POST') {
+    return handleProjectSync(request, env, cors);
+  }
+  if (path === '/api/projects/sync-status' && method === 'POST') {
+    return handleProjectSyncStatus(request, env, cors);
+  }
+
   // [SECURITY] Previously public proxy routes → now optionally authenticated
   // These routes forward to Railway. We pass user ID if authenticated for ownership filtering.
   if (path === '/api/history' && method === 'GET') {
     const user = await authenticateUser(request, env);
     if (!user) return jsonResponse({ error: 'Unauthorized', detail: 'Unauthorized' }, 401, cors);
     return handleHistory(user, url, env, cors);
-  }
-  // Railway → Worker 프로젝트 동기화 (shared secret 인증)
-  if (path === '/api/projects/sync' && method === 'POST') {
-    return handleProjectSync(request, env, cors);
-  }
-  // Railway → Worker 프로젝트 상태만 업데이트 (shared secret 인증)
-  if (path === '/api/projects/sync-status' && method === 'POST') {
-    return handleProjectSyncStatus(request, env, cors);
   }
   // 기존 데이터 마이그레이션 (1회성, admin only)
   if (path === '/api/projects/migrate-from-railway' && method === 'POST') {
