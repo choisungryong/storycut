@@ -488,8 +488,8 @@ class StorycutApp {
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return '';
         }
-        // 미디어 파일(이미지, 영상)은 Railway에서 직접 제공
-        return 'https://web-production-bb6bf.up.railway.app';
+        // 미디어 파일(이미지, 영상)도 Worker 경유 (R2 직접 서빙 + Railway 폴백)
+        return 'https://storycut-worker.twinspa0713.workers.dev';
     }
 
     _shouldShowWatermark() {
@@ -2372,7 +2372,7 @@ class StorycutApp {
             card.innerHTML = `
                 <div class="history-thumb" style="background: #1a1a2e;">
                     ${typeBadge}
-                    ${project.thumbnail_url ? `<img src="${this.getMediaBaseUrl()}${escapeHtml(project.thumbnail_url)}" alt="${escapeHtml(project.title)}" onerror="this.style.display='none'; this.parentElement.querySelector('.thumb-fallback').style.display='flex'"><div class="thumb-fallback" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; color:#555;">${fallbackIcon}</div>` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
+                    ${project.thumbnail_url ? `<img loading="lazy" data-src="${this.getMediaBaseUrl()}${escapeHtml(project.thumbnail_url)}" alt="${escapeHtml(project.title)}" onerror="this.style.display='none'; this.parentElement.querySelector('.thumb-fallback').style.display='flex'" style="opacity:0;transition:opacity 0.3s"><div class="thumb-fallback" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; color:#555;">${fallbackIcon}</div>` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
                 </div>
                 <div class="history-info">
                     <p class="history-title">${escapeHtml(project.title)}</p>
@@ -2396,6 +2396,22 @@ class StorycutApp {
 
             historyGrid.appendChild(card);
         });
+
+        // Lazy load thumbnails with IntersectionObserver
+        const lazyImages = historyGrid.querySelectorAll('img[data-src]');
+        if (lazyImages.length > 0) {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const img = entry.target;
+                        img.src = img.dataset.src;
+                        img.onload = () => { img.style.opacity = '1'; };
+                        observer.unobserve(img);
+                    }
+                });
+            }, { rootMargin: '200px' });
+            lazyImages.forEach(img => observer.observe(img));
+        }
     }
 
     // ==================== 보관함 상세 보기 ====================

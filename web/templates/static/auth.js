@@ -2,6 +2,9 @@
 const API_BASE_URL = window.location.hostname === 'localhost' ? '' : 'https://web-production-bb6bf.up.railway.app';
 const WORKER_URL = 'https://storycut-worker.twinspa0713.workers.dev';
 
+// Admin emails (UI display only - actual security is enforced server-side in Worker)
+const ADMIN_EMAILS = ['neopioneer0713@gmail.com', 'twinspa0713@gmail.com'];
+
 // ==================== Clip Costs (synced with Worker) ====================
 const CLIP_COSTS = {
     video: 25,
@@ -260,7 +263,13 @@ function renderUserHeader(user) {
     const userInfo = document.createElement('div');
     userInfo.id = 'user-header-info';
     userInfo.className = 'nav-user-info';
+    const isAdmin = ADMIN_EMAILS.includes(user.email);
+    const adminLink = isAdmin
+        ? `<a href="/admin.html" class="nav-admin-link" style="color:var(--accent-amber,#f59e0b);font-size:var(--text-xs,12px);font-weight:600;text-decoration:none;padding:4px 8px;border:1px solid rgba(245,158,11,0.3);border-radius:6px;">Admin</a>`
+        : '';
+
     userInfo.innerHTML = `
+        ${adminLink}
         <a href="/pricing.html" id="clip-badge" class="nav-clip-badge">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/>

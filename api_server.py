@@ -60,6 +60,7 @@ IS_PRODUCTION = os.getenv("PRODUCTION", "").lower() == "true" or os.getenv("RAIL
 
 # [보안] Worker→Railway 공유 시크릿 (프로덕션에서 Worker가 보내는 요청만 허용)
 WORKER_SHARED_SECRET = os.getenv("WORKER_SHARED_SECRET", "")
+WORKER_SYNC_URL = "https://storycut-worker.twinspa0713.workers.dev"
 
 api_key = os.getenv("OPENAI_API_KEY")
 logger.debug(f"OPENAI_API_KEY: {mask_api_key(api_key)}")
@@ -261,6 +262,80 @@ def save_manifest(project_id: str, data: dict) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def sync_project_to_worker(project_id: str, manifest_data: dict, user_id: str = None):
+    """프로젝트 메타데이터를 Worker D1에 동기화 (비차단, 실패 무시)"""
+    if not WORKER_SHARED_SECRET:
+        return
+    import threading
+    def _sync():
+        import requests as _req
+        try:
+            is_mv = project_id.startswith("mv_")
+            scenes = manifest_data.get("scenes", [])
+            # 썸네일: 첫 씬 이미지
+            thumb_url = None
+            for sc in scenes:
+                img_p = (sc.get("assets") or {}).get("image_path", "") or sc.get("image_path", "")
+                if img_p:
+                    fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                    thumb_url = f"/api/asset/{project_id}/image/{fname}"
+                    break
+
+            payload = {
+                "project_id": project_id,
+                "user_id": user_id or manifest_data.get("user_id", ""),
+                "status": manifest_data.get("status", "processing"),
+                "title": manifest_data.get("title") or manifest_data.get("concept") or "제목 없음",
+                "type": "mv" if is_mv else "video",
+                "thumbnail_url": thumb_url,
+                "scene_count": len(scenes),
+            }
+
+            if is_mv:
+                ma = manifest_data.get("music_analysis", {})
+                payload["duration_sec"] = ma.get("duration_sec")
+                payload["genre"] = ma.get("genre")
+                payload["style"] = manifest_data.get("style")
+                status = manifest_data.get("status")
+                if status == "completed":
+                    payload["video_url"] = f"/api/mv/stream/{project_id}"
+                    payload["download_url"] = f"/api/mv/download/{project_id}"
+            else:
+                status = manifest_data.get("status")
+                if status == "completed":
+                    payload["video_url"] = f"/api/stream/{project_id}"
+                    payload["download_url"] = f"/api/download/{project_id}"
+
+            _req.post(
+                f"{WORKER_SYNC_URL}/api/projects/sync",
+                json=payload,
+                headers={"X-Worker-Secret": WORKER_SHARED_SECRET},
+                timeout=5
+            )
+        except Exception as e:
+            logger.debug(f"[SYNC] Worker sync failed (non-critical): {e}")
+    threading.Thread(target=_sync, daemon=True).start()
+
+
+def sync_project_status_to_worker(project_id: str, status: str, error_message: str = None):
+    """프로젝트 상태만 Worker D1에 동기화 (비차단)"""
+    if not WORKER_SHARED_SECRET:
+        return
+    import threading
+    def _sync():
+        import requests as _req
+        try:
+            _req.post(
+                f"{WORKER_SYNC_URL}/api/projects/sync-status",
+                json={"project_id": project_id, "status": status, "error_message": error_message},
+                headers={"X-Worker-Secret": WORKER_SHARED_SECRET},
+                timeout=5
+            )
+        except Exception as e:
+            logger.debug(f"[SYNC] Worker status sync failed (non-critical): {e}")
+    threading.Thread(target=_sync, daemon=True).start()
+
+
 def set_manifest_failed(project_id: str, error: Exception) -> None:
     """매니페스트를 실패 상태로 업데이트"""
     try:
@@ -272,6 +347,7 @@ def set_manifest_failed(project_id: str, error: Exception) -> None:
             data["error_message"] = str(error)
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+        sync_project_status_to_worker(project_id, "failed", str(error))
     except Exception:
         logger.debug("Failed to set manifest failed status", exc_info=True)
 
@@ -1634,11 +1710,14 @@ def run_video_pipeline_wrapper(pipeline: 'TrackedPipeline', story_data: Dict, re
                         logger.info(f"[WRAPPER] Manifest uploaded to R2: {manifest_r2_key}")
                     
                     logger.info(f"[WRAPPER] Manifest updated with video_url and asset URLs")
+
+                    # Worker D1 동기화
+                    sync_project_to_worker(project_id, _manifest_dict, _manifest_dict.get("user_id"))
                 else:
                     logger.error(f"[WRAPPER] R2 Upload Failed (Check credentials)")
             else:
                 logger.info(f"[WRAPPER] Local video file not found, skipping upload")
-                
+
         except Exception as upload_err:
             logger.error(f"[WRAPPER] R2 Upload Error: {upload_err}")
 
@@ -3122,6 +3201,84 @@ async def get_history_list(request: Request):
 
     return {"projects": all_projects}
 
+
+@app.post("/api/admin/sync-projects-to-d1")
+async def sync_projects_to_d1(request: Request):
+    """기존 프로젝트를 Worker D1으로 일괄 동기화 (관리자 전용, 1회성)"""
+    secret = request.headers.get("X-Worker-Secret", "")
+    if not WORKER_SHARED_SECRET or secret != WORKER_SHARED_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    import requests as _req
+
+    # 모든 프로젝트 로컬 manifest 스캔
+    outputs_dir = "outputs"
+    synced = 0
+    errors = 0
+
+    if not os.path.exists(outputs_dir):
+        return {"synced": 0, "errors": 0}
+
+    for pid in os.listdir(outputs_dir):
+        manifest_path = os.path.join(outputs_dir, pid, "manifest.json")
+        if not os.path.exists(manifest_path):
+            continue
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            is_mv = pid.startswith("mv_")
+            scenes = data.get("scenes", [])
+            thumb_url = None
+            for sc in scenes:
+                img_p = (sc.get("assets") or {}).get("image_path", "") or sc.get("image_path", "")
+                if img_p:
+                    fname = img_p.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                    thumb_url = f"/api/asset/{pid}/image/{fname}"
+                    break
+
+            status = data.get("status", "unknown")
+            payload = {
+                "project_id": pid,
+                "user_id": data.get("user_id", ""),
+                "status": status,
+                "title": data.get("title") or data.get("concept") or "제목 없음",
+                "type": "mv" if is_mv else "video",
+                "thumbnail_url": thumb_url,
+                "scene_count": len(scenes),
+                "created_at": data.get("created_at"),
+            }
+
+            if is_mv:
+                ma = data.get("music_analysis", {})
+                payload["duration_sec"] = ma.get("duration_sec")
+                payload["genre"] = ma.get("genre")
+                payload["style"] = data.get("style")
+                if status == "completed":
+                    payload["video_url"] = f"/api/mv/stream/{pid}"
+                    payload["download_url"] = f"/api/mv/download/{pid}"
+            elif status == "completed":
+                payload["video_url"] = f"/api/stream/{pid}"
+                payload["download_url"] = f"/api/download/{pid}"
+
+            resp = _req.post(
+                f"{WORKER_SYNC_URL}/api/projects/sync",
+                json=payload,
+                headers={"X-Worker-Secret": WORKER_SHARED_SECRET},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                synced += 1
+            else:
+                errors += 1
+                logger.warning(f"[SYNC] Failed for {pid}: {resp.status_code}")
+        except Exception as e:
+            errors += 1
+            logger.debug(f"[SYNC] Error for {pid}: {e}")
+
+    return {"synced": synced, "errors": errors}
+
+
 @app.post("/api/admin/migrate-user-ids")
 async def migrate_user_ids(request: Request):
     """일회성: 모든 manifest의 user_id를 이메일로 마이그레이션"""
@@ -4110,6 +4267,13 @@ async def mv_generate_images(project_id: str):
                 if os.path.exists(manifest_path):
                     if storage.upload_file(manifest_path, f"videos/{project_id}/manifest.json"):
                         logger.info(f"[MV Thread] Manifest uploaded to R2 (images_ready)")
+                    # Worker D1 동기화 (images_ready 상태)
+                    try:
+                        with open(manifest_path, "r", encoding="utf-8") as _mf:
+                            _mdata = json.load(_mf)
+                        sync_project_to_worker(project_id, _mdata)
+                    except Exception:
+                        logger.debug("[MV Thread] Worker sync skipped", exc_info=True)
             except Exception as e:
                 logger.error(f"[MV Thread] R2 manifest upload error (non-fatal): {e}")
 
@@ -4123,6 +4287,7 @@ async def mv_generate_images(project_id: str):
                 project.progress = 0
                 project_dir = f"outputs/{project_id}"
                 pipeline._save_manifest(project, project_dir)
+                sync_project_status_to_worker(project_id, "failed", str(e)[:500])
             except Exception:
                 logger.debug("Silent exception caught", exc_info=True)
 
@@ -4365,6 +4530,14 @@ async def mv_compose(project_id: str):
                     logger.info(f"[MV R2] Manifest uploaded: {manifest_r2_key}")
 
                 logger.info(f"[MV R2] All assets uploaded for {project_id}")
+
+                # Worker D1 동기화
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as _mf:
+                        _mdata = json.load(_mf)
+                    sync_project_to_worker(project_id, _mdata)
+                except Exception:
+                    logger.debug("[MV R2] Worker sync skipped", exc_info=True)
             except Exception as e:
                 logger.error(f"[MV R2] Upload error (non-fatal): {e}")
 
@@ -4377,6 +4550,7 @@ async def mv_compose(project_id: str):
                 project.error_message = str(e)[:500]
                 project_dir = f"outputs/{project_id}"
                 pipeline._save_manifest(project, project_dir)
+                sync_project_status_to_worker(project_id, "failed", str(e)[:500])
             except Exception:
                 logger.debug("Silent exception caught", exc_info=True)
 

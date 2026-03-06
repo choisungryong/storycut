@@ -140,7 +140,23 @@ async function routeRequest(url, request, env, ctx, cors) {
   if (path === '/api/history' && method === 'GET') {
     const user = await authenticateUser(request, env);
     if (!user) return jsonResponse({ error: 'Unauthorized', detail: 'Unauthorized' }, 401, cors);
-    return proxyToRailwayPublic(request, env, path, cors, user);
+    return handleHistory(user, url, env, cors);
+  }
+  // Railway → Worker 프로젝트 동기화 (shared secret 인증)
+  if (path === '/api/projects/sync' && method === 'POST') {
+    return handleProjectSync(request, env, cors);
+  }
+  // Railway → Worker 프로젝트 상태만 업데이트 (shared secret 인증)
+  if (path === '/api/projects/sync-status' && method === 'POST') {
+    return handleProjectSyncStatus(request, env, cors);
+  }
+  // 기존 데이터 마이그레이션 (1회성, admin only)
+  if (path === '/api/projects/migrate-from-railway' && method === 'POST') {
+    const user = await authenticateUser(request, env);
+    if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
+    const adminEmails = (env.ADMIN_EMAILS || '').split(',').map(e => e.trim());
+    if (!adminEmails.includes(user.email)) return jsonResponse({ error: 'Forbidden' }, 403, cors);
+    return handleMigrateFromRailway(request, user, env, cors);
   }
   if (path.startsWith('/api/status/')) {
     const user = await authenticateUser(request, env);
@@ -150,7 +166,8 @@ async function routeRequest(url, request, env, ctx, cors) {
     const user = await authenticateUser(request, env);
     return proxyToRailwayPublic(request, env, path, cors, user);
   }
-  if (path.startsWith('/api/asset/')) return proxyToRailwayPublic(request, env, path, cors);
+  // 이미지 에셋: R2 직접 서빙 (Railway 프록시 제거)
+  if (path.startsWith('/api/asset/')) return handleAssetServe(url, env, cors);
   if (path.startsWith('/api/mv/stream/')) return proxyToRailwayPublic(request, env, path, cors);
   if (path.startsWith('/api/mv/download/')) return proxyToRailwayPublic(request, env, path, cors);
   if (path.startsWith('/api/stream/')) return proxyToRailwayPublic(request, env, path, cors);
@@ -1830,10 +1847,12 @@ async function handleGenerate(request, user, env, ctx, cors) {
         }, 402, cors);
       }
 
+      const projectType = clipAction === 'mv' ? 'mv' : 'video';
+      const projectTitle = body.topic || body.title || body.concept || '제목 없음';
       await env.DB.prepare(
-        `INSERT INTO projects (id, user_id, status, input_data, created_at)
-         VALUES (?, ?, ?, ?, ?)`
-      ).bind(projectId, user.id, 'queued', JSON.stringify(body), new Date().toISOString()).run();
+        `INSERT INTO projects (id, user_id, status, title, type, input_data, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(projectId, user.id, 'queued', projectTitle, projectType, JSON.stringify(body), new Date().toISOString()).run();
 
       await env.DB.prepare(
         `INSERT INTO credit_transactions (user_id, project_id, amount, type, action, description, created_at)
@@ -1911,6 +1930,277 @@ async function handleStatus(url, env, cors) {
   } catch (error) {
     console.error('Status error');
     return jsonResponse({ error: 'Status check failed', detail: 'Status check failed' }, 500, cors);
+  }
+}
+
+// ==================== History (D1 직접 조회) ====================
+
+async function handleHistory(user, url, env, cors) {
+  try {
+    const filter = url.searchParams.get('type'); // 'video', 'mv', or null(all)
+    let query = `SELECT id, user_id, status, title, type, thumbnail_url, video_url, download_url,
+                        scene_count, duration_sec, genre, style, created_at, completed_at
+                 FROM projects WHERE user_id = ?`;
+    const params = [user.id];
+
+    if (filter && (filter === 'video' || filter === 'mv')) {
+      query += ` AND type = ?`;
+      params.push(filter);
+    }
+    query += ` ORDER BY created_at DESC LIMIT 100`;
+
+    const { results } = await env.DB.prepare(query).bind(...params).all();
+
+    // D1에 데이터가 있으면 D1 응답, 없으면 Railway 폴백 (마이그레이션 전 호환)
+    if (results && results.length > 0) {
+      const projects = results.map(r => ({
+        project_id: r.id,
+        title: r.title || '제목 없음',
+        type: r.type || 'video',
+        status: r.status,
+        thumbnail_url: r.thumbnail_url,
+        video_url: r.video_url,
+        download_url: r.download_url,
+        scene_count: r.scene_count || 0,
+        duration_sec: r.duration_sec,
+        genre: r.genre,
+        style: r.style,
+        created_at: r.created_at,
+        completed_at: r.completed_at,
+      }));
+      return jsonResponse({ projects }, 200, cors);
+    }
+
+    // D1 비어있으면 Railway 폴백 (기존 데이터 마이그레이션 전까지)
+    return proxyToRailwayPublic(request_stub(user), env, '/api/history', cors, user);
+  } catch (error) {
+    console.error('History error:', error);
+    return proxyToRailwayPublic(request_stub(user), env, '/api/history', cors, user);
+  }
+}
+
+function request_stub(user) {
+  const h = new Headers();
+  if (user && user.id) h.set('X-User-Id', user.id);
+  return { method: 'GET', headers: h, clone: () => ({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) };
+}
+
+// ==================== Project Sync (Railway → D1) ====================
+
+async function handleProjectSync(request, env, cors) {
+  // shared secret 인증
+  const secret = request.headers.get('X-Worker-Secret') || '';
+  if (!env.WORKER_SHARED_SECRET || secret !== env.WORKER_SHARED_SECRET) {
+    return jsonResponse({ error: 'Forbidden' }, 403, cors);
+  }
+
+  try {
+    const body = await request.json();
+    const {
+      project_id, user_id, status, title, type,
+      thumbnail_url, video_url, download_url,
+      scene_count, duration_sec, genre, style
+    } = body;
+
+    if (!project_id || !user_id) {
+      return jsonResponse({ error: 'project_id and user_id required' }, 400, cors);
+    }
+
+    // UPSERT: 있으면 업데이트, 없으면 삽입
+    const existing = await env.DB.prepare('SELECT id FROM projects WHERE id = ?').bind(project_id).first();
+
+    if (existing) {
+      await env.DB.prepare(`
+        UPDATE projects SET
+          status = COALESCE(?, status),
+          title = COALESCE(?, title),
+          type = COALESCE(?, type),
+          thumbnail_url = COALESCE(?, thumbnail_url),
+          video_url = COALESCE(?, video_url),
+          download_url = COALESCE(?, download_url),
+          scene_count = COALESCE(?, scene_count),
+          duration_sec = COALESCE(?, duration_sec),
+          genre = COALESCE(?, genre),
+          style = COALESCE(?, style),
+          completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END
+        WHERE id = ?
+      `).bind(
+        status || null, title || null, type || null,
+        thumbnail_url || null, video_url || null, download_url || null,
+        scene_count || null, duration_sec || null, genre || null, style || null,
+        status || '', project_id
+      ).run();
+    } else {
+      await env.DB.prepare(`
+        INSERT INTO projects (id, user_id, status, title, type, thumbnail_url, video_url, download_url,
+                              scene_count, duration_sec, genre, style, created_at, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP,
+                CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+      `).bind(
+        project_id, user_id, status || 'processing', title || '제목 없음',
+        type || 'video', thumbnail_url || null, video_url || null, download_url || null,
+        scene_count || 0, duration_sec || null, genre || null, style || null,
+        status || ''
+      ).run();
+    }
+
+    return jsonResponse({ success: true, project_id }, 200, cors);
+  } catch (error) {
+    console.error('Project sync error:', error);
+    return jsonResponse({ error: 'Sync failed', detail: String(error) }, 500, cors);
+  }
+}
+
+async function handleProjectSyncStatus(request, env, cors) {
+  const secret = request.headers.get('X-Worker-Secret') || '';
+  if (!env.WORKER_SHARED_SECRET || secret !== env.WORKER_SHARED_SECRET) {
+    return jsonResponse({ error: 'Forbidden' }, 403, cors);
+  }
+
+  try {
+    const body = await request.json();
+    const { project_id, status, error_message } = body;
+    if (!project_id) return jsonResponse({ error: 'project_id required' }, 400, cors);
+
+    await env.DB.prepare(`
+      UPDATE projects SET status = ?,
+        error_message = COALESCE(?, error_message),
+        completed_at = CASE WHEN ? IN ('completed', 'failed') THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END
+      WHERE id = ?
+    `).bind(status, error_message || null, status, project_id).run();
+
+    return jsonResponse({ success: true }, 200, cors);
+  } catch (error) {
+    console.error('Sync status error:', error);
+    return jsonResponse({ error: 'Sync failed' }, 500, cors);
+  }
+}
+
+// ==================== R2 Direct Asset Serving ====================
+
+async function handleAssetServe(url, env, cors) {
+  // /api/asset/{project_id}/{asset_type}/{filename}
+  const parts = url.pathname.split('/');
+  // ['', 'api', 'asset', project_id, asset_type, filename]
+  if (parts.length < 6) {
+    return jsonResponse({ error: 'Invalid asset path' }, 400, cors);
+  }
+
+  const projectId = parts[3];
+  const assetType = parts[4];
+  const filename = parts.slice(5).join('/');
+
+  // 보안: 경로 트래버셜 방지
+  if (projectId.includes('..') || filename.includes('..')) {
+    return jsonResponse({ error: 'Invalid path' }, 400, cors);
+  }
+
+  const typeToR2Prefix = {
+    'image': 'images',
+    'images': 'images',
+    'audio': 'audio',
+    'video': 'videos',
+  };
+  const r2Prefix = typeToR2Prefix[assetType];
+  if (!r2Prefix) {
+    return jsonResponse({ error: 'Invalid asset type' }, 400, cors);
+  }
+
+  const contentTypes = {
+    'image': 'image/png',
+    'images': 'image/png',
+    'audio': 'audio/mpeg',
+    'video': 'video/mp4',
+  };
+
+  try {
+    const r2Key = `${r2Prefix}/${projectId}/${filename}`;
+    const object = await env.R2_BUCKET.get(r2Key);
+
+    if (!object) {
+      // R2에 없으면 Railway 폴백 (로컬 파일이 있을 수 있음)
+      return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);
+    }
+
+    // jpg/jpeg/webp 확장자 감지
+    let ct = contentTypes[assetType] || 'application/octet-stream';
+    if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) ct = 'image/jpeg';
+    else if (filename.endsWith('.webp')) ct = 'image/webp';
+    else if (filename.endsWith('.mp3')) ct = 'audio/mpeg';
+    else if (filename.endsWith('.wav')) ct = 'audio/wav';
+
+    return new Response(object.body, {
+      headers: {
+        ...cors,
+        'Content-Type': ct,
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  } catch (error) {
+    console.error('Asset serve error:', error);
+    return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);
+  }
+}
+
+// ==================== Migration: Railway → D1 ====================
+
+async function handleMigrateFromRailway(request, user, env, cors) {
+  try {
+    const body = await request.json();
+    const projects = body.projects || [];
+
+    let synced = 0;
+    let errors = 0;
+
+    for (const p of projects) {
+      try {
+        const existing = await env.DB.prepare('SELECT id FROM projects WHERE id = ?').bind(p.project_id).first();
+
+        if (existing) {
+          await env.DB.prepare(`
+            UPDATE projects SET
+              status = COALESCE(?, status),
+              title = COALESCE(?, title),
+              type = COALESCE(?, type),
+              thumbnail_url = COALESCE(?, thumbnail_url),
+              video_url = COALESCE(?, video_url),
+              download_url = COALESCE(?, download_url),
+              scene_count = COALESCE(?, scene_count),
+              duration_sec = COALESCE(?, duration_sec),
+              genre = COALESCE(?, genre),
+              style = COALESCE(?, style)
+            WHERE id = ?
+          `).bind(
+            p.status, p.title, p.type,
+            p.thumbnail_url, p.video_url, p.download_url,
+            p.scene_count || 0, p.duration_sec, p.genre, p.style,
+            p.project_id
+          ).run();
+        } else {
+          await env.DB.prepare(`
+            INSERT INTO projects (id, user_id, status, title, type, thumbnail_url, video_url, download_url,
+                                  scene_count, duration_sec, genre, style, created_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            p.project_id, p.user_id || user.id, p.status || 'completed',
+            p.title || '제목 없음', p.type || 'video',
+            p.thumbnail_url, p.video_url, p.download_url,
+            p.scene_count || 0, p.duration_sec, p.genre, p.style,
+            p.created_at || new Date().toISOString(),
+            p.status === 'completed' ? (p.created_at || new Date().toISOString()) : null
+          ).run();
+        }
+        synced++;
+      } catch (e) {
+        console.error(`Migration error for ${p.project_id}:`, e);
+        errors++;
+      }
+    }
+
+    return jsonResponse({ success: true, synced, errors, total: projects.length }, 200, cors);
+  } catch (error) {
+    console.error('Migration error:', error);
+    return jsonResponse({ error: 'Migration failed' }, 500, cors);
   }
 }
 

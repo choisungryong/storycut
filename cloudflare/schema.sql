@@ -23,10 +23,17 @@ CREATE TABLE IF NOT EXISTS projects (
     user_id TEXT NOT NULL,
     status TEXT NOT NULL, -- queued, processing, completed, failed
     title TEXT,
+    type TEXT DEFAULT 'video', -- video, mv
+    thumbnail_url TEXT,
     video_url TEXT,
+    download_url TEXT,
     input_data TEXT, -- JSON
     optimization_data TEXT, -- JSON (title_candidates, thumbnails, hashtags)
     error_message TEXT,
+    scene_count INTEGER DEFAULT 0,
+    duration_sec REAL,
+    genre TEXT,
+    style TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -105,6 +112,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- 인덱스
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_user_created ON projects(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_id ON credit_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
