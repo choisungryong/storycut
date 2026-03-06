@@ -171,7 +171,7 @@ async function routeRequest(url, request, env, ctx, cors) {
     return proxyToRailwayPublic(request, env, path, cors, user);
   }
   // 이미지 에셋: R2 직접 서빙 (Railway 프록시 제거)
-  if (path.startsWith('/api/asset/')) return handleAssetServe(url, env, cors);
+  if (path.startsWith('/api/asset/')) return handleAssetServe(url, env, cors, request);
   if (path.startsWith('/api/mv/stream/')) return proxyToRailwayPublic(request, env, path, cors);
   if (path.startsWith('/api/mv/download/')) return proxyToRailwayPublic(request, env, path, cors);
   if (path.startsWith('/api/stream/')) return proxyToRailwayPublic(request, env, path, cors);
@@ -2082,7 +2082,7 @@ async function handleProjectSyncStatus(request, env, cors) {
 
 // ==================== R2 Direct Asset Serving ====================
 
-async function handleAssetServe(url, env, cors) {
+async function handleAssetServe(url, env, cors, request) {
   // /api/asset/{project_id}/{asset_type}/{filename}
   const parts = url.pathname.split('/');
   // ['', 'api', 'asset', project_id, asset_type, filename]
@@ -2119,27 +2119,48 @@ async function handleAssetServe(url, env, cors) {
 
   try {
     const r2Key = `${r2Prefix}/${projectId}/${filename}`;
-    const object = await env.R2_BUCKET.get(r2Key);
+
+    // Range 요청 지원 (비디오 썸네일 preload="metadata" 효율화)
+    const rangeHeader = request ? request.headers.get('Range') : null;
+    const object = rangeHeader
+      ? await env.R2_BUCKET.get(r2Key, { range: { suffix: undefined } })
+      : await env.R2_BUCKET.get(r2Key);
 
     if (!object) {
-      // R2에 없으면 Railway 폴백 (로컬 파일이 있을 수 있음)
       return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);
     }
 
-    // jpg/jpeg/webp 확장자 감지
+    // Content-Type 결정
     let ct = contentTypes[assetType] || 'application/octet-stream';
     if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) ct = 'image/jpeg';
     else if (filename.endsWith('.webp')) ct = 'image/webp';
     else if (filename.endsWith('.mp3')) ct = 'audio/mpeg';
     else if (filename.endsWith('.wav')) ct = 'audio/wav';
 
-    return new Response(object.body, {
-      headers: {
-        ...cors,
-        'Content-Type': ct,
-        'Cache-Control': 'public, max-age=86400',
-      },
-    });
+    const headers = {
+      ...cors,
+      'Content-Type': ct,
+      'Cache-Control': 'public, max-age=86400',
+      'Accept-Ranges': 'bytes',
+    };
+
+    // Range 요청 처리
+    if (rangeHeader && object.size) {
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+      if (match) {
+        const start = parseInt(match[1]);
+        const end = match[2] ? parseInt(match[2]) : object.size - 1;
+        const rangeObj = await env.R2_BUCKET.get(r2Key, { range: { offset: start, length: end - start + 1 } });
+        if (rangeObj) {
+          headers['Content-Range'] = `bytes ${start}-${end}/${object.size}`;
+          headers['Content-Length'] = String(end - start + 1);
+          return new Response(rangeObj.body, { status: 206, headers });
+        }
+      }
+    }
+
+    if (object.size) headers['Content-Length'] = String(object.size);
+    return new Response(object.body, { status: 200, headers });
   } catch (error) {
     console.error('Asset serve error:', error);
     return proxyToRailwayPublic(request_stub(), env, url.pathname, cors);

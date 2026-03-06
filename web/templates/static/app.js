@@ -2369,10 +2369,22 @@ class StorycutApp {
                 }
             }
 
+            // 썸네일 결정: 이미지 > 비디오 프레임 > 폴백 아이콘
+            let thumbContent;
+            if (project.thumbnail_url) {
+                thumbContent = `<img loading="lazy" data-src="${this.getMediaBaseUrl()}${escapeHtml(project.thumbnail_url)}" alt="${escapeHtml(project.title)}" onerror="this.style.display='none'; this.parentElement.querySelector('.thumb-fallback').style.display='flex'" style="opacity:0;transition:opacity 0.3s"><div class="thumb-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
+            } else if (project.status === 'completed') {
+                // R2에서 비디오 첫 프레임을 썸네일로 표시 (Range 요청으로 메타데이터만 로드)
+                const videoAssetUrl = `${this.getMediaBaseUrl()}/api/asset/${project.project_id}/video/final_video.mp4`;
+                thumbContent = `<video muted preload="metadata" data-video-thumb="${videoAssetUrl}#t=1" style="width:100%;height:100%;object-fit:cover;pointer-events:none;opacity:0;transition:opacity 0.3s" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'"></video><div class="thumb-fallback" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
+            } else {
+                thumbContent = `<div class="thumb-fallback" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;">${fallbackIcon}</div>`;
+            }
+
             card.innerHTML = `
                 <div class="history-thumb" style="background: #1a1a2e;">
                     ${typeBadge}
-                    ${project.thumbnail_url ? `<img loading="lazy" data-src="${this.getMediaBaseUrl()}${escapeHtml(project.thumbnail_url)}" alt="${escapeHtml(project.title)}" onerror="this.style.display='none'; this.parentElement.querySelector('.thumb-fallback').style.display='flex'" style="opacity:0;transition:opacity 0.3s"><div class="thumb-fallback" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; color:#555;">${fallbackIcon}</div>` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #555;">${fallbackIcon}</div>`}
+                    ${thumbContent}
                 </div>
                 <div class="history-info">
                     <p class="history-title">${escapeHtml(project.title)}</p>
@@ -2397,20 +2409,25 @@ class StorycutApp {
             historyGrid.appendChild(card);
         });
 
-        // Lazy load thumbnails with IntersectionObserver
-        const lazyImages = historyGrid.querySelectorAll('img[data-src]');
-        if (lazyImages.length > 0) {
+        // Lazy load: 이미지 + 비디오 썸네일 모두 IntersectionObserver로 지연 로드
+        const lazyElements = historyGrid.querySelectorAll('img[data-src], video[data-video-thumb]');
+        if (lazyElements.length > 0) {
             const observer = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
-                        const img = entry.target;
-                        img.src = img.dataset.src;
-                        img.onload = () => { img.style.opacity = '1'; };
-                        observer.unobserve(img);
+                        const el = entry.target;
+                        if (el.tagName === 'IMG') {
+                            el.src = el.dataset.src;
+                            el.onload = () => { el.style.opacity = '1'; };
+                        } else if (el.tagName === 'VIDEO') {
+                            el.src = el.dataset.videoThumb;
+                            el.onloadeddata = () => { el.style.opacity = '1'; };
+                        }
+                        observer.unobserve(el);
                     }
                 });
             }, { rootMargin: '200px' });
-            lazyImages.forEach(img => observer.observe(img));
+            lazyElements.forEach(el => observer.observe(el));
         }
     }
 
@@ -2569,15 +2586,24 @@ class StorycutApp {
 
                 const sceneLabel = isMV ? `Scene ${idx + 1}` : `Scene ${scene.scene_id || idx + 1}`;
 
+                // 이미지 또는 비디오 프레임 폴백
+                let sceneMedia;
+                if (imageUrl) {
+                    sceneMedia = `
+                        <img src="${imageUrl}?t=${Date.now()}" alt="${sceneLabel}"
+                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+                            style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;display:block;">
+                        <div class="image-placeholder" style="display:none;">이미지 없음</div>`;
+                } else {
+                    sceneMedia = `<div class="image-placeholder" style="display:flex;">이미지 없음</div>`;
+                }
+
                 card.innerHTML = `
                     <div class="scene-card-header">
                         <span class="scene-card-title">${sceneLabel}</span>
                     </div>
                     <div class="scene-card-image">
-                        <img src="${imageUrl}?t=${Date.now()}" alt="${sceneLabel}"
-                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
-                            style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;display:block;">
-                        <div class="image-placeholder" style="display:none;">이미지 없음</div>
+                        ${sceneMedia}
                     </div>
                     <div class="scene-card-narration">${textContent}</div>
                 `;
